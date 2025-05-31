@@ -19,7 +19,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitDecl(SysYParser::DeclContext *ctx) override {
+  virtual std::any visitConstDeclaration(SysYParser::ConstDeclarationContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitVariableDeclaration(SysYParser::VariableDeclarationContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -27,7 +31,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitBType(SysYParser::BTypeContext *ctx) override {
+  virtual std::any visitTypeInt(SysYParser::TypeIntContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTypeFloat(SysYParser::TypeFloatContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -35,7 +43,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitConstInitVal(SysYParser::ConstInitValContext *ctx) override {
+  virtual std::any visitConstInitExpr(SysYParser::ConstInitExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitConstInitList(SysYParser::ConstInitListContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -47,7 +59,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitInitVal(SysYParser::InitValContext *ctx) override {
+  virtual std::any visitInitExpr(SysYParser::InitExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitInitList(SysYParser::InitListContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -55,7 +71,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitFuncType(SysYParser::FuncTypeContext *ctx) override {
+  virtual std::any visitTypeVoid(SysYParser::TypeVoidContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTypeBType(SysYParser::TypeBTypeContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -63,7 +83,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitFuncFParam(SysYParser::FuncFParamContext *ctx) override {
+  virtual std::any visitScalarParam(SysYParser::ScalarParamContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitArrayParam(SysYParser::ArrayParamContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -71,11 +95,43 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitBlockItem(SysYParser::BlockItemContext *ctx) override {
+  virtual std::any visitItemDecl(SysYParser::ItemDeclContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitStmt(SysYParser::StmtContext *ctx) override {
+  virtual std::any visitItemStmt(SysYParser::ItemStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitAssignStmt(SysYParser::AssignStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitExprStmt(SysYParser::ExprStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitBlockStmt(SysYParser::BlockStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitIfStmt(SysYParser::IfStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitWhileStmt(SysYParser::WhileStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitBreakStmt(SysYParser::BreakStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitContinueStmt(SysYParser::ContinueStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitReturnStmt(SysYParser::ReturnStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -91,19 +147,47 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitPrimaryExp(SysYParser::PrimaryExpContext *ctx) override {
+  virtual std::any visitParenExp(SysYParser::ParenExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitNumber(SysYParser::NumberContext *ctx) override {
+  virtual std::any visitLValExp(SysYParser::LValExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitUnaryExp(SysYParser::UnaryExpContext *ctx) override {
+  virtual std::any visitNumberExp(SysYParser::NumberExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitUnaryOp(SysYParser::UnaryOpContext *ctx) override {
+  virtual std::any visitIntNum(SysYParser::IntNumContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitFloatNum(SysYParser::FloatNumContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitToPrimaryExp(SysYParser::ToPrimaryExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitCallExp(SysYParser::CallExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitOpPlus(SysYParser::OpPlusContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitOpMinus(SysYParser::OpMinusContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitOpNot(SysYParser::OpNotContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -111,27 +195,51 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitMulExp(SysYParser::MulExpContext *ctx) override {
+  virtual std::any visitMulDivModExp(SysYParser::MulDivModExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitAddExp(SysYParser::AddExpContext *ctx) override {
+  virtual std::any visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitRelExp(SysYParser::RelExpContext *ctx) override {
+  virtual std::any visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitEqExp(SysYParser::EqExpContext *ctx) override {
+  virtual std::any visitAddSubExp(SysYParser::AddSubExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitLAndExp(SysYParser::LAndExpContext *ctx) override {
+  virtual std::any visitRelOpExp(SysYParser::RelOpExpContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitLOrExp(SysYParser::LOrExpContext *ctx) override {
+  virtual std::any visitToAddExp_rel(SysYParser::ToAddExp_relContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitToRelExp_eq(SysYParser::ToRelExp_eqContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitEqOpExp(SysYParser::EqOpExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLandOpExp(SysYParser::LandOpExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override {
     return visitChildren(ctx);
   }
 

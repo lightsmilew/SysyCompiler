@@ -7,4 +7,17 @@ int main()
     int c = a + b;
     int d = a - b;
     int e = a * b;
+
+    if (a == 1)
+    {
+        c = 3;
+    }
+    else if (a == 2)
+    {
+        c = 4;
+    }
+    else
+    {
+        c = 5;
+    }
 }
