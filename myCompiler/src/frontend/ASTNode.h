@@ -12,12 +12,37 @@ namespace ast
     using std::string;
     using std::vector;
 
-    // 数据类型枚举
-    enum class DataType
+    // 基础数据类型枚举
+    enum class PrimaryDataType
     {
         INT,   // 整数类型
         FLOAT, // 浮点数类型
         VOID   // 空类型
+    };
+
+    // 完整数据类型结构体（支持数组）
+    struct DataType
+    {
+        PrimaryDataType baseType;
+        vector<int> _arraySizes;
+        bool _isConst = false;
+
+        // 构造函数
+        DataType(PrimaryDataType type = PrimaryDataType::VOID)
+            : baseType(type), _arraySizes(), _isConst(false) {}
+
+        DataType(PrimaryDataType type, const vector<int> &arraySizes, bool isConst = false)
+            : baseType(type), _arraySizes(arraySizes), _isConst(isConst) {}
+
+        // 数组相关方法
+        int arrayDimensionCount() const { return _arraySizes.size(); } // 获取数组维度数量
+        const vector<int> &arraySizes() const { return _arraySizes; }  // 获取数组大小列表
+        bool isArray() const { return !_arraySizes.empty(); }          // 是否为数组类型
+        bool isConst() const { return _isConst; }                      // 是否为常量类型
+
+        // 方便的比较操作
+        bool operator==(PrimaryDataType other) const { return baseType == other && !isArray(); }
+        bool operator!=(PrimaryDataType other) const { return !(*this == other); }
     };
 
     // 前向声明
@@ -334,15 +359,15 @@ namespace ast
     {
     public:
         // 将DataType转换为字符串
-        static string dataTypeToString(DataType type)
+        static string dataTypeToString(const DataType &type)
         {
-            switch (type)
+            switch (type.baseType)
             {
-            case DataType::INT:
+            case PrimaryDataType::INT:
                 return "int";
-            case DataType::FLOAT:
+            case PrimaryDataType::FLOAT:
                 return "float";
-            case DataType::VOID:
+            case PrimaryDataType::VOID:
                 return "void";
             default:
                 return "unknown";
@@ -350,12 +375,12 @@ namespace ast
         }
 
         // 检查两个类型是否兼容
-        static bool isCompatible(DataType from, DataType to)
+        static bool isCompatible(const DataType &from, const DataType &to)
         {
-            if (from == to)
+            if (from.baseType == to.baseType)
                 return true;
             // int可以隐式转换为float
-            if (from == DataType::INT && to == DataType::FLOAT)
+            if (from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
                 return true;
             return false;
         }

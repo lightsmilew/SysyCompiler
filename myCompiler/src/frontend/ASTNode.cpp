@@ -17,8 +17,7 @@ namespace ast
 
     void CompUnitNode::print(ostream &out, unsigned indent) const
     {
-        print_indent(out, indent);
-        out << "CompUnitNode:\n";
+        ASTNode::print(out, indent);
         for (const auto &child : children)
         {
             child->print(out, indent + 2);
@@ -33,8 +32,7 @@ namespace ast
 
     void BlockStmtNode::print(ostream &out, unsigned indent) const
     {
-        print_indent(out, indent);
-        out << "BlockStmtNode:\n";
+        ASTNode::print(out, indent);
         for (const auto &stmt : stmts)
         {
             stmt->print(out, indent + 2);
@@ -49,8 +47,7 @@ namespace ast
 
     void ExprStmtNode::print(ostream &out, unsigned indent) const
     {
-        print_indent(out, indent);
-        out << "ExprStmtNode:\n";
+        ASTNode::print(out, indent);
         if (expr)
         {
             expr->print(out, indent + 2);
@@ -65,17 +62,16 @@ namespace ast
 
     void DeclStmtNode::print(ostream &out, unsigned indent) const
     {
-        print_indent(out, indent);
-        out << "DeclStmtNode: " << identifier << " : ";
-        switch (type)
+        ASTNode::print(out, indent);
+        switch (type.baseType)
         {
-        case DataType::VOID:
+        case PrimaryDataType::VOID:
             out << "void";
             break;
-        case DataType::INT:
+        case PrimaryDataType::INT:
             out << "int";
             break;
-        case DataType::FLOAT:
+        case PrimaryDataType::FLOAT:
             out << "float";
             break;
         default:
@@ -187,7 +183,7 @@ namespace ast
     // LValueExpr
     string LValueExprNode::toString() const
     {
-        return "LValueExprNode: " + ident;
+        return "LValueExprNode: " + identifier;
     }
     void LValueExprNode::print(ostream &out, unsigned indent) const
     {
@@ -289,7 +285,6 @@ namespace ast
     }
 
     // Function
-    // Function
     string FuncNode::toString() const
     {
         return "Function";
@@ -299,15 +294,15 @@ namespace ast
     {
         ASTNode::print(out, indent);
         // returnType 打印逻辑
-        switch (returnType)
+        switch (returnType.baseType)
         {
-        case DataType::VOID:
+        case PrimaryDataType::VOID:
             out << "void";
             break;
-        case DataType::INT:
+        case PrimaryDataType::INT:
             out << "int";
             break;
-        case DataType::FLOAT:
+        case PrimaryDataType::FLOAT:
             out << "float";
             break;
         default:
