@@ -5,49 +5,50 @@
 #include "SysYParser.h"
 #include "ASTNode.h"
 
-class ASTNodeVisitor : public SysYBaseVisitor {
+class ASTNodeVisitor : public SysYBaseVisitor
+{
 public:
     [[nodiscard]] Ptr<ast::CompUnitNode> compileUnit(); // 返回编译单元根节点
 
-    //按g4文法顺序定义访问函数
-    // 编译单元开始符号
+    // 按g4文法顺序定义访问函数
+    //  编译单元开始符号
     virtual antlrcpp::Any visitCompUnit(SysYParser::CompUnitContext *ctx) override;
-    //声明 decl
+    // 声明 decl
     virtual antlrcpp::Any visitConstDeclaration(SysYParser::ConstDeclarationContext *ctx) override;
     virtual antlrcpp::Any visitVariableDeclaration(SysYParser::VariableDeclarationContext *ctx) override;
-    //常量声明 constDecl
+    // 常量声明 constDecl
     virtual antlrcpp::Any visitConstDecl(SysYParser::ConstDeclContext *ctx) override;
-    //bType
+    // bType
     virtual antlrcpp::Any visitTypeInt(SysYParser::TypeIntContext *ctx) override;
     virtual antlrcpp::Any visitTypeFloat(SysYParser::TypeFloatContext *ctx) override;
-    //constDef
+    // constDef
     virtual antlrcpp::Any visitConstDef(SysYParser::ConstDefContext *ctx) override;
-    //constInitVal
+    // constInitVal
     virtual antlrcpp::Any visitConstInitExpr(SysYParser::ConstInitExprContext *ctx) override;
     virtual antlrcpp::Any visitConstInitList(SysYParser::ConstInitListContext *ctx) override;
-    //变量声明 varDecl
+    // 变量声明 varDecl
     virtual antlrcpp::Any visitVarDecl(SysYParser::VarDeclContext *ctx) override;
-    //varDef
+    // varDef
     virtual antlrcpp::Any visitVarDef(SysYParser::VarDefContext *ctx) override;
-    //initVal
+    // initVal
     virtual antlrcpp::Any visitInitExpr(SysYParser::InitExprContext *ctx) override;
     virtual antlrcpp::Any visitInitList(SysYParser::InitListContext *ctx) override;
-    //函数定义 funcDef
+    // 函数定义 funcDef
     virtual antlrcpp::Any visitFuncDef(SysYParser::FuncDefContext *ctx) override;
-    //funcType
+    // funcType
     virtual antlrcpp::Any visitTypeVoid(SysYParser::TypeVoidContext *ctx) override;
     virtual antlrcpp::Any visitTypeBType(SysYParser::TypeBTypeContext *ctx) override;
-    //funcFParams
+    // funcFParams
     virtual antlrcpp::Any visitFuncFParams(SysYParser::FuncFParamsContext *ctx) override;
-    //funcFParam
+    // funcFParam
     virtual antlrcpp::Any visitScalarParam(SysYParser::ScalarParamContext *ctx) override;
     virtual antlrcpp::Any visitArrayParam(SysYParser::ArrayParamContext *ctx) override;
-    //语句块 block
+    // 语句块 block
     virtual antlrcpp::Any visitBlock(SysYParser::BlockContext *ctx) override;
-    //blockItem
+    // blockItem
     virtual antlrcpp::Any visitItemDecl(SysYParser::ItemDeclContext *ctx) override;
     virtual antlrcpp::Any visitItemStmt(SysYParser::ItemStmtContext *ctx) override;
-    //语句 stmt
+    // 语句 stmt
     virtual antlrcpp::Any visitAssignStmt(SysYParser::AssignStmtContext *ctx) override;
     virtual antlrcpp::Any visitExprStmt(SysYParser::ExprStmtContext *ctx) override;
     virtual antlrcpp::Any visitBlockStmt(SysYParser::BlockStmtContext *ctx) override;
@@ -56,43 +57,43 @@ public:
     virtual antlrcpp::Any visitBreakStmt(SysYParser::BreakStmtContext *ctx) override;
     virtual antlrcpp::Any visitContinueStmt(SysYParser::ContinueStmtContext *ctx) override;
     virtual antlrcpp::Any visitReturnStmt(SysYParser::ReturnStmtContext *ctx) override;
-    //表达式 exp
+    // 表达式 exp
     virtual antlrcpp::Any visitExp(SysYParser::ExpContext *ctx) override;
     virtual antlrcpp::Any visitCond(SysYParser::CondContext *ctx) override;
     virtual antlrcpp::Any visitLVal(SysYParser::LValContext *ctx) override;
-    //primaryExp
+    // primaryExp
     virtual antlrcpp::Any visitParenExp(SysYParser::ParenExpContext *ctx) override;
     virtual antlrcpp::Any visitLValExp(SysYParser::LValExpContext *ctx) override;
     virtual antlrcpp::Any visitNumberExp(SysYParser::NumberExpContext *ctx) override;
-    //number
+    // number
     virtual antlrcpp::Any visitIntNum(SysYParser::IntNumContext *ctx) override;
     virtual antlrcpp::Any visitFloatNum(SysYParser::FloatNumContext *ctx) override;
-    //unaryExp
+    // unaryExp
     virtual antlrcpp::Any visitToPrimaryExp(SysYParser::ToPrimaryExpContext *ctx) override;
     virtual antlrcpp::Any visitCallExp(SysYParser::CallExpContext *ctx) override;
     virtual antlrcpp::Any visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx) override;
-    //unaryOp
+    // unaryOp
     virtual antlrcpp::Any visitOpPlus(SysYParser::OpPlusContext *ctx) override;
     virtual antlrcpp::Any visitOpMinus(SysYParser::OpMinusContext *ctx) override;
     virtual antlrcpp::Any visitOpNot(SysYParser::OpNotContext *ctx) override;
-    //funcRParams
+    // funcRParams
     virtual antlrcpp::Any visitFuncRParams(SysYParser::FuncRParamsContext *ctx) override;
-    //mulExp
+    // mulExp
     virtual antlrcpp::Any visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext *ctx) override;
     virtual antlrcpp::Any visitMulDivModExp(SysYParser::MulDivModExpContext *ctx) override;
-    //addExp
+    // addExp
     virtual antlrcpp::Any visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx) override;
     virtual antlrcpp::Any visitAddSubExp(SysYParser::AddSubExpContext *ctx) override;
-    //relExp
+    // relExp
     virtual antlrcpp::Any visitToAddExp_rel(SysYParser::ToAddExp_relContext *ctx) override;
     virtual antlrcpp::Any visitRelOpExp(SysYParser::RelOpExpContext *ctx) override;
-    //eqExp
+    // eqExp
     virtual antlrcpp::Any visitToRelExp_eq(SysYParser::ToRelExp_eqContext *ctx) override;
     virtual antlrcpp::Any visitEqOpExp(SysYParser::EqOpExpContext *ctx) override;
-    //lAndExp
+    // lAndExp
     virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
     virtual antlrcpp::Any visitLandOpExp(SysYParser::LandOpExpContext *ctx) override;
-    //lOrExp
+    // lOrExp
     virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
     virtual antlrcpp::Any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override;
     // 处理符号表
@@ -101,7 +102,8 @@ public:
     ASTNodeVisitor() = default;
 
     // 报错函数
-    void error(std::string str) {
+    void error(std::string str)
+    {
         std::cerr << "[Error] " << str << std::endl;
     }
 
