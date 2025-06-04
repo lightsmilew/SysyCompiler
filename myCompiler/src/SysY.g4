@@ -154,7 +154,7 @@ NE: '!=';
 AND: '&&';
 OR: '||';
 
-// 现有词法单元 (保持不变)
+// 现有词法单元
 ident: IDENTIFIER; // Using a fragment for IDENTIFIER is common
 intConst: DECIMAL_CONST | OCTAL_CONST | HEXADECIMAL_CONST;
 floatConst: FLOAT_CONST;
@@ -173,8 +173,21 @@ fragment HEXADECIMAL_DIGIT: [0-9a-fA-F];
 fragment FLOAT_PART_A: IDENTIFIER_DIGIT+ '.' IDENTIFIER_DIGIT*;
 fragment FLOAT_PART_B: '.' IDENTIFIER_DIGIT+;
 fragment EXPONENT_PART: [eE] [+-]? IDENTIFIER_DIGIT+;
-FLOAT_CONST: (FLOAT_PART_A | FLOAT_PART_B) EXPONENT_PART?
-           | IDENTIFIER_DIGIT+ EXPONENT_PART; // e.g. 1e10
+fragment HEX_PREFIX: '0' [xX];
+fragment HEX_DIGIT_SEQUENCE: HEXADECIMAL_DIGIT+;
+fragment HEX_FRACTIONAL_CONSTANT:
+    HEX_DIGIT_SEQUENCE? '.' HEX_DIGIT_SEQUENCE    // 0x.ABC 或 0x123.DEF
+    | HEX_DIGIT_SEQUENCE '.'                      // 0x123.
+    ;
+fragment BINARY_EXPONENT_PART: [pP] [+-]? IDENTIFIER_DIGIT+;
+FLOAT_CONST: 
+    // 十进制浮点数
+    (FLOAT_PART_A | FLOAT_PART_B) EXPONENT_PART?
+    | IDENTIFIER_DIGIT+ EXPONENT_PART
+    // 十六进制浮点数
+    | HEX_PREFIX HEX_FRACTIONAL_CONSTANT BINARY_EXPONENT_PART
+    | HEX_PREFIX HEX_DIGIT_SEQUENCE BINARY_EXPONENT_PART
+    ;
 
 // 忽略注释和空白字符
 COMMENT: ('//' ~[\r\n]* | '/*' .*? '*/') -> skip;

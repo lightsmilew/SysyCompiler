@@ -1,5 +1,5 @@
 
-// Generated from SysY.g4 by ANTLR 4.13.2
+// Generated from ./myCompiler/src/SysY.g4 by ANTLR 4.13.2
 
 
 #include "SysYBaseVisitor.h"
