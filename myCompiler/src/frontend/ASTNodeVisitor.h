@@ -4,7 +4,7 @@
 #include "SysYBaseVisitor.h"
 #include "SysYParser.h"
 #include "ASTNode.h"
-
+#include "Common.h"
 class ASTNodeVisitor : public SysYBaseVisitor
 {
 public:
@@ -19,10 +19,10 @@ public:
     // 常量声明 constDecl
     virtual antlrcpp::Any visitConstDecl(SysYParser::ConstDeclContext *ctx) override;
     // bType
-    virtual antlrcpp::Any visitTypeInt(SysYParser::TypeIntContext *ctx) override;
-    virtual antlrcpp::Any visitTypeFloat(SysYParser::TypeFloatContext *ctx) override;
+    // virtual antlrcpp::Any visitTypeInt(SysYParser::TypeIntContext *ctx) override;
+    // virtual antlrcpp::Any visitTypeFloat(SysYParser::TypeFloatContext *ctx) override;
     // constDef
-    virtual antlrcpp::Any visitConstDef(SysYParser::ConstDefContext *ctx) override;
+    // virtual antlrcpp::Any visitConstDef(SysYParser::ConstDefContext *ctx) override;
     // constInitVal
     virtual antlrcpp::Any visitConstInitExpr(SysYParser::ConstInitExprContext *ctx) override;
     virtual antlrcpp::Any visitConstInitList(SysYParser::ConstInitListContext *ctx) override;
