@@ -296,118 +296,119 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
         }
         return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp));
     }
-    // addExp
-    antlrcpp::Any ASTNodeVisitor::visitToMulExp_add(SysYParser::ToMulExp_addContext * ctx)
+};
+// addExp
+antlrcpp::Any ASTNodeVisitor::visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx)
+{
+    return visit(ctx->mulExp());
+}
+antlrcpp::Any ASTNodeVisitor::visitAddSubExp(SysYParser::AddSubExpContext *ctx)
+{
+    auto addExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
+    auto mulExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->mulExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    BinaryOp binaryOp;
+    if (op == "+")
     {
-        return visit(ctx->mulExp());
+        binaryOp = BinaryOp::Add;
     }
-    antlrcpp::Any ASTNodeVisitor::visitAddSubExp(SysYParser::AddSubExpContext * ctx)
+    else if (op == "-")
     {
-        auto addExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
-        auto mulExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->mulExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        BinaryOp binaryOp;
-        if (op == "+")
-        {
-            binaryOp = BinaryOp::Add;
-        }
-        else if (op == "-")
-        {
-            binaryOp = BinaryOp::Sub;
-        }
-        else
-        {
-            throw std::invalid_argument("Unknown binary operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(addExp, mulExp, binaryOp));
+        binaryOp = BinaryOp::Sub;
     }
-    // relExp
-    antlrcpp::Any ASTNodeVisitor::visitToAddExp_rel(SysYParser::ToAddExp_relContext * ctx)
+    else
     {
-        return visit(ctx->addExp());
+        throw std::invalid_argument("Unknown binary operator: " + op);
     }
-    antlrcpp::Any ASTNodeVisitor::visitRelOpExp(SysYParser::RelOpExpContext * ctx)
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(addExp, mulExp, binaryOp));
+}
+// relExp
+antlrcpp::Any ASTNodeVisitor::visitToAddExp_rel(SysYParser::ToAddExp_relContext *ctx)
+{
+    return visit(ctx->addExp());
+}
+antlrcpp::Any ASTNodeVisitor::visitRelOpExp(SysYParser::RelOpExpContext *ctx)
+{
+    auto relExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->relExp()));
+    auto addExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    BinaryOp binaryOp;
+    if (op == "<")
     {
-        auto relExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->relExp()));
-        auto addExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        BinaryOp binaryOp;
-        if (op == "<")
-        {
-            binaryOp = BinaryOp::Lt;
-        }
-        else if (op == ">")
-        {
-            binaryOp = BinaryOp::Gt;
-        }
-        else if (op == "<=")
-        {
-            binaryOp = BinaryOp::Le;
-        }
-        else if (op == ">=")
-        {
-            binaryOp = BinaryOp::Ge;
-        }
-        else
-        {
-            throw std::invalid_argument("Unknown relational operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(relExp, addExp, binaryOp));
+        binaryOp = BinaryOp::Lt;
     }
-    // eqExp
-    antlrcpp::Any ASTNodeVisitor::visitToRelExp_eq(SysYParser::ToRelExp_eqContext * ctx)
+    else if (op == ">")
     {
-        return visit(ctx->relExp());
+        binaryOp = BinaryOp::Gt;
     }
-    antlrcpp::Any ASTNodeVisitor::visitEqOpExp(SysYParser::EqOpExpContext * ctx)
+    else if (op == "<=")
     {
-        auto eqExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->eqExp()));
-        auto relExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->relExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        BinaryOp binaryOp;
-        if (op == "==")
-        {
-            binaryOp = BinaryOp::Eq;
-        }
-        else if (op == "!=")
-        {
-            binaryOp = BinaryOp::Ne;
-        }
-        else
-        {
-            throw std::invalid_argument("Unknown equality operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(eqExp, relExp, binaryOp));
+        binaryOp = BinaryOp::Le;
     }
-    // lAndExp
-    antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext * ctx)
+    else if (op == ">=")
     {
-        return visit(ctx->lAndExp());
+        binaryOp = BinaryOp::Ge;
     }
-    antlrcpp::Any ASTNodeVisitor::visitLandOpExp(SysYParser::LandOpExpContext * ctx)
+    else
     {
-        auto lAndExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lAndExp()));
-        auto eqExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->eqExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        if (op != "&&")
-        {
-            throw std::invalid_argument("Unknown logical operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lAndExp, eqExp, BinaryOp::And));
+        throw std::invalid_argument("Unknown relational operator: " + op);
     }
-    // lOrExp
-    antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext * ctx)
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(relExp, addExp, binaryOp));
+}
+// eqExp
+antlrcpp::Any ASTNodeVisitor::visitToRelExp_eq(SysYParser::ToRelExp_eqContext *ctx)
+{
+    return visit(ctx->relExp());
+}
+antlrcpp::Any ASTNodeVisitor::visitEqOpExp(SysYParser::EqOpExpContext *ctx)
+{
+    auto eqExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->eqExp()));
+    auto relExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->relExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    BinaryOp binaryOp;
+    if (op == "==")
     {
-        return visit(ctx->lAndExp());
+        binaryOp = BinaryOp::Eq;
     }
-    antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext * ctx)
+    else if (op == "!=")
     {
-        auto lOrExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lOrExp()));
-        auto lAndExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lAndExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        if (op != "||")
-        {
-            throw std::invalid_argument("Unknown logical operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or));
+        binaryOp = BinaryOp::Ne;
     }
+    else
+    {
+        throw std::invalid_argument("Unknown equality operator: " + op);
+    }
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(eqExp, relExp, binaryOp));
+}
+// lAndExp
+antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx)
+{
+    return visit(ctx->lAndExp());
+}
+antlrcpp::Any ASTNodeVisitor::visitLandOpExp(SysYParser::LandOpExpContext *ctx)
+{
+    auto lAndExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lAndExp()));
+    auto eqExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->eqExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    if (op != "&&")
+    {
+        throw std::invalid_argument("Unknown logical operator: " + op);
+    }
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lAndExp, eqExp, BinaryOp::And));
+}
+// lOrExp
+antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx)
+{
+    return visit(ctx->lAndExp());
+}
+antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
+{
+    auto lOrExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lOrExp()));
+    auto lAndExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lAndExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    if (op != "||")
+    {
+        throw std::invalid_argument("Unknown logical operator: " + op);
+    }
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or));
+}
