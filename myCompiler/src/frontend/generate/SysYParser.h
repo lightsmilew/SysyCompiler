@@ -1,5 +1,5 @@
 
-// Generated from ./myCompiler/src/SysY.g4 by ANTLR 4.13.2
+// Generated from SysY.g4 by ANTLR 4.13.2
 
 #pragma once
 
@@ -17,8 +17,7 @@ public:
     LBRACE = 14, RBRACE = 15, LBRACKET = 16, RBRACKET = 17, COMMA = 18, 
     SEMICOLON = 19, PLUS = 20, MINUS = 21, MUL = 22, DIV = 23, MOD = 24, 
     NOT = 25, LT = 26, GT = 27, LE = 28, GE = 29, EQ = 30, NE = 31, AND = 32, 
-    OR = 33, IDENTIFIER = 34, DECIMAL_CONST = 35, OCTAL_CONST = 36, HEXADECIMAL_CONST = 37, 
-    FLOAT_CONST = 38, COMMENT = 39, WS = 40
+    OR = 33, Ident = 34, IntConst = 35, FloatConst = 36, COMMENT = 37, WS = 38
   };
 
   enum {
@@ -402,19 +401,9 @@ public:
    
   };
 
-  class  ScalarParamContext : public FuncFParamContext {
+  class  ArrayParamNoSizeContext : public FuncFParamContext {
   public:
-    ScalarParamContext(FuncFParamContext *ctx);
-
-    BTypeContext *bType();
-    IdentContext *ident();
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-  };
-
-  class  ArrayParamContext : public FuncFParamContext {
-  public:
-    ArrayParamContext(FuncFParamContext *ctx);
+    ArrayParamNoSizeContext(FuncFParamContext *ctx);
 
     BTypeContext *bType();
     IdentContext *ident();
@@ -422,8 +411,34 @@ public:
     antlr4::tree::TerminalNode* LBRACKET(size_t i);
     std::vector<antlr4::tree::TerminalNode *> RBRACKET();
     antlr4::tree::TerminalNode* RBRACKET(size_t i);
-    std::vector<ExpContext *> exp();
-    ExpContext* exp(size_t i);
+    std::vector<ConstExpContext *> constExp();
+    ConstExpContext* constExp(size_t i);
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ArrayParamWithSizeContext : public FuncFParamContext {
+  public:
+    ArrayParamWithSizeContext(FuncFParamContext *ctx);
+
+    BTypeContext *bType();
+    IdentContext *ident();
+    std::vector<antlr4::tree::TerminalNode *> LBRACKET();
+    antlr4::tree::TerminalNode* LBRACKET(size_t i);
+    std::vector<ConstExpContext *> constExp();
+    ConstExpContext* constExp(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> RBRACKET();
+    antlr4::tree::TerminalNode* RBRACKET(size_t i);
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ScalarParamContext : public FuncFParamContext {
+  public:
+    ScalarParamContext(FuncFParamContext *ctx);
+
+    BTypeContext *bType();
+    IdentContext *ident();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1044,7 +1059,7 @@ public:
   public:
     IdentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *IDENTIFIER();
+    antlr4::tree::TerminalNode *Ident();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1057,9 +1072,7 @@ public:
   public:
     IntConstContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *DECIMAL_CONST();
-    antlr4::tree::TerminalNode *OCTAL_CONST();
-    antlr4::tree::TerminalNode *HEXADECIMAL_CONST();
+    antlr4::tree::TerminalNode *IntConst();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1072,7 +1085,7 @@ public:
   public:
     FloatConstContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *FLOAT_CONST();
+    antlr4::tree::TerminalNode *FloatConst();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

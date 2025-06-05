@@ -96,6 +96,11 @@ public:
     // lOrExp
     virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
     virtual antlrcpp::Any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override;
+    virtual antlrcpp::any visitConstExp(SysYParser::ConstExpContext *ctx) override;
+    virtual antlrcpp::any visitIdent(SysYParser::IdentContext *ctx) override;
+    virtual antlrcpp::any visitIntConst(SysYParser::IntConstContext *ctx) override;
+    virtual antlrcpp::any visitFloatConst(SysYParser::FloatConstContext *ctx) override;
+
     // 处理符号表
     virtual int handleFunctionDef(Ptr<ast::FuncNode> func);
 

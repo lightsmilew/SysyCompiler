@@ -1,5 +1,5 @@
 
-// Generated from ./myCompiler/src/SysY.g4 by ANTLR 4.13.2
+// Generated from SysY.g4 by ANTLR 4.13.2
 
 #pragma once
 
@@ -55,7 +55,9 @@ public:
 
     virtual std::any visitScalarParam(SysYParser::ScalarParamContext *context) = 0;
 
-    virtual std::any visitArrayParam(SysYParser::ArrayParamContext *context) = 0;
+    virtual std::any visitArrayParamNoSize(SysYParser::ArrayParamNoSizeContext *context) = 0;
+
+    virtual std::any visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *context) = 0;
 
     virtual std::any visitBlock(SysYParser::BlockContext *context) = 0;
 

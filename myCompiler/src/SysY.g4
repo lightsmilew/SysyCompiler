@@ -36,9 +36,10 @@ funcType
     | bType        #typeBType // For int or float return types
     ;
 funcFParams: funcFParam (COMMA funcFParam)*;
-funcFParam
-    : bType ident                                         #scalarParam
-    | bType ident LBRACKET RBRACKET (LBRACKET exp RBRACKET)* #arrayParam // Represents int a[] or int a[][exp] etc.
+funcFParam: 
+    bType ident                                                    # scalarParam
+    | bType ident LBRACKET RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamNoSize  
+    | bType ident LBRACKET constExp RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamWithSize
     ;
 
 // 语句块
@@ -154,40 +155,23 @@ NE: '!=';
 AND: '&&';
 OR: '||';
 
+ident: Ident; // 词法单元的标识符
+intConst: IntConst; // 整数常量
+floatConst: FloatConst; // 浮点常量
+
 // 现有词法单元
-ident: IDENTIFIER; // Using a fragment for IDENTIFIER is common
-intConst: DECIMAL_CONST | OCTAL_CONST | HEXADECIMAL_CONST;
-floatConst: FLOAT_CONST;
-
-fragment IDENTIFIER_NONDIGIT: '_' | [a-zA-Z$];
-fragment IDENTIFIER_DIGIT: [0-9];
-IDENTIFIER: (IDENTIFIER_NONDIGIT (IDENTIFIER_NONDIGIT | IDENTIFIER_DIGIT)*);
-
-fragment NONZERO_DIGIT: [1-9];
-DECIMAL_CONST: NONZERO_DIGIT IDENTIFIER_DIGIT* | '0'; // Allow '0' as a decimal const
-OCTAL_CONST: '0' OCTAL_DIGIT+ ; // Ensure at least one octal digit after '0'
-HEXADECIMAL_CONST: ('0x' | '0X') HEXADECIMAL_DIGIT+ ; // Ensure at least one hex digit
-fragment OCTAL_DIGIT: [0-7];
-fragment HEXADECIMAL_DIGIT: [0-9a-fA-F];
-
-fragment FLOAT_PART_A: IDENTIFIER_DIGIT+ '.' IDENTIFIER_DIGIT*;
-fragment FLOAT_PART_B: '.' IDENTIFIER_DIGIT+;
-fragment EXPONENT_PART: [eE] [+-]? IDENTIFIER_DIGIT+;
-fragment HEX_PREFIX: '0' [xX];
-fragment HEX_DIGIT_SEQUENCE: HEXADECIMAL_DIGIT+;
-fragment HEX_FRACTIONAL_CONSTANT:
-    HEX_DIGIT_SEQUENCE? '.' HEX_DIGIT_SEQUENCE    // 0x.ABC 或 0x123.DEF
-    | HEX_DIGIT_SEQUENCE '.'                      // 0x123.
-    ;
-fragment BINARY_EXPONENT_PART: [pP] [+-]? IDENTIFIER_DIGIT+;
-FLOAT_CONST: 
-    // 十进制浮点数
-    (FLOAT_PART_A | FLOAT_PART_B) EXPONENT_PART?
-    | IDENTIFIER_DIGIT+ EXPONENT_PART
-    // 十六进制浮点数
-    | HEX_PREFIX HEX_FRACTIONAL_CONSTANT BINARY_EXPONENT_PART
-    | HEX_PREFIX HEX_DIGIT_SEQUENCE BINARY_EXPONENT_PART
-    ;
+Ident: [_a-zA-Z][_a-zA-Z0-9]*; // Using a fragment for IDENTIFIER is common
+IntConst:   [1-9][0-9]*                    // 十进制：123, 456
+            | '0'                          // 单独的0（十进制）
+            | '0'[0-7]+                    // 八进制：01, 012, 0567
+            | ('0x' | '0X') [0-9a-fA-F]+  // 十六进制：0x123, 0XAbc
+            ;
+FloatConst: [0-9]+ '.' [0-9]*
+            | '.' [0-9]+ ([eE][+-]? [0-9]+)?
+            | [0-9]+ ('.' [0-9]*)? [eE][+-]? [0-9]+
+            | ('0x' | '0X') [0-9a-fA-F]+ '.' [0-9a-fA-F]*
+            | ('0x' | '0X') '.' [0-9a-fA-F]+ ([pP][+-]? [0-9a-fA-F]+)?
+            | ('0x' | '0X') [0-9a-fA-F]+ ('.' [0-9a-fA-F]*)? [pP][+-]? [0-9a-fA-F]+;
 
 // 忽略注释和空白字符
 COMMENT: ('//' ~[\r\n]* | '/*' .*? '*/') -> skip;

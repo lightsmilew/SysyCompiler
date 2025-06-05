@@ -303,7 +303,7 @@ antlrcpp::Any ASTNodeVisitor::visitNumberExp(SysYParser::NumberExpContext *ctx)
 // number
 antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 {
-    auto intValue = std::stoi(ctx->getText());
+    string intValue = AS(visit(ctx->intConst()), std::string);
     if (intValue.find("0x") == 0 || intValue.find("0X") == 0)
     {
         // 十六进制
@@ -323,7 +323,8 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
-    auto floatValue = std::stof(ctx->getText());
+    std::string text = AS(visit(ctx->floatConst()), std::string);
+    float floatValue = std::stof(text);
     return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<FloatLiteralExprNode>(floatValue));
 }
 // unaryExp
@@ -536,4 +537,27 @@ antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
         throw std::invalid_argument("Unknown logical operator: " + op);
     }
     return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or));
+}
+
+antlrcpp::any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
+{
+    // 访问常量表达式
+    auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
+    constexp->isConst = true; // 设置为常量表达式
+    return constexp;          // 返回常量表达式
+}
+antlrcpp::any ASTNodeVisitor::visitIdent(SysYParser::IdentContext *ctx)
+{
+    // 返回标识符的文本
+    return ctx->getText();
+}
+antlrcpp::any ASTNodeVisitor::visitIntConst(SysYParser::IntConstContext *ctx)
+{
+    // 返回整数常量的文本
+    return ctx->getText();
+}
+antlrcpp::any ASTNodeVisitor::visitFloatConst(SysYParser::FloatConstContext *ctx)
+{
+    // 返回浮点常量的文本
+    return ctx->getText();
 }
