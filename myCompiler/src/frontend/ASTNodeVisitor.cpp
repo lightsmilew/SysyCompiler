@@ -280,7 +280,8 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
     Vector<Ptr<ast::ExprNode>> arraySizes;
-    arraySizes.emplace_back(-1); // 数组维度为0，表示省略
+    auto minusOne = makePtr<ast::IntLiteralExprNode>(-1); // 数组维度为0，表示省略
+    arraySizes.emplace_back(minusOne);                    // 数组维度为0，表示省略
     for (auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度

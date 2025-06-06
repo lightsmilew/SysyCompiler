@@ -1,8 +1,8 @@
 // src/main.cpp
 #include "antlr4-runtime.h"
-#include "frontend/SysYBaseVisitor.h"
-#include "frontend/SysYLexer.h"
-#include "frontend/SysYParser.h"
+#include "frontend/generate/SysYBaseVisitor.h"
+#include "frontend/generate/SysYLexer.h"
+#include "frontend/generate/SysYParser.h"
 #include "frontend/ASTNodeVisitor.h"
 #include "frontend/ASTNode.h"
 #include <fstream>
