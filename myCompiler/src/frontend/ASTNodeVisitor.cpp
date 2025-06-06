@@ -178,7 +178,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
             }
             initExprPtr = NULL;
         }
-        DataType varType(PrimaryDataType);
+        DataType varType(type);
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
