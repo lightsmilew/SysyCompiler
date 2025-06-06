@@ -6,13 +6,12 @@
 
 namespace ast
 {
+    using std::make_shared;
     using std::move;
     using std::ostream;
     using std::shared_ptr;
     using std::string;
     using std::vector;
-    using std::make_shared;
-
 
     // 定义操作符枚举
     enum class UnaryOp

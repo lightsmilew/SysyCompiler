@@ -473,24 +473,26 @@ antlrcpp::Any ASTNodeVisitor::visitNumberExp(SysYParser::NumberExpContext *ctx)
 // number
 antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 {
-    string intValue = AS(visit(ctx->intConst()), std::string);
-    if (intValue.find("0x") == 0 || intValue.find("0X") == 0)
+    string intNum = ctx->intConst()->getText();
+    int intValue = 0;
+    if (intNum.find("0x") == 0 || intNum.find("0X") == 0)
     {
         // 十六进制
-        intValue = std::stoi(ctx->getText(), nullptr, 16);
+        intValue = std::stoi(intNum, nullptr, 16);
     }
-    else if (intValue.find("0") == 0 && intValue.size() > 1)
+    else if (intNum.find("0") == 0)
     {
         // 八进制
-        intValue = std::stoi(ctx->getText(), nullptr, 8);
+        intValue = std::stoi(intNum, nullptr, 8);
     }
     else
     {
         // 十进制
-        intValue = std::stoi(ctx->getText(), nullptr, 10);
+        intValue = std::stoi(intNum);
     }
     return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<IntLiteralExprNode>(intValue));
 }
+
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
     std::string text = AS(visit(ctx->floatConst()), std::string);
@@ -538,7 +540,7 @@ antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx
 
     auto exp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
 
-    return static_cast<shared_ptr<ExprNode>>(make_shared<UnaryExprNode>(unaryOp, exp));
+    return static_cast<shared_ptr<ExprNode>>(make_shared<UnaryExprNode>(exp, unaryOp));
 }
 // unaryOp
 antlrcpp::Any ASTNodeVisitor::visitOpPlus(SysYParser::OpPlusContext *ctx)
