@@ -79,7 +79,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
     Vector<Ptr<ast::DeclStmtNode>> decls;
     for (auto defctx : ctx->constDef())
     {
-        String identifier = defctx->ident()->getText();
+        String identifier = defctx->Ident()->getText();
         // 可能为多维数组或者一般变量
         Vector<Ptr<ast::ExprNode>> arrayIndices;
         for (auto expctx : defctx->constExp())
@@ -151,7 +151,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
         // 如果有初始化列表
         if (varDefs->initVal())
         {
-            identifier = varDefs->ident()->getText();
+            identifier = varDefs->Ident()->getText();
             // 每一维的大小
             for (auto constExpCtx : varDefs->constExp())
             {
@@ -171,7 +171,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
         }
         else
         {
-            identifier = varDefs->ident()->getText();
+            identifier = varDefs->Ident()->getText();
             for (auto constExpCtx : varDefs->constExp())
             {
                 arrayIndices.emplace_back(AS(visit(constExpCtx), Ptr<ast::ExprNode>));
@@ -218,7 +218,7 @@ antlrcpp::Any ASTNodeVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx)
     PrimaryDataType funcType = convertToPrimaryDataType(ctx->funcType()->getText());
     DataType returnType(funcType);
     // 获取函数名
-    String funcName = ctx->ident()->getText();
+    String funcName = ctx->Ident()->getText();
     // 获取函数参数列表
     Vector<Ptr<ast::DeclStmtNode>> params;
     for (auto paramCtx : ctx->funcFParams()->funcFParam())
@@ -266,7 +266,7 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
 // 处理函数参数(非数组)
 antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *ctx)
 {
-    String identifier = ctx->ident()->getText();
+    String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
     // 创建函数参数节点
@@ -276,7 +276,7 @@ antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *c
 // 处理函数参数(数组 省略第一维度)
 antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSizeContext *ctx)
 {
-    String identifier = ctx->ident()->getText();
+    String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
     Vector<Ptr<ast::ExprNode>> arraySizes;
@@ -296,7 +296,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
 // 处理函数参数(数组 有第一维度)
 antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx)
 {
-    String identifier = ctx->ident()->getText();
+    String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
     Vector<Ptr<ast::ExprNode>> arraySizes;
@@ -444,7 +444,7 @@ antlrcpp::Any ASTNodeVisitor::visitCond(SysYParser::CondContext *ctx)
 }
 antlrcpp::Any ASTNodeVisitor::visitLVal(SysYParser::LValContext *ctx)
 {
-    string identifier = ctx->ident()->getText();
+    string identifier = ctx->Ident()->getText();
     vector<shared_ptr<ExprNode>> exps;
     for (auto idx : ctx->exp())
     {
@@ -472,7 +472,7 @@ antlrcpp::Any ASTNodeVisitor::visitNumberExp(SysYParser::NumberExpContext *ctx)
 // number
 antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 {
-    std::string valueText = ctx->intConst()->getText();
+    std::string valueText = ctx->IntConst()->getText();
     int intValue = 0;
     if (valueText.find("0x") == 0 || valueText.find("0X") == 0)
     {
@@ -493,7 +493,7 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
-    std::string text = AS(visit(ctx->floatConst()), std::string);
+    std::string text = AS(visit(ctx->FloatConst()), std::string);
     float floatValue = std::stof(text);
     return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<FloatLiteralExprNode>(floatValue));
 }
@@ -504,7 +504,7 @@ antlrcpp::Any ASTNodeVisitor::visitToPrimaryExp(SysYParser::ToPrimaryExpContext 
 }
 antlrcpp::Any ASTNodeVisitor::visitCallExp(SysYParser::CallExpContext *ctx)
 {
-    string callee = ctx->ident()->getText();
+    string callee = ctx->Ident()->getText();
     vector<shared_ptr<ExprNode>> args;
     if (ctx->funcRParams())
     {
@@ -700,21 +700,6 @@ antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
     auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
     constexp->isConst = true; // 设置为常量表达式
     return constexp;          // 返回常量表达式
-}
-antlrcpp::Any ASTNodeVisitor::visitIdent(SysYParser::IdentContext *ctx)
-{
-    // 返回标识符的文本
-    return ctx->getText();
-}
-antlrcpp::Any ASTNodeVisitor::visitIntConst(SysYParser::IntConstContext *ctx)
-{
-    // 返回整数常量的文本
-    return ctx->getText();
-}
-antlrcpp::Any ASTNodeVisitor::visitFloatConst(SysYParser::FloatConstContext *ctx)
-{
-    // 返回浮点常量的文本
-    return ctx->getText();
 }
 
 antlrcpp::Any ASTNodeVisitor::visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx)

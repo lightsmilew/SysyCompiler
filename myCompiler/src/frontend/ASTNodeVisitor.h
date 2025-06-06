@@ -100,9 +100,6 @@ public:
     virtual antlrcpp::Any visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx) override;
     virtual antlrcpp::Any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override;
     virtual antlrcpp::Any visitConstExp(SysYParser::ConstExpContext *ctx) override;
-    virtual antlrcpp::Any visitIdent(SysYParser::IdentContext *ctx) override;
-    virtual antlrcpp::Any visitIntConst(SysYParser::IntConstContext *ctx) override;
-    virtual antlrcpp::Any visitFloatConst(SysYParser::FloatConstContext *ctx) override;
 
     // 处理符号表
     virtual int handleFunctionDef(Ptr<ast::FuncNode> func);

@@ -15,7 +15,7 @@ bType
     : INT          #typeInt
     | FLOAT        #typeFloat
     ;
-constDef: ident (LBRACKET constExp RBRACKET)* ASSIGN constInitVal;
+constDef: Ident (LBRACKET constExp RBRACKET)* ASSIGN constInitVal;
 constInitVal
     : constExp     #constInitExpr
     | LBRACE (constInitVal (COMMA constInitVal)*)? RBRACE   #constInitList
@@ -23,23 +23,23 @@ constInitVal
 
 // 变量声明
 varDecl: bType varDef (COMMA varDef)* SEMICOLON;
-varDef: ident (LBRACKET constExp RBRACKET)* (ASSIGN initVal)?;
+varDef: Ident (LBRACKET constExp RBRACKET)* (ASSIGN initVal)?;
 initVal
     : exp          #initExpr
     | LBRACE (initVal (COMMA initVal)*)? RBRACE    #initList
     ;
 
 // 函数定义
-funcDef: funcType ident LPAREN funcFParams? RPAREN block;
+funcDef: funcType Ident LPAREN funcFParams? RPAREN block;
 funcType
     : VOID         #typeVoid
     | bType        #typeBType // For int or float return types
     ;
 funcFParams: funcFParam (COMMA funcFParam)*;
 funcFParam: 
-    bType ident                                                    # scalarParam
-    | bType ident LBRACKET RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamNoSize  
-    | bType ident LBRACKET constExp RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamWithSize
+    bType Ident                                                    # scalarParam
+    | bType Ident LBRACKET RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamNoSize  
+    | bType Ident LBRACKET constExp RBRACKET (LBRACKET constExp RBRACKET)* # arrayParamWithSize
     ;
 
 // 语句块
@@ -64,7 +64,7 @@ stmt
 // 表达式
 exp: addExp;
 cond: lOrExp;
-lVal: ident (LBRACKET exp RBRACKET)*;
+lVal: Ident (LBRACKET exp RBRACKET)*;
 
 primaryExp
     : LPAREN exp RPAREN #parenExp
@@ -72,13 +72,13 @@ primaryExp
     | number            #numberExp
     ;
 number
-    : intConst          #intNum
-    | floatConst        #floatNum
+    : IntConst          #intNum
+    | FloatConst        #floatNum
     ;
 
 unaryExp
     : primaryExp                      #toPrimaryExp
-    | ident LPAREN funcRParams? RPAREN #callExp
+    | Ident LPAREN funcRParams? RPAREN #callExp
     | unaryOp unaryExp                #opUnaryExp
     ;
 unaryOp
@@ -154,10 +154,6 @@ EQ: '==';
 NE: '!=';
 AND: '&&';
 OR: '||';
-
-ident: Ident; // 词法单元的标识符
-intConst: IntConst; // 整数常量
-floatConst: FloatConst; // 浮点常量
 
 // 现有词法单元
 Ident: [_a-zA-Z][_a-zA-Z0-9]*; // Using a fragment for IDENTIFIER is common
