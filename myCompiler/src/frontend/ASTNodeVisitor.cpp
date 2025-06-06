@@ -273,6 +273,100 @@ antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *c
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     return paramNode; // 返回函数参数节点
 }
+// 处理函数参数(数组 省略第一维度)
+antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSizeContext *ctx)
+{
+    String identifier = ctx->ident()->getText();
+    PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
+    DataType dataType(type);
+    dataType._arraySizes.emplace_back(-1);// 数组维度为0，表示省略
+    for(auto expCtx : ctx->constExp())
+    {
+        // 处理数组的其他维度
+        auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
+        dataType._arraySizes.emplace_back(exp);
+    }
+    // 创建函数参数节点
+    auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    return paramNode; // 返回函数参数节点
+}
+// 处理函数参数(数组 有第一维度)
+antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx)
+{
+    String identifier = ctx->ident()->getText();
+    PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
+    DataType dataType(type);
+    for (auto expCtx : ctx->constExp())
+    {
+        auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
+        dataType._arraySizes.emplace_back(exp);
+    }
+    // 创建函数参数节点
+    auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    return paramNode; // 返回函数参数节点
+}
+// 语句块
+antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
+{
+    Vector<Ptr<ast::StmtNode>> blockItems;
+    for(auto itemCtx : ctx->blockItem())
+    {
+        auto item = AS(itemCtx->accept(this), Ptr<ast::StmtNode>);
+        blockItems.emplace_back(item);
+    }
+    return makePtr<ast::BlockStmtNode>(Move(blockItems)); // 返回一个 BlockStmtNode
+}
+//变量声明
+antlrcpp::Any ASTNodeVisitor::visitItemDecl(SysYParser::ItemDeclContext *ctx)
+{
+    auto decl = AS(ctx->decl()->accept(this), Vector<Ptr<ast::DeclStmtNode>>);
+    Vector<Ptr<ast::StmtNode>> stmts;
+    for (const auto &d : decl)
+    {
+        // 将每个声明转换为语句
+        stmts.emplace_back(Scast<Ptr<ast::StmtNode>>(d));
+    }
+    return stmts; // 返回一个包含所有声明的向量
+}
+// 语句 封装单一语句返回数组
+antlrcpp::Any ASTNodeVisitor::visitItemStmt(SysYParser::ItemStmtContext *ctx)
+{
+    auto stmt = AS(ctx->stmt()->accept(this), Ptr<ast::StmtNode>);
+    Vector<Ptr<ast::StmtNode>> stmts;
+    stmts.emplace_back(stmt); // 将单个语句添加到向量中
+    return stmts; // 返回一个包含单个语句的向量
+}
+//赋值语句
+antlrcpp::Any ASTNodeVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx)
+{
+    // 访问左值
+    auto lval = AS(ctx->lVal()->accept(this), Ptr<ast::LValueExprNode>);
+    // 访问表达式
+    auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
+    auto ret=makePtr<ast::AssignStmtNode>(lval, exp);
+    // 创建赋值语句节点
+    return Scast<Ptr<ast::StmtNode>>(ret); // 统一返回基类stmtNode
+}
+//表达式语句
+antlrcpp::Any ASTNodeVisitor::visitExprStmt(SysYParser::ExprStmtContext *ctx)
+{
+   if(ctx->exp())
+   {
+       // 访问表达式
+       auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
+       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(exp);
+       exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
+       return Scast<Ptr<ast::StmtNode>>(exprStmtNode); // 返回表达式语句节点
+   }
+   else
+   {
+    //没有表达式直接返回
+       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(exp);
+       exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
+       return Scast<Ptr<ast::StmtNode>>(exprStmtNode); // 返回表达式语句节点
+   }
+
+}
 // 表达式 exp
 antlrcpp::Any ASTNodeVisitor::visitExp(SysYParser::ExpContext *ctx)
 {

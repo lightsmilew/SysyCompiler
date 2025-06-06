@@ -11,6 +11,8 @@ namespace ast
     using std::shared_ptr;
     using std::string;
     using std::vector;
+    using std::make_shared;
+
 
     // 定义操作符枚举
     enum class UnaryOp
@@ -192,7 +194,7 @@ namespace ast
     public:
         // 虚析构函数，确保子类析构函数正确调用
         virtual ~NumberLiteralExprNode() = default;
-    }
+    };
 
     class IntLiteralExprNode : public NumberLiteralExprNode
     {

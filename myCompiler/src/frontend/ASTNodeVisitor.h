@@ -42,7 +42,10 @@ public:
     virtual antlrcpp::Any visitFuncFParams(SysYParser::FuncFParamsContext *ctx) override;
     // funcFParam
     virtual antlrcpp::Any visitScalarParam(SysYParser::ScalarParamContext *ctx) override;
-    virtual antlrcpp::Any visitArrayParam(SysYParser::ArrayParamContext *ctx) override;
+    //arrayParamNoSize
+    virtual antlrcpp::Any visitArrayParamNoSize(SysYParser::ArrayParamNoSizeContext *ctx) override;
+    //arrayParamWithSize
+    virtual antlrcpp::Any visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx) override;
     // 语句块 block
     virtual antlrcpp::Any visitBlock(SysYParser::BlockContext *ctx) override;
     // blockItem
@@ -96,10 +99,10 @@ public:
     // lOrExp
     virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
     virtual antlrcpp::Any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override;
-    virtual antlrcpp::any visitConstExp(SysYParser::ConstExpContext *ctx) override;
-    virtual antlrcpp::any visitIdent(SysYParser::IdentContext *ctx) override;
-    virtual antlrcpp::any visitIntConst(SysYParser::IntConstContext *ctx) override;
-    virtual antlrcpp::any visitFloatConst(SysYParser::FloatConstContext *ctx) override;
+    virtual antlrcpp::Any visitConstExp(SysYParser::ConstExpContext *ctx) override;
+    virtual antlrcpp::Any visitIdent(SysYParser::IdentContext *ctx) override;
+    virtual antlrcpp::Any visitIntConst(SysYParser::IntConstContext *ctx) override;
+    virtual antlrcpp::Any visitFloatConst(SysYParser::FloatConstContext *ctx) override;
 
     // 处理符号表
     virtual int handleFunctionDef(Ptr<ast::FuncNode> func);

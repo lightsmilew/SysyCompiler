@@ -20,6 +20,8 @@
 #include <queue>
 
 #define makePtr std::make_shared
+#define Move std::move
+#define Scast static_cast
 #define thisPtr(T) std::enable_shared_from_this<T>::shared_from_this()
 
 #define castPtr std::dynamic_pointer_cast
