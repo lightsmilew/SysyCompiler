@@ -254,10 +254,10 @@ antlrcpp::Any ASTNodeVisitor::visitFuncFParams(SysYParser::FuncFParamsContext *c
 // 处理实参列表
 antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *ctx)
 {
-    Vector<Ptr<ast::DeclStmtNode>> params;
+    Vector<Ptr<ast::ExprNode>> params;
     for (auto paramCtx : ctx->exp())
     {
-        auto param = AS(paramCtx->accept(this), Ptr<ast::ExprNode>);
+        auto param = std::any_cast<Ptr<ast::ExprNode>>(visit(paramCtx));
         params.emplace_back(param);
     }
     return params; // 返回函数参数列表
