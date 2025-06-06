@@ -1,5 +1,4 @@
 #include "ASTNodeVisitor.h"
-#include "Common.h"
 #include <memory>
 #include <string>
 #include <typeinfo>
@@ -282,7 +281,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
     Vector<Ptr<ast::ExprNode>> arraySizes;
-    arraySizes.emplace_back(-1);// 数组维度为0，表示省略
+    arraySizes.emplace_back(-1); // 数组维度为0，表示省略
     for (auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度
@@ -292,7 +291,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     paramNode->indices = Move(arraySizes); // 设置数组维度
-    return paramNode; // 返回函数参数节点
+    return paramNode;                      // 返回函数参数节点
 }
 // 处理函数参数(数组 有第一维度)
 antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx)
@@ -309,7 +308,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     paramNode->indices = Move(arraySizes); // 设置数组维度
-    return paramNode; // 返回函数参数节点
+    return paramNode;                      // 返回函数参数节点
 }
 // 语句块
 antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
