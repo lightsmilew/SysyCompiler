@@ -17,8 +17,7 @@ public:
     LBRACE = 14, RBRACE = 15, LBRACKET = 16, RBRACKET = 17, COMMA = 18, 
     SEMICOLON = 19, PLUS = 20, MINUS = 21, MUL = 22, DIV = 23, MOD = 24, 
     NOT = 25, LT = 26, GT = 27, LE = 28, GE = 29, EQ = 30, NE = 31, AND = 32, 
-    OR = 33, IDENTIFIER = 34, DECIMAL_CONST = 35, OCTAL_CONST = 36, HEXADECIMAL_CONST = 37, 
-    FLOAT_CONST = 38, COMMENT = 39, WS = 40
+    OR = 33, Ident = 34, IntConst = 35, FloatConst = 36, COMMENT = 37, WS = 38
   };
 
   explicit SysYLexer(antlr4::CharStream *input);

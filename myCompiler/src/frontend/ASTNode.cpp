@@ -1,5 +1,6 @@
 #include "ASTNode.h"
 
+// 测试
 namespace ast
 {
 
@@ -105,9 +106,9 @@ namespace ast
         {
             lvalue->print(out, indent + 2);
         }
-        if (expr)
+        if (rvalue)
         {
-            expr->print(out, indent + 2);
+            rvalue->print(out, indent + 2);
         }
     }
 
@@ -185,6 +186,7 @@ namespace ast
     {
         return "LValueExprNode: " + identifier;
     }
+
     void LValueExprNode::print(ostream &out, unsigned indent) const
     {
         ASTNode::print(out, indent);
@@ -197,7 +199,62 @@ namespace ast
     // BinaryExpr
     string BinaryExprNode::toString() const
     {
-        return "BinaryExprNode: " + left->toString() + " " + op + " " + right->toString();
+        if (op == ADD)
+        {
+            return "BinaryExprNode: " + left->toString() + " + " + right->toString();
+        }
+        else if (op == SUB)
+        {
+            return "BinaryExprNode: " + left->toString() + " - " + right->toString();
+        }
+        else if (op == MUL)
+        {
+            return "BinaryExprNode: " + left->toString() + " * " + right->toString();
+        }
+        else if (op == DIV)
+        {
+            return "BinaryExprNode: " + left->toString() + " / " + right->toString();
+        }
+        else if (op == MOD)
+        {
+            return "BinaryExprNode: " + left->toString() + " % " + right->toString();
+        }
+        else if (op == Lt)
+        {
+            return "BinaryExprNode: " + left->toString() + " < " + right->toString();
+        }
+        else if (op == Gt)
+        {
+            return "BinaryExprNode: " + left->toString() + " > " + right->toString();
+        }
+        else if (op == Le)
+        {
+            return "BinaryExprNode: " + left->toString() + " <= " + right->toString();
+        }
+        else if (op == Ge)
+        {
+            return "BinaryExprNode: " + left->toString() + " >= " + right->toString();
+        }
+        else if (op == Eq)
+        {
+            return "BinaryExprNode: " + left->toString() + " == " + right->toString();
+        }
+        else if (op == Ne)
+        {
+            return "BinaryExprNode: " + left->toString() + " != " + right->toString();
+        }
+        else if (op == And)
+        {
+            return "BinaryExprNode: " + left->toString() + " && " + right->toString();
+        }
+        else if (op == Or)
+        {
+            return "BinaryExprNode: " + left->toString() + " || " + right->toString();
+        }
+        else
+        {
+            return "Unknown BinaryExprNode";
+        }
     }
 
     void BinaryExprNode::print(ostream &out, unsigned indent) const
@@ -216,7 +273,22 @@ namespace ast
     // UnaryExpr
     string UnaryExprNode::toString() const
     {
-        return "UnaryExprNode: " + op + " " + operand->toString();
+        if (op == ADD)
+        {
+            return "UnaryExprNode: +" + operand->toString();
+        }
+        else if (op == SUB)
+        {
+            return "UnaryExprNode: -" + operand->toString();
+        }
+        else if (op == NOT)
+        {
+            return "UnaryExprNode: !" + operand->toString();
+        }
+        else
+        {
+            return "Unknown UnaryExprNode";
+        }
     }
 
     void UnaryExprNode::print(ostream &out, unsigned indent) const
@@ -229,12 +301,12 @@ namespace ast
     }
 
     // IntegerLiteralExpr
-    string IntegerLiteralExprNode::toString() const
+    string IntLiteralExprNode::toString() const
     {
-        return "IntegerLiteralExprNode: " + to_string(value);
+        return "IntegerLiteralExprNode: " + std::to_string(value);
     }
 
-    void IntegerLiteralExprNode::print(ostream &out, unsigned indent) const
+    void IntLiteralExprNode::print(ostream &out, unsigned indent) const
     {
         ASTNode::print(out, indent);
     }
@@ -242,7 +314,7 @@ namespace ast
     // FloatLiteralExpr
     string FloatLiteralExprNode::toString() const
     {
-        return "FloatLiteralExprNode: " + value;
+        return "FloatLiteralExprNode: " + std::to_string(value);
     }
 
     void FloatLiteralExprNode::print(ostream &out, unsigned indent) const
@@ -250,16 +322,16 @@ namespace ast
         ASTNode::print(out, indent);
     }
 
-    // StringLiteralExpr
-    string StringLiteralExprNode::toString() const
-    {
-        return "StringLiteralExprNode: " + value;
-    }
+    // // StringLiteralExpr
+    // string StringLiteralExprNode::toString() const
+    // {
+    //     return "StringLiteralExprNode: " + value;
+    // }
 
-    void StringLiteralExprNode::print(ostream &out, unsigned indent) const
-    {
-        ASTNode::print(out, indent);
-    }
+    // void StringLiteralExprNode::print(ostream &out, unsigned indent) const
+    // {
+    //     ASTNode::print(out, indent);
+    // }
 
     // CallExpr
     string CallExprNode::toString() const

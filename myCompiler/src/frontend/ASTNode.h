@@ -12,6 +12,31 @@ namespace ast
     using std::string;
     using std::vector;
 
+    // 定义操作符枚举
+    enum class UnaryOp
+    {
+        Plus,  // +
+        Minus, // -
+        Not    // !
+    };
+
+    enum class BinaryOp
+    {
+        Add, // +
+        Sub, // -
+        Mul, // *
+        Div, // /
+        Mod, // %
+        Lt,  // <
+        Gt,  // >
+        Le,  // <=
+        Ge,  // >=
+        Eq,  // ==
+        Ne,  // !=
+        And, // &&
+        Or   // ||
+    };
+
     // 基础数据类型枚举
     enum class PrimaryDataType
     {
@@ -125,6 +150,7 @@ namespace ast
         LValueExprNode(string id, vector<shared_ptr<ExprNode>> idxs = {})
             : identifier{move(id)}, indices{move(idxs)} {}
         string toString() const override;
+        void print(ostream &out, unsigned indent = 0) const override;
         DataType getDataType() const override;
     };
 
@@ -133,11 +159,12 @@ namespace ast
     public:
         shared_ptr<ExprNode> left;  // 左操作数
         shared_ptr<ExprNode> right; // 右操作数
-        string op;                  // 操作符
+        BinaryOp op;                // 操作符
 
-        BinaryExprNode(shared_ptr<ExprNode> l, shared_ptr<ExprNode> r, string operator_)
+        BinaryExprNode(shared_ptr<ExprNode> l, shared_ptr<ExprNode> r, BinaryOp operator_)
             : left{move(l)}, right{move(r)}, op{move(operator_)} {}
         string toString() const override;
+        void print(ostream &out, unsigned indent = 0) const override;
         DataType getDataType() const override;
     };
 
@@ -145,9 +172,9 @@ namespace ast
     {
     public:
         shared_ptr<ExprNode> operand; // 操作数
-        string op;                    // 操作符
+        UnaryOp op;                   // 操作符
 
-        UnaryExprNode(shared_ptr<ExprNode> opnd, string operator_)
+        UnaryExprNode(shared_ptr<ExprNode> opnd, UnaryOp operator_)
             : operand{move(opnd)}, op{move(operator_)} {}
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
@@ -158,10 +185,16 @@ namespace ast
     {
     public:
         string toString() const override = 0;
-        DataType getDataType() const override = 0;
     };
 
-    class IntLiteralExprNode : public LiteralExprNode
+    class NumberLiteralExprNode : public LiteralExprNode
+    {
+    public:
+        // 虚析构函数，确保子类析构函数正确调用
+        virtual ~NumberLiteralExprNode() = default;
+    }
+
+    class IntLiteralExprNode : public NumberLiteralExprNode
     {
         using Value = std::int32_t;
 
@@ -175,7 +208,7 @@ namespace ast
         DataType getDataType() const override;
     };
 
-    class FloatLiteralExprNode : public LiteralExprNode
+    class FloatLiteralExprNode : public NumberLiteralExprNode
     {
         using Value = float;
 
@@ -189,17 +222,17 @@ namespace ast
         DataType getDataType() const override;
     };
 
-    class StringLiteralExprNode : public LiteralExprNode
-    {
-    public:
-        string value; // 字符串值
+    // class StringLiteralExprNode : public LiteralExprNode
+    // {
+    // public:
+    //     string value; // 字符串值
 
-        StringLiteralExprNode(string val) : value{move(val)} {}
+    //     StringLiteralExprNode(string val) : value{move(val)} {}
 
-        string toString() const override;
-        void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
-    };
+    //     string toString() const override;
+    //     void print(ostream &out, unsigned indent = 0) const override;
+    //     DataType getDataType() const override;
+    // };
 
     class CallExprNode : public ExprNode
     {
