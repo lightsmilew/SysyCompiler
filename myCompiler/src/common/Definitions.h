@@ -47,7 +47,8 @@ using Bitset = std::bitset<BITSET_SIZE>;
 #pragma region 方法
 
 template <typename T>
-Set<T> toSet(const Vector<T> &vec) {
+Set<T> toSet(const Vector<T> &vec)
+{
     return Set<T>(vec.begin(), vec.end());
 }
 
@@ -62,7 +63,8 @@ Set<T> toSet(const Vector<T> &vec) {
 #endif
 
 template <class T>
-inline void hashCombine(std::size_t &s, const T &v) {
+inline void hashCombine(std::size_t &s, const T &v)
+{
     std::hash<T> h;
     s ^= h(v) + 0x9e3779b9 + (s << 6) + (s >> 2);
 }

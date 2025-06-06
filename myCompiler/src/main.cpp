@@ -3,6 +3,8 @@
 #include "frontend/SysYBaseVisitor.h"
 #include "frontend/SysYLexer.h"
 #include "frontend/SysYParser.h"
+#include "frontend/ASTNodeVisitor.h"
+#include "frontend/ASTNode.h"
 #include <fstream>
 #include <iostream>
 
@@ -20,8 +22,14 @@ int main(int argc, const char *argv[])
     SysYParser parser(&tokens);
     ParseTree *tree = parser.compUnit();
     cout << "parse tree: " << endl;
-    SysYBaseVisitor parse_visitor;
-    parse_visitor.visit(tree);
-    cout << tree->toStringTree(&parser, true) << endl;
+    // SysYBaseVisitor parse_visitor;
+    // parse_visitor.visit(tree);
+    // cout << tree->toStringTree(&parser, true) << endl;
+    ASTNodeVisitor ast_visitor;
+    ast_visitor.visit(tree);
+    auto ast_root = ast_visitor.compileUnit();
+    cout << "AST: " << endl;
+    ast_root->print(cout, 0);
+    cout << "Compilation finished successfully." << endl;
     return 0;
 }

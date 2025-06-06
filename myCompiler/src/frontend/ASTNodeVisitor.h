@@ -1,10 +1,10 @@
 #ifndef SYSY_ASTNODEVISITOR_H
 #define SYSY_ASTNODEVISITOR_H
 
-#include "SysYBaseVisitor.h"
-#include "SysYParser.h"
+#include "generate/SysYBaseVisitor.h"
+#include "generate/SysYParser.h"
 #include "ASTNode.h"
-#include "Common.h"
+#include "common/Common.h"
 class ASTNodeVisitor : public SysYBaseVisitor
 {
 public:
@@ -42,9 +42,9 @@ public:
     virtual antlrcpp::Any visitFuncFParams(SysYParser::FuncFParamsContext *ctx) override;
     // funcFParam
     virtual antlrcpp::Any visitScalarParam(SysYParser::ScalarParamContext *ctx) override;
-    //arrayParamNoSize
+    // arrayParamNoSize
     virtual antlrcpp::Any visitArrayParamNoSize(SysYParser::ArrayParamNoSizeContext *ctx) override;
-    //arrayParamWithSize
+    // arrayParamWithSize
     virtual antlrcpp::Any visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx) override;
     // 语句块 block
     virtual antlrcpp::Any visitBlock(SysYParser::BlockContext *ctx) override;
@@ -97,7 +97,7 @@ public:
     virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
     virtual antlrcpp::Any visitLandOpExp(SysYParser::LandOpExpContext *ctx) override;
     // lOrExp
-    virtual antlrcpp::Any visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx) override;
+    virtual antlrcpp::Any visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx) override;
     virtual antlrcpp::Any visitLorOpExp(SysYParser::LorOpExpContext *ctx) override;
     virtual antlrcpp::Any visitConstExp(SysYParser::ConstExpContext *ctx) override;
     virtual antlrcpp::Any visitIdent(SysYParser::IdentContext *ctx) override;
