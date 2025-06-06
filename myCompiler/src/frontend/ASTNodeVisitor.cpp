@@ -211,3 +211,12 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
     }
     return params; // 返回函数参数列表
 }
+//处理函数参数(非数组)
+antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *ctx) {
+    String identifier = ctx->ident()->getText();
+    PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
+    DataType dataType(type);
+    // 创建函数参数节点
+    auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    return paramNode; // 返回函数参数节点
+}
