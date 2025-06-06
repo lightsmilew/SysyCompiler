@@ -252,20 +252,22 @@ antlrcpp::Any ASTNodeVisitor::visitFuncFParams(SysYParser::FuncFParamsContext *c
     }
     return params; // 返回函数参数列表
 }
-// 处理实参列表
+
+// funcRParams
 antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *ctx)
 {
-    Vector<Ptr<ast::DeclStmtNode>> params;
-    for (auto paramCtx : ctx->exp())
+    vector<shared_ptr<ExprNode>> params;
+    for (auto expCtx : ctx->exp())
     {
-        auto param = AS(paramCtx->accept(this), Ptr<ast::ExprNode>);
-        params.emplace_back(param);
+        auto param = std::any_cast<shared_ptr<ExprNode>>(visit(expCtx));
+        params.push_back(param);
     }
-    return params; // 返回函数参数列表
+    return params; // 返回参数列表
 }
 
-//处理函数参数(非数组)
-antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *ctx) {
+// 处理函数参数(非数组)
+antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *ctx)
+{
     String identifier = ctx->ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
@@ -281,7 +283,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     DataType dataType(type);
     Vector<Ptr<ast::ExprNode>> arraySizes;
     arraySizes.emplace_back(-1);// 数组维度为0，表示省略
-    for(auto expCtx : ctx->constExp())
+    for (auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
@@ -313,14 +315,14 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
 antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
 {
     Vector<Ptr<ast::StmtNode>> blockItems;
-    for(auto itemCtx : ctx->blockItem())
+    for (auto itemCtx : ctx->blockItem())
     {
         auto item = AS(itemCtx->accept(this), Ptr<ast::StmtNode>);
         blockItems.emplace_back(item);
     }
     return makePtr<ast::BlockStmtNode>(Move(blockItems)); // 返回一个 BlockStmtNode
 }
-//变量声明
+// 变量声明
 antlrcpp::Any ASTNodeVisitor::visitItemDecl(SysYParser::ItemDeclContext *ctx)
 {
     auto decl = AS(ctx->decl()->accept(this), Vector<Ptr<ast::DeclStmtNode>>);
@@ -338,37 +340,37 @@ antlrcpp::Any ASTNodeVisitor::visitItemStmt(SysYParser::ItemStmtContext *ctx)
     auto stmt = AS(ctx->stmt()->accept(this), Ptr<ast::StmtNode>);
     Vector<Ptr<ast::StmtNode>> stmts;
     stmts.emplace_back(stmt); // 将单个语句添加到向量中
-    return stmts; // 返回一个包含单个语句的向量
+    return stmts;             // 返回一个包含单个语句的向量
 }
-//赋值语句
+// 赋值语句
 antlrcpp::Any ASTNodeVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx)
 {
     // 访问左值
     auto lval = AS(ctx->lVal()->accept(this), Ptr<ast::LValueExprNode>);
     // 访问表达式
     auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
-    auto ret=makePtr<ast::AssignStmtNode>(Move(lval),Move(exp));
+    auto ret = makePtr<ast::AssignStmtNode>(Move(lval), Move(exp));
     // 创建赋值语句节点
     return Scast<Ptr<ast::StmtNode>>(Move(ret)); // 统一返回基类stmtNode
 }
-//表达式语句
+// 表达式语句
 antlrcpp::Any ASTNodeVisitor::visitExprStmt(SysYParser::ExprStmtContext *ctx)
 {
-   if(ctx->exp())
-   {
-       // 访问表达式
-       auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
-       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(Move(exp));
-       exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
-       return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
-   }
-   else
-   {
-    //没有表达式直接返回
-       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(nullptr);
-       exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
-       return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
-   }
+    if (ctx->exp())
+    {
+        // 访问表达式
+        auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
+        Ptr<ast::ExprStmtNode> exprStmtNode = makePtr<ast::ExprStmtNode>(Move(exp));
+        exprStmtNode->line = ctx->getStart()->getLine();      // 设置行号
+        return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
+    }
+    else
+    {
+        // 没有表达式直接返回
+        Ptr<ast::ExprStmtNode> exprStmtNode = makePtr<ast::ExprStmtNode>(nullptr);
+        exprStmtNode->line = ctx->getStart()->getLine();      // 设置行号
+        return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
+    }
 }
 // 语句块
 antlrcpp::Any ASTNodeVisitor::visitBlockStmt(SysYParser::BlockStmtContext *ctx)
@@ -376,7 +378,7 @@ antlrcpp::Any ASTNodeVisitor::visitBlockStmt(SysYParser::BlockStmtContext *ctx)
     auto blockItems = AS(ctx->block()->accept(this), Ptr<ast::BlockStmtNode>);
     return Scast<Ptr<ast::StmtNode>>(Move(blockItems)); // 返回块语句节点
 }
-//if语句
+// if语句
 antlrcpp::Any ASTNodeVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx)
 {
     // 访问条件表达式
@@ -389,7 +391,7 @@ antlrcpp::Any ASTNodeVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx)
         // 如果有 else 分支，访问 else 语句块
         elseBlock = AS(ctx->stmt(1)->accept(this), Ptr<ast::StmtNode>);
     }
-        Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(elseBlock));
+    Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(elseBlock));
     return Scast<Ptr<ast::StmtNode>>(Move(ifStmtNode)); // 返回 if 语句节点
 }
 antlrcpp::Any ASTNodeVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx)
@@ -405,17 +407,17 @@ antlrcpp::Any ASTNodeVisitor::visitBreakStmt(SysYParser::BreakStmtContext *ctx)
 {
     // 创建 Break 语句节点
     auto breakStmtNode = makePtr<ast::BreakStmtNode>();
-    //行号debug信息
-    breakStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 行号debug信息
+    breakStmtNode->line = ctx->getStart()->getLine();      // 设置行号
     return Scast<Ptr<ast::StmtNode>>(Move(breakStmtNode)); // 返回 Break 语句节点
 }
-//continue语句
+// continue语句
 antlrcpp::Any ASTNodeVisitor::visitContinueStmt(SysYParser::ContinueStmtContext *ctx)
 {
     // 创建 Continue 语句节点
     auto continueStmtNode = makePtr<ast::ContinueStmtNode>();
-    //行号debug信息
-    continueStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 行号debug信息
+    continueStmtNode->line = ctx->getStart()->getLine();      // 设置行号
     return Scast<Ptr<ast::StmtNode>>(Move(continueStmtNode)); // 返回 Continue 语句节点
 }
 // return语句
@@ -428,8 +430,8 @@ antlrcpp::Any ASTNodeVisitor::visitReturnStmt(SysYParser::ReturnStmtContext *ctx
         retValue = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
     }
     auto returnStmtNode = makePtr<ast::ReturnStmtNode>(Move(retValue));
-    //行号debug信息
-    returnStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 行号debug信息
+    returnStmtNode->line = ctx->getStart()->getLine();      // 设置行号
     return Scast<Ptr<ast::StmtNode>>(Move(returnStmtNode)); // 返回 Return 语句节点
 }
 // 表达式 exp
@@ -551,45 +553,36 @@ antlrcpp::Any ASTNodeVisitor::visitOpNot(SysYParser::OpNotContext *ctx)
 {
     return UnaryOp::Not; // 返回逻辑非操作符
 }
-// funcRParams
-antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *ctx)
+
+// mulExp
+antlrcpp::Any ASTNodeVisitor::visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext *ctx)
 {
-    vector<shared_ptr<ExprNode>> params;
-    for (auto expCtx : ctx->exp())
-    {
-        auto param = std::any_cast<shared_ptr<ExprNode>>(visit(expCtx));
-        params.push_back(param);
-    }
-    return params; // 返回参数列表
+    return visit(ctx->unaryExp());
 }
-    // mulExp
-antlrcpp::Any  ASTNodeVisitor::visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext * ctx){
-        return visit(ctx->unaryExp());
-    }
- antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext * ctx)
+antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext *ctx)
+{
+    auto mulExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->mulExp()));
+    auto unaryExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
+    string op = ctx->children[1]->getText(); // 获取操作符
+    BinaryOp binaryOp;
+    if (op == "*")
     {
-        auto mulExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->mulExp()));
-        auto unaryExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
-        string op = ctx->children[1]->getText(); // 获取操作符
-        BinaryOp binaryOp;
-        if (op == "*")
-        {
-            binaryOp = BinaryOp::Mul;
-        }
-        else if (op == "/")
-        {
-            binaryOp = BinaryOp::Div;
-        }
-        else if (op == "%")
-        {
-            binaryOp = BinaryOp::Mod;
-        }
-        else
-        {
-            throw std::invalid_argument("Unknown binary operator: " + op);
-        }
-        return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp));
+        binaryOp = BinaryOp::Mul;
     }
+    else if (op == "/")
+    {
+        binaryOp = BinaryOp::Div;
+    }
+    else if (op == "%")
+    {
+        binaryOp = BinaryOp::Mod;
+    }
+    else
+    {
+        throw std::invalid_argument("Unknown binary operator: " + op);
+    }
+    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp));
+}
 // addExp
 antlrcpp::Any ASTNodeVisitor::visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx)
 {
@@ -690,10 +683,6 @@ antlrcpp::Any ASTNodeVisitor::visitLandOpExp(SysYParser::LandOpExpContext *ctx)
     return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lAndExp, eqExp, BinaryOp::And));
 }
 // lOrExp
-antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx)
-{
-    return visit(ctx->lAndExp());
-}
 antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
 {
     auto lOrExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->lOrExp()));
@@ -727,4 +716,8 @@ antlrcpp::Any ASTNodeVisitor::visitFloatConst(SysYParser::FloatConstContext *ctx
 {
     // 返回浮点常量的文本
     return ctx->getText();
+}
+antlrcpp::Any ASTNodeVisitor::visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx)
+{
+    return visit(ctx->eqExp());
 }

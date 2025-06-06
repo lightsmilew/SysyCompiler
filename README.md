@@ -1,3 +1,12 @@
 # SysY 编译器
 
-## 功能
+## 操作
+### 编译
+
+```bash
+rm -rf build
+mkdir build
+cd build
+cmake ..
+make
+```
