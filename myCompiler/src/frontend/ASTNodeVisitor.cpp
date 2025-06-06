@@ -279,15 +279,17 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     String identifier = ctx->ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
-    dataType._arraySizes.emplace_back(-1);// 数组维度为0，表示省略
+    Vector<Ptr<ast::ExprNode>> arraySizes;
+    arraySizes.emplace_back(-1);// 数组维度为0，表示省略
     for(auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
-        dataType._arraySizes.emplace_back(exp);
+        arraySizes.emplace_back(exp);
     }
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    paramNode->indices = Move(arraySizes); // 设置数组维度
     return paramNode; // 返回函数参数节点
 }
 // 处理函数参数(数组 有第一维度)
@@ -296,13 +298,15 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
     String identifier = ctx->ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
+    Vector<Ptr<ast::ExprNode>> arraySizes;
     for (auto expCtx : ctx->constExp())
     {
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
-        dataType._arraySizes.emplace_back(exp);
+        arraySizes.emplace_back(exp);
     }
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    paramNode->indices = Move(arraySizes); // 设置数组维度
     return paramNode; // 返回函数参数节点
 }
 // 语句块
