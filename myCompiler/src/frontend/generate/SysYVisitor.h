@@ -137,12 +137,6 @@ public:
 
     virtual std::any visitConstExp(SysYParser::ConstExpContext *context) = 0;
 
-    virtual std::any visitIdent(SysYParser::IdentContext *context) = 0;
-
-    virtual std::any visitIntConst(SysYParser::IntConstContext *context) = 0;
-
-    virtual std::any visitFloatConst(SysYParser::FloatConstContext *context) = 0;
-
 
 };
 

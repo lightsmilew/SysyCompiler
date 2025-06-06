@@ -28,7 +28,7 @@ public:
     RuleLVal = 18, RulePrimaryExp = 19, RuleNumber = 20, RuleUnaryExp = 21, 
     RuleUnaryOp = 22, RuleFuncRParams = 23, RuleMulExp = 24, RuleAddExp = 25, 
     RuleRelExp = 26, RuleEqExp = 27, RuleLAndExp = 28, RuleLOrExp = 29, 
-    RuleConstExp = 30, RuleIdent = 31, RuleIntConst = 32, RuleFloatConst = 33
+    RuleConstExp = 30
   };
 
   explicit SysYParser(antlr4::TokenStream *input);
@@ -78,10 +78,7 @@ public:
   class EqExpContext;
   class LAndExpContext;
   class LOrExpContext;
-  class ConstExpContext;
-  class IdentContext;
-  class IntConstContext;
-  class FloatConstContext; 
+  class ConstExpContext; 
 
   class  CompUnitContext : public antlr4::ParserRuleContext {
   public:
@@ -189,7 +186,7 @@ public:
   public:
     ConstDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     antlr4::tree::TerminalNode *ASSIGN();
     ConstInitValContext *constInitVal();
     std::vector<antlr4::tree::TerminalNode *> LBRACKET();
@@ -266,7 +263,7 @@ public:
   public:
     VarDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     std::vector<antlr4::tree::TerminalNode *> LBRACKET();
     antlr4::tree::TerminalNode* LBRACKET(size_t i);
     std::vector<ConstExpContext *> constExp();
@@ -326,7 +323,7 @@ public:
     FuncDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     FuncTypeContext *funcType();
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     antlr4::tree::TerminalNode *LPAREN();
     antlr4::tree::TerminalNode *RPAREN();
     BlockContext *block();
@@ -406,7 +403,7 @@ public:
     ArrayParamNoSizeContext(FuncFParamContext *ctx);
 
     BTypeContext *bType();
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     std::vector<antlr4::tree::TerminalNode *> LBRACKET();
     antlr4::tree::TerminalNode* LBRACKET(size_t i);
     std::vector<antlr4::tree::TerminalNode *> RBRACKET();
@@ -422,7 +419,7 @@ public:
     ArrayParamWithSizeContext(FuncFParamContext *ctx);
 
     BTypeContext *bType();
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     std::vector<antlr4::tree::TerminalNode *> LBRACKET();
     antlr4::tree::TerminalNode* LBRACKET(size_t i);
     std::vector<ConstExpContext *> constExp();
@@ -438,7 +435,7 @@ public:
     ScalarParamContext(FuncFParamContext *ctx);
 
     BTypeContext *bType();
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -629,7 +626,7 @@ public:
   public:
     LValContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     std::vector<antlr4::tree::TerminalNode *> LBRACKET();
     antlr4::tree::TerminalNode* LBRACKET(size_t i);
     std::vector<ExpContext *> exp();
@@ -705,7 +702,7 @@ public:
   public:
     FloatNumContext(NumberContext *ctx);
 
-    FloatConstContext *floatConst();
+    antlr4::tree::TerminalNode *FloatConst();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -714,7 +711,7 @@ public:
   public:
     IntNumContext(NumberContext *ctx);
 
-    IntConstContext *intConst();
+    antlr4::tree::TerminalNode *IntConst();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -757,7 +754,7 @@ public:
   public:
     CallExpContext(UnaryExpContext *ctx);
 
-    IdentContext *ident();
+    antlr4::tree::TerminalNode *Ident();
     antlr4::tree::TerminalNode *LPAREN();
     antlr4::tree::TerminalNode *RPAREN();
     FuncRParamsContext *funcRParams();
@@ -1054,45 +1051,6 @@ public:
   };
 
   ConstExpContext* constExp();
-
-  class  IdentContext : public antlr4::ParserRuleContext {
-  public:
-    IdentContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *Ident();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  IdentContext* ident();
-
-  class  IntConstContext : public antlr4::ParserRuleContext {
-  public:
-    IntConstContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *IntConst();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  IntConstContext* intConst();
-
-  class  FloatConstContext : public antlr4::ParserRuleContext {
-  public:
-    FloatConstContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *FloatConst();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  FloatConstContext* floatConst();
 
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
