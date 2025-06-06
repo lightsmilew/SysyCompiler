@@ -343,9 +343,9 @@ antlrcpp::Any ASTNodeVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx
     auto lval = AS(ctx->lVal()->accept(this), Ptr<ast::LValueExprNode>);
     // 访问表达式
     auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
-    auto ret=makePtr<ast::AssignStmtNode>(lval, exp);
+    auto ret=makePtr<ast::AssignStmtNode>(Move(lval),Move(exp));
     // 创建赋值语句节点
-    return Scast<Ptr<ast::StmtNode>>(ret); // 统一返回基类stmtNode
+    return Scast<Ptr<ast::StmtNode>>(Move(ret)); // 统一返回基类stmtNode
 }
 //表达式语句
 antlrcpp::Any ASTNodeVisitor::visitExprStmt(SysYParser::ExprStmtContext *ctx)
@@ -354,18 +354,79 @@ antlrcpp::Any ASTNodeVisitor::visitExprStmt(SysYParser::ExprStmtContext *ctx)
    {
        // 访问表达式
        auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
-       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(exp);
+       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(Move(exp));
        exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
-       return Scast<Ptr<ast::StmtNode>>(exprStmtNode); // 返回表达式语句节点
+       return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
    }
    else
    {
     //没有表达式直接返回
        Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(nullptr);
        exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
-       return Scast<Ptr<ast::StmtNode>>(exprStmtNode); // 返回表达式语句节点
+       return Scast<Ptr<ast::StmtNode>>(Move(exprStmtNode)); // 返回表达式语句节点
    }
-
+}
+// 语句块
+antlrcpp::Any ASTNodeVisitor::visitBlockStmt(SysYParser::BlockStmtContext *ctx)
+{
+    auto blockItems = AS(ctx->block()->accept(this), Ptr<ast::BlockStmtNode>);
+    return Scast<Ptr<ast::StmtNode>>(Move(blockItems)); // 返回块语句节点
+}
+//if语句
+antlrcpp::Any ASTNodeVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx)
+{
+    // 访问条件表达式
+    auto cond = AS(ctx->cond()->accept(this), Ptr<ast::ExprNode>);
+    // 访问 if 语句块
+    auto thenBlock = AS(ctx->stmt(0)->accept(this), Ptr<ast::StmtNode>);
+    Ptr<ast::StmtNode> elseBlock = nullptr;
+    if (ctx->ELSE())
+    {
+        // 如果有 else 分支，访问 else 语句块
+        elseBlock = AS(ctx->stmt(1)->accept(this), Ptr<ast::StmtNode>);
+    }
+        Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(lseBlock));
+    return Scast<Ptr<ast::StmtNode>>(Move(ifStmtNode)); // 返回 if 语句节点
+}
+antlrcpp::Any ASTNodeVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx)
+{
+    // 访问条件表达式
+    auto cond = AS(ctx->cond()->accept(this), Ptr<ast::ExprNode>);
+    // 访问 while 语句块
+    auto body = AS(ctx->stmt()->accept(this), Ptr<ast::StmtNode>);
+    auto whileStmtNode = makePtr<ast::WhileStmtNode>(Move(cond), Move(body));
+    return Scast<Ptr<ast::StmtNode>>(Move(whileStmtNode)); // 返回 while 语句节点
+}
+antlrcpp::Any ASTNodeVisitor::visitBreakStmt(SysYParser::BreakStmtContext *ctx)
+{
+    // 创建 Break 语句节点
+    auto breakStmtNode = makePtr<ast::BreakStmtNode>();
+    //行号debug信息
+    breakStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    return Scast<Ptr<ast::StmtNode>>(Move(breakStmtNode)); // 返回 Break 语句节点
+}
+//continue语句
+antlrcpp::Any ASTNodeVisitor::visitContinueStmt(SysYParser::ContinueStmtContext *ctx)
+{
+    // 创建 Continue 语句节点
+    auto continueStmtNode = makePtr<ast::ContinueStmtNode>();
+    //行号debug信息
+    continueStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    return Scast<Ptr<ast::StmtNode>>(Move(continueStmtNode)); // 返回 Continue 语句节点
+}
+// return语句
+antlrcpp::Any ASTNodeVisitor::visitReturnStmt(SysYParser::ReturnStmtContext *ctx)
+{
+    Ptr<ast::ExprNode> retValue = nullptr; // 默认没有返回值
+    if (ctx->exp())
+    {
+        // 如果有返回值，访问表达式
+        retValue = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
+    }
+    auto returnStmtNode = makePtr<ast::ReturnStmtNode>(Move(retValue));
+    //行号debug信息
+    returnStmtNode->line = ctx->getStart()->getLine(); // 设置行号
+    return Scast<Ptr<ast::StmtNode>>(Move(returnStmtNode)); // 返回 Return 语句节点
 }
 // 表达式 exp
 antlrcpp::Any ASTNodeVisitor::visitExp(SysYParser::ExpContext *ctx)
