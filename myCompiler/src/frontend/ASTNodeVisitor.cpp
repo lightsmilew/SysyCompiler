@@ -385,7 +385,7 @@ antlrcpp::Any ASTNodeVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx)
         // 如果有 else 分支，访问 else 语句块
         elseBlock = AS(ctx->stmt(1)->accept(this), Ptr<ast::StmtNode>);
     }
-        Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(lseBlock));
+        Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(elseBlock));
     return Scast<Ptr<ast::StmtNode>>(Move(ifStmtNode)); // 返回 if 语句节点
 }
 antlrcpp::Any ASTNodeVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx)

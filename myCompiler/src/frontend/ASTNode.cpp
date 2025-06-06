@@ -199,55 +199,55 @@ namespace ast
     // BinaryExpr
     string BinaryExprNode::toString() const
     {
-        if (op == ADD)
+        if (op == BinaryOp::Add)
         {
             return "BinaryExprNode: " + left->toString() + " + " + right->toString();
         }
-        else if (op == SUB)
+        else if (op == BinaryOp::Sub)
         {
             return "BinaryExprNode: " + left->toString() + " - " + right->toString();
         }
-        else if (op == MUL)
+        else if (op == BinaryOp::Mul)
         {
             return "BinaryExprNode: " + left->toString() + " * " + right->toString();
         }
-        else if (op == DIV)
+        else if (op == BinaryOp::Div)
         {
             return "BinaryExprNode: " + left->toString() + " / " + right->toString();
         }
-        else if (op == MOD)
+        else if (op == BinaryOp::Mod)
         {
             return "BinaryExprNode: " + left->toString() + " % " + right->toString();
         }
-        else if (op == Lt)
+        else if (op == BinaryOp::Lt)
         {
             return "BinaryExprNode: " + left->toString() + " < " + right->toString();
         }
-        else if (op == Gt)
+        else if (op == BinaryOp::Gt)
         {
             return "BinaryExprNode: " + left->toString() + " > " + right->toString();
         }
-        else if (op == Le)
+        else if (op == BinaryOp::Le)
         {
             return "BinaryExprNode: " + left->toString() + " <= " + right->toString();
         }
-        else if (op == Ge)
+        else if (op == BinaryOp::Ge)
         {
             return "BinaryExprNode: " + left->toString() + " >= " + right->toString();
         }
-        else if (op == Eq)
+        else if (op == BinaryOp::Eq)
         {
             return "BinaryExprNode: " + left->toString() + " == " + right->toString();
         }
-        else if (op == Ne)
+        else if (op == BinaryOp::Ne)
         {
             return "BinaryExprNode: " + left->toString() + " != " + right->toString();
         }
-        else if (op == And)
+        else if (op == BinaryOp::And)
         {
             return "BinaryExprNode: " + left->toString() + " && " + right->toString();
         }
-        else if (op == Or)
+        else if (op == BinaryOp::Or)
         {
             return "BinaryExprNode: " + left->toString() + " || " + right->toString();
         }
@@ -273,15 +273,15 @@ namespace ast
     // UnaryExpr
     string UnaryExprNode::toString() const
     {
-        if (op == ADD)
+        if (op == UnaryOp::Plus)
         {
             return "UnaryExprNode: +" + operand->toString();
         }
-        else if (op == SUB)
+        else if (op == UnaryOp::Minus)
         {
             return "UnaryExprNode: -" + operand->toString();
         }
-        else if (op == NOT)
+        else if (op == UnaryOp::Not)
         {
             return "UnaryExprNode: !" + operand->toString();
         }
