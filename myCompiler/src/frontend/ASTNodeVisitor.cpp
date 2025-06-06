@@ -361,7 +361,7 @@ antlrcpp::Any ASTNodeVisitor::visitExprStmt(SysYParser::ExprStmtContext *ctx)
    else
    {
     //没有表达式直接返回
-       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(exp);
+       Ptr<ast::ExprStmtNode> exprStmtNode=makePtr<ast::ExprStmtNode>(nullptr);
        exprStmtNode->line=ctx->getStart()->getLine(); // 设置行号
        return Scast<Ptr<ast::StmtNode>>(exprStmtNode); // 返回表达式语句节点
    }
