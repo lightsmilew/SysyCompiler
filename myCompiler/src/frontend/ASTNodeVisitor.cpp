@@ -263,7 +263,7 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
     }
     return params; // 返回函数参数列表
 }
-}
+
 //处理函数参数(非数组)
 antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *ctx) {
     String identifier = ctx->ident()->getText();
@@ -360,11 +360,11 @@ antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx
     UnaryOp unaryOp;
     if (op == "+")
     {
-        unaryOp = UnaryOp::Add;
+        unaryOp = UnaryOp::Plus;
     }
     else if (op == "-")
     {
-        unaryOp = UnaryOp::Sub;
+        unaryOp = UnaryOp::Minus;
     }
     else if (op == "!")
     {
@@ -382,11 +382,11 @@ antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx
 // unaryOp
 antlrcpp::Any ASTNodeVisitor::visitOpPlus(SysYParser::OpPlusContext *ctx)
 {
-    return UnaryOp::Add; // 返回一元加操作符
+    return UnaryOp::Plus; // 返回一元加操作符
 }
 antlrcpp::Any ASTNodeVisitor::visitOpMinus(SysYParser::OpMinusContext *ctx)
 {
-    return UnaryOp::Sub; // 返回一元减操作符
+    return UnaryOp::Minus; // 返回一元减操作符
 }
 antlrcpp::Any ASTNodeVisitor::visitOpNot(SysYParser::OpNotContext *ctx)
 {
@@ -402,12 +402,12 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
         params.push_back(param);
     }
     return params; // 返回参数列表
+}
     // mulExp
-    antlrcpp::Any ASTNodeVisitor::visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext * ctx)
-    {
+antlrcpp::Any  ASTNodeVisitor::visitToUnaryExp_mul(SysYParser::ToUnaryExp_mulContext * ctx){
         return visit(ctx->unaryExp());
     }
-    antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext * ctx)
+ antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext * ctx)
     {
         auto mulExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->mulExp()));
         auto unaryExp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
@@ -431,7 +431,6 @@ antlrcpp::Any ASTNodeVisitor::visitFuncRParams(SysYParser::FuncRParamsContext *c
         }
         return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp));
     }
-};
 // addExp
 antlrcpp::Any ASTNodeVisitor::visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx)
 {
@@ -548,24 +547,24 @@ antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
     return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or));
 }
 
-antlrcpp::any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
+antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
 {
     // 访问常量表达式
     auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
     constexp->isConst = true; // 设置为常量表达式
     return constexp;          // 返回常量表达式
 }
-antlrcpp::any ASTNodeVisitor::visitIdent(SysYParser::IdentContext *ctx)
+antlrcpp::Any ASTNodeVisitor::visitIdent(SysYParser::IdentContext *ctx)
 {
     // 返回标识符的文本
     return ctx->getText();
 }
-antlrcpp::any ASTNodeVisitor::visitIntConst(SysYParser::IntConstContext *ctx)
+antlrcpp::Any ASTNodeVisitor::visitIntConst(SysYParser::IntConstContext *ctx)
 {
     // 返回整数常量的文本
     return ctx->getText();
 }
-antlrcpp::any ASTNodeVisitor::visitFloatConst(SysYParser::FloatConstContext *ctx)
+antlrcpp::Any ASTNodeVisitor::visitFloatConst(SysYParser::FloatConstContext *ctx)
 {
     // 返回浮点常量的文本
     return ctx->getText();
