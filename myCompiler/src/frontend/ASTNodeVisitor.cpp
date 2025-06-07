@@ -321,8 +321,8 @@ antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
     Vector<Ptr<ast::StmtNode>> blockItems;
     for (auto itemCtx : ctx->blockItem())
     {
-        auto item = AS(itemCtx->accept(this), Ptr<ast::StmtNode>);
-        blockItems.emplace_back(item);
+        auto item = AS(itemCtx->accept(this), Vector<Ptr<ast::StmtNode>>);
+        blockItems.insert(blockItems.end(),item.begin(),item.end());
     }
     return makePtr<ast::BlockStmtNode>(Move(blockItems)); // 返回一个 BlockStmtNode
 }

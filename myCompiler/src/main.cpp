@@ -26,9 +26,8 @@ int main(int argc, const char *argv[])
     // parse_visitor.visit(tree);
     // cout << tree->toStringTree(&parser, true) << endl;
     ASTNodeVisitor ast_visitor;
-    ast_visitor.visit(tree);
     cout << "AST visitor finished." << endl;
-    auto ast_root = ast_visitor.compileUnit();
+    auto ast_root =AS(ast_visitor.visit(tree),Ptr<ast::CompUnitNode>);
     cout << "AST: " << endl;
     ast_root->print(cout, 0);
     cout << "Compilation finished successfully." << endl;
