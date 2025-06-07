@@ -29,7 +29,7 @@ public:
     // 变量声明 varDecl
     virtual antlrcpp::Any visitVarDecl(SysYParser::VarDeclContext *ctx) override;
     // varDef
-    virtual antlrcpp::Any visitVarDef(SysYParser::VarDefContext *ctx) override;
+    //virtual antlrcpp::Any visitVarDef(SysYParser::VarDefContext *ctx) override;
     // initVal
     virtual antlrcpp::Any visitInitExpr(SysYParser::InitExprContext *ctx) override;
     virtual antlrcpp::Any visitInitList(SysYParser::InitListContext *ctx) override;

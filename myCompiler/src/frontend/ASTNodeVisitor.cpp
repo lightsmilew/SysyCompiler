@@ -28,6 +28,9 @@ PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
 {
     return compUnit;
 }
+int ASTNodeVisitor:: handleFunctionDef(Ptr<ast::FuncNode> func){
+    return 0;
+}
 antlrcpp::Any ASTNodeVisitor::visitCompUnit(SysYParser::CompUnitContext *const ctx)
 {
     // 符号表

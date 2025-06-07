@@ -27,6 +27,7 @@ int main(int argc, const char *argv[])
     // cout << tree->toStringTree(&parser, true) << endl;
     ASTNodeVisitor ast_visitor;
     ast_visitor.visit(tree);
+    cout << "AST visitor finished." << endl;
     auto ast_root = ast_visitor.compileUnit();
     cout << "AST: " << endl;
     ast_root->print(cout, 0);
