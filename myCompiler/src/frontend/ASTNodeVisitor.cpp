@@ -224,10 +224,12 @@ antlrcpp::Any ASTNodeVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx)
     String funcName = ctx->Ident()->getText();
     // 获取函数参数列表
     Vector<Ptr<ast::DeclStmtNode>> params;
-    for (auto paramCtx : ctx->funcFParams()->funcFParam())
-    {
+    if(ctx->funcFParams()){
+        for (auto paramCtx : ctx->funcFParams()->funcFParam())
+        {
         auto param = AS(paramCtx->accept(this), Ptr<ast::DeclStmtNode>);
         params.emplace_back(param);
+        }
     }
     auto bodyptr = AS(visit(ctx->block()), Ptr<ast::BlockStmtNode>);
     // 创建函数节点
