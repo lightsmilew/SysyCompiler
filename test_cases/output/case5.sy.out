@@ -1,2 +1,128 @@
-terminate called after throwing an instance of 'std::bad_any_cast'
-  what():  bad any_cast
+CompUnitNode
+  DeclStmtNode: val0 : float = InitExprNode: InitExprNode: UnaryExprNode: -FloatLiteralExprNode: 3.500000
+
+  DeclStmtNode: val1 : int = InitExprNode: BinaryExprNode: LValueExprNode: val0 + IntegerLiteralExprNode: 6
+
+  DeclStmtNode: arr : int = InitExprNode: {InitExprNode: {}, InitExprNode: {InitExprNode: UnaryExprNode: -FloatLiteralExprNode: 5.500000, InitExprNode: UnaryExprNode: -IntegerLiteralExprNode: 8}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 9, InitExprNode: FloatLiteralExprNode: 10.100000, InitExprNode: IntegerLiteralExprNode: 11}}
+
+  DeclStmtNode: arrf : float = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 0}
+
+  Function
+    int f(
+      Parameters:
+        DeclStmtNode: x : float
+    )
+    BlockStmtNode
+      AssignStmtNode
+        LValueExprNode: val1
+        BinaryExprNode: LValueExprNode: x + IntegerLiteralExprNode: 1
+          LValueExprNode: x
+          IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: val1
+  Function
+    int g(
+      Parameters:
+        DeclStmtNode: a : int
+    )
+    BlockStmtNode
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 4
+      IfElseStmtNode
+        IntegerLiteralExprNode: 1
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: a
+            IntegerLiteralExprNode: 5
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: val1
+            LValueExprNode: a
+      DeclStmtNode: r : int = InitExprNode: CallExprNode: f(BinaryExprNode: LValueExprNode: a + LValueExprNode: val0)
+
+      ReturnStmtNode
+        LValueExprNode: r
+  Function
+    void h(
+      Parameters:
+        DeclStmtNode: y : int
+    )
+    BlockStmtNode
+      DeclStmtNode: w : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      IfElseStmtNode
+        LValueExprNode: w
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: val1
+            UnaryExprNode: !LValueExprNode: y
+              LValueExprNode: y
+          ReturnStmtNode
+      AssignStmtNode
+        LValueExprNode: w
+        IntegerLiteralExprNode: 1
+      IfElseStmtNode
+        LValueExprNode: w
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: w
+            BinaryExprNode: LValueExprNode: y + CallExprNode: g(LValueExprNode: y)
+              LValueExprNode: y
+              CallExprNode: g(LValueExprNode: y)
+Callee: g
+                LValueExprNode: y
+          ReturnStmtNode
+      DeclStmtNode: z : int = InitExprNode: BinaryExprNode: LValueExprNode: w + IntegerLiteralExprNode: 2
+
+  Function
+    int main(
+      Parameters:
+        DeclStmtNode: i : int
+        DeclStmtNode: j : int
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 2
+
+      DeclStmtNode: k : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      ExprStmtNode
+        CallExprNode: h(IntegerLiteralExprNode: 5)
+Callee: h
+          IntegerLiteralExprNode: 5
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: a >= IntegerLiteralExprNode: 0
+          LValueExprNode: a
+          IntegerLiteralExprNode: 0
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: a
+            LValueExprNode: k
+          IfElseStmtNode
+            BinaryExprNode: LValueExprNode: a == IntegerLiteralExprNode: 10
+              LValueExprNode: a
+              IntegerLiteralExprNode: 10
+            BlockStmtNode
+              DeclStmtNode: test1 : float = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+
+              AssignStmtNode
+                LValueExprNode: k
+                LValueExprNode: test1
+                  IntegerLiteralExprNode: 1
+                  IntegerLiteralExprNode: 2
+              BreakStmt
+            BlockStmtNode
+              DeclStmtNode: test2 : float = InitExprNode: IntegerLiteralExprNode: 4
+
+              AssignStmtNode
+                LValueExprNode: k
+                BinaryExprNode: LValueExprNode: a + LValueExprNode: arr
+                  LValueExprNode: a
+                  LValueExprNode: arr
+                    IntegerLiteralExprNode: 2
+                    IntegerLiteralExprNode: 3
+              ContinueStmt
+      ReturnStmtNode
+        LValueExprNode: k

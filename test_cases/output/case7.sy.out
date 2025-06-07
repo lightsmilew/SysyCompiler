@@ -1,2 +1,36 @@
-terminate called after throwing an instance of 'std::bad_any_cast'
-  what():  bad any_cast
+CompUnitNode
+  DeclStmtNode: val1 : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 10
+
+  DeclStmtNode: val2 : float = InitExprNode: InitExprNode: BinaryExprNode: FloatLiteralExprNode: 2.330000 * LValueExprNode: val1
+
+  DeclStmtNode: val3 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: UnaryExprNode: -FloatLiteralExprNode: 1.500000 * LValueExprNode: val1 + BinaryExprNode: IntegerLiteralExprNode: 2 * LValueExprNode: val2
+
+  Function
+    int foo(
+      Parameters:
+        DeclStmtNode: i : int
+        DeclStmtNode: j : int
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: BinaryExprNode: LValueExprNode: i + UnaryExprNode: -LValueExprNode: j
+
+      DeclStmtNode: b : int = InitExprNode: LValueExprNode: val2
+
+      IfElseStmtNode
+        BinaryExprNode: LValueExprNode: a <= BinaryExprNode: LValueExprNode: val1 - LValueExprNode: j
+          LValueExprNode: a
+          BinaryExprNode: LValueExprNode: val1 - LValueExprNode: j
+            LValueExprNode: val1
+            LValueExprNode: j
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: j
+            LValueExprNode: val3
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: j
+            LValueExprNode: val1
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a + LValueExprNode: j
+          LValueExprNode: a
+          LValueExprNode: j

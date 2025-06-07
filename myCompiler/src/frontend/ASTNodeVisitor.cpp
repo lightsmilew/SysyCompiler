@@ -28,7 +28,8 @@ PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
 {
     return compUnit;
 }
-int ASTNodeVisitor:: handleFunctionDef(Ptr<ast::FuncNode> func){
+int ASTNodeVisitor::handleFunctionDef(Ptr<ast::FuncNode> func)
+{
     return 0;
 }
 antlrcpp::Any ASTNodeVisitor::visitCompUnit(SysYParser::CompUnitContext *const ctx)
@@ -224,11 +225,12 @@ antlrcpp::Any ASTNodeVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx)
     String funcName = ctx->Ident()->getText();
     // 获取函数参数列表
     Vector<Ptr<ast::DeclStmtNode>> params;
-    if(ctx->funcFParams()){
+    if (ctx->funcFParams())
+    {
         for (auto paramCtx : ctx->funcFParams()->funcFParam())
         {
-        auto param = AS(paramCtx->accept(this), Ptr<ast::DeclStmtNode>);
-        params.emplace_back(param);
+            auto param = AS(paramCtx->accept(this), Ptr<ast::DeclStmtNode>);
+            params.emplace_back(param);
         }
     }
     auto bodyptr = AS(visit(ctx->block()), Ptr<ast::BlockStmtNode>);
@@ -322,7 +324,7 @@ antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
     for (auto itemCtx : ctx->blockItem())
     {
         auto item = AS(itemCtx->accept(this), Vector<Ptr<ast::StmtNode>>);
-        blockItems.insert(blockItems.end(),item.begin(),item.end());
+        blockItems.insert(blockItems.end(), item.begin(), item.end());
     }
     return makePtr<ast::BlockStmtNode>(Move(blockItems)); // 返回一个 BlockStmtNode
 }
@@ -498,7 +500,7 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
-    std::string text = AS(visit(ctx->FloatConst()), std::string);
+    std::string text = ctx->FloatConst()->getText();
     float floatValue = std::stof(text);
     return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<FloatLiteralExprNode>(floatValue));
 }
