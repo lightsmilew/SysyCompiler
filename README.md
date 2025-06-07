@@ -13,6 +13,11 @@ java -jar /path/to/antlr-4.13.2-complete.jar -Dlanguage=Cpp -no-listener -visito
 rm -rf build
 mkdir build
 cd build
+# 如果需要调试信息，可以使用 Debug 模式
+# 如果需要优化，可以使用 Release 模式
 cmake ..
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
+
 make
 ```
