@@ -1,0 +1,59 @@
+CompUnitNode
+  Function
+    int ifWhile(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 0
+      DeclStmtNode: b : int
+      AssignStmtNode
+        LValueExprNode: b
+        IntegerLiteralExprNode: 3
+      IfElseStmtNode
+        BinaryExprNode: LValueExprNode: a == IntegerLiteralExprNode: 5
+          LValueExprNode: a
+          IntegerLiteralExprNode: 5
+        BlockStmtNode
+          WhileStmtNode
+            BinaryExprNode: LValueExprNode: b == IntegerLiteralExprNode: 2
+              LValueExprNode: b
+              IntegerLiteralExprNode: 2
+            BlockStmtNode
+              AssignStmtNode
+                LValueExprNode: b
+                BinaryExprNode: LValueExprNode: b + IntegerLiteralExprNode: 2
+                  LValueExprNode: b
+                  IntegerLiteralExprNode: 2
+          AssignStmtNode
+            LValueExprNode: b
+            BinaryExprNode: LValueExprNode: b + IntegerLiteralExprNode: 25
+              LValueExprNode: b
+              IntegerLiteralExprNode: 25
+        WhileStmtNode
+          BinaryExprNode: LValueExprNode: a < IntegerLiteralExprNode: 5
+            LValueExprNode: a
+            IntegerLiteralExprNode: 5
+          BlockStmtNode
+            AssignStmtNode
+              LValueExprNode: b
+              BinaryExprNode: LValueExprNode: b * IntegerLiteralExprNode: 2
+                LValueExprNode: b
+                IntegerLiteralExprNode: 2
+            AssignStmtNode
+              LValueExprNode: a
+              BinaryExprNode: LValueExprNode: a + IntegerLiteralExprNode: 1
+                LValueExprNode: a
+                IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: b
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        CallExprNode: ifWhile()
+Callee: ifWhile

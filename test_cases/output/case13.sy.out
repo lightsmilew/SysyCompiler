@@ -1,0 +1,30 @@
+line 7:9 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
+CompUnitNode
+  Function
+    int testFunction(
+      Parameters:
+        DeclStmtNode: input : int
+        DeclStmtNode: length : int
+    )
+    BlockStmtNode
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      DeclStmtNode: sum : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < LValueExprNode: length
+          LValueExprNode: i
+          LValueExprNode: length
+        BlockStmtNode
+          ExprStmtNode
+            BinaryExprNode: LValueExprNode: sum + LValueExprNode: input
+              LValueExprNode: sum
+              LValueExprNode: input
+                LValueExprNode: i
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: sum

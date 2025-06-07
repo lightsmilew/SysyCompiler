@@ -1,0 +1,15 @@
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1}
+
+      AssignStmtNode
+        LValueExprNode: a
+          IntegerLiteralExprNode: 8
+        IntegerLiteralExprNode: 2
+      ReturnStmtNode
+        LValueExprNode: a
+          IntegerLiteralExprNode: 1

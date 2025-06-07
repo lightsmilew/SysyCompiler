@@ -1,0 +1,5 @@
+line 21:24 extraneous input 'float' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
+line 22:11 mismatched input ';' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
+line 42:11 mismatched input ';' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
+terminate called after throwing an instance of 'std::bad_any_cast'
+  what():  bad any_cast

@@ -1,0 +1,52 @@
+const float val0 = -3.5;
+int val1 = val0 + 6;
+int arr[5][10000] = {{}, {-5.5, -8}, {9, 10.1, 11}};
+const float arrf[6] = {1, 2, 3, 4, 0};
+
+int f(float x) {
+    val1 = x + 1;
+    return val1;
+}
+
+int g(int a) {
+    a = 4;
+    if (1) {
+        a = 5;
+    } else {
+        val1 = a;
+    }
+    int r = f(a + val0);
+    return r;
+}
+
+void h(int y) {
+    int w = 0;
+    if (w) {
+        val1 = !y;
+        return;
+    }
+    w = 1;
+    if (w) {
+        w = y + g(y);
+        return;
+    }
+    int z = w + 2;
+}
+
+int main(int i, int j) {
+    int a = 1, b = 2, k = 0;
+    h(5);
+    while (a >= 0) {
+        a = k;
+        if (a == 10) {
+            float test1[val0+7.1*3][4/4+3] = {{1, 2}, {}, {4, 5, 6}};
+            k = test1[1][2];
+            break;
+        } else {
+            float test2 = 4;
+            k = a + arr[2][3]; // k = i;
+            continue;
+        }
+    }
+    return k;
+}

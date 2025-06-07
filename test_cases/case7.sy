@@ -1,0 +1,14 @@
+const int val1 = 10;
+const float val2 = 2.33 * val1;
+const int val3 = -1.5 * val1 + 2 * val2;
+
+int foo(int i, int j) {
+    int a = i + -j;
+    int b = val2;
+    if (a <= val1 - j) {
+        j = val3;
+    } else {
+        j = val1;
+    }
+    return a + j;
+}

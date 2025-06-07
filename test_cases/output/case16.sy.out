@@ -1,0 +1,59 @@
+CompUnitNode
+  DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: arr : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6, InitExprNode: IntegerLiteralExprNode: 7, InitExprNode: IntegerLiteralExprNode: 8, InitExprNode: IntegerLiteralExprNode: 9, InitExprNode: IntegerLiteralExprNode: 10}
+
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 1
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 2
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 8
+
+      DeclStmtNode: j : int = InitExprNode: IntegerLiteralExprNode: 9
+
+      IfElseStmtNode
+        BinaryExprNode: LValueExprNode: arr != IntegerLiteralExprNode: 0
+          LValueExprNode: arr
+            LValueExprNode: i
+          IntegerLiteralExprNode: 0
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: a
+            IntegerLiteralExprNode: 3
+          AssignStmtNode
+            LValueExprNode: arr
+              IntegerLiteralExprNode: 7
+            IntegerLiteralExprNode: 1
+          AssignStmtNode
+            LValueExprNode: arr
+              IntegerLiteralExprNode: 7
+            IntegerLiteralExprNode: 2
+          AssignStmtNode
+            LValueExprNode: arr
+              IntegerLiteralExprNode: 8
+            IntegerLiteralExprNode: 3
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: a
+            IntegerLiteralExprNode: 4
+          AssignStmtNode
+            LValueExprNode: arr
+              IntegerLiteralExprNode: 9
+            IntegerLiteralExprNode: 4
+      AssignStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 8
+        IntegerLiteralExprNode: 5
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: arr + LValueExprNode: arr
+          LValueExprNode: arr
+            IntegerLiteralExprNode: 8
+          LValueExprNode: arr
+            IntegerLiteralExprNode: 9

@@ -1,0 +1,36 @@
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: i : int
+      DeclStmtNode: j : int
+      AssignStmtNode
+        LValueExprNode: i
+        IntegerLiteralExprNode: 0
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < IntegerLiteralExprNode: 5
+          LValueExprNode: i
+          IntegerLiteralExprNode: 5
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: j
+            IntegerLiteralExprNode: 0
+          WhileStmtNode
+            BinaryExprNode: LValueExprNode: j < IntegerLiteralExprNode: 5
+              LValueExprNode: j
+              IntegerLiteralExprNode: 5
+            BlockStmtNode
+              AssignStmtNode
+                LValueExprNode: j
+                BinaryExprNode: LValueExprNode: j + IntegerLiteralExprNode: 1
+                  LValueExprNode: j
+                  IntegerLiteralExprNode: 1
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

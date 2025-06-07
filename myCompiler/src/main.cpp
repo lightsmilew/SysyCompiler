@@ -21,15 +21,15 @@ int main(int argc, const char *argv[])
     CommonTokenStream tokens(&lexer);
     SysYParser parser(&tokens);
     ParseTree *tree = parser.compUnit();
-    cout << "parse tree: " << endl;
+
     // SysYBaseVisitor parse_visitor;
     // parse_visitor.visit(tree);
     // cout << tree->toStringTree(&parser, true) << endl;
     ASTNodeVisitor ast_visitor;
-    cout << "AST visitor finished." << endl;
-    auto ast_root =AS(ast_visitor.visit(tree),Ptr<ast::CompUnitNode>);
-    cout << "AST: " << endl;
+
+    auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
+
     ast_root->print(cout, 0);
-    cout << "Compilation finished successfully." << endl;
+
     return 0;
 }

@@ -1,0 +1,11 @@
+//int a[5]={1111,11123,1234231};
+
+int testFunction(int input[], int length) {
+  int i = 0, sum = 0;
+
+  while (i < length) {
+    sum += input[i];
+    i = i + 1;
+  }
+  return sum;
+}

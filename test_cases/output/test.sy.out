@@ -1,0 +1,75 @@
+CompUnitNode
+  Function
+    int exgcd(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : int
+    )
+    BlockStmtNode
+      DeclStmtNode: c : int = InitExprNode: BinaryExprNode: LValueExprNode: a * LValueExprNode: b
+
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      DeclStmtNode: j : int = InitExprNode: BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+
+      DeclStmtNode: k : int = InitExprNode: BinaryExprNode: LValueExprNode: j * IntegerLiteralExprNode: 2
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < LValueExprNode: c
+          LValueExprNode: i
+          LValueExprNode: c
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i - IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+          AssignStmtNode
+            LValueExprNode: j
+            BinaryExprNode: IntegerLiteralExprNode: 2 * LValueExprNode: i
+              IntegerLiteralExprNode: 2
+              LValueExprNode: i
+          AssignStmtNode
+            LValueExprNode: k
+            BinaryExprNode: LValueExprNode: j * IntegerLiteralExprNode: 5
+              LValueExprNode: j
+              IntegerLiteralExprNode: 5
+      AssignStmtNode
+        LValueExprNode: c
+        BinaryExprNode: LValueExprNode: c - LValueExprNode: j
+          LValueExprNode: c
+          LValueExprNode: j
+      AssignStmtNode
+        LValueExprNode: c
+        BinaryExprNode: LValueExprNode: c - LValueExprNode: k
+          LValueExprNode: c
+          LValueExprNode: k
+      ReturnStmtNode
+        LValueExprNode: c
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: b : int = InitExprNode: CallExprNode: exgcd(LValueExprNode: a, IntegerLiteralExprNode: 5)
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: a > LValueExprNode: b
+          LValueExprNode: a
+          LValueExprNode: b
+        BlockStmtNode
+          IfElseStmtNode
+            BinaryExprNode: LValueExprNode: a == IntegerLiteralExprNode: 1
+              LValueExprNode: a
+              IntegerLiteralExprNode: 1
+            BlockStmtNode
+              BreakStmt
+          AssignStmtNode
+            LValueExprNode: a
+            BinaryExprNode: LValueExprNode: a - IntegerLiteralExprNode: 1
+              LValueExprNode: a
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: b

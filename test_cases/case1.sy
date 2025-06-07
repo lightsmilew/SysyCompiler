@@ -1,0 +1,19 @@
+const int val1 = 3 * 2 + 1;
+int val2 = val1 - 17;
+
+int foo() {
+    int a = -1, y = val1, z = val1, x, w[10];
+    float b = 2.5;
+    x = 0;
+    val2 = x;
+    z = 4;
+    if (a < b && a == 0) {
+        x = 1;
+        x = 2 + w[7];
+        val2 = z + w[8];
+    } else {
+        x = 3;
+        w[9] = 5;
+    }
+    return x;
+}

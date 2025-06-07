@@ -1,0 +1,50 @@
+CompUnitNode
+  DeclStmtNode: w : int
+  DeclStmtNode: z : int = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 11, InitExprNode: IntegerLiteralExprNode: 12, InitExprNode: IntegerLiteralExprNode: 13}, InitExprNode: {}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 14, InitExprNode: IntegerLiteralExprNode: 15}}
+
+  Function
+    int f(
+      Parameters:
+        DeclStmtNode: x : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: x + IntegerLiteralExprNode: 1
+          LValueExprNode: x
+          IntegerLiteralExprNode: 1
+  Function
+    void g(
+      Parameters:
+        DeclStmtNode: x : int
+    )
+    BlockStmtNode
+      DeclStmtNode: t : int = InitExprNode: LValueExprNode: w
+
+      DeclStmtNode: s : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}
+
+      AssignStmtNode
+        LValueExprNode: w
+        CallExprNode: f(LValueExprNode: s)
+Callee: f
+          LValueExprNode: s
+            IntegerLiteralExprNode: 1
+  Function
+    int foo(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 2
+
+      DeclStmtNode: c : int = InitExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + IntegerLiteralExprNode: 3
+
+      AssignStmtNode
+        LValueExprNode: a
+        BinaryExprNode: LValueExprNode: c + IntegerLiteralExprNode: 1
+          LValueExprNode: c
+          IntegerLiteralExprNode: 1
+      DeclStmtNode: d : float = InitExprNode: LValueExprNode: a
+
+      ReturnStmtNode
+        LValueExprNode: d

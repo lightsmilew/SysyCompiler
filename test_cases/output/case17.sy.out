@@ -1,0 +1,32 @@
+CompUnitNode
+  Function
+    void f(
+      Parameters:
+        DeclStmtNode: arr : int
+    )
+    BlockStmtNode
+      AssignStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 3
+        IntegerLiteralExprNode: 0
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: arr : int = InitExprNode: {}
+
+      AssignStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 9
+          IntegerLiteralExprNode: 4
+        IntegerLiteralExprNode: 5
+      ExprStmtNode
+        CallExprNode: f(LValueExprNode: arr)
+Callee: f
+          LValueExprNode: arr
+            IntegerLiteralExprNode: 5
+      ReturnStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 9
+          IntegerLiteralExprNode: 4
