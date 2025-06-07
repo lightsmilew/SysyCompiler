@@ -1,0 +1,8 @@
+int main(int b, int c) {
+    if (b > c) {
+        b = c + 1;
+        return b / 8;
+    } else {
+        return 2;
+    }
+}

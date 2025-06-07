@@ -1,0 +1,46 @@
+const int size = 10; // 常量声明
+const float pi = 3.14;
+const int multiDimensionalArray[2][3] = {{1, 2, 3}, {4, 5, 6}};
+
+int globalVar;
+float anotherGlobal = 5.3;
+
+void function(int a, float b[]) { // 函数定义
+    int localVar = a;
+    float localArray[10];
+    localArray[0] = b[0] + pi;
+
+    if (a > 10) { // 条件语句
+        localVar = localVar * 2;
+    } else {
+        localVar = localVar / 2;
+    }
+
+    int i = 0;
+    while (i < size) { // 循环语句
+        localArray[i] = float(i) * localVar;
+        i++;
+    }
+
+    return; // 返回语句
+}
+
+int main() {
+    int x = 10;
+    float y[10];
+    y[0] = 1.0;
+
+    function(x, y); // 函数调用
+
+    int i = 0;
+    while (i < 10) { // 循环和条件
+        if (i % 2 == 0) {
+            y[i] = y[i] + 1;
+        } else {
+            y[i] = y[i] - 1;
+        }
+        i++;
+    }
+
+    return 0;
+}
