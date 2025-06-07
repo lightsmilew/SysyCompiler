@@ -126,7 +126,7 @@ namespace ast
 
         string toString() const override = 0;
 
-        virtual DataType getDataType() const = 0;
+        // virtual DataType getDataType() const = 0;
     };
 
     class InitExprNode : public ExprNode
@@ -140,8 +140,7 @@ namespace ast
         InitExprNode(vector<shared_ptr<InitExprNode>> initVals) : multiInitVal{move(initVals)} {}
 
         string toString() const override;
-        void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     class LValueExprNode : public ExprNode
@@ -154,7 +153,7 @@ namespace ast
             : identifier{move(id)}, indices{move(idxs)} {}
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     class BinaryExprNode : public ExprNode
@@ -168,7 +167,7 @@ namespace ast
             : left{move(l)}, right{move(r)}, op{move(operator_)} {}
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     class UnaryExprNode : public ExprNode
@@ -181,7 +180,7 @@ namespace ast
             : operand{move(opnd)}, op{move(operator_)} {}
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     class LiteralExprNode : public ExprNode
@@ -208,7 +207,7 @@ namespace ast
 
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     class FloatLiteralExprNode : public NumberLiteralExprNode
@@ -222,7 +221,7 @@ namespace ast
 
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     // class StringLiteralExprNode : public LiteralExprNode
@@ -234,7 +233,7 @@ namespace ast
 
     //     string toString() const override;
     //     void print(ostream &out, unsigned indent = 0) const override;
-    //     DataType getDataType() const override;
+    //     // DataType getDataType() const override;
     // };
 
     class CallExprNode : public ExprNode
@@ -248,7 +247,7 @@ namespace ast
 
         string toString() const override;
         void print(ostream &out, unsigned indent = 0) const override;
-        DataType getDataType() const override;
+        // DataType getDataType() const override;
     };
 
     //--- StmtNode ---//
