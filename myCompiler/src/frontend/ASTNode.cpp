@@ -63,7 +63,7 @@ namespace ast
 
     void DeclStmtNode::print(ostream &out, unsigned indent) const
     {
-        ASTNode::print(out, indent);
+        out << std::string(indent, ' ') << "DeclStmtNode: " << identifier << " : ";
         switch (type.baseType)
         {
         case PrimaryDataType::VOID:
@@ -90,7 +90,7 @@ namespace ast
             initializer->print(out, 0);
         }
 
-        out << "\n";
+        out << std::endl;
     }
 
     // AssignStmt
@@ -387,8 +387,10 @@ namespace ast
 
     void FuncNode::print(std::ostream &out, unsigned indent) const
     {
-        ASTNode::print(out, indent);
-        // returnType 打印逻辑
+        out << std::string(indent, ' ') << "Function" << std::endl;
+
+        // 打印返回类型和函数名
+        out << std::string(indent + 2, ' ');
         switch (returnType.baseType)
         {
         case PrimaryDataType::VOID:
@@ -410,27 +412,22 @@ namespace ast
             out << "[" << returnType.arraySizes()[i] << "]";
         }
 
-        out << " " << identifier << "(";
+        out << " " << identifier << "(" << std::endl;
 
-        print_indent(out, indent + 2);
-        out << "Parameters:\n";
+        // 打印参数
+        out << std::string(indent + 4, ' ') << "Parameters:" << std::endl;
         for (const auto &param : params)
         {
-            param->print(out, indent + 4);
+            param->print(out, indent + 6);
         }
-        out << ")";
 
+        out << std::string(indent + 2, ' ') << ")" << std::endl;
+
+        // 打印函数体
         if (body)
         {
-            out << " ";
-            body->print(out, indent);
+            body->print(out, indent + 2);
         }
-        else
-        {
-            out << ";";
-        }
-
-        out << "\n";
     }
 
 }
