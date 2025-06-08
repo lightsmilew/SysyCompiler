@@ -58,12 +58,13 @@ namespace ast
     // DeclStmt
     string DeclStmtNode::toString() const
     {
-        return "DeclStmtNode: " + identifier;
+        string constStr = isConst ? "const " : "";
+        return "DeclStmtNode: " + constStr + identifier;
     }
 
     void DeclStmtNode::print(ostream &out, unsigned indent) const
     {
-        out << std::string(indent, ' ') << "DeclStmtNode: " << identifier << " : ";
+        out << std::string(indent, ' ') << "DeclStmtNode: " << (isConst ? "const " : "") << identifier << " : ";
         switch (type.baseType)
         {
         case PrimaryDataType::VOID:

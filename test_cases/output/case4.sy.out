@@ -1,6 +1,6 @@
 CompUnitNode
   DeclStmtNode: w : int
-  DeclStmtNode: z : int = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 11, InitExprNode: IntegerLiteralExprNode: 12, InitExprNode: IntegerLiteralExprNode: 13}, InitExprNode: {}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 14, InitExprNode: IntegerLiteralExprNode: 15}}
+  DeclStmtNode: z : int[5][8] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 11, InitExprNode: IntegerLiteralExprNode: 12, InitExprNode: IntegerLiteralExprNode: 13}, InitExprNode: {}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 14, InitExprNode: IntegerLiteralExprNode: 15}}
 
   Function
     int f(
@@ -20,7 +20,7 @@ CompUnitNode
     BlockStmtNode
       DeclStmtNode: t : int = InitExprNode: LValueExprNode: w
 
-      DeclStmtNode: s : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}
+      DeclStmtNode: s : int[10] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}
 
       AssignStmtNode
         LValueExprNode: w

@@ -90,7 +90,7 @@ CompUnitNode
       ExprStmtNode
         CallExprNode: putch(IntegerLiteralExprNode: 10)
           IntegerLiteralExprNode: 10
-      DeclStmtNode: c : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 1
+      DeclStmtNode: const c : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 1
 
       AssignStmtNode
         LValueExprNode: d

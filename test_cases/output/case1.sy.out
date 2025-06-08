@@ -1,5 +1,5 @@
 CompUnitNode
-  DeclStmtNode: val1 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: IntegerLiteralExprNode: 3 * IntegerLiteralExprNode: 2 + IntegerLiteralExprNode: 1
+  DeclStmtNode: const val1 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: IntegerLiteralExprNode: 3 * IntegerLiteralExprNode: 2 + IntegerLiteralExprNode: 1
 
   DeclStmtNode: val2 : int = InitExprNode: BinaryExprNode: LValueExprNode: val1 - IntegerLiteralExprNode: 17
 
@@ -15,7 +15,7 @@ CompUnitNode
       DeclStmtNode: z : int = InitExprNode: LValueExprNode: val1
 
       DeclStmtNode: x : int
-      DeclStmtNode: w : int
+      DeclStmtNode: w : int[10]
       DeclStmtNode: b : float = InitExprNode: FloatLiteralExprNode: 2.500000
 
       AssignStmtNode

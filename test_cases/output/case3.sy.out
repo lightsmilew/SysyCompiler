@@ -1,9 +1,9 @@
 CompUnitNode
-  DeclStmtNode: val1 : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 1
+  DeclStmtNode: const val1 : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 1
 
-  DeclStmtNode: val2 : int = InitExprNode: InitExprNode: BinaryExprNode: UnaryExprNode: -IntegerLiteralExprNode: 2 * IntegerLiteralExprNode: 4
+  DeclStmtNode: const val2 : int = InitExprNode: InitExprNode: BinaryExprNode: UnaryExprNode: -IntegerLiteralExprNode: 2 * IntegerLiteralExprNode: 4
 
-  DeclStmtNode: val3 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: IntegerLiteralExprNode: 3 * LValueExprNode: val2 + LValueExprNode: val1
+  DeclStmtNode: const val3 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: IntegerLiteralExprNode: 3 * LValueExprNode: val2 + LValueExprNode: val1
 
   Function
     int main(

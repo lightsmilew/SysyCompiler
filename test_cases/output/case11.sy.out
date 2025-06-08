@@ -4,7 +4,7 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: a : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1}
+      DeclStmtNode: a : int[9] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1}
 
       AssignStmtNode
         LValueExprNode: a

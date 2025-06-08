@@ -6,7 +6,7 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6, InitExprNode: IntegerLiteralExprNode: 7, InitExprNode: IntegerLiteralExprNode: 8, InitExprNode: IntegerLiteralExprNode: 9, InitExprNode: IntegerLiteralExprNode: 10}
+      DeclStmtNode: arr : int[10] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6, InitExprNode: IntegerLiteralExprNode: 7, InitExprNode: IntegerLiteralExprNode: 8, InitExprNode: IntegerLiteralExprNode: 9, InitExprNode: IntegerLiteralExprNode: 10}
 
       AssignStmtNode
         LValueExprNode: a

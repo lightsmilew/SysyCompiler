@@ -14,7 +14,7 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr : int = InitExprNode: {}
+      DeclStmtNode: arr : int[10][2] = InitExprNode: {}
 
       AssignStmtNode
         LValueExprNode: arr

@@ -54,7 +54,7 @@ CompUnitNode
         DeclStmtNode: x3 : float
     )
     BlockStmtNode
-      DeclStmtNode: x : float = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 0, InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: x : float[6] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 0, InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
       DeclStmtNode: i : int = InitExprNode: CallExprNode: g(IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2, LValueExprNode: x3, LValueExprNode: x, LValueExprNode: x, IntegerLiteralExprNode: 6, IntegerLiteralExprNode: 7, IntegerLiteralExprNode: 8, IntegerLiteralExprNode: 9, IntegerLiteralExprNode: 10, IntegerLiteralExprNode: 11, IntegerLiteralExprNode: 12, IntegerLiteralExprNode: 13, IntegerLiteralExprNode: 14, IntegerLiteralExprNode: 15, IntegerLiteralExprNode: 16, IntegerLiteralExprNode: 17, IntegerLiteralExprNode: 18, IntegerLiteralExprNode: 19, IntegerLiteralExprNode: 20, IntegerLiteralExprNode: 21, IntegerLiteralExprNode: 22, IntegerLiteralExprNode: 23, IntegerLiteralExprNode: 24, IntegerLiteralExprNode: 25, IntegerLiteralExprNode: 26, IntegerLiteralExprNode: 27)
 

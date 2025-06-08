@@ -1,9 +1,9 @@
 CompUnitNode
-  DeclStmtNode: val1 : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 10
+  DeclStmtNode: const val1 : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 10
 
-  DeclStmtNode: val2 : float = InitExprNode: InitExprNode: BinaryExprNode: FloatLiteralExprNode: 2.330000 * LValueExprNode: val1
+  DeclStmtNode: const val2 : float = InitExprNode: InitExprNode: BinaryExprNode: FloatLiteralExprNode: 2.330000 * LValueExprNode: val1
 
-  DeclStmtNode: val3 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: UnaryExprNode: -FloatLiteralExprNode: 1.500000 * LValueExprNode: val1 + BinaryExprNode: IntegerLiteralExprNode: 2 * LValueExprNode: val2
+  DeclStmtNode: const val3 : int = InitExprNode: InitExprNode: BinaryExprNode: BinaryExprNode: UnaryExprNode: -FloatLiteralExprNode: 1.500000 * LValueExprNode: val1 + BinaryExprNode: IntegerLiteralExprNode: 2 * LValueExprNode: val2
 
   Function
     int foo(
