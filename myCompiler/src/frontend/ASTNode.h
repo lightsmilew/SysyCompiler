@@ -129,6 +129,9 @@ namespace ast
         // virtual DataType getDataType() const = 0;
     };
 
+    // 初始化表达式节点
+    // int a = 1; // 单一初始值
+    // int b[2][3] = { {1, 2, 3}, {4, 5, 6} }; // 复合初始值
     class InitExprNode : public ExprNode
     {
     public:
@@ -143,6 +146,8 @@ namespace ast
         // DataType getDataType() const override;
     };
 
+    // 左值表达式节点，表示变量或数组元素等可以被赋值的表达式
+    // 例如：a, a[0], a[1][2] 等
     class LValueExprNode : public ExprNode
     {
     public:
@@ -156,6 +161,8 @@ namespace ast
         // DataType getDataType() const override;
     };
 
+    // 二元表达式节点，表示两个操作数之间的二元操作
+    // 例如：a + b, a - b, a * b 等
     class BinaryExprNode : public ExprNode
     {
     public:
@@ -170,6 +177,8 @@ namespace ast
         // DataType getDataType() const override;
     };
 
+    // 一元表达式节点，表示单个操作数的操作
+    // 例如：-a, +b 等
     class UnaryExprNode : public ExprNode
     {
     public:
@@ -183,12 +192,15 @@ namespace ast
         // DataType getDataType() const override;
     };
 
+    // 字面量表达式节点，表示常量值
+    // 例如：整数、浮点数等
     class LiteralExprNode : public ExprNode
     {
     public:
         string toString() const override = 0;
     };
 
+    // 数字字面量表达式节点，表示整数或浮点数等数字类型的常量
     class NumberLiteralExprNode : public LiteralExprNode
     {
     public:
@@ -196,6 +208,8 @@ namespace ast
         virtual ~NumberLiteralExprNode() = default;
     };
 
+    // 整数字面量表达式节点，表示整数类型的常量
+    // 例如：1, -42 等
     class IntLiteralExprNode : public NumberLiteralExprNode
     {
         using Value = std::int32_t;
@@ -210,6 +224,8 @@ namespace ast
         // DataType getDataType() const override;
     };
 
+    // 浮点数字面量表达式节点，表示浮点数类型的常量
+    // 例如：3.14, -0.001 等
     class FloatLiteralExprNode : public NumberLiteralExprNode
     {
         using Value = float;
@@ -236,6 +252,8 @@ namespace ast
     //     // DataType getDataType() const override;
     // };
 
+    // 函数调用表达式节点，表示对函数的调用
+    // 例如：foo(a, b), bar(1, 2.0) 等
     class CallExprNode : public ExprNode
     {
     public:
@@ -260,6 +278,8 @@ namespace ast
         string toString() const override = 0;
     };
 
+    // 语句块节点，表示一组语句的集合
+    // 例如：{ a = 1; b = 2; } 等
     class BlockStmtNode : public StmtNode
     {
     public:
@@ -272,6 +292,7 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 表达式语句节点，表示一个表达式作为语句执行
     class ExprStmtNode : public StmtNode
     {
     public:
@@ -283,6 +304,8 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 声明语句节点，表示变量或函数的声明
+    // 例如：int a; float b[10]; void foo(int x); 等
     class DeclStmtNode : public StmtNode
     {
     public:
@@ -300,6 +323,8 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 赋值语句节点，表示将一个表达式的值赋给一个左值
+    // 例如：a = 1; b[0] = a + 2; c = d[1][2] * 3.14; 等
     class AssignStmtNode : public StmtNode
     {
     public:
@@ -313,6 +338,7 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 条件语句节点，表示 if-else 结构
     class IfElseStmtNode : public StmtNode
     {
     public:
@@ -327,6 +353,7 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 循环语句节点，表示 while 循环结构
     class WhileStmtNode : public StmtNode
     {
     public:
@@ -340,18 +367,21 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 跳出循环或函数的语句节点
     class BreakStmtNode : public StmtNode
     {
     public:
         string toString() const override;
     };
 
+    // 跳过当前循环迭代的语句节点
     class ContinueStmtNode : public StmtNode
     {
     public:
         string toString() const override;
     };
 
+    // 返回语句节点，表示函数的返回操作
     class ReturnStmtNode : public StmtNode
     {
     public:
@@ -363,6 +393,7 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 函数节点，表示函数的定义
     class FuncNode : public ASTNode
     {
     public:
@@ -378,6 +409,7 @@ namespace ast
         void print(ostream &out, unsigned indent = 0) const override;
     };
 
+    // 复合单位节点，表示整个程序的顶层结构
     class CompUnitNode : public ASTNode
     {
     public:
