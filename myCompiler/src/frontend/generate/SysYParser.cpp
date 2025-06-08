@@ -164,7 +164,7 @@ void sysyParserInitialize() {
   	0,254,256,5,10,0,0,255,257,3,32,16,0,256,255,1,0,0,0,256,257,1,0,0,0,
   	257,258,1,0,0,0,258,260,5,19,0,0,259,225,1,0,0,0,259,231,1,0,0,0,259,
   	234,1,0,0,0,259,235,1,0,0,0,259,244,1,0,0,0,259,250,1,0,0,0,259,252,1,
-  	0,0,0,259,254,1,0,0,0,260,31,1,0,0,0,261,262,3,50,25,0,262,33,1,0,0,0,
+  	0,0,0,259,254,1,0,0,0,260,31,1,0,0,0,261,262,3,58,29,0,262,33,1,0,0,0,
   	263,264,3,58,29,0,264,35,1,0,0,0,265,272,5,34,0,0,266,267,5,16,0,0,267,
   	268,3,32,16,0,268,269,5,17,0,0,269,271,1,0,0,0,270,266,1,0,0,0,271,274,
   	1,0,0,0,272,270,1,0,0,0,272,273,1,0,0,0,273,37,1,0,0,0,274,272,1,0,0,
@@ -2204,8 +2204,8 @@ SysYParser::ExpContext::ExpContext(ParserRuleContext *parent, size_t invokingSta
   : ParserRuleContext(parent, invokingState) {
 }
 
-SysYParser::AddExpContext* SysYParser::ExpContext::addExp() {
-  return getRuleContext<SysYParser::AddExpContext>(0);
+SysYParser::LOrExpContext* SysYParser::ExpContext::lOrExp() {
+  return getRuleContext<SysYParser::LOrExpContext>(0);
 }
 
 
@@ -2235,7 +2235,7 @@ SysYParser::ExpContext* SysYParser::exp() {
   try {
     enterOuterAlt(_localctx, 1);
     setState(261);
-    addExp(0);
+    lOrExp(0);
    
   }
   catch (RecognitionException &e) {

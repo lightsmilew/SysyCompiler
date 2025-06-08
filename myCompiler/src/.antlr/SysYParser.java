@@ -1519,8 +1519,8 @@ public class SysYParser extends Parser {
 
 	@SuppressWarnings("CheckReturnValue")
 	public static class ExpContext extends ParserRuleContext {
-		public AddExpContext addExp() {
-			return getRuleContext(AddExpContext.class,0);
+		public LOrExpContext lOrExp() {
+			return getRuleContext(LOrExpContext.class,0);
 		}
 		public ExpContext(ParserRuleContext parent, int invokingState) {
 			super(parent, invokingState);
@@ -1535,7 +1535,7 @@ public class SysYParser extends Parser {
 			enterOuterAlt(_localctx, 1);
 			{
 			setState(261);
-			addExp(0);
+			lOrExp(0);
 			}
 		}
 		catch (RecognitionException re) {
@@ -2891,7 +2891,7 @@ public class SysYParser extends Parser {
 		"\u0000\u0000\u0103\u00ea\u0001\u0000\u0000\u0000\u0103\u00eb\u0001\u0000"+
 		"\u0000\u0000\u0103\u00f4\u0001\u0000\u0000\u0000\u0103\u00fa\u0001\u0000"+
 		"\u0000\u0000\u0103\u00fc\u0001\u0000\u0000\u0000\u0103\u00fe\u0001\u0000"+
-		"\u0000\u0000\u0104\u001f\u0001\u0000\u0000\u0000\u0105\u0106\u00032\u0019"+
+		"\u0000\u0000\u0104\u001f\u0001\u0000\u0000\u0000\u0105\u0106\u0003:\u001d"+
 		"\u0000\u0106!\u0001\u0000\u0000\u0000\u0107\u0108\u0003:\u001d\u0000\u0108"+
 		"#\u0001\u0000\u0000\u0000\u0109\u0110\u0005\"\u0000\u0000\u010a\u010b"+
 		"\u0005\u0010\u0000\u0000\u010b\u010c\u0003 \u0010\u0000\u010c\u010d\u0005"+

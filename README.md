@@ -21,3 +21,9 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 
 make
 ```
+
+### 测试
+
+```bash
+python3 test.py
+```
