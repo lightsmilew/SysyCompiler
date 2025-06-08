@@ -70,7 +70,6 @@ CompUnitNode
             BinaryExprNode: LValueExprNode: y + CallExprNode: g(LValueExprNode: y)
               LValueExprNode: y
               CallExprNode: g(LValueExprNode: y)
-Callee: g
                 LValueExprNode: y
           ReturnStmtNode
       DeclStmtNode: z : int = InitExprNode: BinaryExprNode: LValueExprNode: w + IntegerLiteralExprNode: 2
@@ -90,7 +89,6 @@ Callee: g
 
       ExprStmtNode
         CallExprNode: h(IntegerLiteralExprNode: 5)
-Callee: h
           IntegerLiteralExprNode: 5
       WhileStmtNode
         BinaryExprNode: LValueExprNode: a >= IntegerLiteralExprNode: 0

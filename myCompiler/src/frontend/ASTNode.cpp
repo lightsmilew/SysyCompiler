@@ -368,11 +368,9 @@ namespace ast
         }
         return "CallExprNode: " + callee + "(" + args_str + ")";
     }
-
     void CallExprNode::print(ostream &out, unsigned indent) const
     {
         ASTNode::print(out, indent);
-        out << "Callee: " << callee << "\n";
         for (const auto &arg : args)
         {
             arg->print(out, indent + 2);

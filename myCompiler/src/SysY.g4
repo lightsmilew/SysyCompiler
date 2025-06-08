@@ -62,7 +62,7 @@ stmt
     ;
 
 // 表达式
-exp: addExp;
+exp: lOrExp; // The top-level expression is a logical OR expression
 cond: lOrExp;
 lVal: Ident (LBRACKET exp RBRACKET)*;
 

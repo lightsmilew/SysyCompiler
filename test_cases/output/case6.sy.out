@@ -56,4 +56,3 @@ CompUnitNode
     BlockStmtNode
       ReturnStmtNode
         CallExprNode: ifWhile()
-Callee: ifWhile

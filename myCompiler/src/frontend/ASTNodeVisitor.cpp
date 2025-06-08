@@ -443,7 +443,7 @@ antlrcpp::Any ASTNodeVisitor::visitReturnStmt(SysYParser::ReturnStmtContext *ctx
 // 表达式 exp
 antlrcpp::Any ASTNodeVisitor::visitExp(SysYParser::ExpContext *ctx)
 {
-    return visit(ctx->addExp());
+    return visit(ctx->lOrExp());
 }
 antlrcpp::Any ASTNodeVisitor::visitCond(SysYParser::CondContext *ctx)
 {

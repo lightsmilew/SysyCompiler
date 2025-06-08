@@ -23,7 +23,6 @@ CompUnitNode
         IntegerLiteralExprNode: 5
       ExprStmtNode
         CallExprNode: f(LValueExprNode: arr)
-Callee: f
           LValueExprNode: arr
             IntegerLiteralExprNode: 5
       ReturnStmtNode

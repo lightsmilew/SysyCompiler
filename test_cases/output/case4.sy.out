@@ -25,7 +25,6 @@ CompUnitNode
       AssignStmtNode
         LValueExprNode: w
         CallExprNode: f(LValueExprNode: s)
-Callee: f
           LValueExprNode: s
             IntegerLiteralExprNode: 1
   Function
