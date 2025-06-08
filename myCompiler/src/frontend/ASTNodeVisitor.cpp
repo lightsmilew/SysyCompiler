@@ -24,6 +24,20 @@ PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
         throw std::invalid_argument("Unknown type: " + typeStr);
     }
 }
+
+// 从常量表达式中提取整数值（用于数组维度）
+int extractIntFromConstExpr(Ptr<ast::ExprNode> expr)
+{
+    // 尝试转换为IntLiteralExprNode
+    if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(expr))
+    {
+        return intLiteral->value;
+    }
+    // 如果不是简单的整数字面量，暂时返回默认值
+    // 在更复杂的实现中，这里可以计算常量表达式的值
+    return 1; // 默认值，避免编译错误
+}
+
 [[nodiscard]] Ptr<ast::CompUnitNode> ASTNodeVisitor::compileUnit()
 {
     return compUnit;
@@ -91,8 +105,15 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             arrayIndices.emplace_back(AS(expctx->accept(this), Ptr<ast::ExprNode>));
         }
         // 这里实现部分功能
-        DataType type = convertToPrimaryDataType(ctx->bType()->getText());
-        type._isConst = true; // 设置为常量类型
+        // 提取数组维度信息
+        vector<int> arraySizes;
+        for (auto &arrayIndex : arrayIndices)
+        {
+            arraySizes.push_back(extractIntFromConstExpr(arrayIndex));
+        }
+
+        // 创建带有数组维度信息的DataType
+        DataType type = DataType(convertToPrimaryDataType(ctx->bType()->getText()), arraySizes, true);
         // 解析初始化
         auto initVal = defctx->constInitVal()->accept(this);
         Ptr<ast::InitExprNode> initExprPtr;
@@ -182,7 +203,15 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
             }
             initExprPtr = NULL;
         }
-        DataType varType(type);
+        // 提取数组维度信息
+        vector<int> arraySizes;
+        for (auto &arrayIndex : arrayIndices)
+        {
+            arraySizes.push_back(extractIntFromConstExpr(arrayIndex));
+        }
+
+        // 创建带有数组维度信息的DataType
+        DataType varType(type, arraySizes);
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
