@@ -2,7 +2,7 @@
 
 using namespace ast;
 
-shared_ptr<Symbol> Symbol::lookup(const string &name)
+shared_ptr<Symbol> SymbolTable::lookup(const string &name)
 {
     auto it = table.find(name);
     if (it != table.end())
@@ -17,7 +17,7 @@ shared_ptr<Symbol> Symbol::lookup(const string &name)
     return nullptr;
 }
 
-void Symbol::insert(const string &name, shared_ptr<Symbol> symbol)
+void SymbolTable::insert(const string &name, shared_ptr<Symbol> symbol)
 {
     // 检查当前作用域中是否已存在同名符号
     if (table.find(name) != table.end())
