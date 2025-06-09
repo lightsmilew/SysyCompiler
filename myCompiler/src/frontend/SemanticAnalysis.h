@@ -55,6 +55,7 @@ public:
 // 函数签名 - 参数个数和类型匹配
 // 作用域规则 - 变量可见性和生命周期
 // 初始化检查 - 变量使用前是否已初始化
+// expression中不能存在与或非和大小比较
 class TypeCheckerVisitor : public ASTVisitor
 {
 public:
