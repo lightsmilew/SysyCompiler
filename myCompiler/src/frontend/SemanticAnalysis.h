@@ -1,9 +1,5 @@
 #pragma once
 #include "ASTNode.h"
-#include <unordered_map>
-#include <memory>
-#include <vector>
-#include <string>
 #include <stdexcept>
 
 using namespace ast;
@@ -17,7 +13,7 @@ public:
 
     Symbol(DataType type, bool isInitialized = false)
         : type(type), isInitialized(isInitialized) {}
-}
+};
 
 // 符号表类，用于存储符号信息
 class SymbolTable
@@ -56,7 +52,7 @@ public:
 // 作用域规则 - 变量可见性和生命周期
 // 初始化检查 - 变量使用前是否已初始化
 // expression中不能存在与或非和大小比较
-class TypeCheckerVisitor : public ASTVisitor
+class TypeCheckerVisitor
 {
 public:
 };
