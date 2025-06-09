@@ -27,3 +27,8 @@ make
 ```bash
 python3 test.py
 ```
+
+## 问题
+
+### 1. 文法错误
+'SysY.g4' 中的exp文法有误，但是目前没有修正。
