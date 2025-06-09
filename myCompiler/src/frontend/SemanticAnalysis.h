@@ -46,6 +46,7 @@ public:
     shared_ptr<Symbol> resolveVariable(const std::string &name);
 };
 
+// 有且只有一个main函数
 // 符号解析 - 变量/函数是否已声明
 // 类型匹配 - 赋值、参数传递的类型兼容性
 // 类型提升 - int + float → float
