@@ -1,111 +1,60 @@
-#include <ASTNodeVisitor.h>
+#pragma once
+#include "ASTNode.h"
+#include <unordered_map>
+#include <memory>
+#include <vector>
+#include <string>
+#include <stdexcept>
 
-using namespace std;
+using namespace ast;
 
+// 符号类，存储变量和函数的信息
+class Symbol
+{
+public:
+    DataType type;      // 符号的数据类型
+    bool isInitialized; // 符号是否已初始化
+
+    Symbol(DataType type, bool isInitialized = false)
+        : type(type), isInitialized(isInitialized) {}
+}
+
+// 符号表类，用于存储符号信息
 class SymbolTable
 {
 public:
-    std::unordered_map<std::string, std::shared_ptr<Symbol>> table;
-    std::shared_ptr<SymbolTable> parent; // 指向父作用域的符号表
+    unordered_map<string, shared_ptr<Symbol>> table;
+    shared_ptr<SymbolTable> parent; // 指向父作用域的符号表
 
-    SymbolTable(std::shared_ptr<SymbolTable> parent = nullptr)
+    SymbolTable(shared_ptr<SymbolTable> parent = nullptr)
         : parent(parent) {}
 
     // 在当前作用域查找符号
-    std::shared_ptr<Symbol> lookup(const std::string &name)
-    {
-        // ···
-    }
-
+    shared_ptr<Symbol> lookup(const string &name);
     // 向符号表中插入新的符号
-    void insert(const std::string &name, std::shared_ptr<Symbol> symbol)
-    {
-        // ···
-    }
+    void insert(const string &name, shared_ptr<Symbol> symbol);
 };
 
 class SemanticAnalyzer
 {
 public:
-    std::shared_ptr<SymbolTable> currentScope;
+    shared_ptr<SymbolTable> currentScope;
 
-    void enterScope()
-    {
-        currentScope = std::make_shared<SymbolTable>(currentScope);
-    }
-
-    void exitScope()
-    {
-        currentScope = currentScope->parent;
-    }
-
-    void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol)
-    {
-        currentScope->insert(name, symbol);
-    }
-
-    std::shared_ptr<Symbol> resolveVariable(const std::string &name)
-    {
-        return currentScope->lookup(name);
-    }
+    void enterScope();
+    void exitScope();
+    void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
+    shared_ptr<Symbol> resolveVariable(const std::string &name);
 };
 
+// 符号解析 - 变量/函数是否已声明
+// 类型匹配 - 赋值、参数传递的类型兼容性
+// 类型提升 - int + float → float
+// const 正确性 - 不能修改 const 变量
+// 数组边界 - 维度匹配，索引为整数
+// 函数签名 - 参数个数和类型匹配
+// 作用域规则 - 变量可见性和生命周期
+// 初始化检查 - 变量使用前是否已初始化
 class TypeCheckerVisitor : public ASTVisitor
 {
 public:
-    std::shared_ptr<Type> visitBinaryExpr(BinaryExprNode *node) override
-    {
-        auto leftType = visit(node->left);   // 检查左操作数的类型
-        auto rightType = visit(node->right); // 检查右操作数的类型
-
-        // 检查操作数的类型是否匹配
-        if (!leftType->equals(rightType))
-        {
-            throw std::runtime_error("Type mismatch in binary expression.");
-        }
-
-        // 返回表达式的类型
-        return leftType;
-    }
-
-    std::shared_ptr<Type> visitVariableDecl(VariableDeclNode *node) override
-    {
-        // 检查变量声明的类型是否正确
-        auto varType = node->type;
-        if (!isValidType(varType))
-        {
-            throw std::runtime_error("Invalid type for variable.");
-        }
-
-        return varType;
-    }
-
-    // 其他类型检查逻辑...
-};
-
-class TypeCheckerVisitor : public ASTVisitor
-{
-public:
-    std::shared_ptr<Type> visitBinaryExpr(BinaryExprNode *node) override
-    {
-        auto leftType = visit(node->left);
-        auto rightType = visit(node->right);
-
-        // 进行隐式类型转换
-        if (leftType->isInteger() && rightType->isFloat())
-        {
-            leftType = floatType(); // 将整数提升为浮点数
-        }
-        else if (leftType->isFloat() && rightType->isInteger())
-        {
-            rightType = floatType();
-        }
-
-        if (!leftType->equals(rightType))
-        {
-            throw std::runtime_error("Type mismatch in binary expression.");
-        }
-
-        return leftType;
-    }
 };

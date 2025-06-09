@@ -1,5 +1,114 @@
-line 21:24 extraneous input 'float' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
-line 22:11 mismatched input ';' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
-line 42:11 mismatched input ';' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
-terminate called after throwing an instance of 'std::bad_any_cast'
-  what():  bad any_cast
+CompUnitNode
+  DeclStmtNode: const size : int = InitExprNode: InitExprNode: IntegerLiteralExprNode: 10
+
+  DeclStmtNode: const pi : float = InitExprNode: InitExprNode: FloatLiteralExprNode: 3.140000
+
+  DeclStmtNode: const multiDimensionalArray : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+
+  DeclStmtNode: globalVar : int
+  DeclStmtNode: anotherGlobal : float = InitExprNode: FloatLiteralExprNode: 5.300000
+
+  Function
+    void function(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : float
+    )
+    BlockStmtNode
+      DeclStmtNode: localVar : int = InitExprNode: LValueExprNode: a
+
+      DeclStmtNode: localArray : float[10]
+      AssignStmtNode
+        LValueExprNode: localArray
+          IntegerLiteralExprNode: 0
+        BinaryExprNode: LValueExprNode: b + LValueExprNode: pi
+          LValueExprNode: b
+            IntegerLiteralExprNode: 0
+          LValueExprNode: pi
+      IfElseStmtNode
+        BinaryExprNode: LValueExprNode: a > IntegerLiteralExprNode: 10
+          LValueExprNode: a
+          IntegerLiteralExprNode: 10
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: localVar
+            BinaryExprNode: LValueExprNode: localVar * IntegerLiteralExprNode: 2
+              LValueExprNode: localVar
+              IntegerLiteralExprNode: 2
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: localVar
+            BinaryExprNode: LValueExprNode: localVar / IntegerLiteralExprNode: 2
+              LValueExprNode: localVar
+              IntegerLiteralExprNode: 2
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < LValueExprNode: size
+          LValueExprNode: i
+          LValueExprNode: size
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: localArray
+              LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i * LValueExprNode: localVar
+              LValueExprNode: i
+              LValueExprNode: localVar
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: x : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      DeclStmtNode: y : float[10]
+      AssignStmtNode
+        LValueExprNode: y
+          IntegerLiteralExprNode: 0
+        FloatLiteralExprNode: 1.000000
+      ExprStmtNode
+        CallExprNode: function(LValueExprNode: x, LValueExprNode: y)
+          LValueExprNode: x
+          LValueExprNode: y
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < IntegerLiteralExprNode: 10
+          LValueExprNode: i
+          IntegerLiteralExprNode: 10
+        BlockStmtNode
+          IfElseStmtNode
+            BinaryExprNode: BinaryExprNode: LValueExprNode: i % IntegerLiteralExprNode: 2 == IntegerLiteralExprNode: 0
+              BinaryExprNode: LValueExprNode: i % IntegerLiteralExprNode: 2
+                LValueExprNode: i
+                IntegerLiteralExprNode: 2
+              IntegerLiteralExprNode: 0
+            BlockStmtNode
+              AssignStmtNode
+                LValueExprNode: y
+                  LValueExprNode: i
+                BinaryExprNode: LValueExprNode: y + IntegerLiteralExprNode: 1
+                  LValueExprNode: y
+                    LValueExprNode: i
+                  IntegerLiteralExprNode: 1
+            BlockStmtNode
+              AssignStmtNode
+                LValueExprNode: y
+                  LValueExprNode: i
+                BinaryExprNode: LValueExprNode: y - IntegerLiteralExprNode: 1
+                  LValueExprNode: y
+                    LValueExprNode: i
+                  IntegerLiteralExprNode: 1
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

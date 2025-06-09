@@ -18,13 +18,15 @@ void function(int a, float b[]) { // 函数定义
 
     int i = 0;
     while (i < size) { // 循环语句
-        localArray[i] = float(i) * localVar;
-        i++;
+        localArray[i] = i * localVar;
+        i= i + 1; // 自增操作
     }
 
     return; // 返回语句
 }
-
+/* cava
+qcwev
+caerwv */
 int main() {
     int x = 10;
     float y[10];
@@ -39,7 +41,7 @@ int main() {
         } else {
             y[i] = y[i] - 1;
         }
-        i++;
+        i= i + 1; // 自增操作
     }
 
     return 0;

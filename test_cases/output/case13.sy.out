@@ -1,4 +1,3 @@
-line 7:9 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst}
 CompUnitNode
   Function
     int testFunction(
@@ -16,11 +15,12 @@ CompUnitNode
           LValueExprNode: i
           LValueExprNode: length
         BlockStmtNode
-          ExprStmtNode
-            BinaryExprNode: LValueExprNode: sum + LValueExprNode: input
-              LValueExprNode: sum
+          AssignStmtNode
+            LValueExprNode: sum
+            BinaryExprNode: LValueExprNode: input + LValueExprNode: sum
               LValueExprNode: input
                 LValueExprNode: i
+              LValueExprNode: sum
           AssignStmtNode
             LValueExprNode: i
             BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
