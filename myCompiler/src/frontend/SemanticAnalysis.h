@@ -54,5 +54,48 @@ public:
 // expression中不能存在与或非和大小比较
 class TypeCheckerVisitor
 {
+    // 语义分析器，负责检查 AST 的语义正确性
+    // 自上而下对 AST 进行遍历，将所有错误收集到 errors 列表中
+private:
+    SemanticAnalyzer analyzer; // 引用语义分析器
+    vector<string> errors;     // 错误列表
+
 public:
+    bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
+    {
+        // 进入全局作用域
+        analyzer.enterScope();
+        visitCompUnit(astRoot);
+        return errors.empty();
+    }
+
+private:
+    void visitCompUnit(shared_ptr<CompUnitNode> node);
+    void visitFuncNode(shared_ptr<FuncNode> node);
+    void visitBlockStmt(shared_ptr<BlockStmtNode> node);
+    void visitDeclStmt(shared_ptr<DeclStmtNode> node);
+    void visitExprStmt(shared_ptr<ExprStmtNode> node);
+    void visitAssignStmt(shared_ptr<AssignStmtNode> node);
+    void visitIfElseStmt(shared_ptr<IfElseStmtNode> node);
+    void visitWhileStmt(shared_ptr<WhileStmtNode> node);
+    void visitBreakStmt(shared_ptr<BreakStmtNode> node);
+    void visitContinueStmt(shared_ptr<ContinueStmtNode> node);
+    void visitReturnStmt(shared_ptr<ReturnStmtNode> node);
+    void visitLValueExpr(shared_ptr<LValueExprNode> node);
+    void visitInitExpr(shared_ptr<InitExprNode> node);
+    void visitCallExpr(shared_ptr<CallExprNode> node);
+    void visitBinaryExpr(shared_ptr<BinaryExprNode> node);
+    void visitUnaryExpr(shared_ptr<UnaryExprNode> node);
+    void visitLiteralExpr(shared_ptr<LiteralExprNode> node);
+    void visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node);
+    void visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node);
+
+    // 辅助函数
+    void reportError(const string &message, const ASTNode *node);
+    void checkVariableDeclaration(const DeclStmtNode *node);
+    void checkFunctionDeclaration(const FuncNode *node);
+    void checkAssignment(const AssignStmtNode *node);
+    void checkExpression(const ExprNode *node);
+    void checkArrayAccess(const LValueExprNode *node);
+    void checkFunctionCall(const CallExprNode *node);
 };
