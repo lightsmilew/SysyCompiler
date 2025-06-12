@@ -57,48 +57,22 @@ namespace ast
     vector<int> _arraySizes;
     bool _isConst = false;
 
-    // 函数相关信息
-    bool _isFunction = false;     // 是否为函数类型
-    vector<DataType> _paramTypes; // 函数参数类型列表
-
     // 构造函数
     DataType(PrimaryDataType type = PrimaryDataType::VOID)
-        : baseType(type), _arraySizes(), _isConst(false), _isFunction(false), _paramTypes() {}
+        : baseType(type), _arraySizes(), _isConst(false) {}
 
     DataType(PrimaryDataType type, const vector<int> &arraySizes, bool isConst = false)
-        : baseType(type), _arraySizes(arraySizes), _isConst(isConst), _isFunction(false), _paramTypes() {}
-
-    DataType(PrimaryDataType type, const vector<DataType> &paramTypes)
-        : baseType(type), _arraySizes(), _isConst(false), _isFunction(true), _paramTypes(paramTypes) {}
+        : baseType(type), _arraySizes(arraySizes), _isConst(isConst) {}
 
     // 数组相关方法
-    int arrayDimensionCount() const { return _arraySizes.size(); }     // 获取数组维度数量
-    const vector<int> &arraySizes() const { return _arraySizes; }      // 获取数组大小列表
-    bool isArray() const { return !_arraySizes.empty(); }              // 是否为数组类型
-    bool isConst() const { return _isConst; }                          // 是否为常量类型
-    bool isFunction() const { return _isFunction; }                    // 是否为函数类型
-    const vector<DataType> &paramTypes() const { return _paramTypes; } // 获取函数参数类型列表
+    int arrayDimensionCount() const { return _arraySizes.size(); } // 获取数组维度数量
+    const vector<int> &arraySizes() const { return _arraySizes; }  // 获取数组大小列表
+    bool isArray() const { return !_arraySizes.empty(); }          // 是否为数组类型
+    bool isConst() const { return _isConst; }                      // 是否为常量类型
 
-    // DataType 之间的完整比较
-    bool operator==(const DataType &other) const
-    {
-      if (baseType != other.baseType)
-        return false;
-      if (_isConst != other._isConst)
-        return false;
-      if (_isFunction != other._isFunction)
-        return false;
-      if (_arraySizes != other._arraySizes)
-        return false;
-
-      // 如果是函数类型，还需要比较参数类型
-      if (_isFunction)
-      {
-        return _paramTypes == other._paramTypes;
-      }
-
-      return true;
-    }
+    // 方便的比较操作
+    bool operator==(PrimaryDataType other) const { return baseType == other && !isArray(); }
+    bool operator!=(PrimaryDataType other) const { return !(*this == other); }
   };
 
   // 前向声明
