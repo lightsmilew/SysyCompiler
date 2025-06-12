@@ -60,6 +60,12 @@ private:
     SemanticAnalyzer analyzer; // 引用语义分析器
     vector<string> errors;     // 错误列表
 
+    // 新增状态跟踪变量
+    shared_ptr<FuncNode> currentFunction;                      // 当前正在检查的函数
+    bool inLoop;                                               // 是否在循环中
+    bool hasMainFunction;                                      // 是否已声明main函数
+    unordered_map<string, shared_ptr<FuncNode>> functionTable; // 函数表
+
 public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
@@ -90,12 +96,11 @@ private:
     void visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node);
     void visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node);
 
-    // 辅助函数
-    void reportError(const string &message, const ASTNode *node);
-    void checkVariableDeclaration(const DeclStmtNode *node);
-    void checkFunctionDeclaration(const FuncNode *node);
-    void checkAssignment(const AssignStmtNode *node);
-    void checkExpression(const ExprNode *node);
-    void checkArrayAccess(const LValueExprNode *node);
-    void checkFunctionCall(const CallExprNode *node);
+    // 新增辅助方法
+    void addError(const string &message);
+    DataType getExpressionType(shared_ptr<ExprNode> expr);
+    bool isTypeCompatible(DataType from, DataType to);
+    bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
+    void checkFunctionCall(shared_ptr<CallExprNode> call);
+    vector<string> getErrors() const { return errors; }
 };
