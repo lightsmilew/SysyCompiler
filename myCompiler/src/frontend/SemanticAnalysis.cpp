@@ -254,15 +254,9 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
     }
   }
 
-  // 注册函数到函数表
-  if (functionTable.find(node->identifier) != functionTable.end())
-  {
-    addError("Function '" + node->identifier + "' already declared");
-  }
-  else
-  {
-    functionTable[node->identifier] = node;
-  }
+  // 注册函数到符号表
+  auto funcSymbol = make_shared<Symbol>(currentFunction);
+  analyzer.declareVariable(node->identifier, funcSymbol);
 
   // 进入函数作用域
   analyzer.enterScope();
