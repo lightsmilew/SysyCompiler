@@ -4,15 +4,25 @@
 
 using namespace ast;
 
+enum class SymbolType
+{
+    VARIABLE,
+    FUNCTION
+};
+
 // 符号类，存储变量和函数的信息
 class Symbol
 {
 public:
-    DataType type;      // 符号的数据类型
-    bool isInitialized; // 符号是否已初始化
+    SymbolType symbolType;             // 符号类型（变量或函数）
+    DataType type;                     // 符号的数据类型
+    bool isInitialized;                // 符号是否已初始化
+    shared_ptr<FuncNode> functionNode; // 如果是函数，指向函数节点
 
     Symbol(DataType type, bool isInitialized = false)
-        : type(type), isInitialized(isInitialized) {}
+        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), functionNode(nullptr) {}
+    Symbol(shared_ptr<FuncNode> funcNode)
+        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), functionNode(funcNode) {}
 };
 
 // 符号表类，用于存储符号信息
@@ -52,6 +62,8 @@ public:
 // 作用域规则 - 变量可见性和生命周期
 // 初始化检查 - 变量使用前是否已初始化
 // expression中不能存在与或非和大小比较
+// a) 当返回类型为int/float时，函数内所有分支都应当含有带有Exp的return语句。不含有return语句的分支的返回值未定义。
+// b) 当返回值类型为void时，函数内只能出现不带返回值的return语句。
 class TypeCheckerVisitor
 {
     // 语义分析器，负责检查 AST 的语义正确性
@@ -60,11 +72,10 @@ private:
     SemanticAnalyzer analyzer; // 引用语义分析器
     vector<string> errors;     // 错误列表
 
-    // 新增状态跟踪变量
-    shared_ptr<FuncNode> currentFunction;                      // 当前正在检查的函数
-    bool inLoop;                                               // 是否在循环中
-    bool hasMainFunction;                                      // 是否已声明main函数
-    unordered_map<string, shared_ptr<FuncNode>> functionTable; // 函数表
+    // 状态跟踪变量
+    shared_ptr<FuncNode> currentFunction; // 当前正在检查的函数
+    bool inLoop;                          // 是否在循环中
+    bool hasMainFunction;                 // 是否已声明main函数
 
 public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
