@@ -77,6 +77,8 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     {
       return symbol->type;
     }
+    //未定义报错
+    addError("Variable '" + lvalue->identifier + "' not declared");
     return DataType(PrimaryDataType::VOID); // 错误情况
   }
   else if (auto binary = dynamic_pointer_cast<BinaryExprNode>(expr))
@@ -101,6 +103,7 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     }
     return DataType(PrimaryDataType::INT);
   }
+  //+或者-
   else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(expr))
   {
     // 检查一元操作符中的Not操作
@@ -113,14 +116,20 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
   }
   else if (auto call = dynamic_pointer_cast<CallExprNode>(expr))
   {
-    auto it = functionTable.find(call->callee);
-    if (it != functionTable.end())
-    {
-      return it->second->returnType;
+
+    // auto it = functionTable.find(call->callee);
+    // if (it != functionTable.end())
+    // {
+    //   return it->second->returnType;
+    // }
+    auto it=analyzer.resolveVariable(call->callee);
+    if(it){
+      return it->type;
     }
+    addError("Callee Function is not defined");
+    // 此处函数未声明应该报错
     return DataType(PrimaryDataType::VOID);
   }
-
   return DataType(PrimaryDataType::VOID);
 }
 
@@ -171,14 +180,18 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
 
 void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
 {
-  auto it = functionTable.find(call->callee);
-  if (it == functionTable.end())
-  {
-    addError("Function '" + call->callee + "' not declared");
-    return;
-  }
-
-  auto func = it->second;
+  // auto it = functionTable.find(call->callee);
+  // if (it == functionTable.end())
+  // {
+  //   addError("Function '" + call->callee + "' not declared");
+  //   return;
+  // }
+    auto it=analyzer.resolveVariable(call->callee);
+    if(!it){
+        addError("Callee Function is not defined");
+        return ;
+    }
+  auto func = it->functionNode;
 
   // 检查参数个数
   if (call->args.size() != func->params.size())
@@ -402,10 +415,8 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
   // 检查数组访问
   if (!node->lvalue->indices.empty())
   {
-    if (!isValidArrayAccess(node->lvalue))
-    {
-      return; // 错误已在isValidArrayAccess中报告
-    }
+    isValidArrayAccess(node->lvalue);
+    // 错误已在isValidArrayAccess中报告
   }
 
   // 检查右值表达式
@@ -966,10 +977,12 @@ void TypeCheckerVisitor::visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node
 {
   // 整数字面量通常不需要特殊检查
   // 可以检查值的范围等
+  // 这里需要检查数的范围
 }
 
 void TypeCheckerVisitor::visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node)
 {
   // 浮点数字面量通常不需要特殊检查
   // 可以检查值的范围等
+  // 这里需要检查数的范围
 }
