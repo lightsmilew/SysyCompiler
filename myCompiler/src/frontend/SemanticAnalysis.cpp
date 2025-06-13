@@ -77,6 +77,8 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     {
       return symbol->type;
     }
+    //未定义报错
+    addError("Variable '" + lvalue->identifier + "' not declared");
     return DataType(PrimaryDataType::VOID); // 错误情况
   }
   else if (auto binary = dynamic_pointer_cast<BinaryExprNode>(expr))
@@ -128,7 +130,6 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     // 此处函数未声明应该报错
     return DataType(PrimaryDataType::VOID);
   }
-
   return DataType(PrimaryDataType::VOID);
 }
 
@@ -414,10 +415,8 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
   // 检查数组访问
   if (!node->lvalue->indices.empty())
   {
-    if (!isValidArrayAccess(node->lvalue))
-    {
-      return; // 错误已在isValidArrayAccess中报告
-    }
+    isValidArrayAccess(node->lvalue);
+    // 错误已在isValidArrayAccess中报告
   }
 
   // 检查右值表达式
@@ -978,10 +977,12 @@ void TypeCheckerVisitor::visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node
 {
   // 整数字面量通常不需要特殊检查
   // 可以检查值的范围等
+  // 这里需要检查数的范围
 }
 
 void TypeCheckerVisitor::visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node)
 {
   // 浮点数字面量通常不需要特殊检查
   // 可以检查值的范围等
+  // 这里需要检查数的范围
 }
