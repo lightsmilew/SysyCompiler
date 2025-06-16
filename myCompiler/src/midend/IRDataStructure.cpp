@@ -17,6 +17,25 @@ std::string FunctionType::toString() const
 }
 
 // ===== Value System Implementation =====
+
+// 实现 replaceAllUsesWith 方法
+void Value::replaceAllUsesWith(Value *newValue)
+{
+    if (this == newValue)
+        return; // 避免自替换
+
+    // 复制Users列表，因为在替换过程中会修改这个列表
+    vector<User *> usersCopy = Users;
+
+    for (User *user : usersCopy)
+    {
+        user->replaceOperand(this, newValue);
+    }
+
+    // 此时Users应该已经被清空了（通过replaceOperand调用removeUser）
+    Users.clear();
+}
+
 // GlobalVariable implementation
 std::string GlobalVariable::toString() const
 {
@@ -24,11 +43,9 @@ std::string GlobalVariable::toString() const
     ss << "@" << getName() << " = ";
     if (IsConstant)
         ss << "constant ";
-    else
-        ss << "global ";
 
     // Get the element type (remove pointer wrapper)
-    Type *elemTy = static_cast<PointerType *>(getType())->getElementType();
+    Type *elemTy = static_cast<PointerType *>(getType())->ElementType;
     ss << elemTy->toString();
 
     if (Initializer)
@@ -40,6 +57,15 @@ std::string GlobalVariable::toString() const
         ss << " zeroinitializer";
     }
 
+    return ss.str();
+}
+
+// User implementation
+std::string User::toString() const
+{
+    // User是抽象基类，通常不直接使用toString，而是由子类重写
+    std::stringstream ss;
+    ss << getName() << " = user with " << getNumOperands() << " operands";
     return ss.str();
 }
 
