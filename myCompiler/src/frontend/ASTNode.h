@@ -9,11 +9,17 @@
 
 namespace ast
 {
+  using std::hash;
+  using std::make_pair;
   using std::make_shared;
+  using std::make_unique;
   using std::move;
   using std::ostream;
+  using std::pair;
   using std::shared_ptr;
   using std::string;
+  using std::to_string;
+  using std::unique_ptr;
   using std::unordered_map;
   using std::vector;
 
