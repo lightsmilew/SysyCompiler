@@ -1,211 +1,297 @@
-#include "ASTNode.h"
+#include "IRDataStructure.h"
+#include <sstream>
+#include <algorithm>
 
-using namespace ast;
-
-enum class InstructionType
+std::string FunctionType::toString() const
 {
-    BINARY,
-    UNARY,
-    LOAD,
-    STORE,
-    JUMP,
-    CONDITIONAL_JUMP,
-    CALL,
-    RETURN,
-    ALLOCA,
-    ASSIGN
-};
-
-struct Instruction
-{
-    InstructionType type;
-
-    Instruction(InstructionType t) : type(t) {}
-    virtual ~Instruction() = default;
-};
-
-struct Operand
-{
-    enum class OperandType
+    std::stringstream ss;
+    ss << ReturnType->toString() << " (";
+    for (size_t i = 0; i < ParamTypes.size(); ++i)
     {
-        INT_IMMEDIATE,   // 整数立即数
-        FLOAT_IMMEDIATE, // 浮点立即数
-        REGISTER,        // 寄存器
-    };
-
-    OperandType opType;
-    union
-    {
-        int intValue;     // 整数立即数
-        float floatValue; // 浮点立即数
-        int reg_id;       // 寄存器ID
-    };
-
-    // 构造函数
-    Operand() : opType(OperandType::INT_IMMEDIATE), intValue(0) {}
-    Operand(int val) : opType(OperandType::INT_IMMEDIATE), intValue(val) {}
-    Operand(float val) : opType(OperandType::FLOAT_IMMEDIATE), floatValue(val) {}
-
-    static Operand Register(int id)
-    {
-        Operand op;
-        op.opType = OperandType::REGISTER;
-        op.reg_id = id;
-        return op;
+        if (i > 0)
+            ss << ", ";
+        ss << ParamTypes[i]->toString();
     }
-};
+    ss << ")";
+    return ss.str();
+}
 
-// 寄存器描述符
-struct Register
+// ===== Value System Implementation =====
+// GlobalVariable implementation
+std::string GlobalVariable::toString() const
 {
-    int id;            // 寄存器ID
-    DataType dataType; // 寄存器存储的数据类型
-    bool isAllocated;  // 是否已分配
+    std::stringstream ss;
+    ss << "@" << getName() << " = ";
+    if (IsConstant)
+        ss << "constant ";
+    else
+        ss << "global ";
 
-    Register(int regId, DataType type)
-        : id(regId), dataType(type), isAllocated(false) {}
-};
+    // Get the element type (remove pointer wrapper)
+    Type *elemTy = static_cast<PointerType *>(getType())->getElementType();
+    ss << elemTy->toString();
 
-// 寄存器管理器
-class RegisterManager
-{
-private:
-    vector<Register> registers;
-    int nextRegId;
-
-public:
-    RegisterManager() : nextRegId(0) {}
-
-    // 分配指定类型的寄存器
-    int allocateRegister(DataType type)
+    if (Initializer)
     {
-        for (auto &reg : registers)
-        {
-            if (!reg.isAllocated && reg.dataType.baseType == type.baseType)
-            {
-                reg.isAllocated = true;
-                return reg.id;
-            }
-        }
-
-        // 创建新寄存器
-        int newId = nextRegId++;
-        registers.emplace_back(newId, type);
-        registers.back().isAllocated = true;
-        return newId;
+        ss << " " << Initializer->toString();
+    }
+    else
+    {
+        ss << " zeroinitializer";
     }
 
-    // 释放寄存器
-    void freeRegister(int regId)
+    return ss.str();
+}
+
+// ===== Instruction System Implementation =====
+
+std::string BinaryOperator::toString() const
+{
+    std::stringstream ss;
+    std::string opStr;
+
+    switch (Op)
     {
-        for (auto &reg : registers)
-        {
-            if (reg.id == regId)
-            {
-                reg.isAllocated = false;
-                break;
-            }
-        }
+    case Opcode::Add:
+        opStr = "add";
+        break;
+    case Opcode::Sub:
+        opStr = "sub";
+        break;
+    case Opcode::Mul:
+        opStr = "mul";
+        break;
+    case Opcode::SDiv:
+        opStr = "sdiv";
+        break;
+    case Opcode::SRem:
+        opStr = "srem";
+        break;
+    case Opcode::FAdd:
+        opStr = "fadd";
+        break;
+    case Opcode::FSub:
+        opStr = "fsub";
+        break;
+    case Opcode::FMul:
+        opStr = "fmul";
+        break;
+    case Opcode::FDiv:
+        opStr = "fdiv";
+        break;
+    default:
+        opStr = "unknown";
+        break;
     }
 
-    // 获取寄存器类型
-    DataType getRegisterType(int regId)
+    ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+       << " " << LHS->toString() << ", " << RHS->toString();
+
+    return ss.str();
+}
+
+std::string ICmpInst::toString() const
+{
+    std::stringstream ss;
+    std::string predStr;
+
+    switch (Pred)
     {
-        for (const auto &reg : registers)
-        {
-            if (reg.id == regId)
-            {
-                return reg.dataType;
-            }
-        }
-        return DataType(PrimaryDataType::VOID);
+    case ICMP_EQ:
+        predStr = "eq";
+        break;
+    case ICMP_NE:
+        predStr = "ne";
+        break;
+    case ICMP_SLT:
+        predStr = "slt";
+        break;
+    case ICMP_SLE:
+        predStr = "sle";
+        break;
+    case ICMP_SGT:
+        predStr = "sgt";
+        break;
+    case ICMP_SGE:
+        predStr = "sge";
+        break;
     }
-};
 
-struct Binary : public Instruction
-{
-    BinaryOp opcode; // 操作码
-    Operand src1;    // 操作数一
-    Operand src2;    // 操作数二
-    Operand dst;     // 目标寄存器
-};
+    ss << "%" << getName() << " = icmp " << predStr << " " << LHS->getType()->toString()
+       << " " << LHS->toString() << ", " << RHS->toString();
 
-struct Unary : public Instruction
-{
-    UnaryOp opcode; // 操作码
-    Operand src;    // 源操作数
-    Operand dst;    // 目标寄存器
-};
+    return ss.str();
+}
 
-struct Jump : public Instruction
+std::string AllocaInst::toString() const
 {
-    BasicBlock *target; // 跳转目标地址或标签
-};
+    std::stringstream ss;
+    ss << "%" << getName() << " = alloca " << AllocatedType->toString();
+    return ss.str();
+}
 
-struct ConditionalJump : public Instruction
+std::string LoadInst::toString() const
 {
-    BinaryOp condition;      // 条件操作符
-    Operand src1;            // 条件源操作数一
-    Operand src2;            // 条件源操作数二
-    BasicBlock *trueTarget;  // 条件为真时跳转的目标地址或标签
-    BasicBlock *falseTarget; // 条件为假时跳转的目标地址或标签
-};
+    std::stringstream ss;
+    ss << "%" << getName() << " = load " << getType()->toString()
+       << ", " << Pointer->getType()->toString() << " " << Pointer->toString();
+    return ss.str();
+}
 
-struct Call : public Instruction
+std::string StoreInst::toString() const
 {
-    string functionName;  // 被调用的函数名
-    vector<Operand> args; // 函数参数列表
-    Operand ret;          // 返回值寄存器
-};
+    std::stringstream ss;
+    ss << "store " << ValueToStore->getType()->toString() << " " << ValueToStore->toString()
+       << ", " << Pointer->getType()->toString() << " " << Pointer->toString();
+    return ss.str();
+}
 
-struct Assign : public Instruction
+std::string CallInst::toString() const
 {
-    Operand src; // 源操作数
-    Operand dst; // 目标寄存器或内存地址
-};
+    std::stringstream ss;
 
-struct Load : public Instruction
-{
-    Operand src;    // 源内存地址
-    Operand offset; // 偏移量
-    Operand dst;    // 目标寄存器
-};
+    if (!getType()->isVoidTy())
+    {
+        ss << "%" << getName() << " = ";
+    }
 
-struct Store : public Instruction
-{
-    Operand src;    // 源寄存器
-    Operand offset; // 偏移量
-    Operand dst;    // 目标内存地址
-};
+    ss << "call " << getType()->toString() << " @" << CalledFunction->getName() << "(";
 
-struct Alloca : public Instruction
-{
-    DataType type; // 分配的类型
-    Operand dst;   // 目标寄存器或内存地址
-};
+    for (size_t i = 0; i < Arguments.size(); ++i)
+    {
+        if (i > 0)
+            ss << ", ";
+        ss << Arguments[i]->getType()->toString() << " " << Arguments[i]->toString();
+    }
 
-struct Return : public Instruction
-{
-    Operand retValue; // 返回值寄存器或立即数
-};
+    ss << ")";
+    return ss.str();
+}
 
-// 数据流分析和控制流分析所需基本数据结构
-struct BasicBlock
+std::string ReturnInst::toString() const
 {
-    vector<Instruction *> instructions;
-    string label;
-};
+    std::stringstream ss;
+    if (ReturnValue)
+    {
+        ss << "ret " << ReturnValue->getType()->toString() << " " << ReturnValue->toString();
+    }
+    else
+    {
+        ss << "ret void";
+    }
+    return ss.str();
+}
 
-struct Function
+std::string BranchInst::toString() const
 {
-    string name;
-    vector<BasicBlock> blocks;
-};
+    std::stringstream ss;
+    if (Condition)
+    {
+        ss << "br " << Condition->getType()->toString() << " " << Condition->toString()
+           << ", label %" << TrueBlock->getName() << ", label %" << FalseBlock->getName();
+    }
+    else
+    {
+        ss << "br label %" << TrueBlock->getName();
+    }
+    return ss.str();
+}
 
-struct Program
+std::string PHINode::toString() const
 {
-    // 程序的全局变量
-    vector<BasicBlock *> globalVariables;
-    // 程序的函数列表
-    vector<Function *> functions;
-};
+    std::stringstream ss;
+    ss << "%" << getName() << " = phi " << getType()->toString();
+
+    for (size_t i = 0; i < IncomingValues.size(); ++i)
+    {
+        if (i > 0)
+            ss << ",";
+        ss << " [ " << IncomingValues[i].first->toString()
+           << ", %" << IncomingValues[i].second->getName() << " ]";
+    }
+
+    return ss.str();
+}
+
+// ===== BasicBlock Implementation =====
+std::string BasicBlock::toString() const
+{
+    std::stringstream ss;
+
+    // Block label
+    if (!getName().empty())
+    {
+        ss << getName() << ":\n";
+    }
+
+    // Instructions
+    for (const auto &inst : Instructions)
+    {
+        ss << "  " << inst->toString() << "\n";
+    }
+
+    return ss.str();
+}
+
+// ===== Argument Implementation =====
+
+std::string Argument::toString() const
+{
+    return "%" + getName();
+}
+
+// ===== Function Implementation =====
+std::string Function::toString() const
+{
+    std::stringstream ss;
+
+    // Function signature
+    ss << "define " << getType()->toString()
+       << " @" << getName() << "(";
+
+    for (size_t i = 0; i < Arguments.size(); ++i)
+    {
+        if (i > 0)
+            ss << ", ";
+        ss << Arguments[i]->getType()->toString() << " %" << Arguments[i]->getName();
+    }
+
+    ss << ") {\n";
+
+    // Basic blocks
+    for (const auto &bb : BasicBlocks)
+    {
+        ss << bb->toString();
+    }
+
+    ss << "}\n";
+
+    return ss.str();
+}
+
+// ===== Module Implementation =====
+std::string Module::toString() const
+{
+    std::stringstream ss;
+
+    ss << "; ModuleID = '" << Name << "'\n\n";
+
+    // Global variables
+    for (const auto &gv : GlobalVariables)
+    {
+        ss << gv->toString() << "\n";
+    }
+
+    if (!GlobalVariables.empty())
+    {
+        ss << "\n";
+    }
+
+    // Functions
+    for (const auto &func : Functions)
+    {
+        ss << func->toString() << "\n";
+    }
+
+    return ss.str();
+}
