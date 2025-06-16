@@ -2,6 +2,11 @@
 #include "../frontend/ASTNode.h"
 using namespace ast;
 
+// 前向声明
+class BasicBlock;
+class Function;
+class Module;
+
 // 类似LLVM的ir数据结构
 class Type
 {
@@ -11,6 +16,7 @@ public:
         VoidTyID,
         IntegerTyID,
         FloatTyID,
+        BooleanTyID,
         PointerTyID,
         ArrayTyID,
         FunctionTyID
@@ -30,6 +36,7 @@ public:
     bool isPointerTy() const { return ID == PointerTyID; }
     bool isArrayTy() const { return ID == ArrayTyID; }
     bool isFunctionTy() const { return ID == FunctionTyID; }
+    bool isBooleanTy() const { return ID == BooleanTyID; }
 
     virtual string toString() const = 0;
 };
@@ -38,6 +45,11 @@ class IntegerType : public Type
 {
 public:
     IntegerType() : Type(IntegerTyID) {}
+    static IntegerType *getInstance()
+    {
+        static IntegerType instance;
+        return &instance;
+    }
     string toString() const override
     {
         return "i_32";
@@ -48,13 +60,35 @@ class FloatType : public Type
 {
 public:
     FloatType() : Type(FloatTyID) {}
+    static FloatType *getInstance()
+    {
+        static FloatType instance;
+        return &instance;
+    }
     string toString() const override { return "f_32"; }
+};
+
+class BooleanType : public Type
+{
+public:
+    BooleanType() : Type(BooleanTyID) {}
+    static BooleanType *getInstance()
+    {
+        static BooleanType instance;
+        return &instance;
+    }
+    string toString() const override { return "i_1"; } // 使用 i1 表示布尔类型
 };
 
 class VoidType : public Type
 {
 public:
     VoidType() : Type(VoidTyID) {}
+    static VoidType *getInstance()
+    {
+        static VoidType instance;
+        return &instance;
+    }
     string toString() const override { return "void"; }
 };
 
@@ -64,7 +98,11 @@ public:
     Type *ElementType;
 
     PointerType(Type *elemTy) : Type(PointerTyID), ElementType(elemTy) {}
-    Type *getElementType() const { return ElementType; }
+    static PointerType *getInstance(Type *elemTy)
+    {
+        static PointerType instance(elemTy);
+        return &instance;
+    }
     string toString() const override { return ElementType->toString() + "*"; }
 };
 
@@ -88,18 +126,19 @@ public:
     Type *ReturnType;
     vector<Type *> ParamTypes;
 
-    FunctionType(Type *retTy, const vector<Type *> &params)
-        : Type(FunctionTyID), ReturnType(retTy), ParamTypes(params) {}
-    Type *getReturnType() const { return ReturnType; }
-    const vector<Type *> &getParamTypes() const { return ParamTypes; }
+    FunctionType(Type *retTy, const vector<Type *> &paramTys)
+        : Type(FunctionTyID), ReturnType(retTy), ParamTypes(paramTys) {}
     string toString() const override;
 };
+
+class User; // 前向声明
 
 class Value
 {
 private:
     Type *Ty;
     string Name;
+    vector<User *> Users; // 使用这个Value的所有User
 
 public:
     Value(Type *ty, const string &name = "") : Ty(ty), Name(name) {}
@@ -109,7 +148,84 @@ public:
     const string &getName() const { return Name; }
     void setName(const string &name) { Name = name; }
 
+    // User管理方法
+    void addUser(User *user) { Users.push_back(user); }
+    void removeUser(User *user)
+    {
+        Users.erase(std::remove(Users.begin(), Users.end(), user), Users.end());
+    }
+    const vector<User *> &getUsers() const { return Users; }
+
     virtual string toString() const = 0;
+
+    // 替换所有使用这个Value的地方为newValue
+    void replaceAllUsesWith(Value *newValue);
+};
+
+class User : public Value
+{
+public:
+    vector<Value *> Operands;
+
+    User(Type *ty, const vector<Value *> &operands, const string &name = "")
+        : Value(ty, name), Operands(operands)
+    {
+        // 将自己添加到每个操作数的Users列表中
+        for (Value *operand : operands)
+        {
+            if (operand)
+            {
+                operand->addUser(this);
+            }
+        }
+    }
+
+    virtual ~User()
+    {
+        // 析构时从所有操作数的Users列表中移除自己
+        for (Value *operand : Operands)
+        {
+            if (operand)
+            {
+                operand->removeUser(this);
+            }
+        }
+    }
+
+    // 添加操作数
+    void addOperand(Value *operand)
+    {
+        if (operand)
+        {
+            Operands.push_back(operand);
+            operand->addUser(this);
+        }
+    }
+
+    // 替换操作数
+    void replaceOperand(Value *oldValue, Value *newValue)
+    {
+        for (size_t i = 0; i < Operands.size(); i++)
+        {
+            if (Operands[i] == oldValue)
+            {
+                if (oldValue)
+                {
+                    oldValue->removeUser(this);
+                }
+                Operands[i] = newValue;
+                if (newValue)
+                {
+                    newValue->addUser(this);
+                }
+            }
+        }
+    }
+
+    // 获取操作数数量
+    unsigned getNumOperands() const { return Operands.size(); }
+
+    string toString() const override;
 };
 
 class Constant : public Value
@@ -182,14 +298,20 @@ enum class Opcode
     Phi
 };
 
-class Instruction : public Value
+class Instruction : public User
 {
 public:
     Opcode Op;
     BasicBlock *Parent;
 
+    // usually added to a BasicBlock after creation
     Instruction(Type *ty, Opcode op, const string &name = "")
-        : Value(ty, name), Op(op), Parent(nullptr) {}
+        : User(ty, {}, name), Op(op), Parent(nullptr) {}
+
+    // 带操作数的构造函数
+    Instruction(Type *ty, Opcode op, const vector<Value *> &operands, const string &name = "")
+        : User(ty, operands, name), Op(op), Parent(nullptr) {}
+
     virtual string toString() const = 0;
 };
 
@@ -199,8 +321,12 @@ public:
     Value *LHS;
     Value *RHS;
 
+    // binary operator constructor
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(lhs->getType(), op, name), LHS(lhs), RHS(rhs) {}
+        : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name), LHS(lhs), RHS(rhs) {}
+    // unary operator constructor
+    BinaryOperator(Opcode op, Value *operand, const string &name = "")
+        : Instruction(operand->getType(), op, vector<Value *>{operand}, name), LHS(operand), RHS(nullptr) {}
     string toString() const override;
 };
 
@@ -223,7 +349,8 @@ public:
     Value *RHS;
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(new IntegerType(), Opcode::ICmp, name), Pred(pred), LHS(lhs), RHS(rhs) {}
+        : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
+          Pred(pred), LHS(lhs), RHS(rhs) {}
     string toString() const override;
 };
 
@@ -233,7 +360,7 @@ public:
     Type *AllocatedType;
 
     AllocaInst(Type *ty, const string &name = "")
-        : Instruction(new PointerType(ty), Opcode::Alloca, name), AllocatedType(ty) {}
+        : Instruction(PointerType::getInstance(ty), Opcode::Alloca, name), AllocatedType(ty) {}
     string toString() const override;
 };
 
@@ -243,8 +370,25 @@ public:
     Value *Pointer;
 
     LoadInst(Value *ptr, const string &name = "")
-        : Instruction(static_cast<PointerType *>(ptr->getType())->ElementType, Opcode::Load, name), Pointer(ptr) {}
+        : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name), Pointer(ptr) {}
     string toString() const override;
+
+private:
+    // 获取指针指向的元素类型
+    static Type *getElementType(Value *ptr)
+    {
+        if (!ptr)
+            return IntegerType::getInstance(); // 默认类型
+
+        // 如果是指针类型，返回指向的元素类型
+        if (auto ptrTy = dynamic_cast<PointerType *>(ptr->getType()))
+        {
+            return ptrTy->ElementType;
+        }
+
+        // 如果传入的不是指针，这是一个错误，但为了健壮性返回默认类型
+        return IntegerType::getInstance();
+    }
 };
 
 class StoreInst : public Instruction
@@ -254,8 +398,8 @@ public:
     Value *Pointer;
 
     StoreInst(Value *val, Value *ptr)
-        : Instruction(new VoidType(), Opcode::Store), ValueToStore(val), Pointer(ptr) {}
-
+        : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}),
+          ValueToStore(val), Pointer(ptr) {}
     string toString() const override;
 };
 
@@ -266,8 +410,46 @@ public:
     vector<Value *> Arguments;
 
     CallInst(Function *func, const vector<Value *> &args, const string &name = "")
-        : Instruction(static_cast<FunctionType *>(func->getType())->ReturnType, Opcode::Call, name), CalledFunction(func), Arguments(args) {}
+        : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name),
+          CalledFunction(func), Arguments(args) {}
     string toString() const override;
+
+private:
+    static vector<Value *> constructOperands(Function *func, const vector<Value *> &args)
+    {
+        vector<Value *> operands;
+        operands.push_back(func);
+        operands.insert(operands.end(), args.begin(), args.end());
+        return operands;
+    }
+
+    static Type *getFunctionReturnType(Value *func)
+    {
+        if (!func)
+        {
+            throw std::invalid_argument("CallInst: function cannot be null");
+        }
+
+        FunctionType *funcTy = nullptr;
+
+        // 如果是函数类型
+        if (auto ft = dynamic_cast<FunctionType *>(func->getType()))
+        {
+            funcTy = ft;
+        }
+        // 函数指针类型
+        else if (auto ptrTy = dynamic_cast<PointerType *>(func->getType()))
+        {
+            funcTy = dynamic_cast<FunctionType *>(ptrTy->ElementType);
+        }
+
+        if (!funcTy)
+        {
+            throw std::invalid_argument("CallInst: operand is not a function");
+        }
+
+        return funcTy->ReturnType;
+    }
 };
 
 class ReturnInst : public Instruction
@@ -276,10 +458,10 @@ public:
     Value *ReturnValue;
 
     // Return without value (void return)
-    ReturnInst() : Instruction(new VoidType(), Opcode::Ret), ReturnValue(nullptr) {}
+    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret), ReturnValue(nullptr) {}
     // Return with value
     ReturnInst(Value *retVal)
-        : Instruction(retVal->getType(), Opcode::Ret), ReturnValue(retVal) {}
+        : Instruction(retVal->getType(), Opcode::Ret, vector<Value *>{retVal}), ReturnValue(retVal) {}
     string toString() const override;
 };
 
@@ -292,11 +474,12 @@ public:
 
     // Unconditional branch
     BranchInst(BasicBlock *target)
-        : Instruction(new VoidType(), Opcode::Br), TrueBlock(target), FalseBlock(nullptr), Condition(nullptr) {}
+        : Instruction(VoidType::getInstance(), Opcode::Br), TrueBlock(target), FalseBlock(nullptr), Condition(nullptr) {}
 
     // Conditional branch
     BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock)
-        : Instruction(new VoidType(), Opcode::Br), TrueBlock(trueBlock), FalseBlock(falseBlock), Condition(cond) {}
+        : Instruction(VoidType::getInstance(), Opcode::Br, vector<Value *>{cond}),
+          TrueBlock(trueBlock), FalseBlock(falseBlock), Condition(cond) {}
 
     string toString() const override;
 };
@@ -321,7 +504,7 @@ public:
     vector<BasicBlock *> Successors;
 
     BasicBlock(const string &name = "", Function *parent = nullptr)
-        : Value(new VoidType(), name), Parent(parent) {}
+        : Value(VoidType::getInstance(), name), Parent(parent) {}
     string toString() const override;
 };
 
