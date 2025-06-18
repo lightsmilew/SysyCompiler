@@ -45,11 +45,14 @@ class SemanticAnalyzer
 {
 public:
     shared_ptr<SymbolTable> currentScope;
-
+    shared_ptr<SymbolTable> functionTable; // 函数符号表
     void enterScope();
     void exitScope();
     void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveVariable(const std::string &name);
+    void declareFunction(const std::string &name, const std::shared_ptr<Symbol> &symbol);
+    shared_ptr<Symbol> resolveFunction(const std::string &name);
+
 };
 
 // 有且只有一个main函数    ✔
@@ -69,6 +72,13 @@ public:
 // 变量类型隐式转换是否可以在数组下进行
 // 数组访问越界问题
 // 库函数需支持字符串类型
+// 数组长度必须为常量
+// 数组初始化多种形式
+// 必须用常量初始化常量表达式
+// 全局变量的初值必须为常量表达式
+// 数组初始化要检查初值类型是否匹配
+// 可以把多维数组的一维当作参数传递
+// void visitDeclStmt(shared_ptr<DeclStmtNode> node);处理数组，维度必须非负整数
 class TypeCheckerVisitor
 {
     // 语义分析器，负责检查 AST 的语义正确性
