@@ -14,15 +14,17 @@ enum class SymbolType
 class Symbol
 {
 public:
-    SymbolType symbolType;             // 符号类型（变量或函数）
-    DataType type;                     // 符号的数据类型
-    bool isInitialized;                // 符号是否已初始化
-    shared_ptr<FuncNode> functionNode; // 如果是函数，指向函数节点
+    SymbolType symbolType;                // 符号类型（变量或函数）
+    DataType type;                        // 符号的数据类型
+    bool isInitialized;                   // 符号是否已初始化
+    bool isConst;                         // 是否为常量
+    vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
+    shared_ptr<FuncNode> functionNode;    // 如果是函数，指向函数节点
 
-    Symbol(DataType type, bool isInitialized = false)
-        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), functionNode(nullptr) {}
+    Symbol(DataType type, bool isInitialized = false, bool isConst = false)
+        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), isConst(isConst), functionNode(nullptr) {}
     Symbol(shared_ptr<FuncNode> funcNode)
-        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), functionNode(funcNode) {}
+        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), isConst(false), functionNode(funcNode) {}
 };
 
 // 符号表类，用于存储符号信息
@@ -71,13 +73,14 @@ public:
 // 变量类型隐式转换是否可以在数组下进行
 // 数组访问越界问题（动态检查）
 // 库函数需支持字符串类型 √
-// 数组长度必须为常量
-// 数组初始化多种形式
-// 必须用常量初始化常量表达式
-// 全局变量的初值必须为常量表达式
-// 数组初始化要检查初值类型是否匹配
-// 可以把多维数组的一维当作参数传递
-// void visitDeclStmt(shared_ptr<DeclStmtNode> node);处理数组，维度必须非负整数
+
+// 数组长度必须为常量 ✔
+// 数组初始化多种形式 ✔全部平铺展开
+// 必须用常量初始化常量表达式       ✔
+// 全局变量的初值必须为常量表达式   ✔
+// 数组初始化要检查初值类型是否匹配 ✔
+// 可以把多维数组的一维当作参数传递 ✔
+// void visitDeclStmt(shared_ptr<DeclStmtNode> node);处理数组，维度必须非负整数 ✔
 class TypeCheckerVisitor
 {
     // 语义分析器，负责检查 AST 的语义正确性
@@ -136,6 +139,7 @@ private:
     DataType getExpressionType(shared_ptr<ExprNode> expr, ExprContext context = ExprContext::EXPRESSION);
     bool isTypeCompatible(DataType from, DataType to);
     bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
+    bool checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConst = false);
     void checkFunctionCall(shared_ptr<CallExprNode> call);
     vector<string> getErrors() const { return errors; }
     bool tryEvaluateConstantExpression(shared_ptr<ExprNode> expr, int &result);
