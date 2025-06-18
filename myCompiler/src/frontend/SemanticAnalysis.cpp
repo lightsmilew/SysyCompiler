@@ -465,9 +465,9 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     }
   }
   // 创建符号并声明
-  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr);
-  symbol->indices = node->indices; // 如果是数组，保存下标信息,不是则为空
-  symbol->isConst = node->isConst; // 设置是否为常量
+  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr,node->isConst);
+  // 如果是数组,保存下标信息,不是则为空
+  symbol->indices = node->indices; 
   // 如果有初始化表达式，检查类型匹配
   if (node->initializer)
   {

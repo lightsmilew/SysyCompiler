@@ -14,17 +14,17 @@ enum class SymbolType
 class Symbol
 {
 public:
-    SymbolType symbolType;             // 符号类型（变量或函数或常量）
+    SymbolType symbolType;             // 符号类型（变量或函数）
     DataType type;                     // 符号的数据类型
     bool isInitialized;                // 符号是否已初始化
-    bool isConst = false; // 是否为常量
+    bool isConst;              // 是否为常量
     vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
     shared_ptr<FuncNode> functionNode; // 如果是函数，指向函数节点
 
-    Symbol(DataType type, bool isInitialized = false)
-        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), functionNode(nullptr){}
+    Symbol(DataType type, bool isInitialized = false,bool isConst = false)
+        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized),isConst(isConst),functionNode(nullptr){}
     Symbol(shared_ptr<FuncNode> funcNode)
-        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), functionNode(funcNode) {}
+        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true),isConst(false),functionNode(funcNode) {}
 };
 
 // 符号表类，用于存储符号信息
