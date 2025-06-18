@@ -163,6 +163,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitStringLiteralExp(SysYParser::StringLiteralExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitIntNum(SysYParser::IntNumContext *ctx) override {
     return visitChildren(ctx);
   }

@@ -93,6 +93,8 @@ public:
 
     virtual std::any visitNumberExp(SysYParser::NumberExpContext *context) = 0;
 
+    virtual std::any visitStringLiteralExp(SysYParser::StringLiteralExpContext *context) = 0;
+
     virtual std::any visitIntNum(SysYParser::IntNumContext *context) = 0;
 
     virtual std::any visitFloatNum(SysYParser::FloatNumContext *context) = 0;

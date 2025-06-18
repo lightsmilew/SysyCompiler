@@ -429,6 +429,10 @@ void TypeCheckerVisitor::visitExprStmt(shared_ptr<ExprStmtNode> node)
     {
       visitFloatLiteralExpr(floatLiteral);
     }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->expr))
+    {
+      visitStringLiteralExpr(stringLiteral);
+    }
   }
 }
 
@@ -483,6 +487,10 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
   else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->rvalue))
   {
     visitFloatLiteralExpr(floatLiteral);
+  }
+  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->rvalue))
+  {
+    visitStringLiteralExpr(stringLiteral);
   }
 
   // 检查类型兼容性
@@ -638,6 +646,10 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
     {
       visitCallExpr(call);
     }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->condition))
+    {
+      visitStringLiteralExpr(stringLiteral);
+    }
   }
 
   // 检查循环体
@@ -674,6 +686,10 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
     else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node->body))
     {
       visitReturnStmt(returnStmt);
+    }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->body))
+    {
+      visitStringLiteralExpr(stringLiteral);
     }
   }
 }
@@ -739,6 +755,10 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
     {
       visitFloatLiteralExpr(floatLiteral);
     }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->ret_expr))
+    {
+      visitStringLiteralExpr(stringLiteral);
+    }
   }
   else
   {
@@ -798,6 +818,10 @@ void TypeCheckerVisitor::visitLValueExpr(shared_ptr<LValueExprNode> node)
       {
         visitFloatLiteralExpr(floatLiteral);
       }
+      else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(index))
+      {
+        visitStringLiteralExpr(stringLiteral);
+      }
     }
   }
 }
@@ -834,6 +858,10 @@ void TypeCheckerVisitor::visitInitExpr(shared_ptr<InitExprNode> node)
     {
       visitFloatLiteralExpr(floatLiteral);
     }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->singleInitVal))
+    {
+      visitStringLiteralExpr(stringLiteral);
+    }
   }
   else
   {
@@ -850,6 +878,7 @@ void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
   checkFunctionCall(node);
 
   // 递归检查参数表达式
+  inFunctionCall = true;
   for (auto &arg : node->args)
   {
     if (auto binary = dynamic_pointer_cast<BinaryExprNode>(arg))
@@ -876,7 +905,12 @@ void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
     {
       visitFloatLiteralExpr(floatLiteral);
     }
+    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(arg))
+    {
+      visitStringLiteralExpr(stringLiteral);
+    }
   }
+  inFunctionCall = false;
 }
 
 void TypeCheckerVisitor::visitBinaryExpr(shared_ptr<BinaryExprNode> node)
@@ -906,6 +940,10 @@ void TypeCheckerVisitor::visitBinaryExpr(shared_ptr<BinaryExprNode> node)
   {
     visitFloatLiteralExpr(leftFloatLiteral);
   }
+  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->left))
+  {
+    visitStringLiteralExpr(stringLiteral);
+  }
 
   if (auto rightBinary = dynamic_pointer_cast<BinaryExprNode>(node->right))
   {
@@ -930,6 +968,10 @@ void TypeCheckerVisitor::visitBinaryExpr(shared_ptr<BinaryExprNode> node)
   else if (auto rightFloatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->right))
   {
     visitFloatLiteralExpr(rightFloatLiteral);
+  }
+  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->right))
+  {
+    visitStringLiteralExpr(stringLiteral);
   }
 
   // 检查操作数类型
@@ -992,6 +1034,10 @@ void TypeCheckerVisitor::visitUnaryExpr(shared_ptr<UnaryExprNode> node)
   {
     visitFloatLiteralExpr(floatLiteral);
   }
+  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->operand))
+  {
+    visitStringLiteralExpr(stringLiteral);
+  }
 
   // 检查操作数类型
   DataType operandType = getExpressionType(node->operand, ExprContext::EXPRESSION);
@@ -1003,50 +1049,80 @@ void TypeCheckerVisitor::visitUnaryExpr(shared_ptr<UnaryExprNode> node)
   }
 }
 
-void TypeCheckerVisitor::visitLiteralExpr(shared_ptr<LiteralExprNode> node)
-{
-  // 但可以检查类型是否符合预期
-  if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node))
-  {
-    // 整数字面量是32位整数，所以范围在-2147483648到2147483647之间
-    if (intLiteral->value < -2147483648 ||
-        intLiteral->value > 2147483647)
-    {
-      addError("Integer literal out of range: " + to_string(intLiteral->value));
-    }
-  }
-  else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node))
-  {
-    // 浮点数字面量通常是32位单精度浮点数
-    // 检查是否在有效范围内
-    if (floatLiteral->value < -3.402823e38f ||
-        floatLiteral->value > 3.402823e38f)
-    {
-      addError("Float literal out of range: " + to_string(floatLiteral->value));
-    }
-  }
-  else if (auto strLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node))
-  {
-    // SysY中没有字符串字面量，所以这里可以忽略
-    // 如果有其他类型的字面量，可以在这里添加检查
-    // 例如，字符字面量等
-  }
-  else
-  {
-    addError("Unknown literal expression type");
-  }
-}
+// void TypeCheckerVisitor::visitLiteralExpr(shared_ptr<LiteralExprNode> node)
+// {
+//   // 但可以检查类型是否符合预期
+//   if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node))
+//   {
+//     // 整数字面量是32位整数，所以范围在-2147483648到2147483647之间
+//     if (intLiteral->value < -2147483648 ||
+//         intLiteral->value > 2147483647)
+//     {
+//       addError("Integer literal out of range: " + to_string(intLiteral->value));
+//     }
+//   }
+//   else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node))
+//   {
+//     // 浮点数字面量通常是32位单精度浮点数
+//     // 检查是否在有效范围内
+//     if (floatLiteral->value < -3.402823e38f ||
+//         floatLiteral->value > 3.402823e38f)
+//     {
+//       addError("Float literal out of range: " + to_string(floatLiteral->value));
+//     }
+//   }
+//   else if (auto strLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node))
+//   {
+//     if (!InFunctionCall)
+//     {
+//       addError("String literal can only be used in function calls");
+//     }
+//   }
+//   else
+//   {
+//     addError("Unknown literal expression type");
+//   }
+// }
 
 void TypeCheckerVisitor::visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node)
 {
-  // 整数字面量通常不需要特殊检查
-  // 可以检查值的范围等
-  // 这里需要检查数的范围
+  auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node);
+  if (intLiteral->value < -2147483648 ||
+      intLiteral->value > 2147483647)
+  {
+    addError("Integer literal out of range: " + to_string(intLiteral->value));
+  }
 }
 
 void TypeCheckerVisitor::visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node)
 {
-  // 浮点数字面量通常不需要特殊检查
-  // 可以检查值的范围等
-  // 这里需要检查数的范围
+  auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node);
+  if (floatLiteral->value < -3.402823e38f ||
+      floatLiteral->value > 3.402823e38f)
+  {
+    addError("Float literal out of range: " + to_string(floatLiteral->value));
+  }
+}
+
+void TypeCheckerVisitor::visitStringLiteralExpr(shared_ptr<StringLiteralExprNode> node)
+{
+  if (!inFunctionCall)
+  {
+    addError("String literal can only be used in function calls");
+  }
+}
+
+shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType)
+{
+  if (!needsImplicitConversion(expr->dataType, targetType))
+  {
+    return expr;
+  }
+
+  // 创建类型转换节点
+  auto castNode = make_shared<CastExpNode>();
+  castNode->sourceExpr = expr;
+  castNode->targetType = targetType;
+
+  return castNode;
 }
