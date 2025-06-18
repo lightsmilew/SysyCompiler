@@ -69,8 +69,8 @@ public:
 
 // 字面量未检查范围 √ 但是没关注字符串字面量
 // 变量类型隐式转换是否可以在数组下进行
-// 数组访问越界问题
-// 库函数需支持字符串类型
+// 数组访问越界问题（动态检查）
+// 库函数需支持字符串类型 √
 // 数组长度必须为常量
 // 数组初始化多种形式
 // 必须用常量初始化常量表达式
@@ -97,6 +97,7 @@ private:
     // 状态跟踪变量
     shared_ptr<FuncNode> currentFunction; // 当前正在检查的函数
     bool hasMainFunction;                 // 是否已声明main函数
+    bool inFunctionCall;                  // 是否在函数调用上下文中
 
 public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
@@ -124,15 +125,18 @@ private:
     void visitCallExpr(shared_ptr<CallExprNode> node);
     void visitBinaryExpr(shared_ptr<BinaryExprNode> node);
     void visitUnaryExpr(shared_ptr<UnaryExprNode> node);
-    void visitLiteralExpr(shared_ptr<LiteralExprNode> node);
+    // void visitLiteralExpr(shared_ptr<LiteralExprNode> node);
     void visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node);
     void visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node);
+    void visitStringLiteralExpr(shared_ptr<StringLiteralExprNode> node);
 
     // 新增辅助方法
+    shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType);
     void addError(const string &message);
     DataType getExpressionType(shared_ptr<ExprNode> expr, ExprContext context = ExprContext::EXPRESSION);
     bool isTypeCompatible(DataType from, DataType to);
     bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
     void checkFunctionCall(shared_ptr<CallExprNode> call);
     vector<string> getErrors() const { return errors; }
+    bool tryEvaluateConstantExpression(shared_ptr<ExprNode> expr, int &result);
 };
