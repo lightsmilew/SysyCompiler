@@ -295,6 +295,7 @@ enum class Opcode
 
     // Other operations
     Call,
+    // when there are multiple predecessors, we use PHI node to select the value
     Phi
 };
 
@@ -461,7 +462,7 @@ public:
     ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret), ReturnValue(nullptr) {}
     // Return with value
     ReturnInst(Value *retVal)
-        : Instruction(retVal->getType(), Opcode::Ret, vector<Value *>{retVal}), ReturnValue(retVal) {}
+        : Instruction(VoidType::getInstance(), Opcode::Ret, vector<Value *>{retVal}), ReturnValue(retVal) {}
     string toString() const override;
 };
 
