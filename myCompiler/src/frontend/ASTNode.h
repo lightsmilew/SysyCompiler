@@ -9,11 +9,17 @@
 
 namespace ast
 {
+  using std::hash;
+  using std::make_pair;
   using std::make_shared;
+  using std::make_unique;
   using std::move;
   using std::ostream;
+  using std::pair;
   using std::shared_ptr;
   using std::string;
+  using std::to_string;
+  using std::unique_ptr;
   using std::unordered_map;
   using std::vector;
 
@@ -112,9 +118,6 @@ namespace ast
     {
       out << string(indent, ' ') << toString() << "\n";
     }
-
-    // // ir代码生成的基类方法
-    // virtual void baseCodegen(const Ptr<ir_builder::Builder> &builder) = 0;
   };
 
   //--- ExprNode ---//
@@ -127,8 +130,6 @@ namespace ast
     ExprNode() {} // 默认构造函数
 
     string toString() const override = 0;
-
-    // virtual DataType getDataType() const = 0;
   };
 
   // 初始化表达式节点
@@ -145,7 +146,6 @@ namespace ast
     InitExprNode(vector<shared_ptr<InitExprNode>> initVals) : multiInitVal{move(initVals)} {}
 
     string toString() const override;
-    // DataType getDataType() const override;
   };
 
   // 左值表达式节点，表示变量或数组元素等可以被赋值的表达式
@@ -160,7 +160,6 @@ namespace ast
         : identifier{move(id)}, indices{move(idxs)} {}
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // 二元表达式节点，表示两个操作数之间的二元操作
@@ -176,7 +175,6 @@ namespace ast
         : left{move(l)}, right{move(r)}, op{move(operator_)} {}
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // 一元表达式节点，表示单个操作数的操作
@@ -191,7 +189,6 @@ namespace ast
         : operand{move(opnd)}, op{move(operator_)} {}
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // 字面量表达式节点，表示常量值
@@ -223,7 +220,6 @@ namespace ast
 
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // 浮点数字面量表达式节点，表示浮点数类型的常量
@@ -239,7 +235,6 @@ namespace ast
 
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // class StringLiteralExprNode : public LiteralExprNode
@@ -267,7 +262,6 @@ namespace ast
 
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   //--- StmtNode ---//
