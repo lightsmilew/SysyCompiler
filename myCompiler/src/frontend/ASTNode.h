@@ -104,6 +104,7 @@ namespace ast
   class ReturnStmtNode;
   class FuncNode;
   class CompUnitNode;
+  class CastExpNode;
 
   class ASTNode
   {
@@ -130,6 +131,20 @@ namespace ast
     ExprNode() {} // 默认构造函数
 
     string toString() const override = 0;
+  };
+
+  //--- CastExpNode ---//
+  // 类型转换表达式节点，表示将一个表达式转换为另一种数据类型
+  class CastExpNode : public ExprNode
+  {
+  public:
+    shared_ptr<ExprNode> sourceExpr; // 被转换的表达式
+    DataType targetType;             // 目标数据类型
+
+    CastExpNode(shared_ptr<ExprNode> op, DataType type)
+        : sourceExpr{move(op)}, targetType{move(type)} {}
+
+    string toString() const override;
   };
 
   // 初始化表达式节点
@@ -237,17 +252,17 @@ namespace ast
     void print(ostream &out, unsigned indent = 0) const override;
   };
 
-  // class StringLiteralExprNode : public LiteralExprNode
-  // {
-  // public:
-  //     string value; // 字符串值
+  class StringLiteralExprNode : public LiteralExprNode
+  {
+  public:
+    string value; // 字符串值
 
-  //     StringLiteralExprNode(string val) : value{move(val)} {}
+    StringLiteralExprNode(string val) : value{move(val)} {}
 
-  //     string toString() const override;
-  //     void print(ostream &out, unsigned indent = 0) const override;
-  //     // DataType getDataType() const override;
-  // };
+    string toString() const override;
+    void print(ostream &out, unsigned indent = 0) const override;
+    // DataType getDataType() const override;
+  };
 
   // 函数调用表达式节点，表示对函数的调用
   // 例如：foo(a, b), bar(1, 2.0) 等

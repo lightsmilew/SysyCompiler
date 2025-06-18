@@ -182,6 +182,12 @@ namespace ast
         }
     }
 
+    // CastExp
+    string CastExpNode::toString() const
+    {
+        return "CastExpNode: " + sourceExpr->toString() + " to " + (targetType.baseType == PrimaryDataType::INT ? "int" : "float");
+    }
+
     // InitExpr
     string InitExprNode::toString() const
     {

@@ -52,7 +52,6 @@ public:
     shared_ptr<Symbol> resolveVariable(const std::string &name);
     void declareFunction(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveFunction(const std::string &name);
-
 };
 
 // 有且只有一个main函数    ✔
@@ -64,11 +63,11 @@ public:
 // 函数签名 - 参数个数和类型匹配   ✔
 // 作用域规则 - 变量可见性和生命周期   ✔
 // 初始化检查 - 变量使用前是否已初始化  ✔
-// expression中不能存在与或非和大小比较  ×非没有检查 
+// expression中不能存在与或非和大小比较  ×非没有检查 √
 // a) 当返回类型为int/float时，函数内所有分支都应当含有带有Exp的return语句。不含有return语句的分支的返回值未定义。×
 // b) 当返回值类型为void时，函数内只能出现不带返回值的return语句。✔
 
-// 字面量未检查范围
+// 字面量未检查范围 √ 但是没关注字符串字面量
 // 变量类型隐式转换是否可以在数组下进行
 // 数组访问越界问题
 // 库函数需支持字符串类型
@@ -84,12 +83,19 @@ class TypeCheckerVisitor
     // 语义分析器，负责检查 AST 的语义正确性
     // 自上而下对 AST 进行遍历，将所有错误收集到 errors 列表中
 private:
+    // 表达式上下文枚举
+    enum class ExprContext
+    {
+        EXPRESSION, // 普通表达式上下文（不允许逻辑和比较操作）
+        CONDITION,  // 条件表达式上下文（允许逻辑和比较操作）
+        ARRAY_INDEX // 数组索引上下文（不允许逻辑和比较操作）
+    };
+
     SemanticAnalyzer analyzer; // 引用语义分析器
     vector<string> errors;     // 错误列表
 
     // 状态跟踪变量
     shared_ptr<FuncNode> currentFunction; // 当前正在检查的函数
-    bool inLoop;                          // 是否在循环中
     bool hasMainFunction;                 // 是否已声明main函数
 
 public:
@@ -124,7 +130,7 @@ private:
 
     // 新增辅助方法
     void addError(const string &message);
-    DataType getExpressionType(shared_ptr<ExprNode> expr);
+    DataType getExpressionType(shared_ptr<ExprNode> expr, ExprContext context = ExprContext::EXPRESSION);
     bool isTypeCompatible(DataType from, DataType to);
     bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
     void checkFunctionCall(shared_ptr<CallExprNode> call);

@@ -54,13 +54,24 @@ shared_ptr<Symbol> SemanticAnalyzer::resolveVariable(const std::string &name)
   return currentScope->lookup(name);
 }
 
+void SemanticAnalyzer::declareFunction(const std::string &name,
+                                       const std::shared_ptr<Symbol> &symbol)
+{
+  functionTable->insert(name, symbol);
+}
+
+shared_ptr<Symbol> SemanticAnalyzer::resolveFunction(const std::string &name)
+{
+  return functionTable->lookup(name);
+}
+
 // 辅助方法实现
 void TypeCheckerVisitor::addError(const string &message)
 {
   errors.push_back(message);
 }
 
-DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
+DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprContext context)
 {
   if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(expr))
   {
@@ -77,23 +88,37 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     {
       return symbol->type;
     }
-    //未定义报错
+    // 未定义报错
     addError("Variable '" + lvalue->identifier + "' not declared");
     return DataType(PrimaryDataType::VOID); // 错误情况
   }
   else if (auto binary = dynamic_pointer_cast<BinaryExprNode>(expr))
   {
-    DataType leftType = getExpressionType(binary->left);
-    DataType rightType = getExpressionType(binary->right);
+    DataType leftType = getExpressionType(binary->left, context);
+    DataType rightType = getExpressionType(binary->right, context);
 
-    // 检查expression中不能存在与或非和大小比较
-    if (binary->op == BinaryOp::And || binary->op == BinaryOp::Or ||
-        binary->op == BinaryOp::Lt || binary->op == BinaryOp::Gt ||
-        binary->op == BinaryOp::Le || binary->op == BinaryOp::Ge ||
-        binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne)
+    // 根据上下文检查是否允许逻辑和比较操作
+    if (context == ExprContext::EXPRESSION || context == ExprContext::ARRAY_INDEX)
     {
-      addError("Expression cannot contain logical or comparison operations");
-      return DataType(PrimaryDataType::VOID);
+      // 在普通表达式或数组索引中不能存在与或非和大小比较
+      if (binary->op == BinaryOp::And || binary->op == BinaryOp::Or ||
+          binary->op == BinaryOp::Lt || binary->op == BinaryOp::Gt ||
+          binary->op == BinaryOp::Le || binary->op == BinaryOp::Ge ||
+          binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne)
+      {
+        string contextStr = (context == ExprContext::EXPRESSION) ? "expression" : "array index";
+        addError("Logical or comparison operations are not allowed in " + contextStr);
+        return DataType(PrimaryDataType::VOID);
+      }
+    }
+
+    // 对于比较和逻辑操作，返回类型应该是布尔型（在condition中）
+    if (binary->op == BinaryOp::Lt || binary->op == BinaryOp::Gt ||
+        binary->op == BinaryOp::Le || binary->op == BinaryOp::Ge ||
+        binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne ||
+        binary->op == BinaryOp::And || binary->op == BinaryOp::Or)
+    {
+      return DataType(PrimaryDataType::INT); // SysY中布尔值用int表示
     }
 
     // 类型提升规则：int + float → float
@@ -106,13 +131,24 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
   //+或者-
   else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(expr))
   {
-    // 检查一元操作符中的Not操作
-    if (unary->op == UnaryOp::Not)
+    // 根据上下文检查一元操作符中的Not操作
+    if (unary->op == UnaryOp::Not &&
+        (context == ExprContext::EXPRESSION || context == ExprContext::ARRAY_INDEX))
     {
-      addError("Expression cannot contain logical NOT operation");
+      string contextStr = (context == ExprContext::EXPRESSION) ? "expression" : "array index";
+      addError("Logical NOT operation is not allowed in " + contextStr);
       return DataType(PrimaryDataType::VOID);
     }
-    return getExpressionType(unary->operand);
+
+    DataType operandType = getExpressionType(unary->operand, context);
+
+    // NOT操作返回布尔值（int）
+    if (unary->op == UnaryOp::Not)
+    {
+      return DataType(PrimaryDataType::INT);
+    }
+
+    return operandType;
   }
   else if (auto call = dynamic_pointer_cast<CallExprNode>(expr))
   {
@@ -122,8 +158,9 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     // {
     //   return it->second->returnType;
     // }
-    auto it=analyzer.resolveVariable(call->callee);
-    if(it){
+    auto it = analyzer.resolveVariable(call->callee);
+    if (it)
+    {
       return it->type;
     }
     addError("Callee Function is not defined");
@@ -166,7 +203,7 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
   // 检查索引为整数
   for (auto &index : lvalue->indices)
   {
-    DataType indexType = getExpressionType(index);
+    DataType indexType = getExpressionType(index, ExprContext::ARRAY_INDEX);
     if (indexType.baseType != PrimaryDataType::INT || indexType.isArray())
     {
       addError("Array index must be integer type");
@@ -185,11 +222,12 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
   //   addError("Function '" + call->callee + "' not declared");
   //   return;
   // }
-    auto it=analyzer.resolveVariable(call->callee);
-    if(!it){
-        addError("Callee Function is not defined");
-        return ;
-    }
+  auto it = analyzer.resolveFunction(call->callee);
+  if (!it)
+  {
+    addError("Callee Function is not defined");
+    return;
+  }
   auto func = it->functionNode;
 
   // 检查参数个数
@@ -204,7 +242,7 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
   // 检查参数类型匹配
   for (size_t i = 0; i < call->args.size(); ++i)
   {
-    DataType argType = getExpressionType(call->args[i]);
+    DataType argType = getExpressionType(call->args[i], ExprContext::EXPRESSION);
     DataType paramType = func->params[i]->type;
 
     if (!isTypeCompatible(argType, paramType))
@@ -268,7 +306,7 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
   // 注册函数到符号表
   auto funcSymbol = make_shared<Symbol>(currentFunction);
-  analyzer.declareVariable(node->identifier, funcSymbol);
+  analyzer.declareFunction(node->identifier, funcSymbol);
 
   // 进入函数作用域
   analyzer.enterScope();
@@ -363,6 +401,9 @@ void TypeCheckerVisitor::visitExprStmt(shared_ptr<ExprStmtNode> node)
 {
   if (node->expr)
   {
+    // 获取表达式类型（上下文为EXPRESSION）
+    DataType exprStmt = getExpressionType(node->expr, ExprContext::EXPRESSION);
+
     // 根据表达式类型进行相应的访问
     if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->expr))
     {
@@ -453,7 +494,7 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
     lvalueType = DataType(lvalueType.baseType);
   }
 
-  DataType rvalueType = getExpressionType(node->rvalue);
+  DataType rvalueType = getExpressionType(node->rvalue, ExprContext::EXPRESSION);
   if (!isTypeCompatible(rvalueType, lvalueType))
   {
     addError("Type mismatch in assignment");
@@ -468,7 +509,7 @@ void TypeCheckerVisitor::visitIfElseStmt(shared_ptr<IfElseStmtNode> node)
   // 检查条件表达式
   if (node->condition)
   {
-    DataType condType = getExpressionType(node->condition);
+    DataType condType = getExpressionType(node->condition, ExprContext::CONDITION);
     // 条件必须是可转换为bool的类型
     if (condType.baseType == PrimaryDataType::VOID)
     {
@@ -574,7 +615,7 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
   // 检查条件表达式
   if (node->condition)
   {
-    DataType condType = getExpressionType(node->condition);
+    DataType condType = getExpressionType(node->condition, ExprContext::CONDITION);
     if (condType.baseType == PrimaryDataType::VOID)
     {
       addError("Invalid condition type in while statement");
@@ -598,10 +639,6 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
       visitCallExpr(call);
     }
   }
-
-  // 进入循环上下文
-  bool wasInLoop = inLoop;
-  inLoop = true;
 
   // 检查循环体
   if (node->body)
@@ -639,25 +676,22 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
       visitReturnStmt(returnStmt);
     }
   }
-
-  // 恢复循环上下文
-  inLoop = wasInLoop;
 }
 
 void TypeCheckerVisitor::visitBreakStmt(shared_ptr<BreakStmtNode> node)
 {
-  if (!inLoop)
-  {
-    addError("Break statement not in loop");
-  }
+  // if (!inLoop)
+  // {
+  //   addError("Break statement not in loop");
+  // }
 }
 
 void TypeCheckerVisitor::visitContinueStmt(shared_ptr<ContinueStmtNode> node)
 {
-  if (!inLoop)
-  {
-    addError("Continue statement not in loop");
-  }
+  // if (!inLoop)
+  // {
+  //   addError("Continue statement not in loop");
+  // }
 }
 
 void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
@@ -673,7 +707,7 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
   if (node->ret_expr)
   {
     // 有返回值
-    DataType actualReturnType = getExpressionType(node->ret_expr);
+    DataType actualReturnType = getExpressionType(node->ret_expr, ExprContext::EXPRESSION);
 
     if (!isTypeCompatible(actualReturnType, expectedReturnType))
     {
@@ -772,7 +806,10 @@ void TypeCheckerVisitor::visitInitExpr(shared_ptr<InitExprNode> node)
 {
   if (node->singleInitVal)
   {
-    // 单一初始值
+    // 单一初始值 - 检查表达式类型（应该是EXPRESSION上下文）
+    DataType initType = getExpressionType(node->singleInitVal, ExprContext::EXPRESSION);
+
+    // 递归访问子表达式
     if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->singleInitVal))
     {
       visitBinaryExpr(binary);
@@ -896,8 +933,8 @@ void TypeCheckerVisitor::visitBinaryExpr(shared_ptr<BinaryExprNode> node)
   }
 
   // 检查操作数类型
-  DataType leftType = getExpressionType(node->left);
-  DataType rightType = getExpressionType(node->right);
+  DataType leftType = getExpressionType(node->left, ExprContext::EXPRESSION);
+  DataType rightType = getExpressionType(node->right, ExprContext::EXPRESSION);
 
   // 检查除零
   if (node->op == BinaryOp::Div || node->op == BinaryOp::Mod)
@@ -957,7 +994,7 @@ void TypeCheckerVisitor::visitUnaryExpr(shared_ptr<UnaryExprNode> node)
   }
 
   // 检查操作数类型
-  DataType operandType = getExpressionType(node->operand);
+  DataType operandType = getExpressionType(node->operand, ExprContext::EXPRESSION);
 
   // 如果是数组，不能直接应用一元操作
   if (operandType.isArray())
@@ -968,8 +1005,36 @@ void TypeCheckerVisitor::visitUnaryExpr(shared_ptr<UnaryExprNode> node)
 
 void TypeCheckerVisitor::visitLiteralExpr(shared_ptr<LiteralExprNode> node)
 {
-  // 字面量表达式通常不需要特殊检查
-  // 可以在子类中进行具体的检查
+  // 但可以检查类型是否符合预期
+  if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node))
+  {
+    // 整数字面量是32位整数，所以范围在-2147483648到2147483647之间
+    if (intLiteral->value < -2147483648 ||
+        intLiteral->value > 2147483647)
+    {
+      addError("Integer literal out of range: " + to_string(intLiteral->value));
+    }
+  }
+  else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node))
+  {
+    // 浮点数字面量通常是32位单精度浮点数
+    // 检查是否在有效范围内
+    if (floatLiteral->value < -3.402823e38f ||
+        floatLiteral->value > 3.402823e38f)
+    {
+      addError("Float literal out of range: " + to_string(floatLiteral->value));
+    }
+  }
+  else if (auto strLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node))
+  {
+    // SysY中没有字符串字面量，所以这里可以忽略
+    // 如果有其他类型的字面量，可以在这里添加检查
+    // 例如，字符字面量等
+  }
+  else
+  {
+    addError("Unknown literal expression type");
+  }
 }
 
 void TypeCheckerVisitor::visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node)
