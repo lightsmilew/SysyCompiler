@@ -17,7 +17,8 @@ public:
     LBRACE = 14, RBRACE = 15, LBRACKET = 16, RBRACKET = 17, COMMA = 18, 
     SEMICOLON = 19, PLUS = 20, MINUS = 21, MUL = 22, DIV = 23, MOD = 24, 
     NOT = 25, LT = 26, GT = 27, LE = 28, GE = 29, EQ = 30, NE = 31, AND = 32, 
-    OR = 33, Ident = 34, IntConst = 35, FloatConst = 36, COMMENT = 37, WS = 38
+    OR = 33, Ident = 34, IntConst = 35, FloatConst = 36, STRING_LITERAL = 37, 
+    COMMENT = 38, WS = 39
   };
 
   enum {
@@ -668,6 +669,15 @@ public:
     NumberExpContext(PrimaryExpContext *ctx);
 
     NumberContext *number();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  StringLiteralExpContext : public PrimaryExpContext {
+  public:
+    StringLiteralExpContext(PrimaryExpContext *ctx);
+
+    antlr4::tree::TerminalNode *STRING_LITERAL();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

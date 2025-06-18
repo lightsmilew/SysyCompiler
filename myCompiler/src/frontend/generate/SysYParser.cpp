@@ -69,11 +69,11 @@ void sysyParserInitialize() {
       "CONTINUE", "RETURN", "ASSIGN", "LPAREN", "RPAREN", "LBRACE", "RBRACE", 
       "LBRACKET", "RBRACKET", "COMMA", "SEMICOLON", "PLUS", "MINUS", "MUL", 
       "DIV", "MOD", "NOT", "LT", "GT", "LE", "GE", "EQ", "NE", "AND", "OR", 
-      "Ident", "IntConst", "FloatConst", "COMMENT", "WS"
+      "Ident", "IntConst", "FloatConst", "STRING_LITERAL", "COMMENT", "WS"
     }
   );
   static const int32_t serializedATNSegment[] = {
-  	4,1,38,381,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+  	4,1,39,382,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
   	7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,
   	14,2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,20,7,20,2,21,7,
   	21,2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,26,2,27,7,27,2,28,7,
@@ -93,43 +93,43 @@ void sysyParserInitialize() {
   	3,15,232,8,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,3,15,243,8,
   	15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,1,15,3,15,257,
   	8,15,1,15,3,15,260,8,15,1,16,1,16,1,17,1,17,1,18,1,18,1,18,1,18,1,18,
-  	5,18,271,8,18,10,18,12,18,274,9,18,1,19,1,19,1,19,1,19,1,19,1,19,3,19,
-  	282,8,19,1,20,1,20,3,20,286,8,20,1,21,1,21,1,21,1,21,3,21,292,8,21,1,
-  	21,1,21,1,21,1,21,3,21,298,8,21,1,22,1,22,1,22,3,22,303,8,22,1,23,1,23,
-  	1,23,5,23,308,8,23,10,23,12,23,311,9,23,1,24,1,24,1,24,1,24,1,24,1,24,
-  	5,24,319,8,24,10,24,12,24,322,9,24,1,25,1,25,1,25,1,25,1,25,1,25,5,25,
-  	330,8,25,10,25,12,25,333,9,25,1,26,1,26,1,26,1,26,1,26,1,26,5,26,341,
-  	8,26,10,26,12,26,344,9,26,1,27,1,27,1,27,1,27,1,27,1,27,5,27,352,8,27,
-  	10,27,12,27,355,9,27,1,28,1,28,1,28,1,28,1,28,1,28,5,28,363,8,28,10,28,
-  	12,28,366,9,28,1,29,1,29,1,29,1,29,1,29,1,29,5,29,374,8,29,10,29,12,29,
-  	377,9,29,1,30,1,30,1,30,0,6,48,50,52,54,56,58,31,0,2,4,6,8,10,12,14,16,
-  	18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,0,4,
-  	1,0,22,24,1,0,20,21,1,0,26,29,1,0,30,31,399,0,66,1,0,0,0,2,73,1,0,0,0,
-  	4,75,1,0,0,0,6,89,1,0,0,0,8,91,1,0,0,0,10,117,1,0,0,0,12,119,1,0,0,0,
-  	14,130,1,0,0,0,16,157,1,0,0,0,18,159,1,0,0,0,20,170,1,0,0,0,22,172,1,
-  	0,0,0,24,210,1,0,0,0,26,212,1,0,0,0,28,223,1,0,0,0,30,259,1,0,0,0,32,
-  	261,1,0,0,0,34,263,1,0,0,0,36,265,1,0,0,0,38,281,1,0,0,0,40,285,1,0,0,
-  	0,42,297,1,0,0,0,44,302,1,0,0,0,46,304,1,0,0,0,48,312,1,0,0,0,50,323,
-  	1,0,0,0,52,334,1,0,0,0,54,345,1,0,0,0,56,356,1,0,0,0,58,367,1,0,0,0,60,
-  	378,1,0,0,0,62,65,3,2,1,0,63,65,3,18,9,0,64,62,1,0,0,0,64,63,1,0,0,0,
-  	65,68,1,0,0,0,66,64,1,0,0,0,66,67,1,0,0,0,67,69,1,0,0,0,68,66,1,0,0,0,
-  	69,70,5,0,0,1,70,1,1,0,0,0,71,74,3,4,2,0,72,74,3,12,6,0,73,71,1,0,0,0,
-  	73,72,1,0,0,0,74,3,1,0,0,0,75,76,5,1,0,0,76,77,3,6,3,0,77,82,3,8,4,0,
-  	78,79,5,18,0,0,79,81,3,8,4,0,80,78,1,0,0,0,81,84,1,0,0,0,82,80,1,0,0,
-  	0,82,83,1,0,0,0,83,85,1,0,0,0,84,82,1,0,0,0,85,86,5,19,0,0,86,5,1,0,0,
-  	0,87,90,5,2,0,0,88,90,5,3,0,0,89,87,1,0,0,0,89,88,1,0,0,0,90,7,1,0,0,
-  	0,91,98,5,34,0,0,92,93,5,16,0,0,93,94,3,60,30,0,94,95,5,17,0,0,95,97,
-  	1,0,0,0,96,92,1,0,0,0,97,100,1,0,0,0,98,96,1,0,0,0,98,99,1,0,0,0,99,101,
-  	1,0,0,0,100,98,1,0,0,0,101,102,5,11,0,0,102,103,3,10,5,0,103,9,1,0,0,
-  	0,104,118,3,60,30,0,105,114,5,14,0,0,106,111,3,10,5,0,107,108,5,18,0,
-  	0,108,110,3,10,5,0,109,107,1,0,0,0,110,113,1,0,0,0,111,109,1,0,0,0,111,
-  	112,1,0,0,0,112,115,1,0,0,0,113,111,1,0,0,0,114,106,1,0,0,0,114,115,1,
-  	0,0,0,115,116,1,0,0,0,116,118,5,15,0,0,117,104,1,0,0,0,117,105,1,0,0,
-  	0,118,11,1,0,0,0,119,120,3,6,3,0,120,125,3,14,7,0,121,122,5,18,0,0,122,
-  	124,3,14,7,0,123,121,1,0,0,0,124,127,1,0,0,0,125,123,1,0,0,0,125,126,
-  	1,0,0,0,126,128,1,0,0,0,127,125,1,0,0,0,128,129,5,19,0,0,129,13,1,0,0,
-  	0,130,137,5,34,0,0,131,132,5,16,0,0,132,133,3,60,30,0,133,134,5,17,0,
-  	0,134,136,1,0,0,0,135,131,1,0,0,0,136,139,1,0,0,0,137,135,1,0,0,0,137,
+  	5,18,271,8,18,10,18,12,18,274,9,18,1,19,1,19,1,19,1,19,1,19,1,19,1,19,
+  	3,19,283,8,19,1,20,1,20,3,20,287,8,20,1,21,1,21,1,21,1,21,3,21,293,8,
+  	21,1,21,1,21,1,21,1,21,3,21,299,8,21,1,22,1,22,1,22,3,22,304,8,22,1,23,
+  	1,23,1,23,5,23,309,8,23,10,23,12,23,312,9,23,1,24,1,24,1,24,1,24,1,24,
+  	1,24,5,24,320,8,24,10,24,12,24,323,9,24,1,25,1,25,1,25,1,25,1,25,1,25,
+  	5,25,331,8,25,10,25,12,25,334,9,25,1,26,1,26,1,26,1,26,1,26,1,26,5,26,
+  	342,8,26,10,26,12,26,345,9,26,1,27,1,27,1,27,1,27,1,27,1,27,5,27,353,
+  	8,27,10,27,12,27,356,9,27,1,28,1,28,1,28,1,28,1,28,1,28,5,28,364,8,28,
+  	10,28,12,28,367,9,28,1,29,1,29,1,29,1,29,1,29,1,29,5,29,375,8,29,10,29,
+  	12,29,378,9,29,1,30,1,30,1,30,0,6,48,50,52,54,56,58,31,0,2,4,6,8,10,12,
+  	14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,
+  	60,0,4,1,0,22,24,1,0,20,21,1,0,26,29,1,0,30,31,401,0,66,1,0,0,0,2,73,
+  	1,0,0,0,4,75,1,0,0,0,6,89,1,0,0,0,8,91,1,0,0,0,10,117,1,0,0,0,12,119,
+  	1,0,0,0,14,130,1,0,0,0,16,157,1,0,0,0,18,159,1,0,0,0,20,170,1,0,0,0,22,
+  	172,1,0,0,0,24,210,1,0,0,0,26,212,1,0,0,0,28,223,1,0,0,0,30,259,1,0,0,
+  	0,32,261,1,0,0,0,34,263,1,0,0,0,36,265,1,0,0,0,38,282,1,0,0,0,40,286,
+  	1,0,0,0,42,298,1,0,0,0,44,303,1,0,0,0,46,305,1,0,0,0,48,313,1,0,0,0,50,
+  	324,1,0,0,0,52,335,1,0,0,0,54,346,1,0,0,0,56,357,1,0,0,0,58,368,1,0,0,
+  	0,60,379,1,0,0,0,62,65,3,2,1,0,63,65,3,18,9,0,64,62,1,0,0,0,64,63,1,0,
+  	0,0,65,68,1,0,0,0,66,64,1,0,0,0,66,67,1,0,0,0,67,69,1,0,0,0,68,66,1,0,
+  	0,0,69,70,5,0,0,1,70,1,1,0,0,0,71,74,3,4,2,0,72,74,3,12,6,0,73,71,1,0,
+  	0,0,73,72,1,0,0,0,74,3,1,0,0,0,75,76,5,1,0,0,76,77,3,6,3,0,77,82,3,8,
+  	4,0,78,79,5,18,0,0,79,81,3,8,4,0,80,78,1,0,0,0,81,84,1,0,0,0,82,80,1,
+  	0,0,0,82,83,1,0,0,0,83,85,1,0,0,0,84,82,1,0,0,0,85,86,5,19,0,0,86,5,1,
+  	0,0,0,87,90,5,2,0,0,88,90,5,3,0,0,89,87,1,0,0,0,89,88,1,0,0,0,90,7,1,
+  	0,0,0,91,98,5,34,0,0,92,93,5,16,0,0,93,94,3,60,30,0,94,95,5,17,0,0,95,
+  	97,1,0,0,0,96,92,1,0,0,0,97,100,1,0,0,0,98,96,1,0,0,0,98,99,1,0,0,0,99,
+  	101,1,0,0,0,100,98,1,0,0,0,101,102,5,11,0,0,102,103,3,10,5,0,103,9,1,
+  	0,0,0,104,118,3,60,30,0,105,114,5,14,0,0,106,111,3,10,5,0,107,108,5,18,
+  	0,0,108,110,3,10,5,0,109,107,1,0,0,0,110,113,1,0,0,0,111,109,1,0,0,0,
+  	111,112,1,0,0,0,112,115,1,0,0,0,113,111,1,0,0,0,114,106,1,0,0,0,114,115,
+  	1,0,0,0,115,116,1,0,0,0,116,118,5,15,0,0,117,104,1,0,0,0,117,105,1,0,
+  	0,0,118,11,1,0,0,0,119,120,3,6,3,0,120,125,3,14,7,0,121,122,5,18,0,0,
+  	122,124,3,14,7,0,123,121,1,0,0,0,124,127,1,0,0,0,125,123,1,0,0,0,125,
+  	126,1,0,0,0,126,128,1,0,0,0,127,125,1,0,0,0,128,129,5,19,0,0,129,13,1,
+  	0,0,0,130,137,5,34,0,0,131,132,5,16,0,0,132,133,3,60,30,0,133,134,5,17,
+  	0,0,134,136,1,0,0,0,135,131,1,0,0,0,136,139,1,0,0,0,137,135,1,0,0,0,137,
   	138,1,0,0,0,138,142,1,0,0,0,139,137,1,0,0,0,140,141,5,11,0,0,141,143,
   	3,16,8,0,142,140,1,0,0,0,142,143,1,0,0,0,143,15,1,0,0,0,144,158,3,32,
   	16,0,145,154,5,14,0,0,146,151,3,16,8,0,147,148,5,18,0,0,148,150,3,16,
@@ -168,37 +168,38 @@ void sysyParserInitialize() {
   	263,264,3,58,29,0,264,35,1,0,0,0,265,272,5,34,0,0,266,267,5,16,0,0,267,
   	268,3,32,16,0,268,269,5,17,0,0,269,271,1,0,0,0,270,266,1,0,0,0,271,274,
   	1,0,0,0,272,270,1,0,0,0,272,273,1,0,0,0,273,37,1,0,0,0,274,272,1,0,0,
-  	0,275,276,5,12,0,0,276,277,3,32,16,0,277,278,5,13,0,0,278,282,1,0,0,0,
-  	279,282,3,36,18,0,280,282,3,40,20,0,281,275,1,0,0,0,281,279,1,0,0,0,281,
-  	280,1,0,0,0,282,39,1,0,0,0,283,286,5,35,0,0,284,286,5,36,0,0,285,283,
-  	1,0,0,0,285,284,1,0,0,0,286,41,1,0,0,0,287,298,3,38,19,0,288,289,5,34,
-  	0,0,289,291,5,12,0,0,290,292,3,46,23,0,291,290,1,0,0,0,291,292,1,0,0,
-  	0,292,293,1,0,0,0,293,298,5,13,0,0,294,295,3,44,22,0,295,296,3,42,21,
-  	0,296,298,1,0,0,0,297,287,1,0,0,0,297,288,1,0,0,0,297,294,1,0,0,0,298,
-  	43,1,0,0,0,299,303,5,20,0,0,300,303,5,21,0,0,301,303,5,25,0,0,302,299,
-  	1,0,0,0,302,300,1,0,0,0,302,301,1,0,0,0,303,45,1,0,0,0,304,309,3,32,16,
-  	0,305,306,5,18,0,0,306,308,3,32,16,0,307,305,1,0,0,0,308,311,1,0,0,0,
-  	309,307,1,0,0,0,309,310,1,0,0,0,310,47,1,0,0,0,311,309,1,0,0,0,312,313,
-  	6,24,-1,0,313,314,3,42,21,0,314,320,1,0,0,0,315,316,10,1,0,0,316,317,
-  	7,0,0,0,317,319,3,42,21,0,318,315,1,0,0,0,319,322,1,0,0,0,320,318,1,0,
-  	0,0,320,321,1,0,0,0,321,49,1,0,0,0,322,320,1,0,0,0,323,324,6,25,-1,0,
-  	324,325,3,48,24,0,325,331,1,0,0,0,326,327,10,1,0,0,327,328,7,1,0,0,328,
-  	330,3,48,24,0,329,326,1,0,0,0,330,333,1,0,0,0,331,329,1,0,0,0,331,332,
-  	1,0,0,0,332,51,1,0,0,0,333,331,1,0,0,0,334,335,6,26,-1,0,335,336,3,50,
-  	25,0,336,342,1,0,0,0,337,338,10,1,0,0,338,339,7,2,0,0,339,341,3,50,25,
-  	0,340,337,1,0,0,0,341,344,1,0,0,0,342,340,1,0,0,0,342,343,1,0,0,0,343,
-  	53,1,0,0,0,344,342,1,0,0,0,345,346,6,27,-1,0,346,347,3,52,26,0,347,353,
-  	1,0,0,0,348,349,10,1,0,0,349,350,7,3,0,0,350,352,3,52,26,0,351,348,1,
-  	0,0,0,352,355,1,0,0,0,353,351,1,0,0,0,353,354,1,0,0,0,354,55,1,0,0,0,
-  	355,353,1,0,0,0,356,357,6,28,-1,0,357,358,3,54,27,0,358,364,1,0,0,0,359,
-  	360,10,1,0,0,360,361,5,32,0,0,361,363,3,54,27,0,362,359,1,0,0,0,363,366,
-  	1,0,0,0,364,362,1,0,0,0,364,365,1,0,0,0,365,57,1,0,0,0,366,364,1,0,0,
-  	0,367,368,6,29,-1,0,368,369,3,56,28,0,369,375,1,0,0,0,370,371,10,1,0,
-  	0,371,372,5,33,0,0,372,374,3,56,28,0,373,370,1,0,0,0,374,377,1,0,0,0,
-  	375,373,1,0,0,0,375,376,1,0,0,0,376,59,1,0,0,0,377,375,1,0,0,0,378,379,
-  	3,50,25,0,379,61,1,0,0,0,40,64,66,73,82,89,98,111,114,117,125,137,142,
-  	151,154,157,163,170,177,193,207,210,216,223,231,242,256,259,272,281,285,
-  	291,297,302,309,320,331,342,353,364,375
+  	0,275,276,5,12,0,0,276,277,3,32,16,0,277,278,5,13,0,0,278,283,1,0,0,0,
+  	279,283,3,36,18,0,280,283,3,40,20,0,281,283,5,37,0,0,282,275,1,0,0,0,
+  	282,279,1,0,0,0,282,280,1,0,0,0,282,281,1,0,0,0,283,39,1,0,0,0,284,287,
+  	5,35,0,0,285,287,5,36,0,0,286,284,1,0,0,0,286,285,1,0,0,0,287,41,1,0,
+  	0,0,288,299,3,38,19,0,289,290,5,34,0,0,290,292,5,12,0,0,291,293,3,46,
+  	23,0,292,291,1,0,0,0,292,293,1,0,0,0,293,294,1,0,0,0,294,299,5,13,0,0,
+  	295,296,3,44,22,0,296,297,3,42,21,0,297,299,1,0,0,0,298,288,1,0,0,0,298,
+  	289,1,0,0,0,298,295,1,0,0,0,299,43,1,0,0,0,300,304,5,20,0,0,301,304,5,
+  	21,0,0,302,304,5,25,0,0,303,300,1,0,0,0,303,301,1,0,0,0,303,302,1,0,0,
+  	0,304,45,1,0,0,0,305,310,3,32,16,0,306,307,5,18,0,0,307,309,3,32,16,0,
+  	308,306,1,0,0,0,309,312,1,0,0,0,310,308,1,0,0,0,310,311,1,0,0,0,311,47,
+  	1,0,0,0,312,310,1,0,0,0,313,314,6,24,-1,0,314,315,3,42,21,0,315,321,1,
+  	0,0,0,316,317,10,1,0,0,317,318,7,0,0,0,318,320,3,42,21,0,319,316,1,0,
+  	0,0,320,323,1,0,0,0,321,319,1,0,0,0,321,322,1,0,0,0,322,49,1,0,0,0,323,
+  	321,1,0,0,0,324,325,6,25,-1,0,325,326,3,48,24,0,326,332,1,0,0,0,327,328,
+  	10,1,0,0,328,329,7,1,0,0,329,331,3,48,24,0,330,327,1,0,0,0,331,334,1,
+  	0,0,0,332,330,1,0,0,0,332,333,1,0,0,0,333,51,1,0,0,0,334,332,1,0,0,0,
+  	335,336,6,26,-1,0,336,337,3,50,25,0,337,343,1,0,0,0,338,339,10,1,0,0,
+  	339,340,7,2,0,0,340,342,3,50,25,0,341,338,1,0,0,0,342,345,1,0,0,0,343,
+  	341,1,0,0,0,343,344,1,0,0,0,344,53,1,0,0,0,345,343,1,0,0,0,346,347,6,
+  	27,-1,0,347,348,3,52,26,0,348,354,1,0,0,0,349,350,10,1,0,0,350,351,7,
+  	3,0,0,351,353,3,52,26,0,352,349,1,0,0,0,353,356,1,0,0,0,354,352,1,0,0,
+  	0,354,355,1,0,0,0,355,55,1,0,0,0,356,354,1,0,0,0,357,358,6,28,-1,0,358,
+  	359,3,54,27,0,359,365,1,0,0,0,360,361,10,1,0,0,361,362,5,32,0,0,362,364,
+  	3,54,27,0,363,360,1,0,0,0,364,367,1,0,0,0,365,363,1,0,0,0,365,366,1,0,
+  	0,0,366,57,1,0,0,0,367,365,1,0,0,0,368,369,6,29,-1,0,369,370,3,56,28,
+  	0,370,376,1,0,0,0,371,372,10,1,0,0,372,373,5,33,0,0,373,375,3,56,28,0,
+  	374,371,1,0,0,0,375,378,1,0,0,0,376,374,1,0,0,0,376,377,1,0,0,0,377,59,
+  	1,0,0,0,378,376,1,0,0,0,379,380,3,50,25,0,380,61,1,0,0,0,40,64,66,73,
+  	82,89,98,111,114,117,125,137,142,151,154,157,163,170,177,193,207,210,
+  	216,223,231,242,256,259,272,282,286,292,298,303,310,321,332,343,354,365,
+  	376
   };
   staticData->serializedATN = antlr4::atn::SerializedATNView(serializedATNSegment, sizeof(serializedATNSegment) / sizeof(serializedATNSegment[0]));
 
@@ -800,7 +801,8 @@ SysYParser::ConstInitValContext* SysYParser::constInitVal() {
       case SysYParser::NOT:
       case SysYParser::Ident:
       case SysYParser::IntConst:
-      case SysYParser::FloatConst: {
+      case SysYParser::FloatConst:
+      case SysYParser::STRING_LITERAL: {
         _localctx = _tracker.createInstance<SysYParser::ConstInitExprContext>(_localctx);
         enterOuterAlt(_localctx, 1);
         setState(104);
@@ -818,7 +820,7 @@ SysYParser::ConstInitValContext* SysYParser::constInitVal() {
 
         _la = _input->LA(1);
         if ((((_la & ~ 0x3fULL) == 0) &&
-          ((1ULL << _la) & 120295804928) != 0)) {
+          ((1ULL << _la) & 257734758400) != 0)) {
           setState(106);
           constInitVal();
           setState(111);
@@ -1132,7 +1134,8 @@ SysYParser::InitValContext* SysYParser::initVal() {
       case SysYParser::NOT:
       case SysYParser::Ident:
       case SysYParser::IntConst:
-      case SysYParser::FloatConst: {
+      case SysYParser::FloatConst:
+      case SysYParser::STRING_LITERAL: {
         _localctx = _tracker.createInstance<SysYParser::InitExprContext>(_localctx);
         enterOuterAlt(_localctx, 1);
         setState(144);
@@ -1150,7 +1153,7 @@ SysYParser::InitValContext* SysYParser::initVal() {
 
         _la = _input->LA(1);
         if ((((_la & ~ 0x3fULL) == 0) &&
-          ((1ULL << _la) & 120295804928) != 0)) {
+          ((1ULL << _la) & 257734758400) != 0)) {
           setState(146);
           initVal();
           setState(151);
@@ -1711,7 +1714,7 @@ SysYParser::BlockContext* SysYParser::block() {
     _errHandler->sync(this);
     _la = _input->LA(1);
     while ((((_la & ~ 0x3fULL) == 0) &&
-      ((1ULL << _la) & 120296331182) != 0)) {
+      ((1ULL << _la) & 257735284654) != 0)) {
       setState(213);
       blockItem();
       setState(218);
@@ -1814,7 +1817,8 @@ SysYParser::BlockItemContext* SysYParser::blockItem() {
       case SysYParser::NOT:
       case SysYParser::Ident:
       case SysYParser::IntConst:
-      case SysYParser::FloatConst: {
+      case SysYParser::FloatConst:
+      case SysYParser::STRING_LITERAL: {
         _localctx = _tracker.createInstance<SysYParser::ItemStmtContext>(_localctx);
         enterOuterAlt(_localctx, 2);
         setState(222);
@@ -2081,7 +2085,7 @@ SysYParser::StmtContext* SysYParser::stmt() {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & 120295788544) != 0)) {
+        ((1ULL << _la) & 257734742016) != 0)) {
         setState(230);
         exp();
       }
@@ -2175,7 +2179,7 @@ SysYParser::StmtContext* SysYParser::stmt() {
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & 120295788544) != 0)) {
+        ((1ULL << _la) & 257734742016) != 0)) {
         setState(255);
         exp();
       }
@@ -2431,6 +2435,21 @@ std::any SysYParser::NumberExpContext::accept(tree::ParseTreeVisitor *visitor) {
   else
     return visitor->visitChildren(this);
 }
+//----------------- StringLiteralExpContext ------------------------------------------------------------------
+
+tree::TerminalNode* SysYParser::StringLiteralExpContext::STRING_LITERAL() {
+  return getToken(SysYParser::STRING_LITERAL, 0);
+}
+
+SysYParser::StringLiteralExpContext::StringLiteralExpContext(PrimaryExpContext *ctx) { copyFrom(ctx); }
+
+
+std::any SysYParser::StringLiteralExpContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<SysYVisitor*>(visitor))
+    return parserVisitor->visitStringLiteralExp(this);
+  else
+    return visitor->visitChildren(this);
+}
 //----------------- ParenExpContext ------------------------------------------------------------------
 
 tree::TerminalNode* SysYParser::ParenExpContext::LPAREN() {
@@ -2466,7 +2485,7 @@ SysYParser::PrimaryExpContext* SysYParser::primaryExp() {
     exitRule();
   });
   try {
-    setState(281);
+    setState(282);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case SysYParser::LPAREN: {
@@ -2495,6 +2514,14 @@ SysYParser::PrimaryExpContext* SysYParser::primaryExp() {
         enterOuterAlt(_localctx, 3);
         setState(280);
         number();
+        break;
+      }
+
+      case SysYParser::STRING_LITERAL: {
+        _localctx = _tracker.createInstance<SysYParser::StringLiteralExpContext>(_localctx);
+        enterOuterAlt(_localctx, 4);
+        setState(281);
+        match(SysYParser::STRING_LITERAL);
         break;
       }
 
@@ -2569,13 +2596,13 @@ SysYParser::NumberContext* SysYParser::number() {
     exitRule();
   });
   try {
-    setState(285);
+    setState(286);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case SysYParser::IntConst: {
         _localctx = _tracker.createInstance<SysYParser::IntNumContext>(_localctx);
         enterOuterAlt(_localctx, 1);
-        setState(283);
+        setState(284);
         match(SysYParser::IntConst);
         break;
       }
@@ -2583,7 +2610,7 @@ SysYParser::NumberContext* SysYParser::number() {
       case SysYParser::FloatConst: {
         _localctx = _tracker.createInstance<SysYParser::FloatNumContext>(_localctx);
         enterOuterAlt(_localctx, 2);
-        setState(284);
+        setState(285);
         match(SysYParser::FloatConst);
         break;
       }
@@ -2691,13 +2718,13 @@ SysYParser::UnaryExpContext* SysYParser::unaryExp() {
     exitRule();
   });
   try {
-    setState(297);
+    setState(298);
     _errHandler->sync(this);
     switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 31, _ctx)) {
     case 1: {
       _localctx = _tracker.createInstance<SysYParser::ToPrimaryExpContext>(_localctx);
       enterOuterAlt(_localctx, 1);
-      setState(287);
+      setState(288);
       primaryExp();
       break;
     }
@@ -2705,20 +2732,20 @@ SysYParser::UnaryExpContext* SysYParser::unaryExp() {
     case 2: {
       _localctx = _tracker.createInstance<SysYParser::CallExpContext>(_localctx);
       enterOuterAlt(_localctx, 2);
-      setState(288);
-      match(SysYParser::Ident);
       setState(289);
+      match(SysYParser::Ident);
+      setState(290);
       match(SysYParser::LPAREN);
-      setState(291);
+      setState(292);
       _errHandler->sync(this);
 
       _la = _input->LA(1);
       if ((((_la & ~ 0x3fULL) == 0) &&
-        ((1ULL << _la) & 120295788544) != 0)) {
-        setState(290);
+        ((1ULL << _la) & 257734742016) != 0)) {
+        setState(291);
         funcRParams();
       }
-      setState(293);
+      setState(294);
       match(SysYParser::RPAREN);
       break;
     }
@@ -2726,9 +2753,9 @@ SysYParser::UnaryExpContext* SysYParser::unaryExp() {
     case 3: {
       _localctx = _tracker.createInstance<SysYParser::OpUnaryExpContext>(_localctx);
       enterOuterAlt(_localctx, 3);
-      setState(294);
-      unaryOp();
       setState(295);
+      unaryOp();
+      setState(296);
       unaryExp();
       break;
     }
@@ -2819,13 +2846,13 @@ SysYParser::UnaryOpContext* SysYParser::unaryOp() {
     exitRule();
   });
   try {
-    setState(302);
+    setState(303);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case SysYParser::PLUS: {
         _localctx = _tracker.createInstance<SysYParser::OpPlusContext>(_localctx);
         enterOuterAlt(_localctx, 1);
-        setState(299);
+        setState(300);
         match(SysYParser::PLUS);
         break;
       }
@@ -2833,7 +2860,7 @@ SysYParser::UnaryOpContext* SysYParser::unaryOp() {
       case SysYParser::MINUS: {
         _localctx = _tracker.createInstance<SysYParser::OpMinusContext>(_localctx);
         enterOuterAlt(_localctx, 2);
-        setState(300);
+        setState(301);
         match(SysYParser::MINUS);
         break;
       }
@@ -2841,7 +2868,7 @@ SysYParser::UnaryOpContext* SysYParser::unaryOp() {
       case SysYParser::NOT: {
         _localctx = _tracker.createInstance<SysYParser::OpNotContext>(_localctx);
         enterOuterAlt(_localctx, 3);
-        setState(301);
+        setState(302);
         match(SysYParser::NOT);
         break;
       }
@@ -2909,17 +2936,17 @@ SysYParser::FuncRParamsContext* SysYParser::funcRParams() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(304);
+    setState(305);
     exp();
-    setState(309);
+    setState(310);
     _errHandler->sync(this);
     _la = _input->LA(1);
     while (_la == SysYParser::COMMA) {
-      setState(305);
-      match(SysYParser::COMMA);
       setState(306);
+      match(SysYParser::COMMA);
+      setState(307);
       exp();
-      setState(311);
+      setState(312);
       _errHandler->sync(this);
       _la = _input->LA(1);
     }
@@ -3025,10 +3052,10 @@ SysYParser::MulExpContext* SysYParser::mulExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(313);
+    setState(314);
     unaryExp();
     _ctx->stop = _input->LT(-1);
-    setState(320);
+    setState(321);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 34, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3039,10 +3066,10 @@ SysYParser::MulExpContext* SysYParser::mulExp(int precedence) {
         auto newContext = _tracker.createInstance<MulDivModExpContext>(_tracker.createInstance<MulExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleMulExp);
-        setState(315);
+        setState(316);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(316);
+        setState(317);
         _la = _input->LA(1);
         if (!((((_la & ~ 0x3fULL) == 0) &&
           ((1ULL << _la) & 29360128) != 0))) {
@@ -3052,10 +3079,10 @@ SysYParser::MulExpContext* SysYParser::mulExp(int precedence) {
           _errHandler->reportMatch(this);
           consume();
         }
-        setState(317);
+        setState(318);
         unaryExp(); 
       }
-      setState(322);
+      setState(323);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 34, _ctx);
     }
@@ -3155,10 +3182,10 @@ SysYParser::AddExpContext* SysYParser::addExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(324);
+    setState(325);
     mulExp(0);
     _ctx->stop = _input->LT(-1);
-    setState(331);
+    setState(332);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 35, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3169,10 +3196,10 @@ SysYParser::AddExpContext* SysYParser::addExp(int precedence) {
         auto newContext = _tracker.createInstance<AddSubExpContext>(_tracker.createInstance<AddExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleAddExp);
-        setState(326);
+        setState(327);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(327);
+        setState(328);
         _la = _input->LA(1);
         if (!(_la == SysYParser::PLUS
 
@@ -3183,10 +3210,10 @@ SysYParser::AddExpContext* SysYParser::addExp(int precedence) {
           _errHandler->reportMatch(this);
           consume();
         }
-        setState(328);
+        setState(329);
         mulExp(0); 
       }
-      setState(333);
+      setState(334);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 35, _ctx);
     }
@@ -3294,10 +3321,10 @@ SysYParser::RelExpContext* SysYParser::relExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(335);
+    setState(336);
     addExp(0);
     _ctx->stop = _input->LT(-1);
-    setState(342);
+    setState(343);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 36, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3308,10 +3335,10 @@ SysYParser::RelExpContext* SysYParser::relExp(int precedence) {
         auto newContext = _tracker.createInstance<RelOpExpContext>(_tracker.createInstance<RelExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleRelExp);
-        setState(337);
+        setState(338);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(338);
+        setState(339);
         _la = _input->LA(1);
         if (!((((_la & ~ 0x3fULL) == 0) &&
           ((1ULL << _la) & 1006632960) != 0))) {
@@ -3321,10 +3348,10 @@ SysYParser::RelExpContext* SysYParser::relExp(int precedence) {
           _errHandler->reportMatch(this);
           consume();
         }
-        setState(339);
+        setState(340);
         addExp(0); 
       }
-      setState(344);
+      setState(345);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 36, _ctx);
     }
@@ -3424,10 +3451,10 @@ SysYParser::EqExpContext* SysYParser::eqExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(346);
+    setState(347);
     relExp(0);
     _ctx->stop = _input->LT(-1);
-    setState(353);
+    setState(354);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 37, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3438,10 +3465,10 @@ SysYParser::EqExpContext* SysYParser::eqExp(int precedence) {
         auto newContext = _tracker.createInstance<EqOpExpContext>(_tracker.createInstance<EqExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleEqExp);
-        setState(348);
+        setState(349);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(349);
+        setState(350);
         _la = _input->LA(1);
         if (!(_la == SysYParser::EQ
 
@@ -3452,10 +3479,10 @@ SysYParser::EqExpContext* SysYParser::eqExp(int precedence) {
           _errHandler->reportMatch(this);
           consume();
         }
-        setState(350);
+        setState(351);
         relExp(0); 
       }
-      setState(355);
+      setState(356);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 37, _ctx);
     }
@@ -3551,10 +3578,10 @@ SysYParser::LAndExpContext* SysYParser::lAndExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(357);
+    setState(358);
     eqExp(0);
     _ctx->stop = _input->LT(-1);
-    setState(364);
+    setState(365);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 38, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3565,15 +3592,15 @@ SysYParser::LAndExpContext* SysYParser::lAndExp(int precedence) {
         auto newContext = _tracker.createInstance<LandOpExpContext>(_tracker.createInstance<LAndExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleLAndExp);
-        setState(359);
+        setState(360);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(360);
-        match(SysYParser::AND);
         setState(361);
+        match(SysYParser::AND);
+        setState(362);
         eqExp(0); 
       }
-      setState(366);
+      setState(367);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 38, _ctx);
     }
@@ -3669,10 +3696,10 @@ SysYParser::LOrExpContext* SysYParser::lOrExp(int precedence) {
     _ctx = _localctx;
     previousContext = _localctx;
 
-    setState(368);
+    setState(369);
     lAndExp(0);
     _ctx->stop = _input->LT(-1);
-    setState(375);
+    setState(376);
     _errHandler->sync(this);
     alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 39, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
@@ -3683,15 +3710,15 @@ SysYParser::LOrExpContext* SysYParser::lOrExp(int precedence) {
         auto newContext = _tracker.createInstance<LorOpExpContext>(_tracker.createInstance<LOrExpContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleLOrExp);
-        setState(370);
+        setState(371);
 
         if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
-        setState(371);
-        match(SysYParser::OR);
         setState(372);
+        match(SysYParser::OR);
+        setState(373);
         lAndExp(0); 
       }
-      setState(377);
+      setState(378);
       _errHandler->sync(this);
       alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 39, _ctx);
     }
@@ -3740,7 +3767,7 @@ SysYParser::ConstExpContext* SysYParser::constExp() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(378);
+    setState(379);
     addExp(0);
    
   }

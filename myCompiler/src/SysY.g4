@@ -70,7 +70,9 @@ primaryExp
     : LPAREN exp RPAREN #parenExp
     | lVal              #lValExp
     | number            #numberExp
+    | STRING_LITERAL    #stringLiteralExp
     ;
+    
 number
     : IntConst          #intNum
     | FloatConst        #floatNum
@@ -171,6 +173,8 @@ FloatConst:
             | ('0x' | '0X') [0-9a-fA-F]+ '.' [0-9a-fA-F]*
             | ('0x' | '0X') '.' [0-9a-fA-F]+ ([pP][+-]? [0-9a-fA-F]+)?
             | ('0x' | '0X') [0-9a-fA-F]+ ('.' [0-9a-fA-F]*)? [pP][+-]? [0-9a-fA-F]+;
+
+STRING_LITERAL: '"' (~["\\\r\n] | '\\' .)* '"';
 
 // 忽略注释和空白字符
 COMMENT: ('//' ~[\r\n]* | '/*' .*? '*/') -> skip;

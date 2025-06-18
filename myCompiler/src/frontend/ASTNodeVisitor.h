@@ -29,7 +29,7 @@ public:
     // 变量声明 varDecl
     virtual antlrcpp::Any visitVarDecl(SysYParser::VarDeclContext *ctx) override;
     // varDef
-    //virtual antlrcpp::Any visitVarDef(SysYParser::VarDefContext *ctx) override;
+    // virtual antlrcpp::Any visitVarDef(SysYParser::VarDefContext *ctx) override;
     // initVal
     virtual antlrcpp::Any visitInitExpr(SysYParser::InitExprContext *ctx) override;
     virtual antlrcpp::Any visitInitList(SysYParser::InitListContext *ctx) override;
@@ -68,6 +68,7 @@ public:
     virtual antlrcpp::Any visitParenExp(SysYParser::ParenExpContext *ctx) override;
     virtual antlrcpp::Any visitLValExp(SysYParser::LValExpContext *ctx) override;
     virtual antlrcpp::Any visitNumberExp(SysYParser::NumberExpContext *ctx) override;
+    virtual antlrcpp::Any visitStringLiteralExp(SysYParser::StringLiteralExpContext *ctx) override;
     // number
     virtual antlrcpp::Any visitIntNum(SysYParser::IntNumContext *ctx) override;
     virtual antlrcpp::Any visitFloatNum(SysYParser::FloatNumContext *ctx) override;

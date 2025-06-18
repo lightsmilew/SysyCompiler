@@ -51,9 +51,10 @@ namespace ast
   // 基础数据类型枚举
   enum class PrimaryDataType
   {
-    INT,   // 整数类型
-    FLOAT, // 浮点数类型
-    VOID   // 空类型
+    INT,    // 整数类型
+    FLOAT,  // 浮点数类型
+    STRING, // 字符串类型
+    VOID    // 空类型
   };
 
   // 完整数据类型结构体（支持数组）
@@ -91,6 +92,7 @@ namespace ast
   class LiteralExprNode;
   class IntLiteralExprNode;
   class FloatLiteralExprNode;
+  class StringLiteralExprNode;
   class CallExprNode;
   class StmtNode;
   class BlockStmtNode;
@@ -261,7 +263,6 @@ namespace ast
 
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
-    // DataType getDataType() const override;
   };
 
   // 函数调用表达式节点，表示对函数的调用
