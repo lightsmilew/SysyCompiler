@@ -163,7 +163,6 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
     addError("Array access dimension exceeds array dimension count");
     return false;
   }
-
   // 检查索引为整数
   for (auto &index : lvalue->indices)
   {
