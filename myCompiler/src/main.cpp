@@ -41,6 +41,7 @@ int main(int argc, const char *argv[])
         }
         return 1; // 返回错误代码
     }
+
     ast_root->print(cout, 0);
     return 0;
 }

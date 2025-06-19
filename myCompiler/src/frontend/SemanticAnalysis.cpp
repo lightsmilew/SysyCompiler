@@ -118,6 +118,22 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
   {
     return DataType(PrimaryDataType::FLOAT);
   }
+  else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
+  {
+    // 处理初始化表达式
+    if (initExpr->singleInitVal)
+    {
+      // 单一初始值，递归获取其类型
+      return getExpressionType(initExpr->singleInitVal, context);
+    }
+    else if (!initExpr->multiInitVal.empty())
+    {
+      // 数组初始化列表，返回数组类型
+      // 这里简化处理，实际应该根据具体的初始化结构确定数组维度
+      return DataType(PrimaryDataType::INT, {(int)initExpr->multiInitVal.size()});
+    }
+    return DataType(PrimaryDataType::VOID);
+  }
   else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(expr))
   {
     auto symbol = analyzer.resolveVariable(lvalue->identifier);
@@ -208,19 +224,13 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
   }
   else if (auto call = dynamic_pointer_cast<CallExprNode>(expr))
   {
-
-    // auto it = functionTable.find(call->callee);
-    // if (it != functionTable.end())
-    // {
-    //   return it->second->returnType;
-    // }
-    auto it = analyzer.resolveVariable(call->callee);
-    if (it)
+    // 查找函数定义
+    auto funcSymbol = analyzer.resolveFunction(call->callee);
+    if (funcSymbol)
     {
-      return it->type;
+      return funcSymbol->type; // 返回函数的返回类型
     }
     addError("Callee '" + call->callee + "' is not defined");
-    // 此处函数未声明应该报错
     return DataType(PrimaryDataType::VOID);
   }
   return DataType(PrimaryDataType::VOID);
@@ -533,9 +543,12 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
         addError("Initializer type does not match variable type for '" + node->identifier + "'");
       }
       // 如果是const变量，检查初始化表达式是否为常量
-      if (node->isConst && !node->initializer->isConst)
+      if (node->isConst)
       {
-        addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
+        if (!node->initializer->isConst)
+        {
+          addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
+        }
       }
     }
     // 数组
