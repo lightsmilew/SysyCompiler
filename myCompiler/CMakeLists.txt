@@ -17,7 +17,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 
 # 使用 GLOB_RECURSE 模式递归查找 src 目录下所有的 .cpp 文件
-file(GLOB_RECURSE SRC "src/*.cpp")
+# file(GLOB_RECURSE SRC "src/*.cpp")
+file(GLOB FRONTEND_SRC "src/frontend/*.cpp")
+file(GLOB GENERATE_SRC "src/frontend/generate/*.cpp")
+set(SRC
+    ${FRONTEND_SRC}
+    ${GENERATE_SRC}
+    src/main.cpp
+)
 
 # 添加项目的 src 目录到头文件搜索路径
 include_directories(src)

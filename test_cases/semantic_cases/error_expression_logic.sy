@@ -1,0 +1,14 @@
+// 错误测试案例9: expression中的逻辑和比较操作
+int main() {
+    int a = 10, b = 20;
+    
+    // 在expression上下文中使用逻辑和比较操作（错误）
+    int c = a && b;     // 错误：expression中不能使用逻辑与
+    int d = a || b;     // 错误：expression中不能使用逻辑或
+    int e = !a;         // 错误：expression中不能使用逻辑非
+    int f = a < b;      // 错误：expression中不能使用比较操作
+    int g = a > b;      // 错误：expression中不能使用比较操作
+    int h = a == b;     // 错误：expression中不能使用相等比较
+    
+    return c + d + e + f + g + h;
+}

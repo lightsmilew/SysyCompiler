@@ -1,0 +1,29 @@
+line 132:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 132:16 missing ';' at '('
+line 210:13 mismatched input ']' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 229:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 229:16 missing ';' at '('
+line 245:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 245:16 missing ';' at '('
+line 288:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 288:16 extraneous input 'floatVar' expecting ';'
+line 296:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 297:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 298:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 298:15 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 298:19 missing ';' at 'testTypePromotion'
+line 299:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 300:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 301:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 302:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 303:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 304:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 306:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 307:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 308:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 309:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 310:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 311:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 312:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+terminate called after throwing an instance of 'std::bad_any_cast'
+  what():  bad any_cast

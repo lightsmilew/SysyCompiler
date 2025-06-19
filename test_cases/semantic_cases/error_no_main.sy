@@ -1,0 +1,10 @@
+// 错误测试案例2: 没有main函数
+int someFunction() {
+    return 0;
+}
+
+void anotherFunction() {
+    return;
+}
+
+// 缺少main函数

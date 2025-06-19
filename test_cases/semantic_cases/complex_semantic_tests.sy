@@ -1,0 +1,175 @@
+// 详细的边界测试案例
+// 测试各种复杂和边界情况
+
+// ===== 复杂的作用域嵌套测试 =====
+int globalVar = 100;
+
+int complexScopeTest() {
+    int a = 1;
+    
+    {
+        int b = 2;
+        {
+            int c = 3;
+            {
+                int d = 4;
+                // 所有变量都应该可见
+                int sum = globalVar + a + b + c + d;  // 应该等于110
+            }
+            // d不可见，但其他都可见
+            int sum2 = globalVar + a + b + c;
+        }
+        // c和d不可见
+        int sum3 = globalVar + a + b;
+    }
+    // 只有globalVar和a可见
+    return globalVar + a;
+}
+
+// ===== 复杂的数组和类型转换测试 =====
+float complexArrayTest() {
+    // 多维数组的复杂初始化
+    int matrix[2][3] = {
+        {1, 2, 3},
+        {4, 5, 6}
+    };
+    
+    float result[2][3];
+    
+    // 逐元素的类型转换赋值
+    result[0][0] = matrix[0][0];  // int → float
+    result[0][1] = matrix[0][1] + 1.5;  // int + float → float
+    result[1][2] = matrix[1][2] * 2.0;  // int * float → float
+    
+    return result[0][0] + result[0][1] + result[1][2];
+}
+
+// ===== 复杂的函数调用链测试 =====
+int level3Function(int x) {
+    return x * 3;
+}
+
+float level2Function(int a, float b) {
+    int temp = level3Function(a);
+    return temp + b;
+}
+
+int level1Function(int p, int q) {
+    float temp = level2Function(p, 2.5);
+    int result = level3Function(q);
+    return (temp + result);
+}
+
+// ===== 复杂的常量表达式测试 =====
+const int BASE = 10;
+const int MULTIPLIER = 3;
+const int COMPLEX_CONST = BASE * MULTIPLIER + 5;  // 35
+const float PI = 3.14159;
+const float AREA = PI * 2.0 * 2.0;  // π * r²
+
+int complexConstTest() {
+    const int local1 = COMPLEX_CONST + 10;  // 45
+    const float local2 = AREA + 1.0;
+    
+    int array[COMPLEX_CONST];  // 大小为35的数组
+    array[0] = local1;
+    
+    return (array[0] + local2);
+}
+
+// ===== 数组作为参数的复杂测试 =====
+int processVector(int vec[], int size) {
+    int sum = 0;
+    int i = 0;
+    while (i < size) {
+        sum = sum + vec[i];
+        i = i + 1;
+    }
+    return sum;
+}
+
+float processMatrix(float mat[][3], int rows) {
+    float sum = 0.0;
+    int i = 0;
+    while (i < rows) {
+        int j = 0;
+        while (j < 3) {
+            sum = sum + mat[i][j];
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return sum;
+}
+
+int complexParameterTest() {
+    int vector[5] = {1, 2, 3, 4, 5};
+    float matrix[2][3] = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+    
+    int vectorSum = processVector(vector, 5);      // 应该是15
+    float matrixSum = processMatrix(matrix, 2);    // 应该是21.0
+    
+    return vectorSum + matrixSum;  // 15 + 21 = 36
+}
+
+// ===== 复杂的表达式计算测试 =====
+float complexExpressionTest() {
+    int a = 10, b = 20, c = 30;
+    float x = 1.5, y = 2.5, z = 3.5;
+    
+    // 复杂的混合运算
+    float result1 = a + x * b - c / 4.0;  // 10 + 1.5*20 - 30/4 = 10 + 30 - 7.5 = 32.5
+    float result2 = (a + b) * x + y - z;  // (10+20)*1.5 + 2.5 - 3.5 = 30*1.5 + 2.5 - 3.5 = 45 - 1 = 44
+    
+    // 一元运算符
+    float result3 = -a + +b - (-c);  // -10 + 20 - (-30) = -10 + 20 + 30 = 40
+    
+    return result1 + result2 + result3;  // 32.5 + 44 + 40 = 116.5
+}
+
+// ===== 边界条件测试 =====
+int boundaryTest() {
+    // 最小数组
+    int minArray[1];
+    minArray[0] = 42;
+    
+    // 多层嵌套的数组访问
+    int cube[2][2][2];
+    cube[0][0][0] = 1;
+    cube[1][1][1] = 8;
+    
+    // 复杂的索引表达式
+    int index1 = 0;
+    int index2 = 1;
+    int value = cube[index1][index1][index1] + cube[index2][index2][index2];
+    
+    return minArray[0] + value;  // 42 + (1 + 8) = 51
+}
+
+// ===== const数组的复杂测试 =====
+int constArrayTest() {
+    const int constArr[4] = {10, 20, 30, 40};
+    const float constMatrix[2][2] = {{1.1, 2.2}, {3.3, 4.4}};
+    
+    // 从const数组读取并进行类型转换
+    float sum1 = constArr[0] + constArr[3];  // int → float: 10 + 40 = 50
+    int sum2 = (constMatrix[0][0] + constMatrix[1][1]);  // float → int: 1.1 + 4.4 = 5.5 → 5
+    
+    return sum1 + sum2;  // 50 + 5 = 55
+}
+
+// ===== 主测试函数 =====
+int main() {
+    int result = 0;
+    
+    result = result + complexScopeTest();      // +101
+    result = result + complexArrayTest(); // +依赖于计算结果
+    result = result + level1Function(5, 3);   // +依赖于计算结果
+    result = result + complexConstTest();      // +依赖于计算结果
+    result = result + complexParameterTest();  // +36
+    result = result + complexExpressionTest(); // +116
+    result = result + boundaryTest();          // +51
+    result = result + constArrayTest();        // +55
+    
+    return result;
+}

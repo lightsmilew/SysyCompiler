@@ -48,6 +48,7 @@ class SemanticAnalyzer
 public:
     shared_ptr<SymbolTable> currentScope;
     shared_ptr<SymbolTable> functionTable; // 函数符号表
+
     void enterScope();
     void exitScope();
     void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
@@ -70,7 +71,7 @@ public:
 // b) 当返回值类型为void时，函数内只能出现不带返回值的return语句。✔
 
 // 字面量未检查范围 √
-// 变量类型隐式转换是否可以在数组下进行
+// 变量类型隐式转换是否可以在数组下进行 √
 // 数组访问越界问题(动态检查先不管)
 // 库函数需支持字符串类型 √
 
@@ -107,12 +108,13 @@ public:
     {
         // 进入全局作用域
         analyzer.enterScope();
-        visitCompUnit(astRoot);
+        visitCompUnitForCheck(astRoot);
         return errors.empty();
     }
+    vector<string> getErrors() const { return errors; }
 
 private:
-    void visitCompUnit(shared_ptr<CompUnitNode> node);
+    void visitCompUnitForCheck(shared_ptr<CompUnitNode> node);
     void visitFuncNode(shared_ptr<FuncNode> node);
     void visitBlockStmt(shared_ptr<BlockStmtNode> node);
     void visitDeclStmt(shared_ptr<DeclStmtNode> node);
@@ -141,5 +143,4 @@ private:
     bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
     bool checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConst = false);
     void checkFunctionCall(shared_ptr<CallExprNode> call);
-    vector<string> getErrors() const { return errors; }
 };

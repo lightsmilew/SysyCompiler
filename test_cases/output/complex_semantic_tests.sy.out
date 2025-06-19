@@ -1,0 +1,16 @@
+line 60:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 60:16 missing ';' at '('
+line 77:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 77:16 missing ';' at '('
+line 112:24 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 112:28 extraneous input 'matrixSum' expecting ';'
+line 156:16 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 156:20 mismatched input '(' expecting {',', ';'}
+line 158:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 158:16 missing ';' at 'sum1'
+line 166:23 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 166:27 missing ';' at 'complexArrayTest'
+line 170:23 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
+line 170:27 missing ';' at 'complexExpressionTest'
+terminate called after throwing an instance of 'std::bad_any_cast'
+  what():  bad any_cast

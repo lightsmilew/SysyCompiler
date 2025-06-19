@@ -1,0 +1,19 @@
+// 错误测试案例4: 类型不匹配
+void acceptInt(int x) {
+    return;
+}
+
+void acceptFloat(float x) {
+    return;
+}
+
+int main() {
+    float a = 3.14;
+    // acceptInt(a);    // 错误：float不能隐式转换为int (如果不支持的话)
+    
+    int arr[3];
+    float farr[3];
+    // arr = farr;      // 错误：float数组不能赋值给int数组 (如果不支持的话)
+    
+    return 0;
+}

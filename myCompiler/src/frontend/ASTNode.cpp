@@ -180,36 +180,28 @@ namespace ast
         {
             ret_expr->print(out, indent + 2);
         }
+    }    // InitExpr
+    string InitExprNode::toString() const
+    {
+        if (singleInitVal)
+        {
+            return "InitExprNode: " + singleInitVal->toString();
+        }
+        else
+        {
+            string result = "InitExprNode: {";
+            for (size_t i = 0; i < multiInitVal.size(); ++i)
+            {
+                result += multiInitVal[i]->toString();
+                if (i < multiInitVal.size() - 1)
+                {
+                    result += ", ";
+                }
+            }
+            result += "}";
+            return result;
+        }
     }
-
-    // // CastExp
-    // string CastExpNode::toString() const
-    // {
-    //     return "CastExpNode: " + sourceExpr->toString() + " to " + (targetType.baseType == PrimaryDataType::INT ? "int" : "float");
-    // }
-
-    // // InitExpr
-    // string InitExprNode::toString() const
-    // {
-    //     if (singleInitVal)
-    //     {
-    //         return "InitExprNode: " + singleInitVal->toString();
-    //     }
-    //     else
-    //     {
-    //         string result = "InitExprNode: {";
-    //         for (size_t i = 0; i < multiInitVal.size(); ++i)
-    //         {
-    //             result += multiInitVal[i]->toString();
-    //             if (i < multiInitVal.size() - 1)
-    //             {
-    //                 result += ", ";
-    //             }
-    //         }
-    //         result += "}";
-    //         return result;
-    //     }
-    // }
 
     // LValueExpr
     string LValueExprNode::toString() const
@@ -350,18 +342,16 @@ namespace ast
     void FloatLiteralExprNode::print(ostream &out, unsigned indent) const
     {
         ASTNode::print(out, indent);
+    }    // StringLiteralExpr
+    string StringLiteralExprNode::toString() const
+    {
+        return "StringLiteralExprNode: \"" + value + "\"";
     }
 
-    // // StringLiteralExpr
-    // string StringLiteralExprNode::toString() const
-    // {
-    //     return "StringLiteralExprNode: " + value;
-    // }
-
-    // void StringLiteralExprNode::print(ostream &out, unsigned indent) const
-    // {
-    //     ASTNode::print(out, indent);
-    // }
+    void StringLiteralExprNode::print(ostream &out, unsigned indent) const
+    {
+        ASTNode::print(out, indent);
+    }
 
     // CallExpr
     string CallExprNode::toString() const

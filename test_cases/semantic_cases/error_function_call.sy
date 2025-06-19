@@ -1,0 +1,21 @@
+// 错误测试案例7: 函数调用错误
+int add(int a, int b) {
+    return a + b;
+}
+
+void noParam() {
+    return;
+}
+
+int main() {
+    // 参数个数错误
+    int a = add(5);        // 错误：参数个数不匹配（需要2个参数）
+    int b = add(1, 2, 3);  // 错误：参数个数不匹配（多了1个参数）
+    
+    // 调用不存在的函数
+    int c = unknown(5);    // 错误：函数未声明
+    
+    noParam(10);           // 错误：给无参函数传参数
+    
+    return a + b + c;
+}

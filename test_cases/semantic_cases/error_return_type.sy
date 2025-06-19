@@ -1,0 +1,29 @@
+// 错误测试案例10: void函数返回值错误
+void testVoid1() {
+    return 5;           // 错误：void函数不能返回值
+}
+
+void testVoid2() {
+    int a = 10;
+    return a;           // 错误：void函数不能返回值
+}
+
+int testInt() {
+    return;             // 错误：非void函数必须返回值
+}
+
+float testFloat() {
+    int a = 10;
+    if (a > 5) {
+        return 3.14;
+    }
+    // 错误：缺少else分支的返回语句
+}
+
+int main() {
+    testVoid1();
+    testVoid2();
+    int a = testInt();
+    float b = testFloat();
+    return 0;
+}
