@@ -1,5 +1,2 @@
-Checking const variable 'a'
-  initializer->isConst = false
 Semantic errors found:
-Const variable 'a' must be initialized with a constant expression
 Cannot modify const variable 'a'

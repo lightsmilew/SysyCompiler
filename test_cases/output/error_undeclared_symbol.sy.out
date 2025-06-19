@@ -4,6 +4,4 @@ Variable 'b' not declared
 Variable 'b' not declared
 Initializer type does not match variable type for 'a'
 Callee 'func' is not defined
-Callee 'func' is not defined
-Callee 'func' is not defined
 Initializer type does not match variable type for 'c'

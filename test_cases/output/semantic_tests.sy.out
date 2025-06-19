@@ -1,28 +1,6 @@
-Checking const variable 'GLOBAL_CONST'
-  initializer->isConst = false
-Checking const variable 'a'
-  initializer->isConst = false
-Checking const variable 'c'
-  initializer->isConst = false
-Checking const variable 'SIZE'
-  initializer->isConst = false
-Checking const variable 'a'
-  initializer->isConst = false
-Checking const variable 'b'
-  initializer->isConst = false
-Checking const variable 'c'
-  initializer->isConst = false
-Checking const variable 'd'
-  initializer->isConst = false
-Checking const variable 'e'
-  initializer->isConst = false
 Semantic errors found:
-Const variable 'GLOBAL_CONST' must be initialized with a constant expression
-Const variable 'a' must be initialized with a constant expression
-Const variable 'c' must be initialized with a constant expression
 Variable 'arr1' used before initialization
 Variable 'arr2' used before initialization
-Const variable 'SIZE' must be initialized with a constant expression
 Variable 'arr1' used before initialization
 Variable 'arr2' used before initialization
 Variable 'arr3' used before initialization
@@ -31,11 +9,6 @@ Variable 'arr3' not declared
 Variable 'arr3' not declared
 Variable 'arr3' not declared
 Variable 'arr3' not declared
-Const variable 'a' must be initialized with a constant expression
-Const variable 'b' must be initialized with a constant expression
-Const variable 'c' must be initialized with a constant expression
-Const variable 'd' must be initialized with a constant expression
-Const variable 'e' must be initialized with a constant expression
 Too many indices for array 'arr'
 Too many indices for array 'arr'
 Array 'arr' access dimension exceeds array dimension count

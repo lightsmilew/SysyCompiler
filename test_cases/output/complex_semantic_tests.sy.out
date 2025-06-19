@@ -1,26 +1,5 @@
-Checking const variable 'BASE'
-  initializer->isConst = false
-Checking const variable 'MULTIPLIER'
-  initializer->isConst = false
-Checking const variable 'COMPLEX_CONST'
-  initializer->isConst = false
-Checking const variable 'PI'
-  initializer->isConst = false
-Checking const variable 'AREA'
-  initializer->isConst = false
-Checking const variable 'local1'
-  initializer->isConst = false
-Checking const variable 'local2'
-  initializer->isConst = false
 Semantic errors found:
-Const variable 'BASE' must be initialized with a constant expression
-Const variable 'MULTIPLIER' must be initialized with a constant expression
-Const variable 'COMPLEX_CONST' must be initialized with a constant expression
-Const variable 'PI' must be initialized with a constant expression
-Const variable 'AREA' must be initialized with a constant expression
 Variable 'result' used before initialization
-Const variable 'local1' must be initialized with a constant expression
-Const variable 'local2' must be initialized with a constant expression
 Variable 'array' used before initialization
 Array 'vec' access dimension exceeds array dimension count
 Too many indices for array 'vec'
@@ -32,7 +11,3 @@ Argument 1 of function 'processVector' has incompatible type
 Argument 1 of function 'processMatrix' has incompatible type
 Variable 'minArray' used before initialization
 Variable 'cube' used before initialization
-Initializer for constant array must be a constant expression
-Array initializer type or dimension does not match for 'constArr'
-Initializer for constant array must be a constant expression
-Array initializer type or dimension does not match for 'constMatrix'
