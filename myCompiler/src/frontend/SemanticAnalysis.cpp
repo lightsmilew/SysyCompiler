@@ -70,35 +70,43 @@ void TypeCheckerVisitor::addError(const string &message)
 {
   errors.push_back(message);
 }
-bool TypeCheckerVisitor::checkArrayInit(const shared_ptr<ExprNode>& init, const DataType& declaredType, int dim, bool isConstArray) {
-    if (dim == declaredType.arrayDimensionCount()) {
-        DataType elemType = getExpressionType(init, ExprContext::EXPRESSION);
-        if (!isTypeCompatible(elemType, declaredType.baseType)) return false;
-        // 常量数组要求初始化元素必须是常量表达式
-        if (isConstArray && !init->isConst) {
-            addError("Initializer for constant array must be a constant expression");
-            return false;
-        }
-        return true;
+bool TypeCheckerVisitor::checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConstArray)
+{
+  if (dim == declaredType.arrayDimensionCount())
+  {
+    DataType elemType = getExpressionType(init, ExprContext::EXPRESSION);
+    if (!isTypeCompatible(elemType, declaredType.baseType))
+      return false;
+    // 常量数组要求初始化元素必须是常量表达式
+    if (isConstArray && !init->isConst)
+    {
+      addError("Initializer for constant array must be a constant expression");
+      return false;
     }
+    return true;
+  }
 
-    auto list = dynamic_pointer_cast<InitExprNode>(init)->multiInitVal;
-    if (!list.empty()) {
-        int maxCount = declaredType._arraySizes[dim];
-        int count = 0;
-        for (auto& elem : list) {
-            if (!checkArrayInit(elem, declaredType, dim + 1, isConstArray)) return false;
-            ++count;
-            if (count > maxCount) {
-                addError("Too many initializers for array dimension " + std::to_string(dim));
-                return false;
-            }
-        }
-        return true;
+  auto list = dynamic_pointer_cast<InitExprNode>(init)->multiInitVal;
+  if (!list.empty())
+  {
+    int maxCount = declaredType._arraySizes[dim];
+    int count = 0;
+    for (auto &elem : list)
+    {
+      if (!checkArrayInit(elem, declaredType, dim + 1, isConstArray))
+        return false;
+      ++count;
+      if (count > maxCount)
+      {
+        addError("Too many initializers for array dimension " + std::to_string(dim));
+        return false;
+      }
     }
+    return true;
+  }
 
-    // 平铺递归
-    return checkArrayInit(init, declaredType, dim + 1, isConstArray);
+  // 平铺递归
+  return checkArrayInit(init, declaredType, dim + 1, isConstArray);
 }
 DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprContext context)
 {
@@ -115,22 +123,26 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
     auto symbol = analyzer.resolveVariable(lvalue->identifier);
     if (symbol)
     {
-      //处理多维数组其中一维传参
-            DataType type = symbol->type;
-            // 对每个下标，降一维
-            for (auto& idx : lvalue->indices) {
-                if (type.isArray() && !type.arraySizes().empty()) {
-                  //复制一份修改 const不可直接修改
-                    Vector<int> dims=type.arraySizes();
-                    dims.erase(dims.begin());
-                    type._arraySizes=dims;
-                } else {
-                    // 非法下标访问
-                    addError("Too many indices for array '" + lvalue->identifier + "'");
-                    return DataType(PrimaryDataType::VOID);
-                }
-            }
-            return type;
+      // 处理多维数组其中一维传参
+      DataType type = symbol->type;
+      // 对每个下标，降一维
+      for (auto &idx : lvalue->indices)
+      {
+        if (type.isArray() && !type.arraySizes().empty())
+        {
+          // 复制一份修改 const不可直接修改
+          Vector<int> dims = type.arraySizes();
+          dims.erase(dims.begin());
+          type._arraySizes = dims;
+        }
+        else
+        {
+          // 非法下标访问
+          addError("Too many indices for array '" + lvalue->identifier + "'");
+          return DataType(PrimaryDataType::VOID);
+        }
+      }
+      return type;
     }
     // 未定义报错
     addError("Variable '" + lvalue->identifier + "' not declared");
@@ -216,17 +228,46 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
 
 bool TypeCheckerVisitor::isTypeCompatible(DataType from, DataType to)
 {
-  // 完全相同的类型
+  // 完全相同的类型（包括数组维度和各维大小）
   if (from.baseType == to.baseType && from.arrayDimensionCount() == to.arrayDimensionCount())
   {
+    // 检查各维度的大小是否相同
+    if (from.arrayDimensionCount() > 0)
+    {
+      const auto &fromSizes = from.arraySizes();
+      const auto &toSizes = to.arraySizes();
+      for (size_t i = 0; i < fromSizes.size(); ++i)
+      {
+        if (fromSizes[i] != toSizes[i])
+        {
+          return false; // 数组大小不匹配
+        }
+      }
+    }
     return true;
   }
 
-  // int可以隐式转换为float（仅在非数组情况下）
-  if (!from.isArray() && !to.isArray() &&
-      from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
+  // 隐式类型转换：只有当表达式结果为基本类型时才允许转换
+  // 注意：这里检查的是表达式计算后的类型，不是变量的声明类型
+  // 例如：int a[3]; float b = a[0]; // a[0]的结果类型是int（基本类型），可以转换为float
+  if (from.arrayDimensionCount() == 0 && to.arrayDimensionCount() == 0) // 都是基本类型
   {
-    return true;
+    // int可以隐式转换为float float可以隐式转换为int
+    if (from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
+    {
+      return true;
+    }
+    if (from.baseType == PrimaryDataType::FLOAT && to.baseType == PrimaryDataType::INT)
+    {
+      return true;
+    }
+
+    // 可以添加更多的隐式转换规则，如：
+    // bool可以转换为int (true -> 1, false -> 0)
+    // if (from.baseType == PrimaryDataType::BOOL && to.baseType == PrimaryDataType::INT)
+    // {
+    //   return true;
+    // }
   }
 
   return false;
@@ -429,22 +470,27 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
   }
   // 检查全局变量是否用常量初始化
   bool isGlobal = (analyzer.currentScope->parent == nullptr);
-  if (isGlobal && node->initializer) {
+  if (isGlobal && node->initializer)
+  {
     // 普通变量
-    if (node->indices.empty()) {
-        if (!node->initializer->isConst) {
-            addError("Global variable '" + node->identifier + "' must be initialized with a constant expression");
-        }
+    if (node->indices.empty())
+    {
+      if (!node->initializer->isConst)
+      {
+        addError("Global variable '" + node->identifier + "' must be initialized with a constant expression");
+      }
     }
     // 数组
-    else {
-        if (!checkArrayInit(node->initializer, node->type, 0, /*isConstArray=*/true)) {
-            addError("Global array '" + node->identifier + "' must be initialized with constant expressions");
-        }
+    else
+    {
+      if (!checkArrayInit(node->initializer, node->type, 0, /*isConstArray=*/true))
+      {
+        addError("Global array '" + node->identifier + "' must be initialized with constant expressions");
+      }
     }
   }
-   //检查类型是否为void或者数组维度是否合法
-  if(!node->indices.empty())
+  // 检查类型是否为void或者数组维度是否合法
+  if (!node->indices.empty())
   {
     // 检查数组声明 不能为void类型
     if (node->type.baseType == PrimaryDataType::VOID)
@@ -456,8 +502,8 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     for (const auto &size : node->indices)
     {
       DataType indexType = getExpressionType(size, ExprContext::ARRAY_INDEX);
-      //非整型 是数组 或者不是常量
-      if (indexType.baseType != PrimaryDataType::INT || indexType.isArray()||!size->isConst)
+      // 非整型 是数组 或者不是常量
+      if (indexType.baseType != PrimaryDataType::INT || indexType.isArray() || !size->isConst)
       {
         addError("Array index must be integer type constant");
         return;
@@ -465,9 +511,9 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     }
   }
   // 创建符号并声明
-  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr,node->isConst);
+  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr, node->isConst);
   // 如果是数组,保存下标信息,不是则为空
-  symbol->indices = node->indices; 
+  symbol->indices = node->indices;
   // 如果有初始化表达式，检查类型匹配
   if (node->initializer)
   {
@@ -476,27 +522,35 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     DataType initType = getExpressionType(node->initializer, ExprContext::EXPRESSION);
 
     // 普通变量
-    if (node->indices.empty()) {
-        // 类型兼容性检查
-        if (!isTypeCompatible(initType, node->type)) {
-            addError("Initializer type does not match variable type for '" + node->identifier + "'");
-        }
-        // 如果是const变量，检查初始化表达式是否为常量
-        if (node->isConst && !node->initializer->isConst) {
-            addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
-        }
+    if (node->indices.empty())
+    {
+      // 类型兼容性检查
+      if (!isTypeCompatible(initType, node->type))
+      {
+        addError("Initializer type does not match variable type for '" + node->identifier + "'");
+      }
+      // 如果是const变量，检查初始化表达式是否为常量
+      if (node->isConst && !node->initializer->isConst)
+      {
+        addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
+      }
     }
     // 数组
-    else {
-        // 检查初始化表达式是否为数组初始化
-        if (!initType.isArray()){
-            addError("Array '" + node->identifier + "' must be initialized with an array initializer");
-        } else {
-            // 检查维度和元素类型（可递归实现）
-            if (!checkArrayInit(node->initializer, node->type, 0, node->isConst)) {
-                addError("Array initializer type or dimension does not match for '" + node->identifier + "'");
-            }
+    else
+    {
+      // 检查初始化表达式是否为数组初始化
+      if (!initType.isArray())
+      {
+        addError("Array '" + node->identifier + "' must be initialized with an array initializer");
+      }
+      else
+      {
+        // 检查维度和元素类型（可递归实现）
+        if (!checkArrayInit(node->initializer, node->type, 0, node->isConst))
+        {
+          addError("Array initializer type or dimension does not match for '" + node->identifier + "'");
         }
+      }
     }
   }
 
@@ -1218,17 +1272,17 @@ void TypeCheckerVisitor::visitStringLiteralExpr(shared_ptr<StringLiteralExprNode
   }
 }
 
-shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType)
-{
-  if (!needsImplicitConversion(expr->dataType, targetType))
-  {
-    return expr;
-  }
+// shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType)
+// {
+//   if (!needsImplicitConversion(expr->dataType, targetType))
+//   {
+//     return expr;
+//   }
 
-  // 创建类型转换节点
-  auto castNode = make_shared<CastExpNode>();
-  castNode->sourceExpr = expr;
-  castNode->targetType = targetType;
+//   // 创建类型转换节点
+//   auto castNode = make_shared<CastExpNode>();
+//   castNode->sourceExpr = expr;
+//   castNode->targetType = targetType;
 
-  return castNode;
-}
+//   return castNode;
+// }

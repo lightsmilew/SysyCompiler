@@ -66,12 +66,12 @@ public:
 // 作用域规则 - 变量可见性和生命周期   ✔
 // 初始化检查 - 变量使用前是否已初始化  ✔
 // expression中不能存在与或非和大小比较  ×非没有检查 √
-// a) 当返回类型为int/float时，函数内所有分支都应当含有带有Exp的return语句。不含有return语句的分支的返回值未定义。×
+// a) 当返回类型为int/float时，函数内所有分支都应当含有带有Exp的return语句。不含有return语句的分支的返回值未定义。(中间代码时解决)
 // b) 当返回值类型为void时，函数内只能出现不带返回值的return语句。✔
 
-// 字面量未检查范围 √ 但是没关注字符串字面量
+// 字面量未检查范围 √
 // 变量类型隐式转换是否可以在数组下进行
-// 数组访问越界问题（动态检查）
+// 数组访问越界问题(动态检查先不管)
 // 库函数需支持字符串类型 √
 
 // 数组长度必须为常量 ✔
@@ -142,5 +142,4 @@ private:
     bool checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConst = false);
     void checkFunctionCall(shared_ptr<CallExprNode> call);
     vector<string> getErrors() const { return errors; }
-    bool tryEvaluateConstantExpression(shared_ptr<ExprNode> expr, int &result);
 };

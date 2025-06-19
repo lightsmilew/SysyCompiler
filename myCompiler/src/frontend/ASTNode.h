@@ -135,19 +135,19 @@ namespace ast
     string toString() const override = 0;
   };
 
-  //--- CastExpNode ---//
-  // 类型转换表达式节点，表示将一个表达式转换为另一种数据类型
-  class CastExpNode : public ExprNode
-  {
-  public:
-    shared_ptr<ExprNode> sourceExpr; // 被转换的表达式
-    DataType targetType;             // 目标数据类型
+  // //--- CastExpNode ---//
+  // // 类型转换表达式节点，表示将一个表达式转换为另一种数据类型
+  // class CastExpNode : public ExprNode
+  // {
+  // public:
+  //   shared_ptr<ExprNode> sourceExpr; // 被转换的表达式
+  //   DataType targetType;             // 目标数据类型
 
-    CastExpNode(shared_ptr<ExprNode> op, DataType type)
-        : sourceExpr{move(op)}, targetType{move(type)} {}
+  //   CastExpNode(shared_ptr<ExprNode> op, DataType type)
+  //       : sourceExpr{move(op)}, targetType{move(type)} {}
 
-    string toString() const override;
-  };
+  //   string toString() const override;
+  // };
 
   // 初始化表达式节点
   // int a = 1; // 单一初始值
