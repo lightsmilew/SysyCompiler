@@ -19,11 +19,11 @@ Initializer type does not match variable type for 'sum2'
 Initializer type does not match variable type for 'sum3'
 Array 'matrix' must be initialized with an array initializer
 Variable 'result' used before initialization
-Callee Function is not defined
+Callee 'level3Function' is not defined
 Initializer type does not match variable type for 'temp'
-Callee Function is not defined
+Callee 'level2Function' is not defined
 Initializer type does not match variable type for 'temp'
-Callee Function is not defined
+Callee 'level3Function' is not defined
 Initializer type does not match variable type for 'result'
 Initializer type does not match variable type for 'local1'
 Const variable 'local1' must be initialized with a constant expression
@@ -32,21 +32,21 @@ Const variable 'local2' must be initialized with a constant expression
 Variable 'array' used before initialization
 Initializer type does not match variable type for 'sum'
 Initializer type does not match variable type for 'i'
-Array access dimension exceeds array dimension count
+Array 'vec' access dimension exceeds array dimension count
 Too many indices for array 'vec'
 Too many indices for array 'vec'
 Initializer type does not match variable type for 'sum'
 Initializer type does not match variable type for 'i'
 Initializer type does not match variable type for 'j'
-Array access dimension exceeds array dimension count
+Array 'mat' access dimension exceeds array dimension count
 Too many indices for array 'mat'
 Too many indices for array 'mat'
 Array 'vector' must be initialized with an array initializer
 Array 'matrix' must be initialized with an array initializer
-Callee Function is not defined
+Callee 'processVector' is not defined
 Argument 1 of function 'processVector' has incompatible type
 Initializer type does not match variable type for 'vectorSum'
-Callee Function is not defined
+Callee 'processMatrix' is not defined
 Argument 1 of function 'processMatrix' has incompatible type
 Initializer type does not match variable type for 'matrixSum'
 Initializer type does not match variable type for 'a'
@@ -68,19 +68,19 @@ Array 'constMatrix' must be initialized with an array initializer
 Initializer type does not match variable type for 'sum1'
 Initializer type does not match variable type for 'sum2'
 Initializer type does not match variable type for 'result'
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
-Callee Function is not defined
+Callee 'complexScopeTest' is not defined
+Callee 'complexScopeTest' is not defined
+Callee 'complexArrayTest' is not defined
+Callee 'complexArrayTest' is not defined
+Callee 'level1Function' is not defined
+Callee 'level1Function' is not defined
+Callee 'complexConstTest' is not defined
+Callee 'complexConstTest' is not defined
+Callee 'complexParameterTest' is not defined
+Callee 'complexParameterTest' is not defined
+Callee 'complexExpressionTest' is not defined
+Callee 'complexExpressionTest' is not defined
+Callee 'boundaryTest' is not defined
+Callee 'boundaryTest' is not defined
+Callee 'constArrayTest' is not defined
+Callee 'constArrayTest' is not defined

@@ -30,7 +30,7 @@ bool SymbolTable::insert(const string &name, shared_ptr<Symbol> symbol)
     return false; // 返回false表示插入失败（重复声明）
   }
   table[name] = symbol;
-  return true; // 插入成功
+  return true; // 插入成功E
 }
 
 void SemanticAnalyzer::enterScope()
@@ -219,7 +219,7 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
     {
       return it->type;
     }
-    addError("Callee Function is not defined");
+    addError("Callee '" + call->callee + "' is not defined");
     // 此处函数未声明应该报错
     return DataType(PrimaryDataType::VOID);
   }
@@ -282,7 +282,7 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
   // 检查维度匹配
   if (lvalue->indices.size() > symbol->type.arrayDimensionCount())
   {
-    addError("Array access dimension exceeds array dimension count");
+    addError("Array '" + lvalue->identifier + "' access dimension exceeds array dimension count");
     return false;
   }
   // 检查索引为整数
@@ -291,7 +291,7 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
     DataType indexType = getExpressionType(index, ExprContext::ARRAY_INDEX);
     if (indexType.baseType != PrimaryDataType::INT || indexType.isArray())
     {
-      addError("Array index must be integer type");
+      addError("Array '" + lvalue->identifier + "' index must be integer type");
       return false;
     }
   }
@@ -310,7 +310,7 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
   auto it = analyzer.resolveFunction(call->callee);
   if (!it)
   {
-    addError("Callee Function is not defined");
+    addError("Callee '" + call->callee + "' is not defined");
     return;
   }
   auto func = it->functionNode;
@@ -508,7 +508,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
       // 非整型 是数组 或者不是常量
       if (indexType.baseType != PrimaryDataType::INT || indexType.isArray() || !size->isConst)
       {
-        addError("Array index must be integer type constant");
+        addError("Array '" + node->identifier + "' index must be integer type constant");
         return;
       }
     }
@@ -890,7 +890,7 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
 
     if (!isTypeCompatible(actualReturnType, expectedReturnType))
     {
-      addError("Return type mismatch");
+      addError("Return type mismatch with function '" + currentFunction->identifier + "'");
     }
 
     // 递归检查返回表达式
@@ -928,7 +928,7 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
     // 无返回值
     if (expectedReturnType.baseType != PrimaryDataType::VOID)
     {
-      addError("Function must return a value");
+      addError("Function '" + currentFunction->identifier + "' must return a value");
     }
   }
 }
