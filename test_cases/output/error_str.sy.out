@@ -1,0 +1,9 @@
+line 1:9 mismatched input 'const' expecting {'int', 'float', ')'}
+line 1:15 mismatched input 'char' expecting {'int', 'float'}
+line 1:19 mismatched input '*' expecting {'=', '['}
+line 3:13 token recognition error at: '''
+line 3:15 token recognition error at: '''
+line 4:4 extraneous input 'return' expecting {<EOF>, 'const', 'int', 'float', 'void'}
+line 9:11 no viable alternative at input 'stringa'
+terminate called after throwing an instance of 'std::invalid_argument'
+  what():  Unknown type: 
