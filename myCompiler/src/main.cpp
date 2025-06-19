@@ -5,6 +5,7 @@
 #include "frontend/generate/SysYParser.h"
 #include "frontend/ASTNodeVisitor.h"
 #include "frontend/ASTNode.h"
+#include "frontend/SemanticAnalysis.h"
 #include <fstream>
 #include <iostream>
 
@@ -29,7 +30,17 @@ int main(int argc, const char *argv[])
 
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
 
+    // TypeCheckerVisitor type_checker;
+    // type_checker.checkSemantic(ast_root);
+    // if (!type_checker.getErrors().empty())
+    // {
+    //     cerr << "Semantic errors found:" << endl;
+    //     for (const auto &error : type_checker.getErrors())
+    //     {
+    //         cerr << error << endl;
+    //     }
+    //     return 1; // 返回错误代码
+    // }
     ast_root->print(cout, 0);
-
     return 0;
 }

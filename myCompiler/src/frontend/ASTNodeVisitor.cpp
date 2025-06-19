@@ -505,6 +505,7 @@ antlrcpp::Any ASTNodeVisitor::visitNumberExp(SysYParser::NumberExpContext *ctx)
     auto number = std::any_cast<shared_ptr<NumberLiteralExprNode>>(visit(ctx->number()));
     return static_cast<shared_ptr<ExprNode>>(number);
 }
+
 antlrcpp::Any ASTNodeVisitor::visitStringLiteralExp(SysYParser::StringLiteralExpContext *ctx)
 {
     // 处理字符串字面量
