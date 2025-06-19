@@ -1,0 +1,8 @@
+// 错误测试案例1: 多个main函数
+int main() {
+    return 0;
+}
+
+int main() {  // 错误：重复定义main函数
+    return 1;
+}

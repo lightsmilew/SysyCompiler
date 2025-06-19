@@ -1,0 +1,6 @@
+// 错误测试案例3: 符号未声明
+int main() {
+    int a = b;      // 错误：变量b未声明
+    int c = func(); // 错误：函数func未声明
+    return a + c;
+}

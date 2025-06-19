@@ -1,0 +1,13 @@
+// 错误测试案例5: 修改const变量
+int main() {
+    const int a = 10;
+    a = 20;          // 错误：不能修改const变量
+    
+    const float b = 3.14;
+    b = 2.71;        // 错误：不能修改const变量
+    
+    const int arr[3] = {1, 2, 3};
+    arr[0] = 5;      // 错误：不能修改const数组元素
+    
+    return 0;
+}

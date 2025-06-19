@@ -2,8 +2,8 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <Common.h>
-using namespace ast;
+#include "../common/Common.h"
+
 using std::dynamic_pointer_cast;
 using std::to_string;
 
@@ -339,7 +339,7 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
 }
 
 // Implementation of visitCompUnit
-void TypeCheckerVisitor::visitCompUnit(shared_ptr<CompUnitNode> node)
+void TypeCheckerVisitor::visitCompUnitForCheck(shared_ptr<CompUnitNode> node)
 {
   hasMainFunction = false;
 
