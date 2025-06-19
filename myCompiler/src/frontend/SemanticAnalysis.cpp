@@ -954,10 +954,10 @@ void TypeCheckerVisitor::visitLValueExpr(shared_ptr<LValueExprNode> node)
   }
 
   // 检查变量是否已初始化
-  if (!symbol->isInitialized)
-  {
-    addError("Variable '" + node->identifier + "' used before initialization");
-  }
+  // if (!symbol->isInitialized)
+  // {
+  //   addError("Variable '" + node->identifier + "' used before initialization");
+  // }
 
   // 检查数组访问
   if (!node->indices.empty())
