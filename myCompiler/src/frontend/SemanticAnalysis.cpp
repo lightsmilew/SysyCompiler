@@ -22,15 +22,15 @@ shared_ptr<Symbol> SymbolTable::lookup(const string &name)
   return nullptr;
 }
 
-void SymbolTable::insert(const string &name, shared_ptr<Symbol> symbol)
+bool SymbolTable::insert(const string &name, shared_ptr<Symbol> symbol)
 {
   // 检查当前作用域中是否已存在同名符号
   if (table.find(name) != table.end())
   {
-    throw std::runtime_error("Symbol '" + name +
-                             "' already declared in this scope.");
+    return false; // 返回false表示插入失败（重复声明）
   }
   table[name] = symbol;
+  return true; // 插入成功
 }
 
 void SemanticAnalyzer::enterScope()
@@ -54,10 +54,10 @@ shared_ptr<Symbol> SemanticAnalyzer::resolveVariable(const std::string &name)
   return currentScope->lookup(name);
 }
 
-void SemanticAnalyzer::declareFunction(const std::string &name,
+bool SemanticAnalyzer::declareFunction(const std::string &name,
                                        const std::shared_ptr<Symbol> &symbol)
 {
-  functionTable->insert(name, symbol);
+  return functionTable->insert(name, symbol);
 }
 
 shared_ptr<Symbol> SemanticAnalyzer::resolveFunction(const std::string &name)
@@ -391,7 +391,10 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
   // 注册函数到符号表
   auto funcSymbol = make_shared<Symbol>(currentFunction);
-  analyzer.declareFunction(node->identifier, funcSymbol);
+  if (!analyzer.declareFunction(node->identifier, funcSymbol))
+  {
+    addError("Multiple " + node->identifier + " functions declared");
+  }
 
   // 进入函数作用域
   analyzer.enterScope();

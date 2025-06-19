@@ -1,5 +1,5 @@
 compilerPath = "myCompiler/build/my_compiler"
-inputDir = "test_cases/"
+inputDir = "test_cases/semantic_cases/"
 outputDir = "test_cases/output/"
 
 cases = inputDir + "*.sy"
