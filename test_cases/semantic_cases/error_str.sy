@@ -1,0 +1,12 @@
+int func(const char* str) {
+    // 错误：尝试修改字符串字面量
+    str[0] = 'h'; 
+    return 0; // 返回0表示成功
+}
+
+int main(){
+    func("Hello, World!"); 
+    string a = "Hello, World!"; // 错误：不支持的类型string
+
+    return 0; // 返回0表示程序成功执行
+}
