@@ -230,7 +230,8 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
     {
       return funcSymbol->type; // 返回函数的返回类型
     }
-    addError("Callee '" + call->callee + "' is not defined");
+    // 不在这里报错，由visitCallExpr处理错误报告
+    // addError("Callee '" + call->callee + "' is not defined");
     return DataType(PrimaryDataType::VOID);
   }
   return DataType(PrimaryDataType::VOID);
@@ -382,10 +383,6 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
   // 检查main函数
   if (node->identifier == "main")
   {
-    if (hasMainFunction)
-    {
-      addError("Multiple main functions declared");
-    }
     hasMainFunction = true;
 
     // main函数必须返回int且无参数

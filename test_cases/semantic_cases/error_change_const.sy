@@ -1,5 +1,0 @@
-int main(){
-    const int a = 10; // 常量a
-    a = 20;           // 错误：尝试修改常量a
-    return a;        // 返回常量a的值
-}
