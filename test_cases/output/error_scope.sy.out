@@ -1,0 +1,12 @@
+Semantic errors found:
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Initializer type does not match variable type for 'c'
+Variable 'b' not declared
+Variable 'b' not declared
+Initializer type does not match variable type for 'd'
+Initializer type does not match variable type for 'e'
+Initializer type does not match variable type for 'f'
+Variable 'f' not declared
+Variable 'f' not declared
+Initializer type does not match variable type for 'g'

@@ -50,6 +50,7 @@ antlrcpp::Any ASTNodeVisitor::visitCompUnit(SysYParser::CompUnitContext *const c
 {
     // 符号表
     std::vector<Ptr<ast::ASTNode>> children;
+
     // 访问每一个变量声明
     for (auto declCtx : ctx->decl())
     {

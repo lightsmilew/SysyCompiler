@@ -1,29 +1,149 @@
-line 132:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 132:16 missing ';' at '('
-line 210:13 mismatched input ']' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 229:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 229:16 missing ';' at '('
-line 245:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 245:16 missing ';' at '('
-line 288:12 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 288:16 extraneous input 'floatVar' expecting ';'
-line 296:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 297:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 298:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 298:15 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 298:19 missing ';' at 'testTypePromotion'
-line 299:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 300:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 301:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 302:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 303:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 304:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 306:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 307:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 308:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 309:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 310:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 311:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 312:12 extraneous input '=' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-terminate called after throwing an instance of 'std::bad_any_cast'
-  what():  bad any_cast
+Semantic errors found:
+Initializer type does not match variable type for 'globalVar'
+Initializer type does not match variable type for 'GLOBAL_CONST'
+Const variable 'GLOBAL_CONST' must be initialized with a constant expression
+Array 'globalArray' must be initialized with an array initializer
+Initializer type does not match variable type for 'globalFloat'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Callee Function is not defined
+Return type mismatch
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Initializer type does not match variable type for 'c'
+Initializer type does not match variable type for 'd'
+Initializer type does not match variable type for 'e'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Callee Function is not defined
+Initializer type does not match variable type for 'result1'
+Callee Function is not defined
+Initializer type does not match variable type for 'result2'
+Callee Function is not defined
+Initializer type does not match variable type for 'result3'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Initializer type does not match variable type for 'result1'
+Initializer type does not match variable type for 'result2'
+Initializer type does not match variable type for 'result3'
+Initializer type does not match variable type for 'result4'
+Initializer type does not match variable type for 'a'
+Const variable 'a' must be initialized with a constant expression
+Initializer type does not match variable type for 'b'
+Initializer type does not match variable type for 'c'
+Const variable 'c' must be initialized with a constant expression
+Initializer type does not match variable type for 'd'
+Variable 'arr1' used before initialization
+Variable 'arr2' used before initialization
+Initializer type does not match variable type for 'value1'
+Initializer type does not match variable type for 'value2'
+Callee Function is not defined
+Initializer type does not match variable type for 'result1'
+Callee Function is not defined
+Initializer type does not match variable type for 'result2'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Callee Function is not defined
+Initializer type does not match variable type for 'result3'
+Initializer type does not match variable type for 'localVar'
+Initializer type does not match variable type for 'blockVar'
+Initializer type does not match variable type for 'sum1'
+Initializer type does not match variable type for 'innerVar'
+Initializer type does not match variable type for 'sum2'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Array 'arr' must be initialized with an array initializer
+Initializer type does not match variable type for 'c'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Initializer type does not match variable type for 'result1'
+Initializer type does not match variable type for 'result2'
+Initializer type does not match variable type for 'result3'
+Initializer type does not match variable type for 'result4'
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'SIZE'
+Const variable 'SIZE' must be initialized with a constant expression
+Variable 'arr1' used before initialization
+Variable 'arr2' used before initialization
+Variable 'arr3' used before initialization
+Array 'arr1' must be initialized with an array initializer
+Array 'arr2' must be initialized with an array initializer
+Array 'matrix1' must be initialized with an array initializer
+Array 'matrix2' must be initialized with an array initializer
+Variable 'arr3' not declared
+Variable 'arr3' not declared
+Variable 'arr3' not declared
+Variable 'arr3' not declared
+Variable 'arr3' not declared
+Initializer type does not match variable type for 'a'
+Const variable 'a' must be initialized with a constant expression
+Initializer type does not match variable type for 'b'
+Const variable 'b' must be initialized with a constant expression
+Initializer type does not match variable type for 'c'
+Const variable 'c' must be initialized with a constant expression
+Initializer type does not match variable type for 'd'
+Const variable 'd' must be initialized with a constant expression
+Initializer type does not match variable type for 'e'
+Const variable 'e' must be initialized with a constant expression
+Array 'intArray' must be initialized with an array initializer
+Array 'floatArray' must be initialized with an array initializer
+Array 'mixedArray' must be initialized with an array initializer
+Too many indices for array 'arr'
+Too many indices for array 'arr'
+Array access dimension exceeds array dimension count
+Array access dimension exceeds array dimension count
+Too many indices for array 'arr'
+Too many indices for array 'arr'
+Too many indices for array 'arr'
+Too many indices for array 'arr'
+Array access dimension exceeds array dimension count
+Array access dimension exceeds array dimension count
+Too many indices for array 'arr'
+Too many indices for array 'arr'
+Array 'arr1' must be initialized with an array initializer
+Array 'matrix' must be initialized with an array initializer
+Callee Function is not defined
+Argument 1 of function 'processArray' has incompatible type
+Initializer type does not match variable type for 'result1'
+Callee Function is not defined
+Argument 1 of function 'process2DArray' has incompatible type
+Initializer type does not match variable type for 'result2'
+Variable 'arr1' used before initialization
+Variable 'arr2' used before initialization
+Variable 'matrix' used before initialization
+Array 'intArray' must be initialized with an array initializer
+Variable 'floatVar' used before initialization
+Initializer type does not match variable type for 'result'
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined
+Callee Function is not defined

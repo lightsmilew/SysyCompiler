@@ -1,0 +1,9 @@
+Semantic errors found:
+Initializer type does not match variable type for 'a'
+Const variable 'a' must be initialized with a constant expression
+Cannot modify const variable 'a'
+Initializer type does not match variable type for 'b'
+Const variable 'b' must be initialized with a constant expression
+Cannot modify const variable 'b'
+Array 'arr' must be initialized with an array initializer
+Cannot modify const variable 'arr'

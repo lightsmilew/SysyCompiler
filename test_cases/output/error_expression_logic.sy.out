@@ -1,0 +1,15 @@
+Semantic errors found:
+Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'b'
+Logical or comparison operations are not allowed in expression
+Initializer type does not match variable type for 'c'
+Logical or comparison operations are not allowed in expression
+Initializer type does not match variable type for 'd'
+Logical NOT operation is not allowed in expression
+Initializer type does not match variable type for 'e'
+Logical or comparison operations are not allowed in expression
+Initializer type does not match variable type for 'f'
+Logical or comparison operations are not allowed in expression
+Initializer type does not match variable type for 'g'
+Logical or comparison operations are not allowed in expression
+Initializer type does not match variable type for 'h'
