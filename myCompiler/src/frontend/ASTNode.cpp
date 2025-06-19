@@ -182,34 +182,34 @@ namespace ast
         }
     }
 
-    // CastExp
-    string CastExpNode::toString() const
-    {
-        return "CastExpNode: " + sourceExpr->toString() + " to " + (targetType.baseType == PrimaryDataType::INT ? "int" : "float");
-    }
+    // // CastExp
+    // string CastExpNode::toString() const
+    // {
+    //     return "CastExpNode: " + sourceExpr->toString() + " to " + (targetType.baseType == PrimaryDataType::INT ? "int" : "float");
+    // }
 
-    // InitExpr
-    string InitExprNode::toString() const
-    {
-        if (singleInitVal)
-        {
-            return "InitExprNode: " + singleInitVal->toString();
-        }
-        else
-        {
-            string result = "InitExprNode: {";
-            for (size_t i = 0; i < multiInitVal.size(); ++i)
-            {
-                result += multiInitVal[i]->toString();
-                if (i < multiInitVal.size() - 1)
-                {
-                    result += ", ";
-                }
-            }
-            result += "}";
-            return result;
-        }
-    }
+    // // InitExpr
+    // string InitExprNode::toString() const
+    // {
+    //     if (singleInitVal)
+    //     {
+    //         return "InitExprNode: " + singleInitVal->toString();
+    //     }
+    //     else
+    //     {
+    //         string result = "InitExprNode: {";
+    //         for (size_t i = 0; i < multiInitVal.size(); ++i)
+    //         {
+    //             result += multiInitVal[i]->toString();
+    //             if (i < multiInitVal.size() - 1)
+    //             {
+    //                 result += ", ";
+    //             }
+    //         }
+    //         result += "}";
+    //         return result;
+    //     }
+    // }
 
     // LValueExpr
     string LValueExprNode::toString() const
