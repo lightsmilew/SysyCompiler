@@ -1,93 +1,41 @@
+Checking const variable 'GLOBAL_CONST'
+  initializer->isConst = false
+Checking const variable 'a'
+  initializer->isConst = false
+Checking const variable 'c'
+  initializer->isConst = false
+Checking const variable 'SIZE'
+  initializer->isConst = false
+Checking const variable 'a'
+  initializer->isConst = false
+Checking const variable 'b'
+  initializer->isConst = false
+Checking const variable 'c'
+  initializer->isConst = false
+Checking const variable 'd'
+  initializer->isConst = false
+Checking const variable 'e'
+  initializer->isConst = false
 Semantic errors found:
-Initializer type does not match variable type for 'globalVar'
-Initializer type does not match variable type for 'GLOBAL_CONST'
 Const variable 'GLOBAL_CONST' must be initialized with a constant expression
-Array 'globalArray' must be initialized with an array initializer
-Initializer type does not match variable type for 'globalFloat'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Callee 'helperFunction' is not defined
-Return type mismatch with function 'testFunctionCall'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'c'
-Initializer type does not match variable type for 'd'
-Initializer type does not match variable type for 'e'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Callee 'acceptInt' is not defined
-Initializer type does not match variable type for 'result1'
-Callee 'acceptFloat' is not defined
-Initializer type does not match variable type for 'result2'
-Callee 'acceptFloat' is not defined
-Initializer type does not match variable type for 'result3'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'result1'
-Initializer type does not match variable type for 'result2'
-Initializer type does not match variable type for 'result3'
-Initializer type does not match variable type for 'result4'
-Initializer type does not match variable type for 'a'
 Const variable 'a' must be initialized with a constant expression
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'c'
 Const variable 'c' must be initialized with a constant expression
-Initializer type does not match variable type for 'd'
 Variable 'arr1' used before initialization
 Variable 'arr2' used before initialization
-Initializer type does not match variable type for 'value1'
-Initializer type does not match variable type for 'value2'
-Callee 'add' is not defined
-Initializer type does not match variable type for 'result1'
-Callee 'multiply' is not defined
-Initializer type does not match variable type for 'result2'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Callee 'multiply' is not defined
-Initializer type does not match variable type for 'result3'
-Initializer type does not match variable type for 'localVar'
-Initializer type does not match variable type for 'blockVar'
-Initializer type does not match variable type for 'sum1'
-Initializer type does not match variable type for 'innerVar'
-Initializer type does not match variable type for 'sum2'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Array 'arr' must be initialized with an array initializer
-Initializer type does not match variable type for 'c'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'result1'
-Initializer type does not match variable type for 'result2'
-Initializer type does not match variable type for 'result3'
-Initializer type does not match variable type for 'result4'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'SIZE'
 Const variable 'SIZE' must be initialized with a constant expression
 Variable 'arr1' used before initialization
 Variable 'arr2' used before initialization
 Variable 'arr3' used before initialization
-Array 'arr1' must be initialized with an array initializer
-Array 'arr2' must be initialized with an array initializer
-Array 'matrix1' must be initialized with an array initializer
-Array 'matrix2' must be initialized with an array initializer
 Variable 'arr3' not declared
 Variable 'arr3' not declared
 Variable 'arr3' not declared
 Variable 'arr3' not declared
 Variable 'arr3' not declared
-Initializer type does not match variable type for 'a'
 Const variable 'a' must be initialized with a constant expression
-Initializer type does not match variable type for 'b'
 Const variable 'b' must be initialized with a constant expression
-Initializer type does not match variable type for 'c'
 Const variable 'c' must be initialized with a constant expression
-Initializer type does not match variable type for 'd'
 Const variable 'd' must be initialized with a constant expression
-Initializer type does not match variable type for 'e'
 Const variable 'e' must be initialized with a constant expression
-Array 'intArray' must be initialized with an array initializer
-Array 'floatArray' must be initialized with an array initializer
-Array 'mixedArray' must be initialized with an array initializer
 Too many indices for array 'arr'
 Too many indices for array 'arr'
 Array 'arr' access dimension exceeds array dimension count
@@ -100,50 +48,9 @@ Array 'arr' access dimension exceeds array dimension count
 Array 'arr' access dimension exceeds array dimension count
 Too many indices for array 'arr'
 Too many indices for array 'arr'
-Array 'arr1' must be initialized with an array initializer
-Array 'matrix' must be initialized with an array initializer
-Callee 'processArray' is not defined
 Argument 1 of function 'processArray' has incompatible type
-Initializer type does not match variable type for 'result1'
-Callee 'process2DArray' is not defined
 Argument 1 of function 'process2DArray' has incompatible type
-Initializer type does not match variable type for 'result2'
 Variable 'arr1' used before initialization
 Variable 'arr2' used before initialization
 Variable 'matrix' used before initialization
-Array 'intArray' must be initialized with an array initializer
 Variable 'floatVar' used before initialization
-Initializer type does not match variable type for 'result'
-Callee 'testSymbolResolution' is not defined
-Callee 'testSymbolResolution' is not defined
-Callee 'testTypeMatching' is not defined
-Callee 'testTypeMatching' is not defined
-Callee 'testTypePromotion' is not defined
-Callee 'testTypePromotion' is not defined
-Callee 'testConstCorrectness' is not defined
-Callee 'testConstCorrectness' is not defined
-Callee 'testArrayBounds' is not defined
-Callee 'testArrayBounds' is not defined
-Callee 'testFunctionSignature' is not defined
-Callee 'testFunctionSignature' is not defined
-Callee 'testScopeRules' is not defined
-Callee 'testScopeRules' is not defined
-Callee 'testInitializationCheck' is not defined
-Callee 'testInitializationCheck' is not defined
-Callee 'testExpressionRestrictions' is not defined
-Callee 'testExpressionRestrictions' is not defined
-Callee 'testVoidReturn' is not defined
-Callee 'testArraySizeConstant' is not defined
-Callee 'testArraySizeConstant' is not defined
-Callee 'testArrayInitialization' is not defined
-Callee 'testArrayInitialization' is not defined
-Callee 'testConstantExpression' is not defined
-Callee 'testConstantExpression' is not defined
-Callee 'testArrayInitTypeMatch' is not defined
-Callee 'testArrayInitTypeMatch' is not defined
-Callee 'testArrayAsParameter' is not defined
-Callee 'testArrayAsParameter' is not defined
-Callee 'testArrayDimensions' is not defined
-Callee 'testArrayDimensions' is not defined
-Callee 'testArrayElementConversion' is not defined
-Callee 'testArrayElementConversion' is not defined

@@ -9,8 +9,8 @@ int main() {
     int d[5] = {1, 2, 3, 4, 5};
     
     // 错误：函数参数类型不匹配
-    // func(a, b, c, d); // 错误：c是float类型，函数期望int类型
+    func(a, b, a, d); // 错误：c是float类型，函数期望int类型
     
     // 正确调用
-    return func(a, b, (int)c, d);
+    return func(a, b, c, d);
 }

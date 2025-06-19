@@ -1,2 +1,26 @@
-Semantic errors found:
-Initializer type does not match variable type for 'a'
+CompUnitNode
+  Function
+    void acceptInt(
+      Parameters:
+        DeclStmtNode: x : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    void acceptFloat(
+      Parameters:
+        DeclStmtNode: x : float
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : float = InitExprNode: FloatLiteralExprNode: 3.140000
+
+      DeclStmtNode: arr : int[3]
+      DeclStmtNode: farr : float[3]
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

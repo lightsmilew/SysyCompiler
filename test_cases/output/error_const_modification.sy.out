@@ -1,9 +1,12 @@
+Checking const variable 'a'
+  initializer->isConst = false
+Checking const variable 'b'
+  initializer->isConst = false
 Semantic errors found:
-Initializer type does not match variable type for 'a'
 Const variable 'a' must be initialized with a constant expression
 Cannot modify const variable 'a'
-Initializer type does not match variable type for 'b'
 Const variable 'b' must be initialized with a constant expression
 Cannot modify const variable 'b'
-Array 'arr' must be initialized with an array initializer
+Initializer for constant array must be a constant expression
+Array initializer type or dimension does not match for 'arr'
 Cannot modify const variable 'arr'

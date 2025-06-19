@@ -1,4 +1,5 @@
+Checking const variable 'a'
+  initializer->isConst = false
 Semantic errors found:
-Initializer type does not match variable type for 'a'
 Const variable 'a' must be initialized with a constant expression
 Cannot modify const variable 'a'

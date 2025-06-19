@@ -1,86 +1,38 @@
+Checking const variable 'BASE'
+  initializer->isConst = false
+Checking const variable 'MULTIPLIER'
+  initializer->isConst = false
+Checking const variable 'COMPLEX_CONST'
+  initializer->isConst = false
+Checking const variable 'PI'
+  initializer->isConst = false
+Checking const variable 'AREA'
+  initializer->isConst = false
+Checking const variable 'local1'
+  initializer->isConst = false
+Checking const variable 'local2'
+  initializer->isConst = false
 Semantic errors found:
-Initializer type does not match variable type for 'globalVar'
-Initializer type does not match variable type for 'BASE'
 Const variable 'BASE' must be initialized with a constant expression
-Initializer type does not match variable type for 'MULTIPLIER'
 Const variable 'MULTIPLIER' must be initialized with a constant expression
-Initializer type does not match variable type for 'COMPLEX_CONST'
 Const variable 'COMPLEX_CONST' must be initialized with a constant expression
-Initializer type does not match variable type for 'PI'
 Const variable 'PI' must be initialized with a constant expression
-Initializer type does not match variable type for 'AREA'
 Const variable 'AREA' must be initialized with a constant expression
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'c'
-Initializer type does not match variable type for 'd'
-Initializer type does not match variable type for 'sum'
-Initializer type does not match variable type for 'sum2'
-Initializer type does not match variable type for 'sum3'
-Array 'matrix' must be initialized with an array initializer
 Variable 'result' used before initialization
-Callee 'level3Function' is not defined
-Initializer type does not match variable type for 'temp'
-Callee 'level2Function' is not defined
-Initializer type does not match variable type for 'temp'
-Callee 'level3Function' is not defined
-Initializer type does not match variable type for 'result'
-Initializer type does not match variable type for 'local1'
 Const variable 'local1' must be initialized with a constant expression
-Initializer type does not match variable type for 'local2'
 Const variable 'local2' must be initialized with a constant expression
 Variable 'array' used before initialization
-Initializer type does not match variable type for 'sum'
-Initializer type does not match variable type for 'i'
 Array 'vec' access dimension exceeds array dimension count
 Too many indices for array 'vec'
 Too many indices for array 'vec'
-Initializer type does not match variable type for 'sum'
-Initializer type does not match variable type for 'i'
-Initializer type does not match variable type for 'j'
 Array 'mat' access dimension exceeds array dimension count
 Too many indices for array 'mat'
 Too many indices for array 'mat'
-Array 'vector' must be initialized with an array initializer
-Array 'matrix' must be initialized with an array initializer
-Callee 'processVector' is not defined
 Argument 1 of function 'processVector' has incompatible type
-Initializer type does not match variable type for 'vectorSum'
-Callee 'processMatrix' is not defined
 Argument 1 of function 'processMatrix' has incompatible type
-Initializer type does not match variable type for 'matrixSum'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Initializer type does not match variable type for 'c'
-Initializer type does not match variable type for 'x'
-Initializer type does not match variable type for 'y'
-Initializer type does not match variable type for 'z'
-Initializer type does not match variable type for 'result1'
-Initializer type does not match variable type for 'result2'
-Initializer type does not match variable type for 'result3'
 Variable 'minArray' used before initialization
 Variable 'cube' used before initialization
-Initializer type does not match variable type for 'index1'
-Initializer type does not match variable type for 'index2'
-Initializer type does not match variable type for 'value'
-Array 'constArr' must be initialized with an array initializer
-Array 'constMatrix' must be initialized with an array initializer
-Initializer type does not match variable type for 'sum1'
-Initializer type does not match variable type for 'sum2'
-Initializer type does not match variable type for 'result'
-Callee 'complexScopeTest' is not defined
-Callee 'complexScopeTest' is not defined
-Callee 'complexArrayTest' is not defined
-Callee 'complexArrayTest' is not defined
-Callee 'level1Function' is not defined
-Callee 'level1Function' is not defined
-Callee 'complexConstTest' is not defined
-Callee 'complexConstTest' is not defined
-Callee 'complexParameterTest' is not defined
-Callee 'complexParameterTest' is not defined
-Callee 'complexExpressionTest' is not defined
-Callee 'complexExpressionTest' is not defined
-Callee 'boundaryTest' is not defined
-Callee 'boundaryTest' is not defined
-Callee 'constArrayTest' is not defined
-Callee 'constArrayTest' is not defined
+Initializer for constant array must be a constant expression
+Array initializer type or dimension does not match for 'constArr'
+Initializer for constant array must be a constant expression
+Array initializer type or dimension does not match for 'constMatrix'

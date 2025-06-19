@@ -1,12 +1,4 @@
 Semantic errors found:
 Return type mismatch with function 'testVoid1'
-Initializer type does not match variable type for 'a'
 Return type mismatch with function 'testVoid2'
 Function 'testInt' must return a value
-Initializer type does not match variable type for 'a'
-Callee 'testVoid1' is not defined
-Callee 'testVoid2' is not defined
-Callee 'testInt' is not defined
-Initializer type does not match variable type for 'a'
-Callee 'testFloat' is not defined
-Initializer type does not match variable type for 'b'

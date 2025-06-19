@@ -1,12 +1,8 @@
 Semantic errors found:
-Callee 'add' is not defined
 Function 'add' expects 2 arguments, got 1
-Initializer type does not match variable type for 'a'
-Callee 'add' is not defined
 Function 'add' expects 2 arguments, got 3
-Initializer type does not match variable type for 'b'
+Callee 'unknown' is not defined
 Callee 'unknown' is not defined
 Callee 'unknown' is not defined
 Initializer type does not match variable type for 'c'
-Callee 'noParam' is not defined
 Function 'noParam' expects 0 arguments, got 1

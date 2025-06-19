@@ -1,4 +1,39 @@
-line 15:23 mismatched input 'int' expecting {'(', '+', '-', '!', Ident, IntConst, FloatConst, STRING_LITERAL}
-line 15:27 mismatched input 'c' expecting ')'
-terminate called after throwing an instance of 'std::bad_any_cast'
-  what():  bad any_cast
+CompUnitNode
+  Function
+    int func(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : int
+        DeclStmtNode: c : float
+        DeclStmtNode: d : int[5]
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a + LValueExprNode: b
+          LValueExprNode: a
+          LValueExprNode: b
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 2
+
+      DeclStmtNode: c : float = InitExprNode: FloatLiteralExprNode: 3.000000
+
+      DeclStmtNode: d : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+
+      ExprStmtNode
+        CallExprNode: func(LValueExprNode: a, LValueExprNode: b, LValueExprNode: a, LValueExprNode: d)
+          LValueExprNode: a
+          LValueExprNode: b
+          LValueExprNode: a
+          LValueExprNode: d
+      ReturnStmtNode
+        CallExprNode: func(LValueExprNode: a, LValueExprNode: b, LValueExprNode: c, LValueExprNode: d)
+          LValueExprNode: a
+          LValueExprNode: b
+          LValueExprNode: c
+          LValueExprNode: d

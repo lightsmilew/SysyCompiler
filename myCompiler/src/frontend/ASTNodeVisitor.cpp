@@ -123,11 +123,22 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             // 构造指针
             Vector<Ptr<ast::InitExprNode>> initVals = AS(initVal, Vector<Ptr<ast::InitExprNode>>);
             initExprPtr = makePtr<ast::InitExprNode>(initVals);
+            // 对于常量数组，需要检查所有元素都是常量
+            bool allConst = true;
+            for (const auto &elem : initVals)
+            {
+                if (!elem->isConst)
+                {
+                    allConst = false;
+                    break;
+                }
+            }
+            initExprPtr->isConst = allConst;
         }
         else
         {
-            Ptr<ast::ExprNode> singleInitVal = AS(initVal, Ptr<ast::InitExprNode>);
-            initExprPtr = makePtr<ast::InitExprNode>(singleInitVal);
+            // 直接使用返回的InitExprNode，不要重新创建
+            initExprPtr = AS(initVal, Ptr<ast::InitExprNode>);
         }
         auto declptr = makePtr<ast::DeclStmtNode>(type, identifier, initExprPtr, true, false);
         declptr->indices = std::move(arrayIndices); // 设置数组下标
@@ -140,7 +151,9 @@ antlrcpp::Any ASTNodeVisitor::visitConstInitExpr(SysYParser::ConstInitExprContex
 {
     auto constExpPtr = AS(ctx->constExp()->accept(this), Ptr<ast::ExprNode>);
     // 返回一个 InitExprNode，表示单一的初始化表达式
-    return makePtr<ast::InitExprNode>(constExpPtr);
+    auto initExpr = makePtr<ast::InitExprNode>(constExpPtr);
+    initExpr->isConst = constExpPtr->isConst; // 继承常量表达式的常量性质
+    return initExpr;
 }
 // 多维数组初始化列表
 antlrcpp::Any ASTNodeVisitor::visitConstInitList(SysYParser::ConstInitListContext *const ctx)
@@ -224,8 +237,10 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
 antlrcpp::Any ASTNodeVisitor::visitInitExpr(SysYParser::InitExprContext *ctx)
 {
     auto initVal = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
-    // 返回一个 InitExprNode，表示单一的初始化表达式
-    return makePtr<ast::InitExprNode>(initVal);
+    // 创建InitExprNode并设置常量标志
+    auto initExpr = makePtr<ast::InitExprNode>(initVal);
+    initExpr->isConst = initVal->isConst; // 继承内部表达式的常量性质
+    return initExpr;
 }
 antlrcpp::Any ASTNodeVisitor::visitInitList(SysYParser::InitListContext *ctx)
 {
@@ -335,16 +350,26 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
 {
     String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
-    DataType dataType(type);
+
     Vector<Ptr<ast::ExprNode>> arraySizes;
+    Vector<int> arraySizeValues; // 用于构建DataType
+
     for (auto expCtx : ctx->constExp())
     {
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
         arraySizes.emplace_back(exp);
+
+        // 尝试提取数组大小的整数值
+        int sizeValue = extractIntFromConstExpr(exp);
+        arraySizeValues.push_back(sizeValue);
     }
+
+    // 创建包含数组信息的DataType
+    DataType dataType(type, arraySizeValues);
+
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
-    paramNode->indices = Move(arraySizes); // 设置数组维度
+    paramNode->indices = Move(arraySizes); // 设置数组维度表达式
     return paramNode;                      // 返回函数参数节点
 }
 // 语句块
@@ -536,13 +561,17 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
         // 十进制
         intValue = std::stoi(valueText, nullptr, 10);
     }
-    return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<IntLiteralExprNode>(intValue));
+    auto intLiteral = make_shared<IntLiteralExprNode>(intValue);
+    intLiteral->isConst = true; // 整数字面量是常量
+    return static_cast<shared_ptr<NumberLiteralExprNode>>(intLiteral);
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
     std::string text = ctx->FloatConst()->getText();
     float floatValue = std::stof(text);
-    return static_cast<shared_ptr<NumberLiteralExprNode>>(make_shared<FloatLiteralExprNode>(floatValue));
+    auto floatLiteral = make_shared<FloatLiteralExprNode>(floatValue);
+    floatLiteral->isConst = true; // 浮点数字面量是常量
+    return static_cast<shared_ptr<NumberLiteralExprNode>>(floatLiteral);
 }
 // unaryExp
 antlrcpp::Any ASTNodeVisitor::visitToPrimaryExp(SysYParser::ToPrimaryExpContext *ctx)
