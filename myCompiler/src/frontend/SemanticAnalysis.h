@@ -39,8 +39,8 @@ public:
 
     // 在当前作用域查找符号
     shared_ptr<Symbol> lookup(const string &name);
-    // 向符号表中插入新的符号
-    void insert(const string &name, shared_ptr<Symbol> symbol);
+    // 向符号表中插入新的符号，返回是否成功（false表示重复声明）
+    bool insert(const string &name, shared_ptr<Symbol> symbol);
 };
 
 class SemanticAnalyzer
@@ -49,11 +49,18 @@ public:
     shared_ptr<SymbolTable> currentScope;
     shared_ptr<SymbolTable> functionTable; // 函数符号表
 
+    // 构造函数
+    SemanticAnalyzer()
+    {
+        currentScope = make_shared<SymbolTable>();
+        functionTable = make_shared<SymbolTable>();
+    }
+
     void enterScope();
     void exitScope();
     void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveVariable(const std::string &name);
-    void declareFunction(const std::string &name, const std::shared_ptr<Symbol> &symbol);
+    bool declareFunction(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveFunction(const std::string &name);
 };
 
@@ -104,6 +111,9 @@ private:
     bool inFunctionCall;                  // 是否在函数调用上下文中
 
 public:
+    // 构造函数
+    TypeCheckerVisitor() : hasMainFunction(false), inFunctionCall(false), currentFunction(nullptr) {}
+
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
         // 进入全局作用域

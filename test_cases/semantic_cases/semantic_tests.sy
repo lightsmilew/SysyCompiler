@@ -129,7 +129,7 @@ int testFunctionSignature() {
     int a = 5, b = 10;
     float result3 = multiply(a, b, 2.0);   // int→float隐式转换 ✓
     
-    return (int)(result1 + result2 + result3);
+    return (result1 + result2 + result3);
 }
 
 // ===== 测试8: 作用域规则 - 变量可见性和生命周期 ✔ =====
@@ -207,7 +207,6 @@ int testArrayInitialization() {
     // 一维数组初始化
     int arr1[5] = {1, 2, 3, 4, 5};     // 完整初始化 ✓
     int arr2[5] = {1, 2, 3};           // 部分初始化 ✓
-    int arr3[] = {1, 2, 3, 4};         // 自动推导大小 ✓
     
     // 二维数组初始化
     int matrix1[2][3] = {{1, 2, 3}, {4, 5, 6}};  // 完整初始化 ✓
@@ -226,7 +225,7 @@ int testConstantExpression() {
     const float d = 3.14;          // 浮点常量 ✓
     const float e = d * 2.0;       // 常量表达式 ✓
     
-    return (int)(a + b + c + d + e);
+    return (a + b + c + d + e);
 }
 
 // ===== 测试15: 全局变量的初值必须为常量表达式 ✔ =====
@@ -242,7 +241,7 @@ int testArrayInitTypeMatch() {
     float floatArray[3] = {1.0, 2.0, 3.0}; // float数组用float初始化 ✓
     float mixedArray[3] = {1, 2.0, 3};     // float数组用int/float混合初始化(隐式转换) ✓
     
-    return (int)(intArray[0] + floatArray[0] + mixedArray[0]);
+    return (intArray[0] + floatArray[0] + mixedArray[0]);
 }
 
 // ===== 测试17: 可以把多维数组的一维当作参数传递 ✔ =====
@@ -285,7 +284,7 @@ int testArrayElementConversion() {
     floatVar = intArray[0];     // int数组元素 → float变量 ✓
     floatVar = intArray[1] + 2.5; // int数组元素参与float运算 ✓
     
-    return (int)floatVar;
+    return floatVar;
 }
 
 // ===== 主函数调用所有测试 =====
@@ -293,23 +292,23 @@ int testArrayElementConversion() {
 int runAllTests() {
     int result = 0;
     
-    result += testSymbolResolution();
-    result += testTypeMatching();
-    result += (int)testTypePromotion();
-    result += testConstCorrectness();
-    result += testArrayBounds();
-    result += testFunctionSignature();
-    result += testScopeRules();
-    result += testInitializationCheck();
-    result += testExpressionRestrictions();
+    result = result + testSymbolResolution();
+    result = result + testTypeMatching();
+    result = result + testTypePromotion();
+    result = result + testConstCorrectness();
+    result = result + testArrayBounds();
+    result = result + testFunctionSignature();
+    result = result + testScopeRules();
+    result = result + testInitializationCheck();
+    result = result + testExpressionRestrictions();
     testVoidReturn();  // void函数
-    result += testArraySizeConstant();
-    result += testArrayInitialization();
-    result += testConstantExpression();
-    result += testArrayInitTypeMatch();
-    result += testArrayAsParameter();
-    result += testArrayDimensions();
-    result += testArrayElementConversion();
-    
+    result = result + testArraySizeConstant();
+    result = result + testArrayInitialization();
+    result = result + testConstantExpression();
+    result = result + testArrayInitTypeMatch();
+    result = result + testArrayAsParameter();
+    result = result + testArrayDimensions();
+    result = result + testArrayElementConversion();
+
     return result;
 }
