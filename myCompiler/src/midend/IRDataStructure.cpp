@@ -43,10 +43,11 @@ std::string GlobalVariable::toString() const
     ss << "@" << getName() << " = ";
     if (IsConstant)
         ss << "constant ";
+    else
+        ss << "global ";
 
-    // Get the element type (remove pointer wrapper)
-    Type *elemTy = static_cast<PointerType *>(getType())->ElementType;
-    ss << elemTy->toString();
+    // 直接使用存储的类型（不是指针包装）
+    ss << getType()->toString();
 
     if (Initializer)
     {
@@ -111,7 +112,7 @@ std::string BinaryOperator::toString() const
     }
 
     ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-       << " " << LHS->toString() << ", " << RHS->toString();
+       << " " << LHS->toRef() << ", " << RHS->toRef();
 
     return ss.str();
 }
@@ -160,15 +161,15 @@ std::string LoadInst::toString() const
 {
     std::stringstream ss;
     ss << "%" << getName() << " = load " << getType()->toString()
-       << ", " << Pointer->getType()->toString() << " " << Pointer->toString();
+       << ", " << Pointer->getType()->toString() << " " << Pointer->toRef();
     return ss.str();
 }
 
 std::string StoreInst::toString() const
 {
     std::stringstream ss;
-    ss << "store " << ValueToStore->getType()->toString() << " " << ValueToStore->toString()
-       << ", " << Pointer->getType()->toString() << " " << Pointer->toString();
+    ss << "store " << ValueToStore->getType()->toString() << " " << ValueToStore->toRef()
+       << ", " << Pointer->getType()->toString() << " " << Pointer->toRef();
     return ss.str();
 }
 
@@ -194,12 +195,53 @@ std::string CallInst::toString() const
     return ss.str();
 }
 
+// CallInst implementation
+CallInst::CallInst(Function *func, const vector<Value *> &args, const string &name)
+    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name),
+      CalledFunction(func), Arguments(args) {}
+
+vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *> &args)
+{
+    vector<Value *> operands;
+    operands.push_back(func);
+    operands.insert(operands.end(), args.begin(), args.end());
+    return operands;
+}
+
+Type *CallInst::getFunctionReturnType(Value *func)
+{
+    if (!func)
+    {
+        throw std::invalid_argument("CallInst: function cannot be null");
+    }
+
+    FunctionType *funcTy = nullptr;
+
+    // 如果是函数类型
+    if (auto ft = dynamic_cast<FunctionType *>(func->getType()))
+    {
+        funcTy = ft;
+    }
+    // 函数指针类型
+    else if (auto ptrTy = dynamic_cast<PointerType *>(func->getType()))
+    {
+        funcTy = dynamic_cast<FunctionType *>(ptrTy->ElementType);
+    }
+
+    if (!funcTy)
+    {
+        throw std::invalid_argument("CallInst: operand is not a function");
+    }
+
+    return funcTy->ReturnType;
+}
+
 std::string ReturnInst::toString() const
 {
     std::stringstream ss;
     if (ReturnValue)
     {
-        ss << "ret " << ReturnValue->getType()->toString() << " " << ReturnValue->toString();
+        ss << "ret " << ReturnValue->getType()->toString() << " " << ReturnValue->toRef();
     }
     else
     {
@@ -213,7 +255,7 @@ std::string BranchInst::toString() const
     std::stringstream ss;
     if (Condition)
     {
-        ss << "br " << Condition->getType()->toString() << " " << Condition->toString()
+        ss << "br " << Condition->getType()->toString() << " " << Condition->toRef()
            << ", label %" << TrueBlock->getName() << ", label %" << FalseBlock->getName();
     }
     else
@@ -271,8 +313,9 @@ std::string Function::toString() const
 {
     std::stringstream ss;
 
-    // Function signature
-    ss << "define " << getType()->toString()
+    // Function signature - only return type
+    FunctionType *funcTy = static_cast<FunctionType *>(getType());
+    ss << "define " << funcTy->ReturnType->toString()
        << " @" << getName() << "(";
 
     for (size_t i = 0; i < Arguments.size(); ++i)
