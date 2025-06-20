@@ -433,35 +433,35 @@ namespace ast
     void print(ostream &out, unsigned indent = 0) const override;
   };
 
-  // 类型转换工具类（不是AST节点）
-  class TypeConverter
-  {
-  public:
-    // 将DataType转换为字符串
-    static string dataTypeToString(const DataType &type)
-    {
-      switch (type.baseType)
-      {
-      case PrimaryDataType::INT:
-        return "int";
-      case PrimaryDataType::FLOAT:
-        return "float";
-      case PrimaryDataType::VOID:
-        return "void";
-      default:
-        return "unknown";
-      }
-    }
+  // // 类型转换工具类（不是AST节点）
+  // class TypeConverter
+  // {
+  // public:
+  //   // 将DataType转换为字符串
+  //   static string dataTypeToString(const DataType &type)
+  //   {
+  //     switch (type.baseType)
+  //     {
+  //     case PrimaryDataType::INT:
+  //       return "int";
+  //     case PrimaryDataType::FLOAT:
+  //       return "float";
+  //     case PrimaryDataType::VOID:
+  //       return "void";
+  //     default:
+  //       return "unknown";
+  //     }
+  //   }
 
-    // 检查两个类型是否兼容
-    static bool isCompatible(const DataType &from, const DataType &to)
-    {
-      if (from.baseType == to.baseType)
-        return true;
-      // int可以隐式转换为float
-      if (from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
-        return true;
-      return false;
-    }
-  };
+  //   // 检查两个类型是否兼容
+  //   static bool isCompatible(const DataType &from, const DataType &to)
+  //   {
+  //     if (from.baseType == to.baseType)
+  //       return true;
+  //     // int可以隐式转换为float
+  //     if (from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
+  //       return true;
+  //     return false;
+  //   }
+  // };
 }
