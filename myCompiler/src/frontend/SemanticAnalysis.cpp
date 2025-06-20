@@ -251,6 +251,7 @@ bool TypeCheckerVisitor::isTypeCompatible(DataType from, DataType to)
       {
         if (fromSizes[i] != toSizes[i])
         {
+          if(i==0&&toSizes[i]==-1)continue; // 允许to的第一维为-1（表示任意大小）
           return false; // 数组大小不匹配
         }
       }
