@@ -305,10 +305,16 @@ enum class Opcode
     Alloca,
     Load,
     Store,
+    GetElementPtr,
 
     // Conversion operations
     I2F,
     F2I,
+    SIToFP, // signed int to float
+    FPToSI, // float to signed int
+    Trunc,  // truncate
+    ZExt,   // zero extend
+    SExt,   // sign extend
 
     // Other operations
     Call,
@@ -339,12 +345,20 @@ public:
     Value *LHS;
     Value *RHS;
 
-    // binary operator constructor
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name), LHS(lhs), RHS(rhs) {}
-    // unary operator constructor
-    BinaryOperator(Opcode op, Value *operand, const string &name = "")
-        : Instruction(operand->getType(), op, vector<Value *>{operand}, name), LHS(operand), RHS(nullptr) {}
+
+    string toString() const override;
+};
+
+class UnaryOperator : public Instruction
+{
+public:
+    Value *Operand;
+
+    UnaryOperator(Opcode op, Value *operand, const string &name = "")
+        : Instruction(operand->getType(), op, vector<Value *>{operand}, name), Operand(operand) {}
+
     string toString() const override;
 };
 
@@ -368,6 +382,30 @@ public:
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
+          Pred(pred), LHS(lhs), RHS(rhs) {}
+    string toString() const override;
+};
+
+class FCmpInst : public Instruction
+{
+public:
+    enum Predicate
+    {
+        FCMP_OEQ, // ordered equal
+        FCMP_ONE, // ordered not equal
+        FCMP_OLT, // ordered less than
+        FCMP_OLE, // ordered less or equal
+        FCMP_OGT, // ordered greater than
+        FCMP_OGE  // ordered greater or equal
+    };
+
+public:
+    Predicate Pred;
+    Value *LHS;
+    Value *RHS;
+
+    FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
+        : Instruction(BooleanType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred), LHS(lhs), RHS(rhs) {}
     string toString() const override;
 };
@@ -477,6 +515,37 @@ public:
     string toString() const override;
 };
 
+class GetElementPtrInst : public Instruction
+{
+public:
+    Value *PointerOperand;
+    vector<Value *> Indices;
+
+    GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
+        : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
+                      constructOperands(ptr, indices), name),
+          PointerOperand(ptr), Indices(indices) {}
+
+    string toString() const override;
+
+private:
+    static vector<Value *> constructOperands(Value *ptr, const vector<Value *> &indices);
+    static Type *calculateResultType(Value *ptr, const vector<Value *> &indices);
+};
+
+class CastInst : public Instruction
+{
+public:
+    Value *Operand;
+    Type *DestType;
+
+    CastInst(Opcode op, Value *operand, Type *destType, const string &name = "")
+        : Instruction(destType, op, vector<Value *>{operand}, name),
+          Operand(operand), DestType(destType) {}
+
+    string toString() const override;
+};
+
 // ===== Basic Block =====
 class BasicBlock : public Value
 {
@@ -488,6 +557,59 @@ public:
 
     BasicBlock(const string &name = "", Function *parent = nullptr)
         : Value(VoidType::getInstance(), name), Parent(parent) {}
+
+    // 添加指令到基本块
+    void addInstruction(unique_ptr<Instruction> inst)
+    {
+        inst->Parent = this;
+        Instructions.push_back(std::move(inst));
+    }
+
+    // 添加前驱基本块
+    void addPredecessor(BasicBlock *pred)
+    {
+        if (std::find(Predecessors.begin(), Predecessors.end(), pred) == Predecessors.end())
+        {
+            Predecessors.push_back(pred);
+        }
+    }
+
+    // 添加后继基本块
+    void addSuccessor(BasicBlock *succ)
+    {
+        if (std::find(Successors.begin(), Successors.end(), succ) == Successors.end())
+        {
+            Successors.push_back(succ);
+        }
+    }
+
+    // 移除前驱基本块
+    void removePredecessor(BasicBlock *pred)
+    {
+        Predecessors.erase(std::remove(Predecessors.begin(), Predecessors.end(), pred),
+                           Predecessors.end());
+    }
+
+    // 移除后继基本块
+    void removeSuccessor(BasicBlock *succ)
+    {
+        Successors.erase(std::remove(Successors.begin(), Successors.end(), succ),
+                         Successors.end());
+    }
+
+    // 获取终结指令
+    Instruction *getTerminator()
+    {
+        return Instructions.empty() ? nullptr : Instructions.back().get();
+    }
+
+    // 检查是否有终结指令
+    bool hasTerminator()
+    {
+        Instruction *term = getTerminator();
+        return term && (term->Op == Opcode::Ret || term->Op == Opcode::Br);
+    }
+
     string toString() const override;
 };
 
@@ -513,6 +635,36 @@ public:
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
         : Value(funcTy, name), Parent(parent) {}
 
+    // 添加基本块
+    BasicBlock *addBasicBlock(const string &name = "")
+    {
+        auto bb = make_unique<BasicBlock>(name, this);
+        BasicBlock *ptr = bb.get();
+        BasicBlocks.push_back(std::move(bb));
+        return ptr;
+    }
+
+    // 添加参数
+    Argument *addArgument(Type *type, const string &name = "")
+    {
+        auto arg = make_unique<Argument>(type, Arguments.size(), name, this);
+        Argument *ptr = arg.get();
+        Arguments.push_back(std::move(arg));
+        return ptr;
+    }
+
+    // 获取入口基本块
+    BasicBlock *getEntryBlock()
+    {
+        return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();
+    }
+
+    // 获取函数类型
+    FunctionType *getFunctionType()
+    {
+        return static_cast<FunctionType *>(getType());
+    }
+
     string toString() const override;
 };
 
@@ -526,5 +678,63 @@ public:
 
     Module(const string &name) : Name(name) {}
 
+    // 添加函数
+    Function *addFunction(FunctionType *funcType, const string &name)
+    {
+        auto func = make_unique<Function>(funcType, name, this);
+        Function *ptr = func.get();
+        Functions.push_back(std::move(func));
+        return ptr;
+    }
+
+    // 添加全局变量
+    GlobalVariable *addGlobalVariable(Type *type, const string &name,
+                                      Constant *initializer = nullptr, bool isConstant = false)
+    {
+        auto global = make_unique<GlobalVariable>(type, name, initializer, isConstant);
+        GlobalVariable *ptr = global.get();
+        GlobalVariables.push_back(std::move(global));
+        return ptr;
+    }
+
+    // 根据名称查找函数
+    Function *getFunction(const string &name)
+    {
+        for (auto &func : Functions)
+        {
+            if (func->getName() == name)
+            {
+                return func.get();
+            }
+        }
+        return nullptr;
+    }
+
+    // 根据名称查找全局变量
+    GlobalVariable *getGlobalVariable(const string &name)
+    {
+        for (auto &global : GlobalVariables)
+        {
+            if (global->getName() == name)
+            {
+                return global.get();
+            }
+        }
+        return nullptr;
+    }
+
     string toString() const;
 };
+
+// ===== Utility Functions =====
+namespace IRUtils
+{
+    // 从AST DataType转换为IR Type
+    Type *convertASTTypeToIRType(const DataType &astType);
+
+    // 检查两个类型是否兼容
+    bool isTypeCompatible(Type *t1, Type *t2);
+
+    // 获取二元运算的结果类型
+    Type *getBinaryOpResultType(Type *lhs, Type *rhs, BinaryOp op);
+}
