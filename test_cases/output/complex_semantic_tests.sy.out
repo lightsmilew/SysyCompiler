@@ -1,13 +1,3 @@
 Semantic errors found:
-Variable 'result' used before initialization
-Variable 'array' used before initialization
-Array 'vec' access dimension exceeds array dimension count
-Too many indices for array 'vec'
-Too many indices for array 'vec'
-Array 'mat' access dimension exceeds array dimension count
-Too many indices for array 'mat'
-Too many indices for array 'mat'
 Argument 1 of function 'processVector' has incompatible type
 Argument 1 of function 'processMatrix' has incompatible type
-Variable 'minArray' used before initialization
-Variable 'cube' used before initialization

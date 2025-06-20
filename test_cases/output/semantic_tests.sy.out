@@ -1,29 +1,3 @@
 Semantic errors found:
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'arr3' used before initialization
-Variable 'arr3' not declared
-Variable 'arr3' not declared
-Variable 'arr3' not declared
-Variable 'arr3' not declared
-Variable 'arr3' not declared
-Too many indices for array 'arr'
-Too many indices for array 'arr'
-Array 'arr' access dimension exceeds array dimension count
-Array 'arr' access dimension exceeds array dimension count
-Too many indices for array 'arr'
-Too many indices for array 'arr'
-Too many indices for array 'arr'
-Too many indices for array 'arr'
-Array 'arr' access dimension exceeds array dimension count
-Array 'arr' access dimension exceeds array dimension count
-Too many indices for array 'arr'
-Too many indices for array 'arr'
 Argument 1 of function 'processArray' has incompatible type
 Argument 1 of function 'process2DArray' has incompatible type
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'matrix' used before initialization
-Variable 'floatVar' used before initialization

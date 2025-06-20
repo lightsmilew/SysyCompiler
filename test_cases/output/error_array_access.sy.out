@@ -1,12 +1,7 @@
 Semantic errors found:
 Too many indices for array 'arr'
-Variable 'arr' used before initialization
 Array 'arr' access dimension exceeds array dimension count
 Too many indices for array 'arr'
 Initializer type does not match variable type for 'a'
-Variable 'matrix' used before initialization
 Initializer type does not match variable type for 'b'
-Variable 'arr' used before initialization
 Array 'arr' index must be integer type
-Variable 'arr' used before initialization
-Variable 'arr' used before initialization
