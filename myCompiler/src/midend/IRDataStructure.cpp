@@ -71,7 +71,6 @@ std::string User::toString() const
 }
 
 // ===== Instruction System Implementation =====
-
 std::string BinaryOperator::toString() const
 {
     std::stringstream ss;
@@ -117,6 +116,28 @@ std::string BinaryOperator::toString() const
     return ss.str();
 }
 
+std::string UnaryOperator::toString() const
+{
+    std::stringstream ss;
+    std::string opStr;
+
+    switch (Op)
+    {
+    case Opcode::Sub:
+        opStr = "sub";
+        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+           << " 0, " << Operand->toRef();
+        break;
+    default:
+        opStr = "unknown_unary";
+        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+           << " " << Operand->toRef();
+        break;
+    }
+
+    return ss.str();
+}
+
 std::string ICmpInst::toString() const
 {
     std::stringstream ss;
@@ -145,7 +166,40 @@ std::string ICmpInst::toString() const
     }
 
     ss << "%" << getName() << " = icmp " << predStr << " " << LHS->getType()->toString()
-       << " " << LHS->toString() << ", " << RHS->toString();
+       << " " << LHS->toRef() << ", " << RHS->toRef();
+
+    return ss.str();
+}
+
+std::string FCmpInst::toString() const
+{
+    std::stringstream ss;
+    std::string predStr;
+
+    switch (Pred)
+    {
+    case FCMP_OEQ:
+        predStr = "oeq";
+        break;
+    case FCMP_ONE:
+        predStr = "one";
+        break;
+    case FCMP_OLT:
+        predStr = "olt";
+        break;
+    case FCMP_OLE:
+        predStr = "ole";
+        break;
+    case FCMP_OGT:
+        predStr = "ogt";
+        break;
+    case FCMP_OGE:
+        predStr = "oge";
+        break;
+    }
+
+    ss << "%" << getName() << " = fcmp " << predStr << " " << LHS->getType()->toString()
+       << " " << LHS->toRef() << ", " << RHS->toRef();
 
     return ss.str();
 }
@@ -188,7 +242,7 @@ std::string CallInst::toString() const
     {
         if (i > 0)
             ss << ", ";
-        ss << Arguments[i]->getType()->toString() << " " << Arguments[i]->toString();
+        ss << Arguments[i]->getType()->toString() << " " << Arguments[i]->toRef();
     }
 
     ss << ")";
@@ -281,6 +335,105 @@ std::string PHINode::toString() const
     return ss.str();
 }
 
+// ===== GetElementPtrInst Implementation =====
+vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Value *> &indices)
+{
+    vector<Value *> operands;
+    operands.push_back(ptr);
+    operands.insert(operands.end(), indices.begin(), indices.end());
+    return operands;
+}
+
+Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
+{
+    // GEP总是返回指针类型
+    if (indices.empty())
+    {
+        return ptr->getType(); // 返回原指针类型
+    }
+
+    Type *currentType = ptr->getType();
+    if (auto ptrType = dynamic_cast<PointerType *>(currentType))
+    {
+        currentType = ptrType->ElementType;
+    }
+
+    // 跳过第一个索引（通常是0），处理后续索引
+    for (size_t i = 1; i < indices.size(); ++i)
+    {
+        if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        {
+            currentType = arrayType->ElementType;
+        }
+    }
+
+    return PointerType::getInstance(currentType);
+}
+
+std::string GetElementPtrInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = getelementptr ";
+
+    // 获取基本类型
+    Type *baseType = nullptr;
+    if (auto ptrType = dynamic_cast<PointerType *>(PointerOperand->getType()))
+    {
+        baseType = ptrType->ElementType;
+    }
+
+    if (baseType)
+    {
+        ss << baseType->toString() << ", ";
+    }
+
+    ss << PointerOperand->getType()->toString() << " " << PointerOperand->toRef();
+
+    for (Value *index : Indices)
+    {
+        ss << ", " << index->getType()->toString() << " " << index->toRef();
+    }
+
+    return ss.str();
+}
+
+// ===== CastInst Implementation =====
+std::string CastInst::toString() const
+{
+    std::stringstream ss;
+    std::string opStr;
+
+    switch (Op)
+    {
+    case Opcode::I2F:
+    case Opcode::SIToFP:
+        opStr = "sitofp";
+        break;
+    case Opcode::F2I:
+    case Opcode::FPToSI:
+        opStr = "fptosi";
+        break;
+    case Opcode::Trunc:
+        opStr = "trunc";
+        break;
+    case Opcode::ZExt:
+        opStr = "zext";
+        break;
+    case Opcode::SExt:
+        opStr = "sext";
+        break;
+    default:
+        opStr = "cast";
+        break;
+    }
+
+    ss << "%" << getName() << " = " << opStr << " "
+       << Operand->getType()->toString() << " " << Operand->toRef()
+       << " to " << DestType->toString();
+
+    return ss.str();
+}
+
 // ===== BasicBlock Implementation =====
 std::string BasicBlock::toString() const
 {
@@ -363,4 +516,90 @@ std::string Module::toString() const
     }
 
     return ss.str();
+}
+
+// ===== Utility Functions =====
+
+// 类型转换辅助函数
+namespace IRUtils
+{
+    // 从AST DataType转换为IR Type
+    Type *convertASTTypeToIRType(const DataType &astType)
+    {
+        switch (astType.baseType)
+        {
+        case PrimaryDataType::INT:
+            if (astType.isArray())
+            {
+                Type *elementType = IntegerType::getInstance();
+                for (int i = astType.arraySizes().size() - 1; i >= 0; --i)
+                {
+                    elementType = new ArrayType(elementType, astType.arraySizes()[i]);
+                }
+                return elementType;
+            }
+            return IntegerType::getInstance();
+
+        case PrimaryDataType::FLOAT:
+            if (astType.isArray())
+            {
+                Type *elementType = FloatType::getInstance();
+                for (int i = astType.arraySizes().size() - 1; i >= 0; --i)
+                {
+                    elementType = new ArrayType(elementType, astType.arraySizes()[i]);
+                }
+                return elementType;
+            }
+            return FloatType::getInstance();
+
+        case PrimaryDataType::VOID:
+            return VoidType::getInstance();
+
+        default:
+            return VoidType::getInstance();
+        }
+    }
+
+    // 检查两个类型是否兼容
+    bool isTypeCompatible(Type *t1, Type *t2)
+    {
+        if (t1 == t2)
+            return true;
+
+        // 数值类型之间可以转换
+        if ((t1->isIntegerTy() || t1->isFloatTy()) &&
+            (t2->isIntegerTy() || t2->isFloatTy()))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    // 获取二元运算的结果类型
+    Type *getBinaryOpResultType(Type *lhs, Type *rhs, BinaryOp op)
+    {
+        // 浮点运算优先
+        if (lhs->isFloatTy() || rhs->isFloatTy())
+        {
+            return FloatType::getInstance();
+        }
+
+        // 比较运算返回布尔类型
+        if (op == BinaryOp::Lt || op == BinaryOp::Gt ||
+            op == BinaryOp::Le || op == BinaryOp::Ge ||
+            op == BinaryOp::Eq || op == BinaryOp::Ne)
+        {
+            return BooleanType::getInstance();
+        }
+
+        // 逻辑运算返回布尔类型
+        if (op == BinaryOp::And || op == BinaryOp::Or)
+        {
+            return BooleanType::getInstance();
+        }
+
+        // 其他算术运算返回整数类型
+        return IntegerType::getInstance();
+    }
 }
