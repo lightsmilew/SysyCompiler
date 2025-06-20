@@ -330,16 +330,21 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
 {
     String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
-    DataType dataType(type);
+
     Vector<Ptr<ast::ExprNode>> arraySizes;
+    Vector<int> arraySizeValues; // 用于构建DataType
     auto minusOne = makePtr<ast::IntLiteralExprNode>(-1); // 数组维度为0，表示省略
     arraySizes.emplace_back(minusOne);                    // 数组维度为0，表示省略
+    arraySizeValues.emplace_back(-1); // 数组维度为0，表示省略
     for (auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
         arraySizes.emplace_back(exp);
+        // 尝试提取数组大小的整数值
+        arraySizeValues.emplace_back(extractIntFromConstExpr(exp));
     }
+    DataType dataType(type, arraySizeValues); // 创建包含数组信息的DataType
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     paramNode->indices = Move(arraySizes); // 设置数组维度

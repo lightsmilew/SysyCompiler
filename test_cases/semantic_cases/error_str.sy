@@ -1,5 +1,5 @@
-int func(const char* str) {
-    // 错误：尝试修改字符串字面量
+int func(char* str) {
+    // 错误：不支持的类型string
     str[0] = 'h'; 
     return 0; // 返回0表示成功
 }
