@@ -1,5 +1,6 @@
 #pragma once
 #include "../frontend/ASTNode.h"
+#include <algorithm>
 using namespace ast;
 
 // 前向声明
@@ -52,7 +53,7 @@ public:
     }
     string toString() const override
     {
-        return "i_32";
+        return "i32";
     }
 };
 
@@ -65,7 +66,7 @@ public:
         static FloatType instance;
         return &instance;
     }
-    string toString() const override { return "f_32"; }
+    string toString() const override { return "float"; }
 };
 
 class BooleanType : public Type
@@ -77,7 +78,7 @@ public:
         static BooleanType instance;
         return &instance;
     }
-    string toString() const override { return "i_1"; } // 使用 i1 表示布尔类型
+    string toString() const override { return "i1"; } // 使用 i1 表示布尔类型
 };
 
 class VoidType : public Type
@@ -100,8 +101,8 @@ public:
     PointerType(Type *elemTy) : Type(PointerTyID), ElementType(elemTy) {}
     static PointerType *getInstance(Type *elemTy)
     {
-        static PointerType instance(elemTy);
-        return &instance;
+        // 为每种元素类型创建不同的指针类型实例
+        return new PointerType(elemTy);
     }
     string toString() const override { return ElementType->toString() + "*"; }
 };
@@ -157,6 +158,16 @@ public:
     const vector<User *> &getUsers() const { return Users; }
 
     virtual string toString() const = 0;
+
+    // 输出引用形式的名称（如%var_name）
+    virtual string toRef() const
+    {
+        if (getName().empty())
+        {
+            return toString(); // 如果没有名称，返回值本身
+        }
+        return "%" + getName();
+    }
 
     // 替换所有使用这个Value的地方为newValue
     void replaceAllUsesWith(Value *newValue);
@@ -232,6 +243,12 @@ class Constant : public Value
 {
 public:
     Constant(Type *ty, const string &name = "") : Value(ty, name) {}
+
+    // 常量输出值本身，不是引用
+    string toRef() const override
+    {
+        return toString();
+    }
 };
 
 class ConstantInt : public Constant
@@ -410,47 +427,12 @@ public:
     Function *CalledFunction;
     vector<Value *> Arguments;
 
-    CallInst(Function *func, const vector<Value *> &args, const string &name = "")
-        : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name),
-          CalledFunction(func), Arguments(args) {}
+    CallInst(Function *func, const vector<Value *> &args, const string &name = "");
     string toString() const override;
 
 private:
-    static vector<Value *> constructOperands(Function *func, const vector<Value *> &args)
-    {
-        vector<Value *> operands;
-        operands.push_back(func);
-        operands.insert(operands.end(), args.begin(), args.end());
-        return operands;
-    }
-
-    static Type *getFunctionReturnType(Value *func)
-    {
-        if (!func)
-        {
-            throw std::invalid_argument("CallInst: function cannot be null");
-        }
-
-        FunctionType *funcTy = nullptr;
-
-        // 如果是函数类型
-        if (auto ft = dynamic_cast<FunctionType *>(func->getType()))
-        {
-            funcTy = ft;
-        }
-        // 函数指针类型
-        else if (auto ptrTy = dynamic_cast<PointerType *>(func->getType()))
-        {
-            funcTy = dynamic_cast<FunctionType *>(ptrTy->ElementType);
-        }
-
-        if (!funcTy)
-        {
-            throw std::invalid_argument("CallInst: operand is not a function");
-        }
-
-        return funcTy->ReturnType;
-    }
+    static vector<Value *> constructOperands(Function *func, const vector<Value *> &args);
+    static Type *getFunctionReturnType(Value *func);
 };
 
 class ReturnInst : public Instruction
@@ -542,9 +524,7 @@ public:
     vector<unique_ptr<Function>> Functions;
     vector<unique_ptr<GlobalVariable>> GlobalVariables;
 
-    Module(const string &name, const vector<unique_ptr<Function>> &funcs = {},
-           const vector<unique_ptr<GlobalVariable>> &globals = {})
-        : Name(name), Functions(funcs), GlobalVariables(globals) {}
+    Module(const string &name) : Name(name) {}
 
     string toString() const;
 };
