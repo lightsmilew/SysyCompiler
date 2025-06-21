@@ -308,13 +308,8 @@ enum class Opcode
     GetElementPtr,
 
     // Conversion operations
-    I2F,
-    F2I,
-    SIToFP, // signed int to float
-    FPToSI, // float to signed int
-    Trunc,  // truncate
-    ZExt,   // zero extend
-    SExt,   // sign extend
+    SIToFP, // signed int (i32) to float
+    FPToSI, // float to signed int (i32)
 
     // Other operations
     Call,
