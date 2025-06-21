@@ -639,7 +639,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
       // 类型兼容性检查
       if (!isTypeCompatible(initType, node->type))
       {
-        addError("Initializer type does not match variable type for '" + node->identifier + "'");
+        addError("Initializer type does not match variable type for '" + node->identifier + "' initType:" + to_string(static_cast<int>(initType.baseType)) + " declType:" + to_string(static_cast<int>(node->type.baseType)) + " arrayDim:" + to_string(node->type.arrayDimensionCount()));
       }
       // 如果是const变量，检查初始化表达式是否为常量
       if (node->type.isConst())

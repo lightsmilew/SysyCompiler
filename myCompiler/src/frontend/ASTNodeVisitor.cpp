@@ -129,7 +129,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             // 直接使用返回的InitExprNode，不要重新创建
             initExprPtr = AS(initVal, Ptr<ast::InitExprNode>);
         }
-        auto declptr = makePtr<ast::DeclStmtNode>(type, identifier, initExprPtr, true, false);
+        auto declptr = makePtr<ast::DeclStmtNode>(type, identifier, initExprPtr);
         decls.emplace_back(declptr);
     }
     return decls;
