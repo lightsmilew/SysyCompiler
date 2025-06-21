@@ -118,6 +118,10 @@ DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprCo
   {
     return DataType(PrimaryDataType::FLOAT);
   }
+  else if(auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(expr))
+  {
+    return DataType(PrimaryDataType::STRING);
+  }
   else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
   {
     // 处理初始化表达式
@@ -421,6 +425,12 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
   // 检查参数个数
   if (call->args.size() != func->params.size())
   {
+    // 特例：putf函数可以接受任意数量的参数
+    if (func->identifier == "putf" && call->args.size() > 0)
+    {
+      return; // putf函数允许任意数量的参数
+    }
+    // 对于其他函数，报告参数个数不匹配
     addError("Function '" + call->callee + "' expects " +
              to_string(func->params.size()) + " arguments, got " +
              to_string(call->args.size()));
@@ -436,7 +446,7 @@ void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
     if (!isTypeCompatible(argType, paramType))
     {
       addError("Argument " + to_string(i + 1) + " of function '" + call->callee +
-               "' has incompatible type");
+               "' has incompatible type args:" + to_string(static_cast<int>(argType.baseType)) + " param:" + to_string(static_cast<int>(paramType.baseType)));
     }
   }
 }

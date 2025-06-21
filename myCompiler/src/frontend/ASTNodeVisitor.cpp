@@ -223,7 +223,6 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
         {
             arraySizes.push_back(extractIntFromConstExpr(arrayIndex));
         }
-
         // 创建带有数组维度信息的DataType
         DataType varType(type, arraySizes);
 
