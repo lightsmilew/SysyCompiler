@@ -1,4 +1,7 @@
 Semantic errors found:
+Const variable 'a' must be initialized with a constant expression
 Cannot modify const variable 'a'
+Const variable 'b' must be initialized with a constant expression
 Cannot modify const variable 'b'
+Const variable 'arr' must be initialized with a constant expression
 Cannot modify const variable 'arr'

@@ -1,2 +1,20 @@
 Semantic errors found:
+Global variable 'globalVar' must be initialized with a constant expression
+Global variable 'GLOBAL_CONST' must be initialized with a constant expression
+Const variable 'GLOBAL_CONST' must be initialized with a constant expression
+Global variable 'globalArray' must be initialized with a constant expression
 Global variable 'globalFloat' must be initialized with a constant expression
+Const variable 'a' must be initialized with a constant expression
+Const variable 'c' must be initialized with a constant expression
+Const variable 'SIZE' must be initialized with a constant expression
+Initializer type does not match variable type for 'arr2' initType:0 declType:0 arrayDim:1
+Initializer type does not match variable type for 'matrix1' initType:0 declType:0 arrayDim:2
+Initializer type does not match variable type for 'matrix2' initType:0 declType:0 arrayDim:2
+Const variable 'a' must be initialized with a constant expression
+Const variable 'b' must be initialized with a constant expression
+Const variable 'c' must be initialized with a constant expression
+Const variable 'd' must be initialized with a constant expression
+Const variable 'e' must be initialized with a constant expression
+Initializer type does not match variable type for 'floatArray' initType:0 declType:1 arrayDim:1
+Initializer type does not match variable type for 'mixedArray' initType:0 declType:1 arrayDim:1
+Initializer type does not match variable type for 'matrix' initType:0 declType:0 arrayDim:2

@@ -327,7 +327,7 @@ namespace ast
     shared_ptr<InitExprNode> initializer; // 初始化表达式，nullptr表示无初始化
     vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
 
-    // 构造函数，使用默认参数实现isConst的自动设置
+    // 构造函数，使用默认参数
     DeclStmtNode(DataType type, string identifier, shared_ptr<InitExprNode> initializer = nullptr, bool isFuncParam = false)
         :  isFuncParam{isFuncParam}, type{type}, identifier{move(identifier)}, initializer{move(initializer)} {}
     string toString() const override;
