@@ -273,7 +273,7 @@ bool TypeCheckerVisitor::isTypeCompatible(DataType from, DataType to)
     {
       return true;
     }
-
+   
     // 可以添加更多的隐式转换规则，如：
     // bool可以转换为int (true -> 1, false -> 0)
     // if (from.baseType == PrimaryDataType::BOOL && to.baseType == PrimaryDataType::INT)
@@ -310,7 +310,98 @@ bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
 
   return true;
 }
-
+void TypeCheckerVisitor::initializeFunction()
+{
+  Vector<shared_ptr<Symbol>> symbols;
+  //int getint();
+ auto getintNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::INT), "getint", 
+      Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
+  symbols.push_back(make_shared<Symbol>(getintNode));
+  //int getch();
+  auto getchNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::INT), "getch", 
+      Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
+  symbols.push_back(make_shared<Symbol>(getchNode));
+  //float getfloat();
+  auto getfloatNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::FLOAT), "getfloat", 
+      Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
+  symbols.push_back(make_shared<Symbol>(getfloatNode));
+  //int getarray(int a[]);
+  auto getarrayNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::INT), "getarray", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::INT, { -1 }), "a")}, nullptr);
+  symbols.push_back(make_shared<Symbol>(getarrayNode));
+  //int getfarray(float a[]);
+  auto getfarrayNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::INT), "getfarray", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::FLOAT, { -1 }), "a")}, nullptr);
+  symbols.push_back(make_shared<Symbol>(getfarrayNode));
+  //void putint(int a);
+  auto putintNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putint", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::INT), "a")}, nullptr);
+  symbols.push_back(make_shared<Symbol>(putintNode));
+  //void putch(int a);
+  auto putchNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putch", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::INT), "a")}, nullptr);
+  symbols.push_back(make_shared<Symbol>(putchNode));
+  //void putfloat(float a);
+  auto putfloatNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putfloat", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::FLOAT), "a")},nullptr);
+  symbols.push_back(make_shared<Symbol>(putfloatNode));
+  //void putarray( int n,int a[]);
+  auto putarrayNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putarray", 
+      vector<shared_ptr<DeclStmtNode>>{
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT), "n"),
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT, { -1 }), "a")
+      }, nullptr);
+  symbols.push_back(make_shared<Symbol>(putarrayNode));
+  //void putfarray( int n,float a[]);
+  auto putfarrayNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putfarray", 
+      vector<shared_ptr<DeclStmtNode>>{
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT), "n"),
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::FLOAT, { -1 }), "a")
+      }, nullptr);
+  symbols.push_back(make_shared<Symbol>(putfarrayNode));
+  //void putf(string a);
+  auto putfNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "putf", 
+      vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
+          DataType(PrimaryDataType::STRING), "a")}, nullptr);
+  symbols.push_back(make_shared<Symbol>(putfNode));
+  //void starttime();
+  auto starttimeNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "starttime", 
+      Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
+  symbols.push_back(make_shared<Symbol>(starttimeNode));
+  //void stoptime();
+  auto stoptimeNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::VOID), "stoptime", 
+      Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
+ symbols.push_back(make_shared<Symbol>(stoptimeNode));
+ for(auto &symbol : symbols)
+  {
+    // 注册到符号表
+    if (!analyzer.declareFunction(symbol->functionNode->identifier, symbol))
+    {
+      addError("Function '" + symbol->functionNode->identifier + "' already declared");
+    }
+  }
+  // 可以添加更多的库函数初始化
+  // 如：int scanf(string format, ...);
+  // 或者其他常用的库函数
+}
 void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
 {
   // auto it = functionTable.find(call->callee);
