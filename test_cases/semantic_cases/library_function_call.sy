@@ -1,0 +1,18 @@
+int main(){
+    int a=getint();
+    int b=getch();
+    float c=getfloat();
+    int arr1[3]={1, 2, 3};
+    float arr2[3]={1.1, 2.2, 3.3};
+    int d=getarray(arr1);
+    int e=getfarray(arr2);
+    putint(1);
+    putch(2);
+    putfloat(3.3);
+    putarray(3,arr1);
+    putfarray(3,arr2);
+    putf("hello,world!");
+    starttime();
+    stoptime();
+    return 0;
+}
