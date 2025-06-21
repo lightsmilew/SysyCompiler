@@ -127,13 +127,13 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             bool allConst = true;
             for (const auto &elem : initVals)
             {
-                if (!elem->isConst)
+                if (!elem->isConstExp)
                 {
                     allConst = false;
                     break;
                 }
             }
-            initExprPtr->isConst = allConst;
+            initExprPtr->isConstExp = allConst;
         }
         else
         {
@@ -152,7 +152,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstInitExpr(SysYParser::ConstInitExprContex
     auto constExpPtr = AS(ctx->constExp()->accept(this), Ptr<ast::ExprNode>);
     // 返回一个 InitExprNode，表示单一的初始化表达式
     auto initExpr = makePtr<ast::InitExprNode>(constExpPtr);
-    initExpr->isConst = constExpPtr->isConst; // 继承常量表达式的常量性质
+    initExpr->isConstExp = constExpPtr->isConstExp; // 继承常量表达式的常量性质
     return initExpr;
 }
 // 多维数组初始化列表
@@ -238,7 +238,7 @@ antlrcpp::Any ASTNodeVisitor::visitInitExpr(SysYParser::InitExprContext *ctx)
     auto initVal = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
     // 创建InitExprNode并设置常量标志
     auto initExpr = makePtr<ast::InitExprNode>(initVal);
-    initExpr->isConst = initVal->isConst; // 继承内部表达式的常量性质
+    initExpr->isConstExp = initVal->isConstExp; // 继承内部表达式的常量性质
     return initExpr;
 }
 antlrcpp::Any ASTNodeVisitor::visitInitList(SysYParser::InitListContext *ctx)
@@ -566,7 +566,7 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
         intValue = std::stoi(valueText, nullptr, 10);
     }
     auto intLiteral = make_shared<IntLiteralExprNode>(intValue);
-    intLiteral->isConst = true; // 整数字面量是常量
+    intLiteral->isConstExp = true; // 整数字面量是常量
     return static_cast<shared_ptr<NumberLiteralExprNode>>(intLiteral);
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
@@ -574,7 +574,7 @@ antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
     std::string text = ctx->FloatConst()->getText();
     float floatValue = std::stof(text);
     auto floatLiteral = make_shared<FloatLiteralExprNode>(floatValue);
-    floatLiteral->isConst = true; // 浮点数字面量是常量
+    floatLiteral->isConstExp = true; // 浮点数字面量是常量
     return static_cast<shared_ptr<NumberLiteralExprNode>>(floatLiteral);
 }
 // unaryExp
@@ -778,7 +778,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
 {
     // 访问常量表达式
     auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
-    constexp->isConst = true; // 设置为常量表达式
+    constexp->isConstExp = true; // 设置为常量表达式
     return constexp;          // 返回常量表达式
 }
 

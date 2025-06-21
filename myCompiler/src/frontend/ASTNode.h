@@ -62,20 +62,20 @@ namespace ast
   {
     PrimaryDataType baseType;
     vector<int> _arraySizes;
-    bool _isConst = false;
+    bool _isConstVariable = false;
 
     // 构造函数
     DataType(PrimaryDataType type = PrimaryDataType::VOID)
-        : baseType(type), _arraySizes(), _isConst(false) {}
+        : baseType(type), _arraySizes(), _isConstVariable(false) {}
 
-    DataType(PrimaryDataType type, const vector<int> &arraySizes, bool isConst = false)
-        : baseType(type), _arraySizes(arraySizes), _isConst(isConst) {}
+    DataType(PrimaryDataType type, const vector<int> &arraySizes, bool isConstVariable = false)
+        : baseType(type), _arraySizes(arraySizes), _isConstVariable(isConstVariable) {}
 
     // 数组相关方法
     int arrayDimensionCount() const { return _arraySizes.size(); } // 获取数组维度数量
     const vector<int> &arraySizes() const { return _arraySizes; }  // 获取数组大小列表
     bool isArray() const { return !_arraySizes.empty(); }          // 是否为数组类型
-    bool isConst() const { return _isConst; }                      // 是否为常量类型
+    bool isConst() const { return _isConstVariable; }                      // 是否为常量类型
 
     // 方便的比较操作
     bool operator==(PrimaryDataType other) const { return baseType == other && !isArray(); }
@@ -128,7 +128,7 @@ namespace ast
   {
   public:
     unsigned line = 0;    // 表达式所在的行号，用于调试和错误报告
-    bool isConst = false; // 是否是常量表达式
+    bool isConstExp = false; // 是否是常量表达式
 
     ExprNode() {} // 默认构造函数
 
@@ -321,7 +321,6 @@ namespace ast
   class DeclStmtNode : public StmtNode
   {
   public:
-    bool isConst;                         // 是否是常量声明
     bool isFuncParam;                     // 是否是函数参数
     DataType type;                        // 变量类型
     string identifier;                    // 变量名
@@ -329,8 +328,8 @@ namespace ast
     vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
 
     // 构造函数，使用默认参数实现isConst的自动设置
-    DeclStmtNode(DataType type, string identifier, shared_ptr<InitExprNode> initializer = nullptr, bool isConst = false, bool isFuncParam = false)
-        : isConst{isConst}, isFuncParam{isFuncParam}, type{type}, identifier{move(identifier)}, initializer{move(initializer)} {}
+    DeclStmtNode(DataType type, string identifier, shared_ptr<InitExprNode> initializer = nullptr, bool isFuncParam = false)
+        :  isFuncParam{isFuncParam}, type{type}, identifier{move(identifier)}, initializer{move(initializer)} {}
     string toString() const override;
     void print(ostream &out, unsigned indent = 0) const override;
   };
