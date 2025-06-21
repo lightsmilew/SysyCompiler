@@ -78,7 +78,7 @@ bool TypeCheckerVisitor::checkArrayInit(const shared_ptr<ExprNode> &init, const 
     if (!isTypeCompatible(elemType, declaredType.baseType))
       return false;
     // 常量数组要求初始化元素必须是常量表达式
-    if (isConstArray && !init->isConst)
+    if (isConstArray && !init->isConstExp)
     {
       addError("Initializer for constant array must be a constant expression");
       return false;
@@ -587,7 +587,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     // 普通变量
     if (node->indices.empty())
     {
-      if (!node->initializer->isConst)
+      if (!node->initializer->isConstExp)
       {
         addError("Global variable '" + node->identifier + "' must be initialized with a constant expression");
       }
@@ -615,7 +615,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     {
       DataType indexType = getExpressionType(size, ExprContext::ARRAY_INDEX);
       // 非整型 是数组 或者不是常量
-      if (indexType.baseType != PrimaryDataType::INT || indexType.isArray() || !size->isConst)
+      if (indexType.baseType != PrimaryDataType::INT || indexType.isArray() || !size->isConstExp)
       {
         addError("Array '" + node->identifier + "' index must be integer type constant");
         return;
@@ -623,7 +623,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     }
   }
   // 创建符号并声明
-  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr, node->isConst);
+  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr, node->type.isConst());
   // 如果是数组,保存下标信息,不是则为空
   symbol->indices = node->indices;
   // 如果有初始化表达式，检查类型匹配
@@ -642,9 +642,9 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
         addError("Initializer type does not match variable type for '" + node->identifier + "'");
       }
       // 如果是const变量，检查初始化表达式是否为常量
-      if (node->isConst)
+      if (node->type.isConst())
       {
-        if (!node->initializer->isConst)
+        if (!node->initializer->isConstExp)
         {
           addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
         }
@@ -661,7 +661,7 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
       else
       {
         // 检查维度和元素类型（可递归实现）
-        if (!checkArrayInit(node->initializer, node->type, 0, node->isConst))
+        if (!checkArrayInit(node->initializer, node->type, 0, node->type.isConst()))
         {
           addError("Array initializer type or dimension does not match for '" + node->identifier + "'");
         }
