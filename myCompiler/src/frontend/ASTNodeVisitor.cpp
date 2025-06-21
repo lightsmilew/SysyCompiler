@@ -123,17 +123,6 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             // 构造指针
             Vector<Ptr<ast::InitExprNode>> initVals = AS(initVal, Vector<Ptr<ast::InitExprNode>>);
             initExprPtr = makePtr<ast::InitExprNode>(initVals);
-            // 对于常量数组，需要检查所有元素都是常量
-            bool allConst = true;
-            for (const auto &elem : initVals)
-            {
-                if (!elem->isConstExp)
-                {
-                    allConst = false;
-                    break;
-                }
-            }
-            initExprPtr->isConstExp = allConst;
         }
         else
         {
@@ -141,7 +130,6 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             initExprPtr = AS(initVal, Ptr<ast::InitExprNode>);
         }
         auto declptr = makePtr<ast::DeclStmtNode>(type, identifier, initExprPtr, true, false);
-        declptr->indices = std::move(arrayIndices); // 设置数组下标
         decls.emplace_back(declptr);
     }
     return decls;
@@ -152,7 +140,6 @@ antlrcpp::Any ASTNodeVisitor::visitConstInitExpr(SysYParser::ConstInitExprContex
     auto constExpPtr = AS(ctx->constExp()->accept(this), Ptr<ast::ExprNode>);
     // 返回一个 InitExprNode，表示单一的初始化表达式
     auto initExpr = makePtr<ast::InitExprNode>(constExpPtr);
-    initExpr->isConstExp = constExpPtr->isConstExp; // 继承常量表达式的常量性质
     return initExpr;
 }
 // 多维数组初始化列表
@@ -228,7 +215,6 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
-        decl->indices = arrayIndices;
         decls.emplace_back(decl);
     }
     return decls; // 返回所有变量声明的向量
@@ -238,7 +224,6 @@ antlrcpp::Any ASTNodeVisitor::visitInitExpr(SysYParser::InitExprContext *ctx)
     auto initVal = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
     // 创建InitExprNode并设置常量标志
     auto initExpr = makePtr<ast::InitExprNode>(initVal);
-    initExpr->isConstExp = initVal->isConstExp; // 继承内部表达式的常量性质
     return initExpr;
 }
 antlrcpp::Any ASTNodeVisitor::visitInitList(SysYParser::InitListContext *ctx)
@@ -346,7 +331,6 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     DataType dataType(type, arraySizeValues); // 创建包含数组信息的DataType
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
-    paramNode->indices = Move(arraySizes); // 设置数组维度
     return paramNode;                      // 返回函数参数节点
 }
 // 处理函数参数(数组 有第一维度)
@@ -373,7 +357,6 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
 
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
-    paramNode->indices = Move(arraySizes); // 设置数组维度表达式
     return paramNode;                      // 返回函数参数节点
 }
 // 语句块
@@ -518,6 +501,7 @@ antlrcpp::Any ASTNodeVisitor::visitLVal(SysYParser::LValContext *ctx)
         auto result = visit(idx);
         exps.push_back(std::any_cast<shared_ptr<ExprNode>>(result));
     }
+    
     return make_shared<LValueExprNode>(identifier, exps);
 }
 // primaryExp
@@ -542,7 +526,9 @@ antlrcpp::Any ASTNodeVisitor::visitStringLiteralExp(SysYParser::StringLiteralExp
     std::string strValue = ctx->STRING_LITERAL()->getText();
     // 去掉引号
     strValue = strValue.substr(1, strValue.size() - 2);
-    return static_cast<shared_ptr<ExprNode>>(make_shared<StringLiteralExprNode>(strValue));
+    auto strLiteral = make_shared<StringLiteralExprNode>(strValue);
+    // 返回字符串字面量表达式节点
+    return static_cast<shared_ptr<ExprNode>>(strLiteral);
 }
 
 // number
@@ -566,7 +552,6 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
         intValue = std::stoi(valueText, nullptr, 10);
     }
     auto intLiteral = make_shared<IntLiteralExprNode>(intValue);
-    intLiteral->isConstExp = true; // 整数字面量是常量
     return static_cast<shared_ptr<NumberLiteralExprNode>>(intLiteral);
 }
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
@@ -574,7 +559,6 @@ antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
     std::string text = ctx->FloatConst()->getText();
     float floatValue = std::stof(text);
     auto floatLiteral = make_shared<FloatLiteralExprNode>(floatValue);
-    floatLiteral->isConstExp = true; // 浮点数字面量是常量
     return static_cast<shared_ptr<NumberLiteralExprNode>>(floatLiteral);
 }
 // unaryExp
@@ -591,7 +575,8 @@ antlrcpp::Any ASTNodeVisitor::visitCallExp(SysYParser::CallExpContext *ctx)
         auto params = std::any_cast<vector<shared_ptr<ExprNode>>>(visit(ctx->funcRParams()));
         args.insert(args.end(), params.begin(), params.end());
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<CallExprNode>(callee, args));
+    auto callexpnode= make_shared<CallExprNode>(callee, args);
+    return static_cast<shared_ptr<ExprNode>>(callexpnode);
 }
 antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx)
 {
@@ -617,8 +602,8 @@ antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx
     }
 
     auto exp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
-
-    return static_cast<shared_ptr<ExprNode>>(make_shared<UnaryExprNode>(exp, unaryOp));
+    auto unaryExprNode = make_shared<UnaryExprNode>(exp, unaryOp);
+    return static_cast<shared_ptr<ExprNode>>(unaryExprNode);
 }
 // unaryOp
 antlrcpp::Any ASTNodeVisitor::visitOpPlus(SysYParser::OpPlusContext *ctx)
@@ -660,7 +645,8 @@ antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext 
     {
         throw std::invalid_argument("Unknown binary operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp));
+    auto binaryExprNode = make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp);
+    return static_cast<shared_ptr<ExprNode>>(binaryExprNode);
 }
 // addExp
 antlrcpp::Any ASTNodeVisitor::visitToMulExp_add(SysYParser::ToMulExp_addContext *ctx)
@@ -685,7 +671,8 @@ antlrcpp::Any ASTNodeVisitor::visitAddSubExp(SysYParser::AddSubExpContext *ctx)
     {
         throw std::invalid_argument("Unknown binary operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(addExp, mulExp, binaryOp));
+    auto binaryExprNode = make_shared<BinaryExprNode>(addExp, mulExp, binaryOp);
+    return static_cast<shared_ptr<ExprNode>>(binaryExprNode);
 }
 // relExp
 antlrcpp::Any ASTNodeVisitor::visitToAddExp_rel(SysYParser::ToAddExp_relContext *ctx)
@@ -778,7 +765,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
 {
     // 访问常量表达式
     auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
-    constexp->isConstExp = true; // 设置为常量表达式
+    constexp->isConstExp = true; // 标记为常量表达式
     return constexp;          // 返回常量表达式
 }
 
