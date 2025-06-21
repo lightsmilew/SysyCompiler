@@ -65,14 +65,13 @@ namespace ir_builder
         // 表达式访问（返回Value*）
         Value *visitExpression(std::shared_ptr<ast::ExprNode> node);
         Value *visitBinaryExpr(std::shared_ptr<ast::BinaryExprNode> node);
+        Value *visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node); // 逻辑表达式短路求值
         Value *visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node);
         Value *visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node);
         Value *visitCallExpr(std::shared_ptr<ast::CallExprNode> node);
         Value *visitIntLiteralExpr(std::shared_ptr<ast::IntLiteralExprNode> node);
         Value *visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNode> node);
         Value *visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node);
-
-        // 初始化表达式处理
         Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);
 
         // 编译时常量表达式求值
@@ -90,10 +89,15 @@ namespace ir_builder
         void createStore(Value *value, Value *ptr);
         Value *createAlloca(Type *type, const std::string &name = "");
         Value *createCall(Function *func, const std::vector<Value *> &args);
+        void createBranch(BasicBlock *target);                                                  // 无条件跳转
+        void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
+        void createReturn(Value *value = nullptr);                                              // 返回指令
+        PHINode *createPhi(Type *type, const std::string &name = "");                           // PHI 指令
 
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType);
         Value *createCast(Value *value, Type *targetType);
+        Value *convertToBool(Value *value); // 转换为布尔值
 
         // 临时变量名生成
         std::string getNextTempName()
