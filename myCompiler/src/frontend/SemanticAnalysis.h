@@ -52,6 +52,7 @@ public:
     // 构造函数
     SemanticAnalyzer()
     {
+        // 进入全局作用域
         currentScope = make_shared<SymbolTable>();
         functionTable = make_shared<SymbolTable>();
     }
@@ -118,8 +119,8 @@ public:
 
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
-        // 进入全局作用域
-        analyzer.enterScope();
+        initializeFunction(); // 初始化运行库函数定义
+        //analyzer.enterScope();
         visitCompUnitForCheck(astRoot);
         return errors.empty();
     }
@@ -155,4 +156,6 @@ private:
     bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
     bool checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConst = false);
     void checkFunctionCall(shared_ptr<CallExprNode> call);
+    //初始化运行库函数定义
+    void initializeFunction();
 };
