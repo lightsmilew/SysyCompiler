@@ -405,22 +405,11 @@ std::string CastInst::toString() const
 
     switch (Op)
     {
-    case Opcode::I2F:
     case Opcode::SIToFP:
         opStr = "sitofp";
         break;
-    case Opcode::F2I:
     case Opcode::FPToSI:
         opStr = "fptosi";
-        break;
-    case Opcode::Trunc:
-        opStr = "trunc";
-        break;
-    case Opcode::ZExt:
-        opStr = "zext";
-        break;
-    case Opcode::SExt:
-        opStr = "sext";
         break;
     default:
         opStr = "cast";
@@ -455,7 +444,6 @@ std::string BasicBlock::toString() const
 }
 
 // ===== Argument Implementation =====
-
 std::string Argument::toString() const
 {
     return "%" + getName();
