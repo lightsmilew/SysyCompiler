@@ -120,12 +120,12 @@ public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
         initializeFunction(); // 初始化运行库函数定义
-        //analyzer.enterScope();
         visitCompUnitForCheck(astRoot);
         return errors.empty();
     }
     vector<string> getErrors() const { return errors; }
-
+    // 获取语义分析器
+    SemanticAnalyzer &getAnalyzer() { return analyzer; }
 private:
     void visitCompUnitForCheck(shared_ptr<CompUnitNode> node);
     void visitFuncNode(shared_ptr<FuncNode> node);

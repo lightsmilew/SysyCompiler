@@ -28,6 +28,15 @@ make
 python3 test.py
 ```
 
+### 运行脚本
+```bash
+##只运行测试脚本
+./run.sh 
+##cmake编译后运行测试脚本
+./run.sh -build
+##cmake重构后运行测试脚本
+./run.sh -rebuild
+
 ## 问题
 
 ### 1. 文法错误

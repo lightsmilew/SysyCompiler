@@ -20,9 +20,15 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 # file(GLOB_RECURSE SRC "src/*.cpp")
 file(GLOB FRONTEND_SRC "src/frontend/*.cpp")
 file(GLOB GENERATE_SRC "src/frontend/generate/*.cpp")
+# 查找IRbuilder.cpp和IDDataStructure.cpp文件 
+file(GLOB IR_BUILDER_SRC "src/midend/IRBuilder.cpp")
+file(GLOB ID_DATA_STRUCTURE_SRC "src/midend/IRDataStructure.cpp")
 set(SRC
     ${FRONTEND_SRC}
     ${GENERATE_SRC}
+    ${IR_BUILDER_SRC}
+    ${ID_DATA_STRUCTURE_SRC}
+    # 添加其他源文件
     src/main.cpp
 )
 
