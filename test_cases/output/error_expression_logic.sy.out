@@ -1,19 +1,19 @@
 Semantic errors found:
 Logical or comparison operations are not allowed in expression
 Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'c'
+Initializer type does not match variable type for 'c' initType:3 declType:0 arrayDim:0
 Logical or comparison operations are not allowed in expression
 Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'd'
+Initializer type does not match variable type for 'd' initType:3 declType:0 arrayDim:0
 Logical NOT operation is not allowed in expression
 Logical NOT operation is not allowed in expression
-Initializer type does not match variable type for 'e'
+Initializer type does not match variable type for 'e' initType:3 declType:0 arrayDim:0
 Logical or comparison operations are not allowed in expression
 Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'f'
+Initializer type does not match variable type for 'f' initType:3 declType:0 arrayDim:0
 Logical or comparison operations are not allowed in expression
 Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'g'
+Initializer type does not match variable type for 'g' initType:3 declType:0 arrayDim:0
 Logical or comparison operations are not allowed in expression
 Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'h'
+Initializer type does not match variable type for 'h' initType:3 declType:0 arrayDim:0

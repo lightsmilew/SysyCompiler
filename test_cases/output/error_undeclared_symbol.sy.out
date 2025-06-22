@@ -2,6 +2,6 @@ Semantic errors found:
 Variable 'b' not declared
 Variable 'b' not declared
 Variable 'b' not declared
-Initializer type does not match variable type for 'a'
+Initializer type does not match variable type for 'a' initType:3 declType:0 arrayDim:0
 Callee 'func' is not defined
-Initializer type does not match variable type for 'c'
+Initializer type does not match variable type for 'c' initType:3 declType:0 arrayDim:0

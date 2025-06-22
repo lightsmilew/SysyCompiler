@@ -2,8 +2,8 @@ Semantic errors found:
 Variable 'b' not declared
 Variable 'b' not declared
 Variable 'b' not declared
-Initializer type does not match variable type for 'd'
+Initializer type does not match variable type for 'd' initType:3 declType:0 arrayDim:0
 Variable 'f' not declared
 Variable 'f' not declared
 Variable 'f' not declared
-Initializer type does not match variable type for 'g'
+Initializer type does not match variable type for 'g' initType:3 declType:0 arrayDim:0

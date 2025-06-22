@@ -2,5 +2,5 @@ Semantic errors found:
 Function 'add' expects 2 arguments, got 1
 Function 'add' expects 2 arguments, got 3
 Callee 'unknown' is not defined
-Initializer type does not match variable type for 'c'
+Initializer type does not match variable type for 'c' initType:3 declType:0 arrayDim:0
 Function 'noParam' expects 0 arguments, got 1
