@@ -796,7 +796,7 @@ Value *IRBuilder::createAlloca(Type *type, const std::string &name)
 }
 
 Value *IRBuilder::createCall(Function *func, const std::vector<Value *> &args)
-{
+{  
     auto callInst = std::make_unique<CallInst>(func, args, getNextTempName());
     Value *result = callInst.get();
     currentBlock->addInstruction(std::move(callInst));
