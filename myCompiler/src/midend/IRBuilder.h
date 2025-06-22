@@ -15,8 +15,7 @@ namespace ir_builder
         Function *currentFunction;      // 当前函数
         BasicBlock *currentBlock;       // 当前基本块
 
-        // === 符号表管理 ===
-        SemanticAnalyzer *semanticAnalyzer;                                   // 复用语义分析器的符号表
+        // === 符号表管理 ===                               
         std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射
         std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
@@ -47,14 +46,14 @@ namespace ir_builder
         std::unique_ptr<Module> buildModule(std::shared_ptr<ast::CompUnitNode> compUnit);
 
         // === AST节点访问接口 ===
-        void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);
-        void visitFunction(std::shared_ptr<ast::FuncNode> node);
+        void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);//✔
+        void visitFunction(std::shared_ptr<ast::FuncNode> node);//✔
         void visitBlock(std::shared_ptr<ast::BlockStmtNode> node);
 
         // 语句访问
         void visitStatement(std::shared_ptr<ast::StmtNode> node);
-        void visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node);
-        void visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node);
+        void visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node);//✔
+        void visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node);//✔
         void visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node);
         void visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node);
         void visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node);
@@ -72,12 +71,12 @@ namespace ir_builder
         Value *visitIntLiteralExpr(std::shared_ptr<ast::IntLiteralExprNode> node);
         Value *visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNode> node);
         Value *visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node);
-        Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);
+        Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);//✔
         // 新增重载 处理数组初始化
-        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);
+        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);//✔
         //辅助函数 用于支持嵌套和平铺赋值
-        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
-        void visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx);
+        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);//✔
+        void visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx);//✔
 
         // 编译时常量表达式求值
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);

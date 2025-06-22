@@ -1,6 +1,8 @@
 CompUnitNode
+  DeclStmtNode: global_a : int = InitExprNode: IntegerLiteralExprNode: 10
+
   Function
-    int func(
+    int func_add(
       Parameters:
         DeclStmtNode: a : int
         DeclStmtNode: b : int
@@ -11,6 +13,23 @@ CompUnitNode
           LValueExprNode: a
           LValueExprNode: b
   Function
+    int func_sub(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a - LValueExprNode: b
+          LValueExprNode: a
+          LValueExprNode: b
+  Function
+    void func_void(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
     int main(
       Parameters:
     )
@@ -19,8 +38,7 @@ CompUnitNode
 
       DeclStmtNode: y : int = InitExprNode: IntegerLiteralExprNode: 10
 
-      DeclStmtNode: result : int = InitExprNode: CallExprNode: func(LValueExprNode: x, LValueExprNode: y)
-
+      DeclStmtNode: z : int
       DeclStmtNode: b : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
       AssignStmtNode
@@ -37,11 +55,20 @@ CompUnitNode
 
       DeclStmtNode: f : int[2][2][2] = InitExprNode: {InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4}}, InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4}}}
 
+      DeclStmtNode: g : int[3]
+      AssignStmtNode
+        LValueExprNode: g
+          IntegerLiteralExprNode: 0
+        IntegerLiteralExprNode: 1
+      DeclStmtNode: result : int = InitExprNode: BinaryExprNode: CallExprNode: func_add(LValueExprNode: x, LValueExprNode: y) * CallExprNode: func_sub(LValueExprNode: global_a, IntegerLiteralExprNode: 5)
+
       ReturnStmtNode
         IntegerLiteralExprNode: 0
 ; ModuleID = 'main_module'
 
-define i32 @func(i32 %a, i32 %b) {
+@global_a = global i32 10
+
+define i32 @func_add(i32 %a, i32 %b) {
 entry:
   %a = alloca i32
   store i32 %a, i32* %a
@@ -53,17 +80,30 @@ entry:
   ret i32 %t2
 }
 
+define i32 @func_sub(i32 %a, i32 %b) {
+entry:
+  %a = alloca i32
+  store i32 %a, i32* %a
+  %b = alloca i32
+  store i32 %b, i32* %b
+  %t3 = load i32, i32* %a
+  %t4 = load i32, i32* %b
+  %t5 = sub i32 %t3, %t4
+  ret i32 %t5
+}
+
+define void @func_void() {
+entry:
+  ret void
+}
+
 define i32 @main() {
 entry:
   %x = alloca i32
   store i32 5, i32* %x
   %y = alloca i32
   store i32 10, i32* %y
-  %result = alloca i32
-  %t3 = load i32, i32* %x
-  %t4 = load i32, i32* %y
-  %t5 = call i32 @func(i32 %t3, i32 %t4)
-  store i32 %t5, i32* %result
+  %z = alloca i32
   %b = alloca [3 x i32]
   %t6 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 0
   store i32 1, i32* %t6
@@ -127,6 +167,17 @@ entry:
   store i32 3, i32* %t33
   %t34 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 1, i32 1, i32 1
   store i32 4, i32* %t34
+  %g = alloca [3 x i32]
+  %t35 = getelementptr [3 x i32], [3 x i32]* %g, i32 0, i32 0
+  store i32 1, i32* %t35
+  %result = alloca i32
+  %t36 = load i32, i32* %x
+  %t37 = load i32, i32* %y
+  %t38 = call i32 @func_add(i32 %t36, i32 %t37)
+  %t39 = load i32, i32 %global_a
+  %t40 = call i32 @func_sub(i32 %t39, i32 5)
+  %t41 = mul i32 %t38, %t40
+  store i32 %t41, i32* %result
   ret i32 0
 }
 
