@@ -27,7 +27,15 @@ CompUnitNode
         LValueExprNode: b
           IntegerLiteralExprNode: 1
         IntegerLiteralExprNode: 4
-      DeclStmtNode: c : int = InitExprNode: LValueExprNode: b
+      DeclStmtNode: tmp_b : int = InitExprNode: LValueExprNode: b
+
+      DeclStmtNode: c : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 5}, InitExprNode: IntegerLiteralExprNode: 6}
+
+      DeclStmtNode: d : int[3][2] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+
+      DeclStmtNode: e : int[3][2] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+
+      DeclStmtNode: f : int[2][2][2] = InitExprNode: {InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4}}, InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4}}}
 
       ReturnStmtNode
         IntegerLiteralExprNode: 0
@@ -65,10 +73,60 @@ entry:
   store i32 3, i32* %t8
   %t9 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 1
   store i32 4, i32* %t9
-  %c = alloca i32
+  %tmp_b = alloca i32
   %t10 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 1
   %t11 = load i32, i32* %t10
-  store i32 %t11, i32* %c
+  store i32 %t11, i32* %tmp_b
+  %c = alloca [3 x i32]
+  %t12 = getelementptr [3 x i32], [3 x i32]* %c, i32 0, i32 0
+  store i32 4, i32* %t12
+  %t13 = getelementptr [3 x i32], [3 x i32]* %c, i32 0, i32 1
+  store i32 5, i32* %t13
+  %t14 = getelementptr [3 x i32], [3 x i32]* %c, i32 0, i32 2
+  store i32 6, i32* %t14
+  %d = alloca [3 x [2 x i32]]
+  %t15 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 0, i32 0
+  store i32 1, i32* %t15
+  %t16 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 0, i32 1
+  store i32 2, i32* %t16
+  %t17 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 1, i32 0
+  store i32 3, i32* %t17
+  %t18 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 1, i32 1
+  store i32 4, i32* %t18
+  %t19 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 2, i32 0
+  store i32 5, i32* %t19
+  %t20 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %d, i32 0, i32 2, i32 1
+  store i32 6, i32* %t20
+  %e = alloca [3 x [2 x i32]]
+  %t21 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 0, i32 0
+  store i32 1, i32* %t21
+  %t22 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 0, i32 1
+  store i32 2, i32* %t22
+  %t23 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 1, i32 0
+  store i32 3, i32* %t23
+  %t24 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 1, i32 1
+  store i32 4, i32* %t24
+  %t25 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 2, i32 0
+  store i32 5, i32* %t25
+  %t26 = getelementptr [3 x [2 x i32]], [3 x [2 x i32]]* %e, i32 0, i32 2, i32 1
+  store i32 0, i32* %t26
+  %f = alloca [2 x [2 x [2 x i32]]]
+  %t27 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 0, i32 0, i32 0
+  store i32 1, i32* %t27
+  %t28 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 0, i32 0, i32 1
+  store i32 2, i32* %t28
+  %t29 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 0, i32 1, i32 0
+  store i32 3, i32* %t29
+  %t30 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 0, i32 1, i32 1
+  store i32 4, i32* %t30
+  %t31 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 1, i32 0, i32 0
+  store i32 1, i32* %t31
+  %t32 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 1, i32 0, i32 1
+  store i32 2, i32* %t32
+  %t33 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 1, i32 1, i32 0
+  store i32 3, i32* %t33
+  %t34 = getelementptr [2 x [2 x [2 x i32]]], [2 x [2 x [2 x i32]]]* %f, i32 0, i32 1, i32 1, i32 1
+  store i32 4, i32* %t34
   ret i32 0
 }
 
