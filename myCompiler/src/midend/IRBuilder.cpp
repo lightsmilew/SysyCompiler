@@ -551,24 +551,56 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
         throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
     }
 }
-// 新增重载
-void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr)
-{
+// 新增重载 处理数组初始化表达式
+// 支持平铺和嵌套初始化的递归数组初始化
+void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr) {
+    std::vector<int> indices;
+    size_t flat_idx = 0;
+    std::vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
+    // 展开所有叶子节点
+    flattenInitList(node, flat_inits);
+    visitInitExprImpl(targetType, targetPtr, indices, flat_inits, flat_idx);
+}
+
+// 展开所有叶子节点到 flat_inits
+void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits) {
+    if (!node) return;
     if (node->singleInitVal) {
-        Value *val = visitExpression(node->singleInitVal);
-        createStore(val, targetPtr);
-    } else if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
-        for (size_t i = 0; i < node->multiInitVal.size(); ++i) {
-            std::vector<Value *> indices;
-            indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-            indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
-            auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, indices, getNextTempName());
-            Value *elemPtr = gepInst.get();
-            currentBlock->addInstruction(std::move(gepInst));
-            visitInitExpr(node->multiInitVal[i], arrayType->ElementType, elemPtr);
+        flat_inits.push_back(node);
+    } else {
+        for (auto& child : node->multiInitVal) {
+            flattenInitList(child, flat_inits);
+        }
+    }
+}
+
+void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx) {
+    if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
+        int dim = arrayType->getNumElements();
+        Type *elemType = arrayType->ElementType;
+        for (int i = 0; i < dim; ++i) {
+            indices.push_back(i);
+            visitInitExprImpl(elemType, targetPtr, indices, flat_inits, flat_idx);
+            indices.pop_back();
         }
     } else {
-        throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
+        // 到达最底层元素
+        std::vector<Value *> gep_indices;
+        gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        for (int idx : indices) {
+            gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
+        }
+        auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, gep_indices, getNextTempName());
+        Value *elemPtr = gepInst.get();
+        currentBlock->addInstruction(std::move(gepInst));
+        Value *val;
+        if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) {
+            val = visitExpression(flat_inits[flat_idx]->singleInitVal);
+        } else {
+            val = new ConstantInt(IntegerType::getInstance(), 0);
+        }
+        ++flat_idx;
+        createStore(val, elemPtr);
     }
 }
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
