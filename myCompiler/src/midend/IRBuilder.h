@@ -77,7 +77,8 @@ namespace ir_builder
         //辅助函数 用于支持嵌套和平铺赋值
         void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);//✔
         void visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx);//✔
-
+        // 常量数组求值
+        Constant *evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType);
         // 编译时常量表达式求值
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);
 

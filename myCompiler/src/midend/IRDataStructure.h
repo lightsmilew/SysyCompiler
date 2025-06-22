@@ -269,7 +269,25 @@ public:
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
     string toString() const override { return to_string(Value); }
 };
+class ConstantArray : public Constant
+{
+public:
+    std::vector<Constant*> Elements;
 
+    ConstantArray(ArrayType *ty, const std::vector<Constant*> &elements)
+        : Constant(ty), Elements(elements) {}
+
+    string toString() const override
+    {
+        std::string s = "[";
+        for (size_t i = 0; i < Elements.size(); ++i) {
+            if (i > 0) s += ", ";
+            s += Elements[i] ? Elements[i]->toString() : "undef";
+        }
+        s += "]";
+        return s;
+    }
+};
 class GlobalVariable : public Value
 {
 public:
