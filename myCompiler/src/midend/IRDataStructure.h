@@ -115,6 +115,7 @@ public:
 
     ArrayType(Type *elemTy, unsigned numElements)
         : Type(ArrayTyID), ElementType(elemTy), NumElements(numElements) {}
+    unsigned getNumElements() const { return NumElements; }
     string toString() const override
     {
         return "[" + to_string(NumElements) + " x " + ElementType->toString() + "]";
