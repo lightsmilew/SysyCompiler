@@ -1,7 +1,49 @@
-Semantic errors found:
-Const variable 'a' must be initialized with a constant expression
-Cannot modify const variable 'a'
-Const variable 'b' must be initialized with a constant expression
-Cannot modify const variable 'b'
-Const variable 'arr' must be initialized with a constant expression
-Cannot modify const variable 'arr'
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: const a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 20
+      DeclStmtNode: const b : float = InitExprNode: FloatLiteralExprNode: 3.140000
+
+      AssignStmtNode
+        LValueExprNode: b
+        FloatLiteralExprNode: 2.710000
+      DeclStmtNode: const arr : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+
+      AssignStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 0
+        IntegerLiteralExprNode: 5
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0
+; ModuleID = 'main_module'
+
+define i32 @main() {
+entry:
+  %a = alloca i32
+  store i32 10, i32* %a
+  store i32 20, i32* %a
+  %b = alloca float
+  store float 3.140000, float* %b
+  store float 2.710000, float* %b
+  %arr = alloca [3 x i32]
+  %t0 = alloca [3 x i32]
+  %t1 = getelementptr [3 x i32], [3 x i32]* %t0, i32 0, i32 0
+  store i32 1, i32* %t1
+  %t2 = getelementptr [3 x i32], [3 x i32]* %t0, i32 0, i32 1
+  store i32 2, i32* %t2
+  %t3 = getelementptr [3 x i32], [3 x i32]* %t0, i32 0, i32 2
+  store i32 3, i32* %t3
+  store [3 x i32]* %t0, [3 x i32]* %arr
+  %t4 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0
+  store i32 5, i32* %t4
+  ret i32 0
+}
+
+

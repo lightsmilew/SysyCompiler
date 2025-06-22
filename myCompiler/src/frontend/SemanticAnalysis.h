@@ -124,8 +124,6 @@ public:
         return errors.empty();
     }
     vector<string> getErrors() const { return errors; }
-    // 获取语义分析器
-    SemanticAnalyzer &getAnalyzer() { return analyzer; }
 private:
     void visitCompUnitForCheck(shared_ptr<CompUnitNode> node);
     void visitFuncNode(shared_ptr<FuncNode> node);

@@ -165,8 +165,13 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 
         if (node->initializer)
         {
-            Value *initValue = visitInitExpr(node->initializer, varType);
-            createStore(initValue, alloca);
+            if (varType->isArrayTy()) {
+                // 直接初始化 alloca 指向的空间
+                visitInitExpr(node->initializer, varType, alloca);
+            } else {
+                Value *initValue = visitInitExpr(node->initializer, varType);
+                createStore(initValue, alloca);
+            }
         }
     }
 }
@@ -256,7 +261,7 @@ void IRBuilder::visitBreakStmt(std::shared_ptr<ast::BreakStmtNode> node)
 {
     if (loopStack.empty())
     {
-        throw std::runtime_error("Break statement outside of loop");
+        throw std::runtime_error("Break statement outside of loop,line: " + std::to_string(node->line));
     }
     createBranch(loopStack.top().breakBlock);
 }
@@ -265,7 +270,7 @@ void IRBuilder::visitContinueStmt(std::shared_ptr<ast::ContinueStmtNode> node)
 {
     if (loopStack.empty())
     {
-        throw std::runtime_error("Continue statement outside of loop");
+        throw std::runtime_error("Continue statement outside of loop,line: " + std::to_string(node->line));
     }
     createBranch(loopStack.top().continueBlock);
 }
@@ -321,7 +326,7 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
         return visitStringLiteralExpr(stringLiteral);
     }
 
-    throw std::runtime_error("Unknown expression type");
+    throw std::runtime_error("Unknown expression type ,line: " + std::to_string(node->line));
 }
 
 Value *IRBuilder::visitBinaryExpr(std::shared_ptr<ast::BinaryExprNode> node)
@@ -423,7 +428,7 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         return phi;
     }
 
-    throw std::runtime_error("Invalid logical operator");
+    throw std::runtime_error("Invalid logical operator,line: " + std::to_string(node->line));
 }
 
 Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
@@ -437,7 +442,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     auto it = varToValue.find(node->identifier);
     if (it == varToValue.end())
     {
-        throw std::runtime_error("Undefined variable: " + node->identifier);
+        throw std::runtime_error("Undefined variable: " + node->identifier+",line:"+ std::to_string(node->line));
     }
 
     Value *ptr = it->second;
@@ -472,7 +477,7 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
     Function *func = module->getFunction(node->callee);
     if (!func)
     {
-        throw std::runtime_error("Undefined function: " + node->callee);
+        throw std::runtime_error("Undefined function: " + node->callee+",line:"+ std::to_string(node->line));
     }
 
     std::vector<Value *> args;
@@ -504,7 +509,7 @@ Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprN
 {
     // 字符串字面量需要创建全局数组
     // 这里简化处理，实际实现需要更复杂的逻辑
-    throw std::runtime_error("String literals not yet implemented");
+    throw std::runtime_error("String literals not yet implemented,line:"+ std::to_string(node->line));
 }
 
 Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
@@ -543,10 +548,29 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
     }
     else
     {
-        throw std::runtime_error("Array initialization: targetType is not array");
+        throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
     }
 }
-
+// 新增重载
+void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr)
+{
+    if (node->singleInitVal) {
+        Value *val = visitExpression(node->singleInitVal);
+        createStore(val, targetPtr);
+    } else if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
+        for (size_t i = 0; i < node->multiInitVal.size(); ++i) {
+            std::vector<Value *> indices;
+            indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+            indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
+            auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, indices, getNextTempName());
+            Value *elemPtr = gepInst.get();
+            currentBlock->addInstruction(std::move(gepInst));
+            visitInitExpr(node->multiInitVal[i], arrayType->ElementType, elemPtr);
+        }
+    } else {
+        throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
+    }
+}
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node))
@@ -558,7 +582,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         return new ConstantFloat(FloatType::getInstance(), floatLiteral->value);
     }
 
-    throw std::runtime_error("Non-constant expression in constant context");
+    throw std::runtime_error("Non-constant expression in constant context ,line: " + std::to_string(node->line));
 }
 
 // ===== 基本块管理 =====
@@ -836,7 +860,7 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
     case PrimaryDataType::VOID:
         return VoidType::getInstance();
     default:
-        throw std::runtime_error("Unsupported type");
+        throw std::runtime_error("Unsupported type " );
     }
 }
 

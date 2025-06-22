@@ -1,0 +1,75 @@
+CompUnitNode
+  Function
+    int func(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a + LValueExprNode: b
+          LValueExprNode: a
+          LValueExprNode: b
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: x : int = InitExprNode: IntegerLiteralExprNode: 5
+
+      DeclStmtNode: y : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      DeclStmtNode: result : int = InitExprNode: CallExprNode: func(LValueExprNode: x, LValueExprNode: y)
+
+      DeclStmtNode: b : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+
+      AssignStmtNode
+        LValueExprNode: b
+          IntegerLiteralExprNode: 1
+        IntegerLiteralExprNode: 4
+      DeclStmtNode: c : int = InitExprNode: LValueExprNode: b
+
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0
+; ModuleID = 'main_module'
+
+define i32 @func(i32 %a, i32 %b) {
+entry:
+  %a = alloca i32
+  store i32 %a, i32* %a
+  %b = alloca i32
+  store i32 %b, i32* %b
+  %t0 = load i32, i32* %a
+  %t1 = load i32, i32* %b
+  %t2 = add i32 %t0, %t1
+  ret i32 %t2
+}
+
+define i32 @main() {
+entry:
+  %x = alloca i32
+  store i32 5, i32* %x
+  %y = alloca i32
+  store i32 10, i32* %y
+  %result = alloca i32
+  %t3 = load i32, i32* %x
+  %t4 = load i32, i32* %y
+  %t5 = call i32 @func(i32 %t3, i32 %t4)
+  store i32 %t5, i32* %result
+  %b = alloca [3 x i32]
+  %t6 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 0
+  store i32 1, i32* %t6
+  %t7 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 1
+  store i32 2, i32* %t7
+  %t8 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 2
+  store i32 3, i32* %t8
+  %t9 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 1
+  store i32 4, i32* %t9
+  %c = alloca i32
+  %t10 = getelementptr [3 x i32], [3 x i32]* %b, i32 0, i32 1
+  %t11 = load i32, i32* %t10
+  store i32 %t11, i32* %c
+  ret i32 0
+}
+
+

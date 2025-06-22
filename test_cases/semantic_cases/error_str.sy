@@ -1,11 +1,5 @@
-int func(char* str) {
-    // 错误：不支持的类型string
-    str[0] = 'h'; 
-    return 0; // 返回0表示成功
-}
-
 int main(){
-    func("Hello, World!"); 
+    putf("Hello, World!"); 
     string a = "Hello, World!"; // 错误：不支持的类型string
 
     return 0; // 返回0表示程序成功执行

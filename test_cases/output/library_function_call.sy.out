@@ -1,2 +1,22 @@
-Semantic errors found:
-Initializer type does not match variable type for 'arr2' initType:0 declType:1 arrayDim:1
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: CallExprNode: getint()
+
+      DeclStmtNode: b : int = InitExprNode: CallExprNode: getch()
+
+      DeclStmtNode: c : float = InitExprNode: CallExprNode: getfloat()
+
+      DeclStmtNode: arr1 : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+
+      DeclStmtNode: arr2 : float[3] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000, InitExprNode: FloatLiteralExprNode: 3.300000}
+
+      DeclStmtNode: d : int = InitExprNode: CallExprNode: getarray(LValueExprNode: arr1)
+
+      DeclStmtNode: e : int = InitExprNode: CallExprNode: getfarray(LValueExprNode: arr2)
+
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Undefined function: getint,line:0

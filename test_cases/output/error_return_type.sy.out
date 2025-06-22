@@ -1,4 +1,52 @@
-Semantic errors found:
-Return type mismatch with function 'testVoid1'
-Return type mismatch with function 'testVoid2'
-Function 'testInt' must return a value
+CompUnitNode
+  Function
+    void testVoid1(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 5
+  Function
+    void testVoid2(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      ReturnStmtNode
+        LValueExprNode: a
+  Function
+    int testInt(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    float testFloat(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      IfElseStmtNode
+        BinaryExprNode: LValueExprNode: a > IntegerLiteralExprNode: 5
+          LValueExprNode: a
+          IntegerLiteralExprNode: 5
+        BlockStmtNode
+          ReturnStmtNode
+            FloatLiteralExprNode: 3.140000
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ExprStmtNode
+        CallExprNode: testVoid1()
+      ExprStmtNode
+        CallExprNode: testVoid2()
+      DeclStmtNode: a : int = InitExprNode: CallExprNode: testInt()
+
+      DeclStmtNode: b : float = InitExprNode: CallExprNode: testFloat()
+
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Unsupported type conversion

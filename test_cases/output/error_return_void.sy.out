@@ -1,2 +1,14 @@
-Semantic errors found:
-Return type mismatch with function 'func'
+CompUnitNode
+  Function
+    void func(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 2
+  Function
+    int main(
+      Parameters:
+    )
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Unsupported type conversion

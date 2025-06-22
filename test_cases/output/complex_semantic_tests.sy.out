@@ -1,19 +1,318 @@
-Semantic errors found:
-Global variable 'globalVar' must be initialized with a constant expression
-Global variable 'BASE' must be initialized with a constant expression
-Const variable 'BASE' must be initialized with a constant expression
-Global variable 'MULTIPLIER' must be initialized with a constant expression
-Const variable 'MULTIPLIER' must be initialized with a constant expression
-Global variable 'COMPLEX_CONST' must be initialized with a constant expression
-Const variable 'COMPLEX_CONST' must be initialized with a constant expression
-Global variable 'PI' must be initialized with a constant expression
-Const variable 'PI' must be initialized with a constant expression
-Global variable 'AREA' must be initialized with a constant expression
-Const variable 'AREA' must be initialized with a constant expression
-Initializer type does not match variable type for 'matrix' initType:0 declType:0 arrayDim:2
-Const variable 'local1' must be initialized with a constant expression
-Const variable 'local2' must be initialized with a constant expression
-Initializer type does not match variable type for 'matrix' initType:0 declType:1 arrayDim:2
-Const variable 'constArr' must be initialized with a constant expression
-Initializer type does not match variable type for 'constMatrix' initType:0 declType:1 arrayDim:2
-Const variable 'constMatrix' must be initialized with a constant expression
+CompUnitNode
+  DeclStmtNode: globalVar : int = InitExprNode: IntegerLiteralExprNode: 100
+
+  DeclStmtNode: const BASE : int = InitExprNode: IntegerLiteralExprNode: 10
+
+  DeclStmtNode: const MULTIPLIER : int = InitExprNode: IntegerLiteralExprNode: 3
+
+  DeclStmtNode: const COMPLEX_CONST : int = InitExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: BASE * LValueExprNode: MULTIPLIER + IntegerLiteralExprNode: 5
+
+  DeclStmtNode: const PI : float = InitExprNode: FloatLiteralExprNode: 3.141590
+
+  DeclStmtNode: const AREA : float = InitExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: PI * FloatLiteralExprNode: 2.000000 * FloatLiteralExprNode: 2.000000
+
+  Function
+    int complexScopeTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      BlockStmtNode
+        DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 2
+
+        BlockStmtNode
+          DeclStmtNode: c : int = InitExprNode: IntegerLiteralExprNode: 3
+
+          BlockStmtNode
+            DeclStmtNode: d : int = InitExprNode: IntegerLiteralExprNode: 4
+
+            DeclStmtNode: sum : int = InitExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d
+
+          DeclStmtNode: sum2 : int = InitExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: a + LValueExprNode: b + LValueExprNode: c
+
+        DeclStmtNode: sum3 : int = InitExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: a + LValueExprNode: b
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: a
+          LValueExprNode: globalVar
+          LValueExprNode: a
+  Function
+    float complexArrayTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: matrix : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+
+      DeclStmtNode: result : float[2][3]
+      AssignStmtNode
+        LValueExprNode: result
+          IntegerLiteralExprNode: 0
+          IntegerLiteralExprNode: 0
+        LValueExprNode: matrix
+          IntegerLiteralExprNode: 0
+          IntegerLiteralExprNode: 0
+      AssignStmtNode
+        LValueExprNode: result
+          IntegerLiteralExprNode: 0
+          IntegerLiteralExprNode: 1
+        BinaryExprNode: LValueExprNode: matrix + FloatLiteralExprNode: 1.500000
+          LValueExprNode: matrix
+            IntegerLiteralExprNode: 0
+            IntegerLiteralExprNode: 1
+          FloatLiteralExprNode: 1.500000
+      AssignStmtNode
+        LValueExprNode: result
+          IntegerLiteralExprNode: 1
+          IntegerLiteralExprNode: 2
+        BinaryExprNode: LValueExprNode: matrix * FloatLiteralExprNode: 2.000000
+          LValueExprNode: matrix
+            IntegerLiteralExprNode: 1
+            IntegerLiteralExprNode: 2
+          FloatLiteralExprNode: 2.000000
+      ReturnStmtNode
+        BinaryExprNode: BinaryExprNode: LValueExprNode: result + LValueExprNode: result + LValueExprNode: result
+          BinaryExprNode: LValueExprNode: result + LValueExprNode: result
+            LValueExprNode: result
+              IntegerLiteralExprNode: 0
+              IntegerLiteralExprNode: 0
+            LValueExprNode: result
+              IntegerLiteralExprNode: 0
+              IntegerLiteralExprNode: 1
+          LValueExprNode: result
+            IntegerLiteralExprNode: 1
+            IntegerLiteralExprNode: 2
+  Function
+    int level3Function(
+      Parameters:
+        DeclStmtNode: x : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: x * IntegerLiteralExprNode: 3
+          LValueExprNode: x
+          IntegerLiteralExprNode: 3
+  Function
+    float level2Function(
+      Parameters:
+        DeclStmtNode: a : int
+        DeclStmtNode: b : float
+    )
+    BlockStmtNode
+      DeclStmtNode: temp : int = InitExprNode: CallExprNode: level3Function(LValueExprNode: a)
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: temp + LValueExprNode: b
+          LValueExprNode: temp
+          LValueExprNode: b
+  Function
+    int level1Function(
+      Parameters:
+        DeclStmtNode: p : int
+        DeclStmtNode: q : int
+    )
+    BlockStmtNode
+      DeclStmtNode: temp : float = InitExprNode: CallExprNode: level2Function(LValueExprNode: p, FloatLiteralExprNode: 2.500000)
+
+      DeclStmtNode: result : int = InitExprNode: CallExprNode: level3Function(LValueExprNode: q)
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: temp + LValueExprNode: result
+          LValueExprNode: temp
+          LValueExprNode: result
+  Function
+    int complexConstTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: const local1 : int = InitExprNode: BinaryExprNode: LValueExprNode: COMPLEX_CONST + IntegerLiteralExprNode: 10
+
+      DeclStmtNode: const local2 : float = InitExprNode: BinaryExprNode: LValueExprNode: AREA + FloatLiteralExprNode: 1.000000
+
+      DeclStmtNode: array : int[1]
+      AssignStmtNode
+        LValueExprNode: array
+          IntegerLiteralExprNode: 0
+        LValueExprNode: local1
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: array + LValueExprNode: local2
+          LValueExprNode: array
+            IntegerLiteralExprNode: 0
+          LValueExprNode: local2
+  Function
+    int processVector(
+      Parameters:
+        DeclStmtNode: vec : int[-1]
+        DeclStmtNode: size : int
+    )
+    BlockStmtNode
+      DeclStmtNode: sum : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < LValueExprNode: size
+          LValueExprNode: i
+          LValueExprNode: size
+        BlockStmtNode
+          AssignStmtNode
+            LValueExprNode: sum
+            BinaryExprNode: LValueExprNode: sum + LValueExprNode: vec
+              LValueExprNode: sum
+              LValueExprNode: vec
+                LValueExprNode: i
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: sum
+  Function
+    float processMatrix(
+      Parameters:
+        DeclStmtNode: mat : float[-1][3]
+        DeclStmtNode: rows : int
+    )
+    BlockStmtNode
+      DeclStmtNode: sum : float = InitExprNode: FloatLiteralExprNode: 0.000000
+
+      DeclStmtNode: i : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      WhileStmtNode
+        BinaryExprNode: LValueExprNode: i < LValueExprNode: rows
+          LValueExprNode: i
+          LValueExprNode: rows
+        BlockStmtNode
+          DeclStmtNode: j : int = InitExprNode: IntegerLiteralExprNode: 0
+
+          WhileStmtNode
+            BinaryExprNode: LValueExprNode: j < IntegerLiteralExprNode: 3
+              LValueExprNode: j
+              IntegerLiteralExprNode: 3
+            BlockStmtNode
+              AssignStmtNode
+                LValueExprNode: sum
+                BinaryExprNode: LValueExprNode: sum + LValueExprNode: mat
+                  LValueExprNode: sum
+                  LValueExprNode: mat
+                    LValueExprNode: i
+                    LValueExprNode: j
+              AssignStmtNode
+                LValueExprNode: j
+                BinaryExprNode: LValueExprNode: j + IntegerLiteralExprNode: 1
+                  LValueExprNode: j
+                  IntegerLiteralExprNode: 1
+          AssignStmtNode
+            LValueExprNode: i
+            BinaryExprNode: LValueExprNode: i + IntegerLiteralExprNode: 1
+              LValueExprNode: i
+              IntegerLiteralExprNode: 1
+      ReturnStmtNode
+        LValueExprNode: sum
+  Function
+    int complexParameterTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: vector : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+
+      DeclStmtNode: matrix : float[2][3] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.000000, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: FloatLiteralExprNode: 3.000000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 4.000000, InitExprNode: FloatLiteralExprNode: 5.000000, InitExprNode: FloatLiteralExprNode: 6.000000}}
+
+      DeclStmtNode: vectorSum : int = InitExprNode: CallExprNode: processVector(LValueExprNode: vector, IntegerLiteralExprNode: 5)
+
+      DeclStmtNode: matrixSum : float = InitExprNode: CallExprNode: processMatrix(LValueExprNode: matrix, IntegerLiteralExprNode: 2)
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: vectorSum + LValueExprNode: matrixSum
+          LValueExprNode: vectorSum
+          LValueExprNode: matrixSum
+  Function
+    float complexExpressionTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 20
+
+      DeclStmtNode: c : int = InitExprNode: IntegerLiteralExprNode: 30
+
+      DeclStmtNode: x : float = InitExprNode: FloatLiteralExprNode: 1.500000
+
+      DeclStmtNode: y : float = InitExprNode: FloatLiteralExprNode: 2.500000
+
+      DeclStmtNode: z : float = InitExprNode: FloatLiteralExprNode: 3.500000
+
+      DeclStmtNode: result1 : float = InitExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + BinaryExprNode: LValueExprNode: x * LValueExprNode: b - BinaryExprNode: LValueExprNode: c / FloatLiteralExprNode: 4.000000
+
+      DeclStmtNode: result2 : float = InitExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b * LValueExprNode: x + LValueExprNode: y - LValueExprNode: z
+
+      DeclStmtNode: result3 : float = InitExprNode: BinaryExprNode: BinaryExprNode: UnaryExprNode: -LValueExprNode: a + UnaryExprNode: +LValueExprNode: b - UnaryExprNode: -LValueExprNode: c
+
+      ReturnStmtNode
+        BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3
+          BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2
+            LValueExprNode: result1
+            LValueExprNode: result2
+          LValueExprNode: result3
+  Function
+    int boundaryTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: minArray : int[1]
+      AssignStmtNode
+        LValueExprNode: minArray
+          IntegerLiteralExprNode: 0
+        IntegerLiteralExprNode: 42
+      DeclStmtNode: cube : int[2][2][2]
+      AssignStmtNode
+        LValueExprNode: cube
+          IntegerLiteralExprNode: 0
+          IntegerLiteralExprNode: 0
+          IntegerLiteralExprNode: 0
+        IntegerLiteralExprNode: 1
+      AssignStmtNode
+        LValueExprNode: cube
+          IntegerLiteralExprNode: 1
+          IntegerLiteralExprNode: 1
+          IntegerLiteralExprNode: 1
+        IntegerLiteralExprNode: 8
+      DeclStmtNode: index1 : int = InitExprNode: IntegerLiteralExprNode: 0
+
+      DeclStmtNode: index2 : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: value : int = InitExprNode: BinaryExprNode: LValueExprNode: cube + LValueExprNode: cube
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: minArray + LValueExprNode: value
+          LValueExprNode: minArray
+            IntegerLiteralExprNode: 0
+          LValueExprNode: value
+  Function
+    int constArrayTest(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: const constArr : int[4] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 10, InitExprNode: IntegerLiteralExprNode: 20, InitExprNode: IntegerLiteralExprNode: 30, InitExprNode: IntegerLiteralExprNode: 40}
+
+      DeclStmtNode: const constMatrix : float[2][2] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 3.300000, InitExprNode: FloatLiteralExprNode: 4.400000}}
+
+      DeclStmtNode: sum1 : float = InitExprNode: BinaryExprNode: LValueExprNode: constArr + LValueExprNode: constArr
+
+      DeclStmtNode: sum2 : int = InitExprNode: BinaryExprNode: LValueExprNode: constMatrix + LValueExprNode: constMatrix
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: sum1 + LValueExprNode: sum2
+          LValueExprNode: sum1
+          LValueExprNode: sum2
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: result : int = InitExprNode: IntegerLiteralExprNode: 0
+
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Non-constant expression in constant context ,line: 0
