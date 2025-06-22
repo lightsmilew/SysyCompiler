@@ -18,7 +18,7 @@ namespace ir_builder
         // === 符号表管理 ===
         SemanticAnalyzer *semanticAnalyzer;                                   // 复用语义分析器的符号表
         std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射
-        std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈
+        std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
         struct LoopContext

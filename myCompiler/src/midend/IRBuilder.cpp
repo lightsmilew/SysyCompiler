@@ -154,7 +154,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         {
             initializer = evaluateConstantExpr(node->initializer->singleInitVal);
         }
-        GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->isConst);
+        GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
         varToValue[node->identifier] = globalVar;
     }
     else
@@ -513,10 +513,37 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
     {
         return visitExpression(node->singleInitVal);
     }
+    //处理数组初始化
+    else if (auto arrayType = dynamic_cast<ArrayType *>(targetType))
+    {
+        // 分配一块数组空间
+        Value *arrayAlloca = createAlloca(targetType);
+
+        // 遍历每个元素，递归初始化
+        for (size_t i = 0; i < node->multiInitVal.size(); ++i)
+        {
+            // 计算当前元素的 GEP
+            std::vector<Value *> indices;
+            indices.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 数组变量的第一个索引总是0
+            indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
+
+            // 递归初始化子元素
+            Value *elemValue = visitInitExpr(node->multiInitVal[i], arrayType->ElementType);
+
+            // 生成 GEP 指令
+            auto gepInst = std::make_unique<GetElementPtrInst>(arrayAlloca, indices, getNextTempName());
+            Value *elemPtr = gepInst.get();
+            currentBlock->addInstruction(std::move(gepInst));
+
+            // 存储元素值
+            createStore(elemValue, elemPtr);
+        }
+
+        return arrayAlloca;
+    }
     else
     {
-        // 数组初始化需要更复杂的处理
-        throw std::runtime_error("Array initialization not yet implemented");
+        throw std::runtime_error("Array initialization: targetType is not array");
     }
 }
 
@@ -786,6 +813,7 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         return FloatType::getInstance();
     case PrimaryDataType::VOID:
         return VoidType::getInstance();
+        //未支持string类型
     default:
         throw std::runtime_error("Unsupported type");
     }
