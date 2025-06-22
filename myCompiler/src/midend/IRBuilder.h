@@ -36,8 +36,8 @@ namespace ir_builder
 
     public:
         // === 构造与初始化 ===
-        IRBuilder(SemanticAnalyzer *analyzer, const std::string &moduleName = "main_module")
-            : semanticAnalyzer(analyzer), currentFunction(nullptr), currentBlock(nullptr),
+        IRBuilder( const std::string &moduleName = "main_module")
+            : currentFunction(nullptr), currentBlock(nullptr),
               tempVarCounter(0), labelCounter(0)
         {
             module = std::make_unique<Module>(moduleName);
@@ -73,6 +73,8 @@ namespace ir_builder
         Value *visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNode> node);
         Value *visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node);
         Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);
+        // 新增重载 处理数组初始化
+        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);
 
         // 编译时常量表达式求值
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);
