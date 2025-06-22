@@ -784,7 +784,7 @@ PHINode *IRBuilder::createPhi(Type *type, const std::string &name)
     return result;
 }
 
-// ===== 类型转换 =====
+// ===== 类型转换 ===== 修改该函数以支持int a[][10]这种情况，第一维度默认-1,此时退化为指针
 Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
 {
     switch (astType.baseType)
@@ -793,9 +793,21 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         if (astType.isArray())
         {
             Type *elemType = IntegerType::getInstance();
-            for (int i = astType.arraySizes().size() - 1; i >= 0; i--)
+            const auto &sizes = astType.arraySizes();
+            // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
+            int start = 0;
+            if (!sizes.empty() && sizes[0] == -1)
             {
-                elemType = new ArrayType(elemType, astType.arraySizes()[i]);
+                start = 1;
+            }
+            for (int i = sizes.size() - 1; i >= start; i--)
+            {
+                elemType = new ArrayType(elemType, sizes[i]);
+            }
+            // 如果第一维是-1，直接返回元素类型的指针类型（退化为指针）
+            if (!sizes.empty() && sizes[0] == -1)
+            {
+                return new PointerType(elemType);
             }
             return elemType;
         }
@@ -804,16 +816,25 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         if (astType.isArray())
         {
             Type *elemType = FloatType::getInstance();
-            for (int i = astType.arraySizes().size() - 1; i >= 0; i--)
+            const auto &sizes = astType.arraySizes();
+            int start = 0;
+            if (!sizes.empty() && sizes[0] == -1)
             {
-                elemType = new ArrayType(elemType, astType.arraySizes()[i]);
+                start = 1;
+            }
+            for (int i = sizes.size() - 1; i >= start; i--)
+            {
+                elemType = new ArrayType(elemType, sizes[i]);
+            }
+            if (!sizes.empty() && sizes[0] == -1)
+            {
+                return new PointerType(elemType);
             }
             return elemType;
         }
         return FloatType::getInstance();
     case PrimaryDataType::VOID:
         return VoidType::getInstance();
-        //未支持string类型
     default:
         throw std::runtime_error("Unsupported type");
     }
@@ -837,6 +858,7 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
     {
         castOp = Opcode::FPToSI;
     }
+    //
     else
     {
         throw std::runtime_error("Unsupported type conversion");
