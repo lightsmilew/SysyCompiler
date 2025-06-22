@@ -8,10 +8,12 @@
 #include "frontend/SemanticAnalysis.h"
 #include <fstream>
 #include <iostream>
+#include "midend/IRBuilder.h"
 
 using namespace antlr4;
 using namespace tree;
 using namespace std;
+using namespace ir_builder;
 
 int main(int argc, const char *argv[])
 {
@@ -41,7 +43,12 @@ int main(int argc, const char *argv[])
         }
         return 1; // 返回错误代码
     }
-
     ast_root->print(cout, 0);
+
+    //输出IR中间代码
+    IRBuilder irbuilder(&type_checker.getAnalyzer());
+    auto ir_module = irbuilder.buildModule(ast_root);
+    cout<<ir_module->toString() << endl;
+    
     return 0;
 }

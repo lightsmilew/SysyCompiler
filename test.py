@@ -22,7 +22,6 @@ def main():
     if not test_cases:
         print("No test cases found.")
         return
-
     for case in test_cases:
         print(f"Running test case: {case}")
         return_code = run_test_case(case)
