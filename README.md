@@ -47,7 +47,8 @@ python3 test.py
 ### 二. 语法分析
 1.isConst属性需要向上传递  
 2.visitConstDecl没有把const修饰的变量设置为常量表达式  
-3.constExpr如何处理 
+3.constExpr如何处理  
+4.exp和stmt的line设置有问题，无法用于debug  
 
 ### 三. 语义分析
 1.左值引用和表达式类型获取函数中对数组维度判断重复  
