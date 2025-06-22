@@ -1,0 +1,12 @@
+int func(int a, int b) {
+    return a + b;
+}
+int main() {
+    int x = 5;
+    int y = 10;
+    int result = func(x, y);
+    int b[3]={1, 2, 3};
+    b[1]=4;
+    int c = b[1]; // c应该是4
+    return 0; // 返回15
+}
