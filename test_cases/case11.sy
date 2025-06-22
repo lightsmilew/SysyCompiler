@@ -1,6 +1,0 @@
-int main() {
-    int a[9] = {1};
-
-	a[8] = 2;
-	return a[1];
-}

@@ -25,15 +25,5 @@ CompUnitNode
 
       DeclStmtNode: d : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      ExprStmtNode
-        CallExprNode: func(LValueExprNode: a, LValueExprNode: b, LValueExprNode: a, LValueExprNode: d)
-          LValueExprNode: a
-          LValueExprNode: b
-          LValueExprNode: a
-          LValueExprNode: d
-      ReturnStmtNode
-        CallExprNode: func(LValueExprNode: a, LValueExprNode: b, LValueExprNode: c, LValueExprNode: d)
-          LValueExprNode: a
-          LValueExprNode: b
-          LValueExprNode: c
-          LValueExprNode: d
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Unsupported type conversion

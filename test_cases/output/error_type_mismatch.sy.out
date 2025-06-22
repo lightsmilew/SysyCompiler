@@ -24,3 +24,29 @@ CompUnitNode
       DeclStmtNode: farr : float[3]
       ReturnStmtNode
         IntegerLiteralExprNode: 0
+; ModuleID = 'main_module'
+
+define void @acceptInt(i32 %x) {
+entry:
+  %x = alloca i32
+  store i32 %x, i32* %x
+  ret void
+}
+
+define void @acceptFloat(float %x) {
+entry:
+  %x = alloca float
+  store float %x, float* %x
+  ret void
+}
+
+define i32 @main() {
+entry:
+  %a = alloca float
+  store float 3.140000, float* %a
+  %arr = alloca [3 x i32]
+  %farr = alloca [3 x float]
+  ret i32 0
+}
+
+
