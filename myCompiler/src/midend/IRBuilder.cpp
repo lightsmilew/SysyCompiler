@@ -152,7 +152,14 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         Constant *initializer = nullptr;
         if (node->initializer)
         {
+            if (varType->isArrayTy()) 
+            {
+            initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+            } 
+            else 
+            {
             initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+            }
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
         varToValue[node->identifier] = globalVar;
@@ -469,6 +476,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         return result;
     }
 
+    // 无下标时直接返回指针（参数传递时由 visitCallExpr 处理退化）
     return ptr;
 }
 
@@ -479,12 +487,29 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
     {
         throw std::runtime_error("Undefined function: " + node->callee+",line:"+ std::to_string(node->line));
     }
-
     std::vector<Value *> args;
     for (size_t i = 0; i < node->args.size(); i++)
     {
         Value *arg = visitExpression(node->args[i]);
         Type *expectedType = func->getFunctionType()->ParamTypes[i];
+
+        // 多维数组退化：只要 expectedType 是指针，arg 是数组指针，且元素类型不一致，就递归GEP(0)
+        while (expectedType->isPointerTy() && arg->getType()->isPointerTy()) {
+            Type *argElemType = static_cast<PointerType*>(arg->getType())->ElementType;
+            Type *expElemType = static_cast<PointerType*>(expectedType)->ElementType;
+            if (argElemType->isArrayTy()) {
+                // 退化一维
+                std::vector<Value*> indices;
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+                auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
+                Value *result = gepInst.get();
+                currentBlock->addInstruction(std::move(gepInst));
+                arg = result;
+            } else {
+                break;
+            }
+        }
+
         if (arg->getType() != expectedType)
         {
             arg = createCast(arg, expectedType);
@@ -603,16 +628,83 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vecto
         createStore(val, elemPtr);
     }
 }
+Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
+    std::vector<Constant*> elements;
+    int dim = arrayType->getNumElements();
+    Type *elemType = arrayType->ElementType;
+    size_t i = 0;
+    for (; i < node->multiInitVal.size(); ++i) {
+        if (elemType->isArrayTy()) {
+            elements.push_back(evaluateConstantArray(node->multiInitVal[i], static_cast<ArrayType*>(elemType)));
+        } else {
+            elements.push_back(evaluateConstantExpr(node->multiInitVal[i]->singleInitVal));
+        }
+    }
+    // 补零
+    for (; i < dim; ++i) {
+        if (elemType->isArrayTy()) {
+            elements.push_back(evaluateConstantArray(nullptr, static_cast<ArrayType*>(elemType)));
+        } else if (elemType->isIntegerTy()) {
+            elements.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        } else if (elemType->isFloatTy()) {
+            elements.push_back(new ConstantFloat(FloatType::getInstance(), 0.0f));
+        }
+    }
+    return new ConstantArray(arrayType, elements);
+}
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
+    if (!node) 
+        throw std::runtime_error("Null expression in constant evaluation");
+
+    // 整型字面量
     if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node))
-    {
         return new ConstantInt(IntegerType::getInstance(), intLiteral->value);
-    }
-    else if (auto floatLiteral = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node))
-    {
+
+    // 浮点字面量
+    if (auto floatLiteral = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node))
         return new ConstantFloat(FloatType::getInstance(), floatLiteral->value);
+
+    // 常量二元表达式
+    if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
+        auto lhs = evaluateConstantExpr(binExpr->left);
+        auto rhs = evaluateConstantExpr(binExpr->right);
+        // 这里只处理 int/float 常量
+        if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy()) {
+            int l = static_cast<ConstantInt*>(lhs)->Value;
+            int r = static_cast<ConstantInt*>(rhs)->Value;
+            int res = 0;
+            switch (binExpr->op) {
+                case ast::BinaryOp::Add: res = l + r; break;
+                case ast::BinaryOp::Sub: res = l - r; break;
+                case ast::BinaryOp::Mul: res = l * r; break;
+                case ast::BinaryOp::Div: res = l / r; break;
+                case ast::BinaryOp::Mod: res = l % r; break;
+                default: throw std::runtime_error("Unsupported op in const int expr");
+            }
+            return new ConstantInt(IntegerType::getInstance(), res);
+        } else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy()) {
+            float l = lhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(lhs)->Value : static_cast<ConstantInt*>(lhs)->Value;
+            float r = rhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(rhs)->Value : static_cast<ConstantInt*>(rhs)->Value;
+            float res = 0;
+            switch (binExpr->op) {
+                case ast::BinaryOp::Add: res = l + r; break;
+                case ast::BinaryOp::Sub: res = l - r; break;
+                case ast::BinaryOp::Mul: res = l * r; break;
+                case ast::BinaryOp::Div: res = l / r; break;
+                default: throw std::runtime_error("Unsupported op in const float expr");
+            }
+            return new ConstantFloat(FloatType::getInstance(), res);
+        }
     }
+
+    // 常量变量引用（只允许 const 变量）
+    // if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
+    //     auto it = constVarToValue.find(lval->identifier);
+    //     if (it == constVarToValue.end())
+    //         throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier);
+    //     return it->second;
+    // }
 
     throw std::runtime_error("Non-constant expression in constant context ,line: " + std::to_string(node->line));
 }
@@ -904,7 +996,6 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
     {
         return value;
     }
-
     Opcode castOp;
     if (srcType->isIntegerTy() && targetType->isFloatTy())
     {
