@@ -53,18 +53,75 @@ CompUnitNode
     BlockStmtNode
       ReturnStmtNode
         IntegerLiteralExprNode: 0
-this is a function parameter array, first dimension is -1
-the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0]type1
-Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0] type1
-the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
-Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 1] type1
-Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
-this is a function parameter array, first dimension is -1
-the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
-Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] type1
-the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type5
-Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1] type1
-Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type1
-Visiting LValue Expression: LValueExprNode: arr1 type5
-terminate called after throwing an instance of 'std::runtime_error'
-  what():  Unsupported type conversion in creatcast:5 to 4
+; ModuleID = 'main_module'
+
+define i32 @processArray(i32* %arr) {
+entry:
+  %t0 = getelementptr i32, i32* %arr, i32 0
+  %t1 = load i32, i32* %t0
+  %t2 = getelementptr i32, i32* %arr, i32 1
+  %t3 = load i32, i32* %t2
+  %t4 = add i32 %t1, %t3
+  ret i32 %t4
+}
+
+define i32 @process2DArray([3 x i32]* %arr) {
+entry:
+  %t5 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0, i32 0
+  %t6 = load i32, i32* %t5
+  %t7 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0, i32 1
+  %t8 = load i32, i32* %t7
+  %t9 = add i32 %t6, %t8
+  ret i32 %t9
+}
+
+define i32 @testArrayAsParameter() {
+entry:
+  %arr1 = alloca [5 x i32]
+  %t10 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
+  store i32 1, i32* %t10
+  %t11 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
+  store i32 2, i32* %t11
+  %t12 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 2
+  store i32 3, i32* %t12
+  %t13 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
+  store i32 4, i32* %t13
+  %t14 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
+  store i32 5, i32* %t14
+  %matrix = alloca [2 x [3 x i32]]
+  %t15 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 0
+  store i32 1, i32* %t15
+  %t16 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 1
+  store i32 2, i32* %t16
+  %t17 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 2
+  store i32 3, i32* %t17
+  %t18 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 0
+  store i32 4, i32* %t18
+  %t19 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 1
+  store i32 5, i32* %t19
+  %t20 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 2
+  store i32 6, i32* %t20
+  %result1 = alloca i32
+  %t21 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
+  %t22 = call i32 @processArray(i32* %t21)
+  store i32 %t22, i32* %result1
+  %result2 = alloca i32
+  %t23 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0
+  %t24 = call i32 @process2DArray([3 x i32]* %t23)
+  store i32 %t24, i32* %result2
+  %result1 = alloca i32
+  store i32 1, i32* %result1
+  %result2 = alloca i32
+  store i32 1, i32* %result2
+  %t25 = load i32, i32* %result1
+  %t26 = load i32, i32* %result2
+  %t27 = add i32 %t25, %t26
+  ret i32 %t27
+}
+
+define i32 @main() {
+entry:
+  ret i32 0
+}
+
+

@@ -315,20 +315,26 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
     {   
         auto value = visitBinaryExpr(binaryExpr);
-        std::cout<<"Visiting Binary Expression: " << binaryExpr->toString() <<"type"+to_string(value->getType()->getTypeID())<< std::endl;
         return value;
     }
     else if (auto unaryExpr = std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
     {
         return visitUnaryExpr(unaryExpr);
     }
-    else if (auto lvalueExpr = std::dynamic_pointer_cast<ast::LValueExprNode>(node))
+    else if (auto lvalueExpr = std::dynamic_pointer_cast<ast::LValueExprNode>(node))    
     {
         Value *ptr = visitLValueExpr(lvalueExpr);
+         // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
+        Type *ptrType = ptr->getType();
+        if (ptrType->isPointerTy()) {
+            Type *elemType = static_cast<PointerType*>(ptrType)->ElementType;
+            if (elemType->isArrayTy()) 
+            {
+            return ptr;
+            }
+        }
         auto value = createLoad(ptr);
-        std::cout << "Visiting LValue Expression: " << lvalueExpr->toString() << " type" << to_string(value->getType()->getTypeID()) << std::endl;
         return value;
-
     }
     else if (auto callExpr = std::dynamic_pointer_cast<ast::CallExprNode>(node))
     {
@@ -478,7 +484,6 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         // 如果 ptr 是参数指针（如 int arr[]），不加0
         if (ptr->getType()->isPointerTy()) {
             Type *elemType = static_cast<PointerType*>(ptr->getType())->ElementType;
-            std::cout<<"the type of this point is: " << node->toString() <<"type"+to_string(elemType->getTypeID())<< std::endl;
             if (elemType->isArrayTy()) {
                 indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
             }
@@ -502,6 +507,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     // 如果是数组类型，自动退化为指针（GEP 0,0）
     if (ptr->getType()->isArrayTy()) {
         std::vector<Value *> indices;
+        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
         Value *result = gepInst.get();
@@ -529,9 +535,10 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
         while (expectedType->isPointerTy() && arg->getType()->isPointerTy()) {
             Type *argElemType = static_cast<PointerType*>(arg->getType())->ElementType;
             Type *expElemType = static_cast<PointerType*>(expectedType)->ElementType;
-            if (argElemType->isArrayTy()) {
+            if (argElemType->isArrayTy()&& !argElemType->isTypeEqual(argElemType, expElemType)) {
                 // 退化一维
                 std::vector<Value*> indices;
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
                 indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
                 auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
                 Value *result = gepInst.get();
@@ -541,8 +548,8 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
                 break;
             }
         }
-
-        if (arg->getType() != expectedType)
+        // 如果类型不匹配，进行类型转换 不能直接用！=，否则比较的是指针类型而不是元素类型
+        if (!expectedType->isTypeEqual(arg->getType(), expectedType)) 
         {
             arg = createCast(arg, expectedType);
         }
@@ -978,7 +985,6 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
             int start = 0;
             if (!sizes.empty() && sizes[0] == -1)
             {
-                std::cout<<"this is a function parameter array, first dimension is -1"<<std::endl;
                 start = 1;
             }
             for (int i = sizes.size() - 1; i >= start; i--)
@@ -1038,7 +1044,14 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
     {
         castOp = Opcode::FPToSI;
     }
-    //
+    else if (srcType->isPointerTy() && targetType->isPointerTy()) {
+        if (srcType->isTypeEqual(srcType, targetType)) 
+        {
+            return value; // 指针类型一致，直接返回
+        }
+        throw std::runtime_error("Unsupported pointer type cast");
+    }
+    // 不支持的类型转换
     else
     {
         throw std::runtime_error("Unsupported type conversion in creatcast:" + to_string(srcType->getTypeID()) + " to " + to_string(targetType->getTypeID()));
