@@ -82,6 +82,26 @@ void IRBuilder::initializeLibraryFunctions()
         module->addFunction(funcType, "stoptime");
     }
 }
+int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
+    // 这里假设所有的常量表达式都已经被计算为整数
+    if (auto intNode = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node)) {
+        return intNode->value;
+    } else if (auto floatNode = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node)) {
+        return static_cast<int>(floatNode->value); // 简化处理，将浮点数转换为整数
+    }
+    // else if(auto LvalueNode = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
+    //     // 如果是变量，查找符号表
+    //     auto it = varToValue.find(LvalueNode->identifier);
+    //     if (it != varToValue.end()) {
+    //         Value *value = it->second;
+    //         if (auto constValue = dynamic_cast<Constant *>(value)) {
+    //             return constValue->getIntValue(); // 假设 Constant 有 getIntValue 方法
+    //         }
+    //     }
+    //     throw std::runtime_error("Variable not found in symbol table: " + LvalueNode->identifier);
+    // }
+    throw std::runtime_error("Unsupported constant expression type");
+}
 // ===== 主入口：构建整个模块 =====
 std::unique_ptr<Module> IRBuilder::buildModule(std::shared_ptr<ast::CompUnitNode> compUnit)
 {
@@ -186,6 +206,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node)
     varToValue = varToValueStack.top();
     varToValueStack.pop();
 }
+//写一个获取expnode值的函数
 
 void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
 {
@@ -1118,16 +1139,16 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
             const auto &sizes = astType.arraySizes();
             // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
             int start = 0;
-            if (!sizes.empty() && sizes[0] == -1)
+            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
             {
                 start = 1;
             }
             for (int i = sizes.size() - 1; i >= start; i--)
             {
-                elemType = new ArrayType(elemType, sizes[i]);
+                elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
             }
             // 如果第一维是-1，直接返回元素类型的指针类型（退化为指针）
-            if (!sizes.empty() && sizes[0] == -1)
+            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
             {
                 return new PointerType(elemType);
             }
@@ -1140,15 +1161,15 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
             Type *elemType = FloatType::getInstance();
             const auto &sizes = astType.arraySizes();
             int start = 0;
-            if (!sizes.empty() && sizes[0] == -1)
+            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
             {
                 start = 1;
             }
             for (int i = sizes.size() - 1; i >= start; i--)
             {
-                elemType = new ArrayType(elemType, sizes[i]);
+                elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
             }
-            if (!sizes.empty() && sizes[0] == -1)
+            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
             {
                 return new PointerType(elemType);
             }
