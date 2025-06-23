@@ -40,8 +40,10 @@ namespace ir_builder
               tempVarCounter(0), labelCounter(0)
         {
             module = std::make_unique<Module>(moduleName);
+            initializeLibraryFunctions(); // 初始化库函数
         }
-
+        // === 初始化库函数 ===
+        void initializeLibraryFunctions();
         // === 主入口：构建整个模块 ===
         std::unique_ptr<Module> buildModule(std::shared_ptr<ast::CompUnitNode> compUnit);
 
