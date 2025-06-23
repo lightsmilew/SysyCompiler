@@ -363,13 +363,29 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
     {
         if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
         {
+            //获取到数组元素基本类型 即退化一维
             currentType = arrayType->ElementType;
         }
     }
-
+    // 最终返回指向当前类型的指针
     return PointerType::getInstance(currentType);
 }
+bool Type ::isTypeEqual(Type* a, Type* b) {
+    if (a == b) return true;
+    if (a->getTypeID() != b->getTypeID()) return false;
+    // 针对 ArrayType、PointerType 递归比较元素类型和长度
+    if (a->isArrayTy() && b->isArrayTy()) {
+        auto aa = static_cast<ArrayType*>(a);
+        auto bb = static_cast<ArrayType*>(b);
+        return aa->getNumElements() == bb->getNumElements() && isTypeEqual(aa->ElementType, bb->ElementType);
+    }
+    if (a->isPointerTy() && b->isPointerTy()) {
+        return isTypeEqual(static_cast<PointerType*>(a)->ElementType, static_cast<PointerType*>(b)->ElementType);
+    }
+    // 基本类型直接比较
 
+    return true;
+}
 std::string GetElementPtrInst::toString() const
 {
     std::stringstream ss;
@@ -497,12 +513,15 @@ std::string Module::toString() const
         ss << "\n";
     }
 
-    // Functions
-    for (const auto &func : Functions)
+    // Functions 从库函数后一项开始遍历，下标是13
+    for(int i=13; i < Functions.size(); ++i)
     {
-        ss << func->toString() << "\n";
+        ss << Functions[i]->toString() << "\n";
     }
-
+    // for (const auto &func : Functions)
+    // {
+    //     ss << func->toString() << "\n";
+    // }
     return ss.str();
 }
 

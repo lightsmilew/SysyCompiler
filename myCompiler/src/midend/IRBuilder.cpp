@@ -5,13 +5,89 @@
 using namespace ir_builder;
 using namespace ast;
 
+// ===== 库函数初始化函数 =====
+void IRBuilder::initializeLibraryFunctions()
+{
+    // int getint();
+    {
+        FunctionType *funcType = new FunctionType(IntegerType::getInstance(), {});
+        module->addFunction(funcType, "getint");
+    }
+    // int getch();
+    {
+        FunctionType *funcType = new FunctionType(IntegerType::getInstance(), {});
+        module->addFunction(funcType, "getch");
+    }
+    // float getfloat();
+    {
+        FunctionType *funcType = new FunctionType(FloatType::getInstance(), {});
+        module->addFunction(funcType, "getfloat");
+    }
+    // int getarray(int a[]);
+    {
+        std::vector<Type *> params = {new PointerType(IntegerType::getInstance())};
+        FunctionType *funcType = new FunctionType(IntegerType::getInstance(), params);
+        module->addFunction(funcType, "getarray");
+    }
+    // int getfarray(float a[]);
+    {
+        std::vector<Type *> params = {new PointerType(FloatType::getInstance())};
+        FunctionType *funcType = new FunctionType(IntegerType::getInstance(), params);
+        module->addFunction(funcType, "getfarray");
+    }
+    // void putint(int a);
+    {
+        std::vector<Type *> params = {IntegerType::getInstance()};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putint");
+    }
+    // void putch(int a);
+    {
+        std::vector<Type *> params = {IntegerType::getInstance()};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putch");
+    }
+    // void putfloat(float a);
+    {
+        std::vector<Type *> params = {FloatType::getInstance()};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putfloat");
+    }
+    // void putarray(int n, int a[]);
+    {
+        std::vector<Type *> params = {IntegerType::getInstance(), new PointerType(IntegerType::getInstance())};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putarray");
+    }
+    // void putfarray(int n, float a[]);
+    {
+        std::vector<Type *> params = {IntegerType::getInstance(), new PointerType(FloatType::getInstance())};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putfarray");
+    }
+    // void putf(string a); 这里假设 string 用 i8* 表示
+    {
+        std::vector<Type *> params = {StringType::getInstance()};
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putf");
+    }
+    // void starttime();
+    {
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), {});
+        module->addFunction(funcType, "starttime");
+    }
+    // void stoptime();
+    {
+        FunctionType *funcType = new FunctionType(VoidType::getInstance(), {});
+        module->addFunction(funcType, "stoptime");
+    }
+}
 // ===== 主入口：构建整个模块 =====
 std::unique_ptr<Module> IRBuilder::buildModule(std::shared_ptr<ast::CompUnitNode> compUnit)
 {
     visitCompUnit(compUnit);
     return std::move(module);
 }
-
 // ===== AST 节点访问实现 =====
 void IRBuilder::visitCompUnit(std::shared_ptr<ast::CompUnitNode> node)
 {
@@ -199,59 +275,129 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     BasicBlock *elseBlock = node->else_body ? createBasicBlock("if.else") : nullptr;
     BasicBlock *mergeBlock = createBasicBlock("if.end");
 
+    // 记录分支前变量状态
+    auto varToValueBefore = varToValue;
+
     // 条件跳转
     createCondBranch(condition, thenBlock, elseBlock ? elseBlock : mergeBlock);
 
     // then 分支
     setCurrentBlock(thenBlock);
     visitStatement(node->then_body);
+    auto varToValueThen = varToValue; // then分支后的变量状态
     if (!currentBlock->hasTerminator())
     {
         createBranch(mergeBlock);
     }
 
     // else 分支
+    std::unordered_map<std::string, Value *> varToValueElse = varToValueBefore;
     if (elseBlock)
     {
         setCurrentBlock(elseBlock);
+        varToValue = varToValueBefore; // else分支变量初始状态与if前一致
         visitStatement(node->else_body);
+        varToValueElse = varToValue; // else分支后的变量状态
         if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
     }
 
+    // 合流块
     setCurrentBlock(mergeBlock);
+
+    // 插入PHI，只为被赋值的变量插入
+    for (const auto &[name, valThen] : varToValueThen)
+    {
+        auto itElse = varToValueElse.find(name);
+        if (itElse != varToValueElse.end() && (valThen != itElse->second))
+        {
+            PHINode *phi = createPhi(valThen->getType(), getNextTempName());
+            phi->IncomingValues.push_back({valThen, thenBlock});
+            phi->IncomingValues.push_back({itElse->second, elseBlock ? elseBlock : mergeBlock});
+            varToValue[name] = phi;
+        }
+        else if (itElse != varToValueElse.end())
+        {
+            // 两分支一致，直接用任意一个
+            varToValue[name] = valThen;
+        }
+    }
+    // 处理只在else分支被赋值的变量
+    for (const auto &[name, valElse] : varToValueElse)
+    {
+        if (varToValueThen.find(name) == varToValueThen.end())
+        {
+            PHINode *phi = createPhi(valElse->getType(), getNextTempName());
+            phi->IncomingValues.push_back({varToValueBefore[name], thenBlock});
+            phi->IncomingValues.push_back({valElse, elseBlock ? elseBlock : mergeBlock});
+            varToValue[name] = phi;
+        }
+    }
 }
 
 void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
 {
+    // 1. 创建基本块
     BasicBlock *condBlock = createBasicBlock("while.cond");
     BasicBlock *bodyBlock = createBasicBlock("while.body");
     BasicBlock *exitBlock = createBasicBlock("while.end");
 
-    // 跳转到条件判断
+    // 2. 记录循环前变量SSA状态
+    auto varToValueBefore = varToValue;
+
+    // 3. 跳转到条件判断块
     createBranch(condBlock);
 
-    // 条件判断块
+    // 4. 设置当前块为条件判断块
     setCurrentBlock(condBlock);
+
+    // 5. 生成条件表达式的 IR
     Value *condition = visitExpression(node->condition);
     createCondBranch(condition, bodyBlock, exitBlock);
 
-    // 循环体
+    // 6. 进入循环体
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
+    auto varToValueBodyEntry = varToValue; // 进入循环体前的变量状态
     visitStatement(node->body);
     loopStack.pop();
 
+    // 7. 记录循环体后变量状态
+    auto varToValueAfter = varToValue;
+
+    // 8. 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
     {
         createBranch(condBlock);
     }
 
+    // 9. 回到 condBlock，插入 PHI，只为被赋值的变量插入
+    setCurrentBlock(condBlock); // 确保在 condBlock 插入
+    // 用于记录每个变量名对应的 PHI 节点指针，便于后续查找和管理
+    std::unordered_map<std::string, PHINode *> phiNodes;
+    for (const auto &[name, valueBefore] : varToValueBefore)
+    {
+        auto it = varToValueAfter.find(name);
+        // 只为循环体内被赋值的变量插入PHI
+        if (it != varToValueAfter.end() && it->second != valueBefore)
+        {
+            PHINode *phi = createPhi(valueBefore->getType(), getNextTempName());
+            // 循环前的输入
+            phi->IncomingValues.push_back({valueBefore, condBlock->Predecessors.front()});
+            // 循环体的输入
+            phi->IncomingValues.push_back({it->second, bodyBlock});
+            // 记录该变量的 PHI 节点
+            phiNodes[name] = phi;
+            // 更新 condBlock 作用域下该变量的 SSA 值为 PHI 节点，后续 IR 取变量都用 PHI
+            varToValue[name] = phi;
+        }
+    }
+
+    // 10. 设置当前块为循环结束块
     setCurrentBlock(exitBlock);
 }
-
 void IRBuilder::visitBreakStmt(std::shared_ptr<ast::BreakStmtNode> node)
 {
     if (loopStack.empty())
@@ -293,7 +439,8 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
     {
-        return visitBinaryExpr(binaryExpr);
+        auto value = visitBinaryExpr(binaryExpr);
+        return value;
     }
     else if (auto unaryExpr = std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
     {
@@ -302,7 +449,18 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
     else if (auto lvalueExpr = std::dynamic_pointer_cast<ast::LValueExprNode>(node))
     {
         Value *ptr = visitLValueExpr(lvalueExpr);
-        return createLoad(ptr);
+        // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
+        Type *ptrType = ptr->getType();
+        if (ptrType->isPointerTy())
+        {
+            Type *elemType = static_cast<PointerType *>(ptrType)->ElementType;
+            if (elemType->isArrayTy())
+            {
+                return ptr;
+            }
+        }
+        auto value = createLoad(ptr);
+        return value;
     }
     else if (auto callExpr = std::dynamic_pointer_cast<ast::CallExprNode>(node))
     {
@@ -446,7 +604,18 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     if (!node->indices.empty())
     {
         std::vector<Value *> indices;
-        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 第一个索引总是0
+
+        // 判断是否需要加第一个0
+        // 如果 ptr 是指向数组的指针（如 alloca 或全局变量），加0
+        // 如果 ptr 是参数指针（如 int arr[]），不加0
+        if (ptr->getType()->isPointerTy())
+        {
+            Type *elemType = static_cast<PointerType *>(ptr->getType())->ElementType;
+            if (elemType->isArrayTy())
+            {
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+            }
+        }
 
         for (auto &indexExpr : node->indices)
         {
@@ -463,7 +632,18 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         currentBlock->addInstruction(std::move(gepInst));
         return result;
     }
-
+    // 如果是数组类型，自动退化为指针（GEP 0,0）
+    if (ptr->getType()->isArrayTy())
+    {
+        std::vector<Value *> indices;
+        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
+        Value *result = gepInst.get();
+        currentBlock->addInstruction(std::move(gepInst));
+        return result;
+    }
+    // 无下标且不是数组，直接返回指针
     return ptr;
 }
 
@@ -480,7 +660,29 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
     {
         Value *arg = visitExpression(node->args[i]);
         Type *expectedType = func->getFunctionType()->ParamTypes[i];
-        if (arg->getType() != expectedType)
+        // 多维数组退化：只要 expectedType 是指针，arg 是数组指针，且元素类型不一致，就递归GEP(0)
+        while (expectedType->isPointerTy() && arg->getType()->isPointerTy())
+        {
+            Type *argElemType = static_cast<PointerType *>(arg->getType())->ElementType;
+            Type *expElemType = static_cast<PointerType *>(expectedType)->ElementType;
+            if (argElemType->isArrayTy() && !argElemType->isTypeEqual(argElemType, expElemType))
+            {
+                // 退化一维
+                std::vector<Value *> indices;
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+                auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
+                Value *result = gepInst.get();
+                currentBlock->addInstruction(std::move(gepInst));
+                arg = result;
+            }
+            else
+            {
+                break;
+            }
+        }
+        // 如果类型不匹配，进行类型转换 不能直接用！=，否则比较的是指针类型而不是元素类型
+        if (!expectedType->isTypeEqual(arg->getType(), expectedType))
         {
             arg = createCast(arg, expectedType);
         }
@@ -501,10 +703,8 @@ Value *IRBuilder::visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNod
 }
 
 Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node)
-{
-    // 字符串字面量需要创建全局数组
-    // 这里简化处理，实际实现需要更复杂的逻辑
-    throw std::runtime_error("String literals not yet implemented");
+{ // 假设字符串用 i8* 表示
+    return new ConstantString(StringType::getInstance(), node->value);
 }
 
 Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
@@ -766,7 +966,14 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         if (astType.isArray())
         {
             Type *elemType = IntegerType::getInstance();
-            for (int i = astType.arraySizes().size() - 1; i >= 0; i--)
+            const auto &sizes = astType.arraySizes();
+            // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
+            int start = 0;
+            if (!sizes.empty() && sizes[0] == -1)
+            {
+                start = 1;
+            }
+            for (int i = sizes.size() - 1; i >= start; i--)
             {
                 elemType = new ArrayType(elemType, astType.arraySizes()[i]);
             }
@@ -809,6 +1016,15 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
     {
         castOp = Opcode::FPToSI;
     }
+    else if (srcType->isPointerTy() && targetType->isPointerTy())
+    {
+        if (srcType->isTypeEqual(srcType, targetType))
+        {
+            return value; // 指针类型一致，直接返回
+        }
+        throw std::runtime_error("Unsupported pointer type cast");
+    }
+    // 不支持的类型转换
     else
     {
         throw std::runtime_error("Unsupported type conversion");
