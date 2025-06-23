@@ -10,9 +10,9 @@ CompUnitNode
 
       DeclStmtNode: c : float = InitExprNode: CallExprNode: getfloat()
 
-      DeclStmtNode: arr1 : int[0x55db593fde50] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: arr1 : int[0x560c857d5e50] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: arr2 : float[0x55db593fe120] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000, InitExprNode: FloatLiteralExprNode: 3.300000}
+      DeclStmtNode: arr2 : float[0x560c857d6120] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000, InitExprNode: FloatLiteralExprNode: 3.300000}
 
       DeclStmtNode: d : int = InitExprNode: CallExprNode: getarray(LValueExprNode: arr1)
 

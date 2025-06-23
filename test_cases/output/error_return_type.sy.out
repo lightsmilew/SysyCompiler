@@ -1,1 +1,3 @@
+Function 'testVoid1' should not return a value
+Function 'testVoid2' should not return a value
 Function 'testInt' must return a value
