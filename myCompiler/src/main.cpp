@@ -38,7 +38,7 @@ int main(int argc, const char *argv[])
         {
             cerr << error << endl;
         }
-        return 1; // 返回非零值表示有错误
+        return 1; // 返回错误代码
     }
 
     ast_root->print(cout, 0);
