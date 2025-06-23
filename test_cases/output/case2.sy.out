@@ -141,26 +141,26 @@ CompUnitNode
       DeclStmtNode: arr1 : int[5]
       DeclStmtNode: arr2 : int[3][4]
       AssignStmtNode
-        LValueExprNode: arr1
+        LValueExprNode: arr1[IntegerLiteralExprNode: 0]
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 10
       AssignStmtNode
-        LValueExprNode: arr1
+        LValueExprNode: arr1[IntegerLiteralExprNode: 4]
           IntegerLiteralExprNode: 4
         IntegerLiteralExprNode: 20
       AssignStmtNode
-        LValueExprNode: arr2
+        LValueExprNode: arr2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
           IntegerLiteralExprNode: 0
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 30
       AssignStmtNode
-        LValueExprNode: arr2
+        LValueExprNode: arr2[IntegerLiteralExprNode: 2, IntegerLiteralExprNode: 3]
           IntegerLiteralExprNode: 2
           IntegerLiteralExprNode: 3
         IntegerLiteralExprNode: 40
-      DeclStmtNode: value1 : int = InitExprNode: LValueExprNode: arr1
+      DeclStmtNode: value1 : int = InitExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 1]
 
-      DeclStmtNode: value2 : int = InitExprNode: LValueExprNode: arr2
+      DeclStmtNode: value2 : int = InitExprNode: LValueExprNode: arr2[IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2]
 
       ReturnStmtNode
         BinaryExprNode: LValueExprNode: value1 + LValueExprNode: value2
@@ -244,7 +244,7 @@ CompUnitNode
 
       DeclStmtNode: arr : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr
+      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0]
 
       ReturnStmtNode
         BinaryExprNode: LValueExprNode: b + LValueExprNode: c
@@ -300,13 +300,13 @@ CompUnitNode
       DeclStmtNode: arr2 : int[1]
       DeclStmtNode: arr3 : int[1]
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3
-          BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
-            LValueExprNode: arr1
+        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]
+          BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+            LValueExprNode: arr1[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-            LValueExprNode: arr2
+            LValueExprNode: arr2[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-          LValueExprNode: arr3
+          LValueExprNode: arr3[IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
   Function
     int testArrayInitialization(
@@ -324,20 +324,20 @@ CompUnitNode
       DeclStmtNode: matrix2 : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4}}
 
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3 + LValueExprNode: matrix1 + LValueExprNode: matrix2
-          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3 + LValueExprNode: matrix1
-            BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3
-              BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
-                LValueExprNode: arr1
+        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+            BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]
+              BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+                LValueExprNode: arr1[IntegerLiteralExprNode: 0]
                   IntegerLiteralExprNode: 0
-                LValueExprNode: arr2
+                LValueExprNode: arr2[IntegerLiteralExprNode: 0]
                   IntegerLiteralExprNode: 0
-              LValueExprNode: arr3
+              LValueExprNode: arr3[IntegerLiteralExprNode: 0]
                 IntegerLiteralExprNode: 0
-            LValueExprNode: matrix1
+            LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
               IntegerLiteralExprNode: 0
-          LValueExprNode: matrix2
+          LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
   Function
@@ -377,13 +377,13 @@ CompUnitNode
       DeclStmtNode: mixedArray : float[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: IntegerLiteralExprNode: 3}
 
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: intArray + LValueExprNode: floatArray + LValueExprNode: mixedArray
-          BinaryExprNode: LValueExprNode: intArray + LValueExprNode: floatArray
-            LValueExprNode: intArray
+        BinaryExprNode: BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0] + LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]
+          BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0]
+            LValueExprNode: intArray[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-            LValueExprNode: floatArray
+            LValueExprNode: floatArray[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-          LValueExprNode: mixedArray
+          LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
   Function
     int processArray(
@@ -392,10 +392,10 @@ CompUnitNode
     )
     BlockStmtNode
       ReturnStmtNode
-        BinaryExprNode: LValueExprNode: arr + LValueExprNode: arr
-          LValueExprNode: arr
+        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]
+          LValueExprNode: arr[IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
-          LValueExprNode: arr
+          LValueExprNode: arr[IntegerLiteralExprNode: 1]
             IntegerLiteralExprNode: 1
   Function
     int process2DArray(
@@ -404,11 +404,11 @@ CompUnitNode
     )
     BlockStmtNode
       ReturnStmtNode
-        BinaryExprNode: LValueExprNode: arr + LValueExprNode: arr
-          LValueExprNode: arr
+        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
+          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
-          LValueExprNode: arr
+          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 1
   Function
@@ -441,13 +441,13 @@ CompUnitNode
       DeclStmtNode: arr2 : int[1]
       DeclStmtNode: matrix : int[3][4]
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: matrix
-          BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
-            LValueExprNode: arr1
+        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+          BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+            LValueExprNode: arr1[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-            LValueExprNode: arr2
+            LValueExprNode: arr2[IntegerLiteralExprNode: 0]
               IntegerLiteralExprNode: 0
-          LValueExprNode: matrix
+          LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
   Function
@@ -460,12 +460,12 @@ CompUnitNode
       DeclStmtNode: floatVar : float
       AssignStmtNode
         LValueExprNode: floatVar
-        LValueExprNode: intArray
+        LValueExprNode: intArray[IntegerLiteralExprNode: 0]
           IntegerLiteralExprNode: 0
       AssignStmtNode
         LValueExprNode: floatVar
-        BinaryExprNode: LValueExprNode: intArray + FloatLiteralExprNode: 2.500000
-          LValueExprNode: intArray
+        BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 1] + FloatLiteralExprNode: 2.500000
+          LValueExprNode: intArray[IntegerLiteralExprNode: 1]
             IntegerLiteralExprNode: 1
           FloatLiteralExprNode: 2.500000
       ReturnStmtNode
@@ -477,5 +477,245 @@ CompUnitNode
     BlockStmtNode
       DeclStmtNode: result : int = InitExprNode: IntegerLiteralExprNode: 0
 
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testSymbolResolution()
+          LValueExprNode: result
+          CallExprNode: testSymbolResolution()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testTypeMatching()
+          LValueExprNode: result
+          CallExprNode: testTypeMatching()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testTypePromotion()
+          LValueExprNode: result
+          CallExprNode: testTypePromotion()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testConstCorrectness()
+          LValueExprNode: result
+          CallExprNode: testConstCorrectness()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayBounds()
+          LValueExprNode: result
+          CallExprNode: testArrayBounds()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testFunctionSignature()
+          LValueExprNode: result
+          CallExprNode: testFunctionSignature()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testScopeRules()
+          LValueExprNode: result
+          CallExprNode: testScopeRules()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testInitializationCheck()
+          LValueExprNode: result
+          CallExprNode: testInitializationCheck()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testExpressionRestrictions()
+          LValueExprNode: result
+          CallExprNode: testExpressionRestrictions()
+      ExprStmtNode
+        CallExprNode: testVoidReturn()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArraySizeConstant()
+          LValueExprNode: result
+          CallExprNode: testArraySizeConstant()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayInitialization()
+          LValueExprNode: result
+          CallExprNode: testArrayInitialization()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testConstantExpression()
+          LValueExprNode: result
+          CallExprNode: testConstantExpression()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayInitTypeMatch()
+          LValueExprNode: result
+          CallExprNode: testArrayInitTypeMatch()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayAsParameter()
+          LValueExprNode: result
+          CallExprNode: testArrayAsParameter()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayDimensions()
+          LValueExprNode: result
+          CallExprNode: testArrayDimensions()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: testArrayElementConversion()
+          LValueExprNode: result
+          CallExprNode: testArrayElementConversion()
+      ReturnStmtNode
+        LValueExprNode: result
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting LValue Expression: LValueExprNode: x type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: x * IntegerLiteralExprNode: 2type1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: c type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: x type1
+Visiting LValue Expression: LValueExprNode: x type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype2
+Visiting LValue Expression: LValueExprNode: b type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: b + LValueExprNode: atype2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a * LValueExprNode: btype2
+Visiting LValue Expression: LValueExprNode: b type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: b / LValueExprNode: atype2
+Visiting LValue Expression: LValueExprNode: result1 type2
+Visiting LValue Expression: LValueExprNode: result2 type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2type2
+Visiting LValue Expression: LValueExprNode: result3 type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3type2
+Visiting LValue Expression: LValueExprNode: result4 type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3 + LValueExprNode: result4type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: c type2
+Visiting LValue Expression: LValueExprNode: b type1
+the type of this point is: LValueExprNode: arr1[IntegerLiteralExprNode: 0]type5
+the type of this point is: LValueExprNode: arr1[IntegerLiteralExprNode: 4]type5
+the type of this point is: LValueExprNode: arr2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
+the type of this point is: LValueExprNode: arr2[IntegerLiteralExprNode: 2, IntegerLiteralExprNode: 3]type5
+the type of this point is: LValueExprNode: arr1[IntegerLiteralExprNode: 1]type5
+Visiting LValue Expression: LValueExprNode: arr1[IntegerLiteralExprNode: 1] type1
+the type of this point is: LValueExprNode: arr2[IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2]type5
+Visiting LValue Expression: LValueExprNode: arr2[IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2] type1
+Visiting LValue Expression: LValueExprNode: value1 type1
+Visiting LValue Expression: LValueExprNode: value2 type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: value1 + LValueExprNode: value2type1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: x type2
+Visiting LValue Expression: LValueExprNode: y type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: x * LValueExprNode: ytype2
+Visiting LValue Expression: LValueExprNode: z type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: x * LValueExprNode: y * LValueExprNode: ztype2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting LValue Expression: LValueExprNode: result1 type1
+Visiting LValue Expression: LValueExprNode: result2 type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2type2
+Visiting LValue Expression: LValueExprNode: result3 type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3type2
+Visiting LValue Expression: LValueExprNode: globalVar type1
+Visiting LValue Expression: LValueExprNode: localVar type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVartype1
+Visiting LValue Expression: LValueExprNode: blockVar type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVar + LValueExprNode: blockVartype1
+Visiting LValue Expression: LValueExprNode: globalVar type1
+Visiting LValue Expression: LValueExprNode: localVar type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVartype1
+Visiting LValue Expression: LValueExprNode: blockVar type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVar + LValueExprNode: blockVartype1
+Visiting LValue Expression: LValueExprNode: innerVar type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVar + LValueExprNode: blockVar + LValueExprNode: innerVartype1
+Visiting LValue Expression: LValueExprNode: globalVar type1
+Visiting LValue Expression: LValueExprNode: localVar type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: globalVar + LValueExprNode: localVartype1
+Visiting LValue Expression: LValueExprNode: a type1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0] type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting LValue Expression: LValueExprNode: c type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: b + LValueExprNode: ctype1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a * LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting LValue Expression: LValueExprNode: result1 type1
+Visiting LValue Expression: LValueExprNode: result2 type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2type1
+Visiting LValue Expression: LValueExprNode: result3 type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3type1
+Visiting LValue Expression: LValueExprNode: result4 type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2 + LValueExprNode: result3 + LValueExprNode: result4type1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a > IntegerLiteralExprNode: 5type3
+the type of this point is: LValueExprNode: arr1[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr1[IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr2[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr2[IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]type1
+the type of this point is: LValueExprNode: arr3[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr3[IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]type1
+the type of this point is: LValueExprNode: arr1[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr1[IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr2[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr2[IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]type1
+the type of this point is: LValueExprNode: arr3[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr3[IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]type1
+the type of this point is: LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type1
+the type of this point is: LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type1
+Visiting Binary Expression: BinaryExprNode: IntegerLiteralExprNode: 5 + IntegerLiteralExprNode: 3type1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: d type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: d * FloatLiteralExprNode: 2.000000type2
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: c type1
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: ctype1
+Visiting LValue Expression: LValueExprNode: d type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: dtype2
+Visiting LValue Expression: LValueExprNode: e type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d + LValueExprNode: etype2
+the type of this point is: LValueExprNode: intArray[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: intArray[IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: floatArray[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: floatArray[IntegerLiteralExprNode: 0] type2
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0]type2
+the type of this point is: LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: mixedArray[IntegerLiteralExprNode: 0] type2
+Visiting Binary Expression: BinaryExprNode: BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0] + LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]type2
+this is a function parameter array, first dimension is -1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0]type1
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 1] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
+this is a function parameter array, first dimension is -1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type5
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type1
+Visiting LValue Expression: LValueExprNode: arr1 type5
 terminate called after throwing an instance of 'std::runtime_error'
-  what():  Unsupported type conversion
+  what():  Unsupported type conversion in creatcast:5 to 4

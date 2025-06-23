@@ -42,10 +42,10 @@ CompUnitNode
       DeclStmtNode: b : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
       AssignStmtNode
-        LValueExprNode: b
+        LValueExprNode: b[IntegerLiteralExprNode: 1]
           IntegerLiteralExprNode: 1
         IntegerLiteralExprNode: 4
-      DeclStmtNode: tmp_b : int = InitExprNode: LValueExprNode: b
+      DeclStmtNode: tmp_b : int = InitExprNode: LValueExprNode: b[IntegerLiteralExprNode: 1]
 
       DeclStmtNode: c : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 5}, InitExprNode: IntegerLiteralExprNode: 6}
 
@@ -57,13 +57,27 @@ CompUnitNode
 
       DeclStmtNode: g : int[3]
       AssignStmtNode
-        LValueExprNode: g
+        LValueExprNode: g[IntegerLiteralExprNode: 0]
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 1
       DeclStmtNode: result : int = InitExprNode: BinaryExprNode: CallExprNode: func_add(LValueExprNode: x, LValueExprNode: y) * CallExprNode: func_sub(LValueExprNode: global_a, IntegerLiteralExprNode: 5)
 
       ReturnStmtNode
         IntegerLiteralExprNode: 0
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a + LValueExprNode: btype1
+Visiting LValue Expression: LValueExprNode: a type1
+Visiting LValue Expression: LValueExprNode: b type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: a - LValueExprNode: btype1
+the type of this point is: LValueExprNode: b[IntegerLiteralExprNode: 1]type5
+the type of this point is: LValueExprNode: b[IntegerLiteralExprNode: 1]type5
+Visiting LValue Expression: LValueExprNode: b[IntegerLiteralExprNode: 1] type1
+the type of this point is: LValueExprNode: g[IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: x type1
+Visiting LValue Expression: LValueExprNode: y type1
+Visiting LValue Expression: LValueExprNode: global_a type1
+Visiting Binary Expression: BinaryExprNode: CallExprNode: func_add(LValueExprNode: x, LValueExprNode: y) * CallExprNode: func_sub(LValueExprNode: global_a, IntegerLiteralExprNode: 5)type1
 ; ModuleID = 'main_module'
 
 @global_a = global i32 10

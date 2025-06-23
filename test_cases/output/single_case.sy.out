@@ -1,0 +1,70 @@
+CompUnitNode
+  Function
+    int processArray(
+      Parameters:
+        DeclStmtNode: arr : int[-1]
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]
+          LValueExprNode: arr[IntegerLiteralExprNode: 0]
+            IntegerLiteralExprNode: 0
+          LValueExprNode: arr[IntegerLiteralExprNode: 1]
+            IntegerLiteralExprNode: 1
+  Function
+    int process2DArray(
+      Parameters:
+        DeclStmtNode: arr : int[-1][3]
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
+          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+            IntegerLiteralExprNode: 0
+            IntegerLiteralExprNode: 0
+          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
+            IntegerLiteralExprNode: 0
+            IntegerLiteralExprNode: 1
+  Function
+    int testArrayAsParameter(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: arr1 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+
+      DeclStmtNode: matrix : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+
+      DeclStmtNode: result1 : int = InitExprNode: CallExprNode: processArray(LValueExprNode: arr1)
+
+      DeclStmtNode: result2 : int = InitExprNode: CallExprNode: process2DArray(LValueExprNode: matrix)
+
+      DeclStmtNode: result1 : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      DeclStmtNode: result2 : int = InitExprNode: IntegerLiteralExprNode: 1
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: result1 + LValueExprNode: result2
+          LValueExprNode: result1
+          LValueExprNode: result2
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0
+this is a function parameter array, first dimension is -1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0]type1
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 1] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]type1
+this is a function parameter array, first dimension is -1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]type5
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] type1
+the type of this point is: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type5
+Visiting LValue Expression: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1] type1
+Visiting Binary Expression: BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]type1
+Visiting LValue Expression: LValueExprNode: arr1 type5
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Unsupported type conversion in creatcast:5 to 4
