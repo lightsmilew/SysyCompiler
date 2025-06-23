@@ -34,12 +34,11 @@ int main(int argc, const char *argv[])
     type_checker.checkSemantic(ast_root);
     if (!type_checker.getErrors().empty())
     {
-        cerr << "Semantic errors found:" << endl;
         for (const auto &error : type_checker.getErrors())
         {
             cerr << error << endl;
         }
-        return 1; // 返回错误代码
+        return 1; // 返回非零值表示有错误
     }
 
     ast_root->print(cout, 0);

@@ -13,11 +13,7 @@ int testInt() {
 }
 
 float testFloat() {
-    int a = 10;
-    if (a > 5) {
-        return 3.14;
-    }
-    // 错误：缺少else分支的返回语句
+    return 3.14;       // 正确：返回一个浮点数
 }
 
 int main() {

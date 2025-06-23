@@ -9,11 +9,11 @@ void acceptFloat(float x) {
 
 int main() {
     float a = 3.14;
-    // acceptInt(a);    // 错误：float不能隐式转换为int (如果不支持的话)
+    acceptInt(a);    // 错误：float不能隐式转换为int (如果不支持的话)
     
     int arr[3];
     float farr[3];
-    // arr = farr;      // 错误：float数组不能赋值给int数组 (如果不支持的话)
+    arr = farr;      // 错误：float数组不能赋值给int数组 (如果不支持的话)
     
     return 0;
 }
