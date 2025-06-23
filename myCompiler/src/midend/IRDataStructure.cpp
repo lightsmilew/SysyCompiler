@@ -513,12 +513,15 @@ std::string Module::toString() const
         ss << "\n";
     }
 
-    // Functions
-    for (const auto &func : Functions)
+    // Functions 从库函数后一项开始遍历，下标是13
+    for(int i=13; i < Functions.size(); ++i)
     {
-        ss << func->toString() << "\n";
+        ss << Functions[i]->toString() << "\n";
     }
-
+    // for (const auto &func : Functions)
+    // {
+    //     ss << func->toString() << "\n";
+    // }
     return ss.str();
 }
 

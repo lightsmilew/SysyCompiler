@@ -18,6 +18,7 @@ public:
         IntegerTyID,
         FloatTyID,
         BooleanTyID,
+        StringTyID, // 字符串类型，通常表示为指针
         PointerTyID,
         ArrayTyID,
         FunctionTyID
@@ -38,6 +39,7 @@ public:
     bool isArrayTy() const { return ID == ArrayTyID; }
     bool isFunctionTy() const { return ID == FunctionTyID; }
     bool isBooleanTy() const { return ID == BooleanTyID; }
+    bool isStringTy() const { return ID == StringTyID; }
     bool isTypeEqual(Type* a, Type* b);
     
     virtual string toString() const = 0;
@@ -80,6 +82,18 @@ public:
         return &instance;
     }
     string toString() const override { return "i1"; } // 使用 i1 表示布尔类型
+};
+
+class StringType : public Type
+{
+public:
+    StringType() : Type(StringTyID){} // 自定义 StringTyID
+    static StringType *getInstance()
+    {
+        static StringType instance;
+        return &instance;
+    }
+    string toString() const override { return "i8*"; } // LLVM风格字符串
 };
 
 class VoidType : public Type
@@ -270,6 +284,16 @@ public:
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
     string toString() const override { return to_string(Value); }
 };
+
+class ConstantString : public Constant
+{
+public:
+    std::string Value;
+    ConstantString(StringType *ty, const std::string &val)
+        : Constant(ty), Value(val) {}
+    string toString() const override { return "\"" + Value + "\""; }
+};
+
 class ConstantArray : public Constant
 {
 public:
