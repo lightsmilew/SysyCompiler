@@ -1,1 +1,15 @@
 No main function found
+CompUnitNode
+  Function
+    int someFunction(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0
+  Function
+    void anotherFunction(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode

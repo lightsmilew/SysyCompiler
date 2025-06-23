@@ -1,1 +1,16 @@
 Function 'func' should not return a value
+CompUnitNode
+  Function
+    void func(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 2
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 1

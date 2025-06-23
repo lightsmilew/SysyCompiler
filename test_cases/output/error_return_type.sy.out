@@ -1,3 +1,48 @@
 Function 'testVoid1' should not return a value
 Function 'testVoid2' should not return a value
 Function 'testInt' must return a value
+CompUnitNode
+  Function
+    void testVoid1(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 5
+  Function
+    void testVoid2(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      ReturnStmtNode
+        LValueExprNode: a
+  Function
+    int testInt(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    float testFloat(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        FloatLiteralExprNode: 3.140000
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ExprStmtNode
+        CallExprNode: testVoid1()
+      ExprStmtNode
+        CallExprNode: testVoid2()
+      DeclStmtNode: a : int = InitExprNode: CallExprNode: testInt()
+
+      DeclStmtNode: b : float = InitExprNode: CallExprNode: testFloat()
+
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

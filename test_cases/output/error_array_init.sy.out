@@ -1,0 +1,15 @@
+Variable 'arr' already declared in this scope
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: arr : int[0x55fc51556b40] = InitExprNode: {}
+
+      DeclStmtNode: arr : int = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

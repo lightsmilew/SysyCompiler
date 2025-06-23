@@ -1,3 +1,31 @@
 Cannot modify const variable 'a'
 Cannot modify const variable 'b'
 Cannot modify const variable 'arr'
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: const a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      AssignStmtNode
+        LValueExprNode: a
+        IntegerLiteralExprNode: 20
+      DeclStmtNode: const b : float = InitExprNode: FloatLiteralExprNode: 3.140000
+
+      AssignStmtNode
+        LValueExprNode: b
+        FloatLiteralExprNode: 2.710000
+      DeclStmtNode: const arr : int[0x5647cbc66c50] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+
+      AssignStmtNode
+        LValueExprNode: arr
+          IntegerLiteralExprNode: 0
+        IntegerLiteralExprNode: 5
+      DeclStmtNode: x : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      DeclStmtNode: y : int = InitExprNode: IntegerLiteralExprNode: 20
+
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

@@ -1,2 +1,34 @@
 Variable 'farr' is not initialized before use
 Variable 'farr' is not initialized before use
+CompUnitNode
+  Function
+    void acceptInt(
+      Parameters:
+        DeclStmtNode: x : int
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    void acceptFloat(
+      Parameters:
+        DeclStmtNode: x : float
+    )
+    BlockStmtNode
+      ReturnStmtNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : float = InitExprNode: FloatLiteralExprNode: 3.140000
+
+      ExprStmtNode
+        CallExprNode: acceptInt(LValueExprNode: a)
+          LValueExprNode: a
+      DeclStmtNode: arr : int[0x55d89f76ef40]
+      DeclStmtNode: farr : float[0x55d89f7789f0]
+      AssignStmtNode
+        LValueExprNode: arr
+        LValueExprNode: farr
+      ReturnStmtNode
+        IntegerLiteralExprNode: 0

@@ -12,3 +12,29 @@ Variable 'arr' is not initialized before use
 Array 'arr' index must be integer type
 Variable 'd' not declared
 Expression type mismatch: main expected 'int', but got void
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: arr : int[0x56216a0892a0]
+      DeclStmtNode: matrix : int[0x56216a089410][0x56216a089460]
+      DeclStmtNode: a : int = InitExprNode: LValueExprNode: arr
+
+      DeclStmtNode: b : int = InitExprNode: LValueExprNode: matrix
+
+      DeclStmtNode: idx : float = InitExprNode: FloatLiteralExprNode: 1.500000
+
+      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr
+
+      ReturnStmtNode
+        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d + LValueExprNode: e
+          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d
+            BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c
+              BinaryExprNode: LValueExprNode: a + LValueExprNode: b
+                LValueExprNode: a
+                LValueExprNode: b
+              LValueExprNode: c
+            LValueExprNode: d
+          LValueExprNode: e
