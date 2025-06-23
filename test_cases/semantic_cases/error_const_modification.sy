@@ -8,6 +8,8 @@ int main() {
     
     const int arr[3] = {1, 2, 3};
     arr[0] = 5;      // 错误：不能修改const数组元素
+
+    int x= 10,y= 20;
     
     return 0;
 }

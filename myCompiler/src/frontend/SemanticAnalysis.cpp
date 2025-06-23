@@ -160,7 +160,7 @@ PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     {
       return getExpressionType(initExpr->singleInitVal);
     }
-    else if (!initExpr->multiInitVal.empty())
+    else
     {
       vector<PrimaryDataType> types;
       for (auto &initVal : initExpr->multiInitVal)
@@ -255,7 +255,7 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
       // 单一初始值
       return exprChecker(initExpr->singleInitVal, isConst);
     }
-    else if (!initExpr->multiInitVal.empty())
+    else
     {
       // 复合初始值
       for (const auto &initVal : initExpr->multiInitVal)
@@ -278,6 +278,13 @@ bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNo
   {
     auto initExpr = dynamic_pointer_cast<InitExprNode>(expr);
     // int可以赋给float, float不能赋给int
+
+    // 如果没有初始值，直接返回true
+    if (initExpr->multiInitVal.empty() && !initExpr->singleInitVal)
+    {
+      return true;
+    }
+
     if (targetType.baseType == PrimaryDataType::INT)
     {
       PrimaryDataType exprType = getExpressionType(initExpr);

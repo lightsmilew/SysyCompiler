@@ -194,9 +194,9 @@ void testVoidReturn() {
 
 int testArraySizeConstant() {
     const int SIZE = 5;
-    int arr1[5];           // 字面量常量 ✓
-    int arr2[SIZE];        // const常量 ✓
-    int arr3[3 + 2];       // 常量表达式 ✓
+    int arr1[5]={};           // 字面量常量 ✓
+    int arr2[SIZE]={};        // const常量 ✓
+    int arr3[3 + 2]={};       // 常量表达式 ✓
     
     return arr1[0] + arr2[0] + arr3[0];
 }
@@ -267,9 +267,9 @@ int testArrayAsParameter() {
 // ===== 测试18: 数组维度必须非负整数 ✔ =====
 
 int testArrayDimensions() {
-    int arr1[5];        // 正数维度 ✓
-    int arr2[1];        // 最小正数维度 ✓
-    int matrix[3][4];   // 多维正数维度 ✓
+    int arr1[5]={1,2,3,4,5};       // 正数维度 ✓
+    int arr2[1]={2};      // 最小正数维度 ✓
+    int matrix[3][4]={{2,2,3,4},{2,2,3,4},{2,2,3,4}};   // 多维正数维度 ✓
     
     return arr1[0] + arr2[0] + matrix[0][0];
 }
