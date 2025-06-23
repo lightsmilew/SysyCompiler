@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <typeinfo>
+#include "../common/Common.h"
 
 using namespace ast;
 // 字符串类型名转化为基础数据类型的枚举名
@@ -23,19 +24,6 @@ PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
     {
         throw std::invalid_argument("Unknown type: " + typeStr);
     }
-}
-
-// 从常量表达式中提取整数值（用于数组维度）
-int extractIntFromConstExpr(Ptr<ast::ExprNode> expr)
-{
-    // 尝试转换为IntLiteralExprNode
-    if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(expr))
-    {
-        return intLiteral->value;
-    }
-    // 如果不是简单的整数字面量，暂时返回默认值
-    // 在更复杂的实现中，这里可以计算常量表达式的值
-    return 1; // 默认值，避免编译错误
 }
 
 [[nodiscard]] Ptr<ast::CompUnitNode> ASTNodeVisitor::compileUnit()
@@ -105,16 +93,9 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
         {
             arrayIndices.emplace_back(AS(expctx->accept(this), Ptr<ast::ExprNode>));
         }
-        // 这里实现部分功能
-        // 提取数组维度信息
-        vector<int> arraySizes;
-        for (auto &arrayIndex : arrayIndices)
-        {
-            arraySizes.push_back(extractIntFromConstExpr(arrayIndex));
-        }
 
         // 创建带有数组维度信息的DataType
-        DataType type = DataType(convertToPrimaryDataType(ctx->bType()->getText()), arraySizes, true);
+        DataType type = DataType(convertToPrimaryDataType(ctx->bType()->getText()), arrayIndices, true);
         // 解析初始化
         auto initVal = defctx->constInitVal()->accept(this);
         Ptr<ast::InitExprNode> initExprPtr;
@@ -202,16 +183,10 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
             {
                 arrayIndices.emplace_back(AS(visit(constExpCtx), Ptr<ast::ExprNode>));
             }
-            initExprPtr = NULL;
+            initExprPtr = nullptr;
         }
-        // 提取数组维度信息
-        vector<int> arraySizes;
-        for (auto &arrayIndex : arrayIndices)
-        {
-            arraySizes.push_back(extractIntFromConstExpr(arrayIndex));
-        }
-        // 创建带有数组维度信息的DataType
-        DataType varType(type, arraySizes);
+
+        DataType varType(type, arrayIndices, false); // 创建DataType，最后一个参数表示是否为常量
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
@@ -315,23 +290,19 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
 
-    Vector<Ptr<ast::ExprNode>> arraySizes;
-    Vector<int> arraySizeValues; // 用于构建DataType
+    Vector<Ptr<ast::ExprNode>> arrayIndices;
     auto minusOne = makePtr<ast::IntLiteralExprNode>(-1); // 数组维度为0，表示省略
-    arraySizes.emplace_back(minusOne);                    // 数组维度为0，表示省略
-    arraySizeValues.emplace_back(-1); // 数组维度为0，表示省略
+    arrayIndices.emplace_back(minusOne);                  // 数组维度为0，表示省略
     for (auto expCtx : ctx->constExp())
     {
         // 处理数组的其他维度
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
-        arraySizes.emplace_back(exp);
-        // 尝试提取数组大小的整数值
-        arraySizeValues.emplace_back(extractIntFromConstExpr(exp));
+        arrayIndices.emplace_back(exp);
     }
-    DataType dataType(type, arraySizeValues); // 创建包含数组信息的DataType
+    DataType dataType(type, arrayIndices); // 创建包含数组信息的DataType
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
-    return paramNode;                      // 返回函数参数节点
+    return paramNode; // 返回函数参数节点
 }
 // 处理函数参数(数组 有第一维度)
 antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWithSizeContext *ctx)
@@ -339,25 +310,19 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
     String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
 
-    Vector<Ptr<ast::ExprNode>> arraySizes;
-    Vector<int> arraySizeValues; // 用于构建DataType
-
+    Vector<Ptr<ast::ExprNode>> arrayIndices;
     for (auto expCtx : ctx->constExp())
     {
         auto exp = AS(expCtx->accept(this), Ptr<ast::ExprNode>);
-        arraySizes.emplace_back(exp);
-
-        // 尝试提取数组大小的整数值
-        int sizeValue = extractIntFromConstExpr(exp);
-        arraySizeValues.push_back(sizeValue);
+        arrayIndices.emplace_back(exp);
     }
 
     // 创建包含数组信息的DataType
-    DataType dataType(type, arraySizeValues);
+    DataType dataType(type, arrayIndices);
 
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
-    return paramNode;                      // 返回函数参数节点
+    return paramNode; // 返回函数参数节点
 }
 // 语句块
 antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
@@ -501,7 +466,7 @@ antlrcpp::Any ASTNodeVisitor::visitLVal(SysYParser::LValContext *ctx)
         auto result = visit(idx);
         exps.push_back(std::any_cast<shared_ptr<ExprNode>>(result));
     }
-    
+
     return make_shared<LValueExprNode>(identifier, exps);
 }
 // primaryExp
@@ -531,17 +496,18 @@ antlrcpp::Any ASTNodeVisitor::visitStringLiteralExp(SysYParser::StringLiteralExp
     return static_cast<shared_ptr<ExprNode>>(strLiteral);
 }
 
-// number
 antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
 {
     std::string valueText = ctx->IntConst()->getText();
-    int intValue = 0;
+    std::int32_t intValue = 0;
+
     if (valueText.find("0x") == 0 || valueText.find("0X") == 0)
     {
         // 十六进制
         intValue = std::stoi(valueText, nullptr, 16);
     }
-    else if (valueText.find("0") == 0 && valueText.size() > 1)
+    else if (valueText.find("0") == 0 && valueText.size() > 1 &&
+             valueText.find_first_not_of("01234567", 1) == std::string::npos)
     {
         // 八进制
         intValue = std::stoi(valueText, nullptr, 8);
@@ -551,9 +517,11 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
         // 十进制
         intValue = std::stoi(valueText, nullptr, 10);
     }
+
     auto intLiteral = make_shared<IntLiteralExprNode>(intValue);
     return static_cast<shared_ptr<NumberLiteralExprNode>>(intLiteral);
 }
+
 antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
 {
     std::string text = ctx->FloatConst()->getText();
@@ -575,7 +543,7 @@ antlrcpp::Any ASTNodeVisitor::visitCallExp(SysYParser::CallExpContext *ctx)
         auto params = std::any_cast<vector<shared_ptr<ExprNode>>>(visit(ctx->funcRParams()));
         args.insert(args.end(), params.begin(), params.end());
     }
-    auto callexpnode= make_shared<CallExprNode>(callee, args);
+    auto callexpnode = make_shared<CallExprNode>(callee, args);
     return static_cast<shared_ptr<ExprNode>>(callexpnode);
 }
 antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx)
@@ -766,7 +734,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
     // 访问常量表达式
     auto constexp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->addExp()));
     constexp->isConstExp = true; // 标记为常量表达式
-    return constexp;          // 返回常量表达式
+    return constexp;             // 返回常量表达式
 }
 
 antlrcpp::Any ASTNodeVisitor::visitToEqExp_land(SysYParser::ToEqExp_landContext *ctx)
