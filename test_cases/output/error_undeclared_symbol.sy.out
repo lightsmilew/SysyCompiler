@@ -1,7 +1,14 @@
-Semantic errors found:
-Variable 'b' not declared
-Variable 'b' not declared
-Variable 'b' not declared
-Initializer type does not match variable type for 'a'
-Callee 'func' is not defined
-Initializer type does not match variable type for 'c'
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: LValueExprNode: b
+
+      DeclStmtNode: c : int = InitExprNode: CallExprNode: func()
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a + LValueExprNode: c
+          LValueExprNode: a
+          LValueExprNode: c

@@ -1,2 +1,15 @@
-Semantic errors found:
-Return type mismatch with function 'func'
+CompUnitNode
+  Function
+    void func(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 2
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      ReturnStmtNode
+        IntegerLiteralExprNode: 1

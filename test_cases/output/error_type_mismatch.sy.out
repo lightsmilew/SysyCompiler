@@ -20,7 +20,7 @@ CompUnitNode
     BlockStmtNode
       DeclStmtNode: a : float = InitExprNode: FloatLiteralExprNode: 3.140000
 
-      DeclStmtNode: arr : int[3]
-      DeclStmtNode: farr : float[3]
+      DeclStmtNode: arr : int[0x55f7bd2b48d0]
+      DeclStmtNode: farr : float[0x55f7bd2b4320]
       ReturnStmtNode
         IntegerLiteralExprNode: 0

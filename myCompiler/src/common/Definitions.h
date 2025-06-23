@@ -1,3 +1,5 @@
+#pragma once
+
 #include "antlr4-runtime.h"
 #include <algorithm>
 #include <iostream>
@@ -18,6 +20,7 @@
 #include <limits>
 #include <cstring>
 #include <queue>
+#include <any>
 
 #define makePtr std::make_shared
 #define Move std::move
@@ -54,13 +57,8 @@ Set<T> toSet(const Vector<T> &vec)
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#ifdef ANTLR_4_9_3
-#define AS(obj, T) obj.as<T>()
-#define IS(T) is<T>()
-#else
 #define AS(obj, T) std::any_cast<T>(obj)
 #define IS(T) type() == typeid(T)
-#endif
 
 template <class T>
 inline void hashCombine(std::size_t &s, const T &v)

@@ -3,9 +3,27 @@
 #include <string>
 #include <stdexcept>
 #include "../common/Common.h"
+#include <algorithm>
 
 using std::dynamic_pointer_cast;
 using std::to_string;
+
+string convertPrimaryDataType2String(PrimaryDataType type)
+{
+  switch (type)
+  {
+  case PrimaryDataType::INT:
+    return "int";
+  case PrimaryDataType::FLOAT:
+    return "float";
+  case PrimaryDataType::STRING:
+    return "string";
+  case PrimaryDataType::VOID:
+    return "void";
+  default:
+    throw std::invalid_argument("Unknown PrimaryDataType");
+  }
+}
 
 shared_ptr<Symbol> SymbolTable::lookup(const string &name)
 {
@@ -30,7 +48,7 @@ bool SymbolTable::insert(const string &name, shared_ptr<Symbol> symbol)
     return false; // 返回false表示插入失败（重复声明）
   }
   table[name] = symbol;
-  return true; // 插入成功E
+  return true; // 插入成功
 }
 
 void SemanticAnalyzer::enterScope()
@@ -43,10 +61,10 @@ void SemanticAnalyzer::exitScope()
   currentScope = currentScope->parent;
 }
 
-void SemanticAnalyzer::declareVariable(const std::string &name,
+bool SemanticAnalyzer::declareVariable(const std::string &name,
                                        const std::shared_ptr<Symbol> &symbol)
 {
-  currentScope->insert(name, symbol);
+  return currentScope->insert(name, symbol);
 }
 
 shared_ptr<Symbol> SemanticAnalyzer::resolveVariable(const std::string &name)
@@ -70,331 +88,354 @@ void TypeCheckerVisitor::addError(const string &message)
 {
   errors.push_back(message);
 }
-bool TypeCheckerVisitor::checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConstArray)
+PrimaryDataType TypeCheckerVisitor::getMultivalType(shared_ptr<InitExprNode> node)
 {
-  if (dim == declaredType.arrayDimensionCount())
+  if (node->multiInitVal.empty())
   {
-    DataType elemType = getExpressionType(init, ExprContext::EXPRESSION);
-    if (!isTypeCompatible(elemType, declaredType.baseType))
-      return false;
-    // 常量数组要求初始化元素必须是常量表达式
-    if (isConstArray && !init->isConstExp)
-    {
-      addError("Initializer for constant array must be a constant expression");
-      return false;
-    }
-    return true;
+    // 单一初始值
+    return getExpressionType(node->singleInitVal);
   }
-
-  auto list = dynamic_pointer_cast<InitExprNode>(init)->multiInitVal;
-  if (!list.empty())
+  else
   {
-    int maxCount = declaredType._arraySizes[dim];
-    int count = 0;
-    for (auto &elem : list)
+    for (const auto &initVal : node->multiInitVal)
     {
-      if (!checkArrayInit(elem, declaredType, dim + 1, isConstArray))
+      // 递归获取多维数组的初始值类型
+      PrimaryDataType type = getMultivalType(initVal);
+      if (type == PrimaryDataType::FLOAT)
+      {
+        return PrimaryDataType::FLOAT; // 如果有一个是float，直接返回
+      }
+    }
+  }
+  return PrimaryDataType::INT; // 如果所有都是int，返回int
+}
+
+bool TypeCheckerVisitor::MultivalExprChecker(string ident, shared_ptr<InitExprNode> node, bool isConst)
+{
+  if (isConst)
+  {
+    if (node->multiInitVal.empty())
+    {
+      // 单一初始值
+      if (!exprChecker(node->singleInitVal, true))
+      {
         return false;
-      ++count;
-      if (count > maxCount)
+      }
+    }
+    else
+    {
+      // 复合初始值
+      for (const auto &initVal : node->multiInitVal)
       {
-        addError("Too many initializers for array dimension " + std::to_string(dim));
+        if (!MultivalExprChecker(ident, initVal, true))
+        {
+          addError("Array '" + ident + "' initializer must be a constant expression");
+          return false;
+        }
+      }
+    }
+  }
+  else
+  {
+    if (node->multiInitVal.empty())
+    {
+      // 单一初始值
+      if (!exprChecker(node->singleInitVal, false))
+      {
+        addError("Array '" + ident + "' initializer must be a valid expression");
         return false;
       }
     }
-    return true;
-  }
-
-  // 平铺递归
-  return checkArrayInit(init, declaredType, dim + 1, isConstArray);
-}
-DataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr, ExprContext context)
-{
-  if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(expr))
-  {
-    return DataType(PrimaryDataType::INT);
-  }
-  else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(expr))
-  {
-    return DataType(PrimaryDataType::FLOAT);
-  }
-  else if(auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(expr))
-  {
-    return DataType(PrimaryDataType::STRING);
-  }
-  else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
-  {
-    // 处理初始化表达式
-    if (initExpr->singleInitVal)
+    else
     {
-      // 单一初始值，递归获取其类型
-      return getExpressionType(initExpr->singleInitVal, context);
-    }
-    else if (!initExpr->multiInitVal.empty())
-    {
-      // 数组初始化列表，返回数组类型
-      // 这里简化处理，实际应该根据具体的初始化结构确定数组维度
-      return DataType(PrimaryDataType::INT, {(int)initExpr->multiInitVal.size()});
-    }
-    return DataType(PrimaryDataType::VOID);
-  }
-  else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(expr))
-  {
-    auto symbol = analyzer.resolveVariable(lvalue->identifier);
-    if (symbol)
-    {
-      // 处理多维数组其中一维传参
-      DataType type = symbol->type;
-      // 对每个下标，降一维
-      for (auto &idx : lvalue->indices)
+      // 复合初始值
+      for (const auto &initVal : node->multiInitVal)
       {
-        if (type.isArray() && !type.arraySizes().empty())
+        if (!MultivalExprChecker(ident, initVal, false))
         {
-          // 复制一份修改 const不可直接修改
-          Vector<int> dims = type.arraySizes();
-          dims.erase(dims.begin());
-          type._arraySizes = dims;
-        }
-        else
-        {
-          // 非法下标访问
-          addError("Too many indices for array '" + lvalue->identifier + "'");
-          return DataType(PrimaryDataType::VOID);
-        }
-      }
-      return type;
-    }
-    // 未定义报错
-    addError("Variable '" + lvalue->identifier + "' not declared");
-    return DataType(PrimaryDataType::VOID); // 错误情况
-  }
-  else if (auto binary = dynamic_pointer_cast<BinaryExprNode>(expr))
-  {
-    DataType leftType = getExpressionType(binary->left, context);
-    DataType rightType = getExpressionType(binary->right, context);
-
-    // 根据上下文检查是否允许逻辑和比较操作
-    if (context == ExprContext::EXPRESSION || context == ExprContext::ARRAY_INDEX)
-    {
-      // 在普通表达式或数组索引中不能存在与或非和大小比较
-      if (binary->op == BinaryOp::And || binary->op == BinaryOp::Or ||
-          binary->op == BinaryOp::Lt || binary->op == BinaryOp::Gt ||
-          binary->op == BinaryOp::Le || binary->op == BinaryOp::Ge ||
-          binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne)
-      {
-        string contextStr = (context == ExprContext::EXPRESSION) ? "expression" : "array index";
-        addError("Logical or comparison operations are not allowed in " + contextStr);
-        return DataType(PrimaryDataType::VOID);
-      }
-    }
-
-    // 对于比较和逻辑操作，返回类型应该是布尔型（在condition中）
-    if (binary->op == BinaryOp::Lt || binary->op == BinaryOp::Gt ||
-        binary->op == BinaryOp::Le || binary->op == BinaryOp::Ge ||
-        binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne ||
-        binary->op == BinaryOp::And || binary->op == BinaryOp::Or)
-    {
-      return DataType(PrimaryDataType::INT); // SysY中布尔值用int表示
-    }
-
-    // 类型提升规则：int + float → float
-    if (leftType.baseType == PrimaryDataType::FLOAT || rightType.baseType == PrimaryDataType::FLOAT)
-    {
-      return DataType(PrimaryDataType::FLOAT);
-    }
-    return DataType(PrimaryDataType::INT);
-  }
-  //+或者-
-  else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(expr))
-  {
-    // 根据上下文检查一元操作符中的Not操作
-    if (unary->op == UnaryOp::Not &&
-        (context == ExprContext::EXPRESSION || context == ExprContext::ARRAY_INDEX))
-    {
-      string contextStr = (context == ExprContext::EXPRESSION) ? "expression" : "array index";
-      addError("Logical NOT operation is not allowed in " + contextStr);
-      return DataType(PrimaryDataType::VOID);
-    }
-
-    DataType operandType = getExpressionType(unary->operand, context);
-
-    // NOT操作返回布尔值（int）
-    if (unary->op == UnaryOp::Not)
-    {
-      return DataType(PrimaryDataType::INT);
-    }
-
-    return operandType;
-  }
-  else if (auto call = dynamic_pointer_cast<CallExprNode>(expr))
-  {
-    // 查找函数定义
-    auto funcSymbol = analyzer.resolveFunction(call->callee);
-    if (funcSymbol)
-    {
-      return funcSymbol->type; // 返回函数的返回类型
-    }
-    // 不在这里报错，由visitCallExpr处理错误报告
-    // addError("Callee '" + call->callee + "' is not defined");
-    return DataType(PrimaryDataType::VOID);
-  }
-  return DataType(PrimaryDataType::VOID);
-}
-
-bool TypeCheckerVisitor::isTypeCompatible(DataType from, DataType to)
-{
-  // 完全相同的类型（包括数组维度和各维大小）
-  if (from.baseType == to.baseType && from.arrayDimensionCount() == to.arrayDimensionCount())
-  {
-    // 检查各维度的大小是否相同
-    if (from.arrayDimensionCount() > 0)
-    {
-      const auto &fromSizes = from.arraySizes();
-      const auto &toSizes = to.arraySizes();
-      for (size_t i = 0; i < fromSizes.size(); ++i)
-      {
-        if (fromSizes[i] != toSizes[i])
-        {
-          if(i==0&&toSizes[i]==-1)continue; // 允许to的第一维为-1（表示任意大小）
-          return false; // 数组大小不匹配
+          addError("Array '" + ident + "' initializer must be a valid expression");
+          return false;
         }
       }
     }
-    return true;
   }
-
-  // 隐式类型转换：只有当表达式结果为基本类型时才允许转换
-  // 注意：这里检查的是表达式计算后的类型，不是变量的声明类型
-  // 例如：int a[3]; float b = a[0]; // a[0]的结果类型是int（基本类型），可以转换为float
-  if (from.arrayDimensionCount() == 0 && to.arrayDimensionCount() == 0) // 都是基本类型
-  {
-    // int可以隐式转换为float float可以隐式转换为int
-    if (from.baseType == PrimaryDataType::INT && to.baseType == PrimaryDataType::FLOAT)
-    {
-      return true;
-    }
-    if (from.baseType == PrimaryDataType::FLOAT && to.baseType == PrimaryDataType::INT)
-    {
-      return true;
-    }
-   
-    // 可以添加更多的隐式转换规则，如：
-    // bool可以转换为int (true -> 1, false -> 0)
-    // if (from.baseType == PrimaryDataType::BOOL && to.baseType == PrimaryDataType::INT)
-    // {
-    //   return true;
-    // }
-  }
-
-  return false;
+  return true;
 }
 
-bool TypeCheckerVisitor::isValidArrayAccess(shared_ptr<LValueExprNode> lvalue)
+bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNode> expr, DataType targetType, ExprContext context, bool isConst)
 {
-  auto symbol = analyzer.resolveVariable(lvalue->identifier);
-  if (!symbol)
-    return false;
-
-  // 检查维度匹配
-  if (lvalue->indices.size() > symbol->type.arrayDimensionCount())
+  if (context == ExprContext::ARRAY_INDEX)
   {
-    addError("Array '" + lvalue->identifier + "' access dimension exceeds array dimension count");
-    return false;
+    auto initExpr = dynamic_pointer_cast<InitExprNode>(expr);
+    // int可以赋给float, float不能赋给int
+    if (targetType.baseType == PrimaryDataType::INT)
+    {
+      PrimaryDataType exprType = getMultivalType(initExpr);
+      if (exprType == PrimaryDataType::FLOAT)
+      {
+        addError("Array '" + ident + "' index cannot be a float type");
+      }
+    }
+    MultivalExprChecker(ident, initExpr, isConst);
   }
+  else if (context == ExprContext::CALL)
+  {
+    // 传递的是数组
+    auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
+    if (lval && !lval->indices.empty())
+    {
+      visitLValueExpr(lval);
+      auto array = analyzer.resolveVariable(lval->identifier);
+      if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
+      {
+        addError("Function '" + ident + "' expects " +
+                 to_string(targetType.arrayDimensionCount()) +
+                 " array indices, but got " +
+                 to_string(array->type.arrayDimensionCount() - lval->indices.size()));
+      }
+      if (array->type.baseType != targetType.baseType)
+      {
+        addError("Function '" + ident + "' expects type '" +
+                 convertPrimaryDataType2String(targetType.baseType) + "', but got '" +
+                 convertPrimaryDataType2String(array->type.baseType) + "'");
+      }
+    }
+    else
+    {
+      // 传递的是expr
+      PrimaryDataType exprType = getExpressionType(expr);
+
+      if (targetType.arrayDimensionCount() > 0)
+      {
+        addError("Function '" + ident + "' expects an array, but got a single value");
+      }
+
+      if (exprType != targetType.baseType)
+      {
+        addError("Function '" + ident + "' expects type '" +
+                 convertPrimaryDataType2String(targetType.baseType) + "', but got '" +
+                 convertPrimaryDataType2String(exprType) + "'");
+      }
+    }
+  }
+  else if (context == ExprContext::CONDITION)
+  {
+  }
+  else if (context == ExprContext::EXPRESSION)
+  {
+    exprChecker(expr, isConst);
+  }
+
+  return true;
+}
+
+PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
+{
+  if (auto binaryExp = dynamic_pointer_cast<BinaryExprNode>(expr))
+  {
+    PrimaryDataType lexp = getExpressionType(binaryExp->left);
+    PrimaryDataType rexp = getExpressionType(binaryExp->right);
+
+    if (lexp == PrimaryDataType::VOID || rexp == PrimaryDataType::VOID)
+    {
+      return PrimaryDataType::VOID;
+    }
+    else if (lexp == PrimaryDataType::FLOAT || rexp == PrimaryDataType::FLOAT)
+    {
+      return PrimaryDataType::FLOAT;
+    }
+    else if (lexp == PrimaryDataType::INT && rexp == PrimaryDataType::INT)
+    {
+      return PrimaryDataType::INT;
+    }
+  }
+  else if (auto unaryExp = dynamic_pointer_cast<UnaryExprNode>(expr))
+  {
+    return getExpressionType(unaryExp->operand);
+  }
+  else if (auto callexp = dynamic_pointer_cast<CallExprNode>(expr))
+  {
+    visitCallExpr(callexp);
+    auto call = analyzer.resolveFunction(callexp->callee);
+    return call->functionNode->returnType.baseType;
+  }
+  else if (auto lval = dynamic_pointer_cast<LValueExprNode>(expr))
+  {
+    visitLValueExpr(lval);
+    auto lv = analyzer.resolveVariable(lval->identifier);
+    return lv->type.baseType;
+  }
+  else if (auto intnum = dynamic_pointer_cast<IntLiteralExprNode>(expr))
+  {
+    return PrimaryDataType::INT;
+  }
+  else if (auto floatnum = dynamic_pointer_cast<FloatLiteralExprNode>(expr))
+  {
+    return PrimaryDataType::FLOAT;
+  }
+  else if (auto str = dynamic_pointer_cast<StringLiteralExprNode>(expr))
+  {
+    visitStringLiteralExpr(str);
+    return PrimaryDataType::STRING;
+  }
+
+  return PrimaryDataType::VOID; // 如果没有匹配到任何类型，返回void
+}
+
+bool TypeCheckerVisitor::isValidArrayIndex(string ident, vector<shared_ptr<ExprNode>> indices)
+{
   // 检查索引为整数
-  for (auto &index : lvalue->indices)
+  for (auto &index : indices)
   {
-    DataType indexType = getExpressionType(index, ExprContext::ARRAY_INDEX);
-    if (indexType.baseType != PrimaryDataType::INT || indexType.isArray())
+    PrimaryDataType indexType = getExpressionType(index);
+    if (!(indexType == PrimaryDataType::INT))
     {
-      addError("Array '" + lvalue->identifier + "' index must be integer type");
+      addError("Array '" + ident + "' index must be integer type");
       return false;
     }
   }
 
   return true;
 }
+
+bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
+{
+  if (auto binaryExp = dynamic_pointer_cast<BinaryExprNode>(expr))
+  {
+    if (binaryExp->op == BinaryOp::And || binaryExp->op == BinaryOp::Or ||
+        binaryExp->op == BinaryOp::Eq || binaryExp->op == BinaryOp::Ne ||
+        binaryExp->op == BinaryOp::Lt || binaryExp->op == BinaryOp::Gt ||
+        binaryExp->op == BinaryOp::Le || binaryExp->op == BinaryOp::Ge)
+    {
+      addError("Logical and comparison operations are not allowed in expressions");
+      return false;
+    }
+    return exprChecker(binaryExp->left, isConst) && exprChecker(binaryExp->right, isConst);
+  }
+  else if (auto unaryExp = dynamic_pointer_cast<UnaryExprNode>(expr))
+  {
+    if (unaryExp->op == UnaryOp::Not)
+    {
+      addError("Logical NOT operations are not allowed in expressions");
+      return false;
+    }
+    return exprChecker(unaryExp->operand, isConst);
+  }
+  else if (auto callexp = dynamic_pointer_cast<CallExprNode>(expr))
+  {
+    // 函数调用不允许在常量表达式中出现
+    return !isConst;
+  }
+  else if (auto lval = dynamic_pointer_cast<LValueExprNode>(expr))
+  {
+    visitLValueExpr(lval);
+    auto lv = analyzer.resolveVariable(lval->identifier);
+    // 变量不允许在常量表达式中出现
+    return lv->type.isConst() || !isConst;
+  }
+  else if (auto intnum = dynamic_pointer_cast<IntLiteralExprNode>(expr))
+  {
+    return true; // 整数字面量是常量表达式
+  }
+  else if (auto floatnum = dynamic_pointer_cast<FloatLiteralExprNode>(expr))
+  {
+    return true; // 浮点数字面量是常量表达式
+  }
+  else if (auto str = dynamic_pointer_cast<StringLiteralExprNode>(expr))
+  {
+    return false; // 字符串字面量不是常量表达式
+  }
+
+  return false; // 如果没有匹配到任何类型，返回false
+}
+
 void TypeCheckerVisitor::initializeFunction()
 {
   Vector<shared_ptr<Symbol>> symbols;
-  //int getint();
- auto getintNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::INT), "getint", 
+  // int getint();
+  auto getintNode = make_shared<FuncNode>(
+      DataType(PrimaryDataType::INT), "getint",
       Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
   symbols.push_back(make_shared<Symbol>(getintNode));
-  //int getch();
+  // int getch();
   auto getchNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::INT), "getch", 
+      DataType(PrimaryDataType::INT), "getch",
       Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
   symbols.push_back(make_shared<Symbol>(getchNode));
-  //float getfloat();
+  // float getfloat();
   auto getfloatNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::FLOAT), "getfloat", 
+      DataType(PrimaryDataType::FLOAT), "getfloat",
       Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
   symbols.push_back(make_shared<Symbol>(getfloatNode));
-  //int getarray(int a[]);
+  // int getarray(int a[]);
   auto getarrayNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::INT), "getarray", 
+      DataType(PrimaryDataType::INT), "getarray",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::INT, { -1 }), "a")}, nullptr);
+          DataType(PrimaryDataType::INT, {makePtr<IntLiteralExprNode>(-1)}), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(getarrayNode));
-  //int getfarray(float a[]);
+  // int getfarray(float a[]);
   auto getfarrayNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::INT), "getfarray", 
+      DataType(PrimaryDataType::INT), "getfarray",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::FLOAT, { -1 }), "a")}, nullptr);
+          DataType(PrimaryDataType::FLOAT, {makePtr<IntLiteralExprNode>(-1)}), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(getfarrayNode));
-  //void putint(int a);
+  // void putint(int a);
   auto putintNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putint", 
+      DataType(PrimaryDataType::VOID), "putint",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::INT), "a")}, nullptr);
+          DataType(PrimaryDataType::INT), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putintNode));
-  //void putch(int a);
+  // void putch(int a);
   auto putchNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putch", 
+      DataType(PrimaryDataType::VOID), "putch",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::INT), "a")}, nullptr);
+          DataType(PrimaryDataType::INT), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putchNode));
-  //void putfloat(float a);
+  // void putfloat(float a);
   auto putfloatNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putfloat", 
+      DataType(PrimaryDataType::VOID), "putfloat",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::FLOAT), "a")},nullptr);
+          DataType(PrimaryDataType::FLOAT), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putfloatNode));
-  //void putarray( int n,int a[]);
+  // void putarray( int n,int a[]);
   auto putarrayNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putarray", 
+      DataType(PrimaryDataType::VOID), "putarray",
       vector<shared_ptr<DeclStmtNode>>{
           make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT), "n"),
-          make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT, { -1 }), "a")
-      }, nullptr);
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT, {makePtr<IntLiteralExprNode>(-1)}), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putarrayNode));
-  //void putfarray( int n,float a[]);
+  // void putfarray( int n,float a[]);
   auto putfarrayNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putfarray", 
+      DataType(PrimaryDataType::VOID), "putfarray",
       vector<shared_ptr<DeclStmtNode>>{
           make_shared<DeclStmtNode>(DataType(PrimaryDataType::INT), "n"),
-          make_shared<DeclStmtNode>(DataType(PrimaryDataType::FLOAT, { -1 }), "a")
-      }, nullptr);
+          make_shared<DeclStmtNode>(DataType(PrimaryDataType::FLOAT, {makePtr<IntLiteralExprNode>(-1)}), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putfarrayNode));
-  //void putf(string a);
+  // void putf(string a);
   auto putfNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "putf", 
+      DataType(PrimaryDataType::VOID), "putf",
       vector<shared_ptr<DeclStmtNode>>{make_shared<DeclStmtNode>(
-          DataType(PrimaryDataType::STRING), "a")}, nullptr);
+          DataType(PrimaryDataType::STRING), "a")},
+      nullptr);
   symbols.push_back(make_shared<Symbol>(putfNode));
-  //void starttime();
+  // void starttime();
   auto starttimeNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "starttime", 
+      DataType(PrimaryDataType::VOID), "starttime",
       Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
   symbols.push_back(make_shared<Symbol>(starttimeNode));
-  //void stoptime();
+  // void stoptime();
   auto stoptimeNode = make_shared<FuncNode>(
-      DataType(PrimaryDataType::VOID), "stoptime", 
+      DataType(PrimaryDataType::VOID), "stoptime",
       Vector<shared_ptr<DeclStmtNode>>{}, nullptr);
- symbols.push_back(make_shared<Symbol>(stoptimeNode));
- for(auto &symbol : symbols)
+  symbols.push_back(make_shared<Symbol>(stoptimeNode));
+  for (auto &symbol : symbols)
   {
     // 注册到符号表
     if (!analyzer.declareFunction(symbol->functionNode->identifier, symbol))
@@ -405,50 +446,6 @@ void TypeCheckerVisitor::initializeFunction()
   // 可以添加更多的库函数初始化
   // 如：int scanf(string format, ...);
   // 或者其他常用的库函数
-}
-void TypeCheckerVisitor::checkFunctionCall(shared_ptr<CallExprNode> call)
-{
-  // auto it = functionTable.find(call->callee);
-  // if (it == functionTable.end())
-  // {
-  //   addError("Function '" + call->callee + "' not declared");
-  //   return;
-  // }
-  auto it = analyzer.resolveFunction(call->callee);
-  if (!it)
-  {
-    addError("Callee '" + call->callee + "' is not defined");
-    return;
-  }
-  auto func = it->functionNode;
-
-  // 检查参数个数
-  if (call->args.size() != func->params.size())
-  {
-    // 特例：putf函数可以接受任意数量的参数
-    if (func->identifier == "putf" && call->args.size() > 0)
-    {
-      return; // putf函数允许任意数量的参数
-    }
-    // 对于其他函数，报告参数个数不匹配
-    addError("Function '" + call->callee + "' expects " +
-             to_string(func->params.size()) + " arguments, got " +
-             to_string(call->args.size()));
-    return;
-  }
-
-  // 检查参数类型匹配
-  for (size_t i = 0; i < call->args.size(); ++i)
-  {
-    DataType argType = getExpressionType(call->args[i], ExprContext::EXPRESSION);
-    DataType paramType = func->params[i]->type;
-
-    if (!isTypeCompatible(argType, paramType))
-    {
-      addError("Argument " + to_string(i + 1) + " of function '" + call->callee +
-               "' has incompatible type args:" + to_string(static_cast<int>(argType.baseType)) + " param:" + to_string(static_cast<int>(paramType.baseType)));
-    }
-  }
 }
 
 // Implementation of visitCompUnit
@@ -469,7 +466,7 @@ void TypeCheckerVisitor::visitCompUnitForCheck(shared_ptr<CompUnitNode> node)
     }
   }
 
-  // 检查是否有且只有一个main函数
+  // 检查是否有一个main函数
   if (!hasMainFunction)
   {
     addError("No main function found");
@@ -512,7 +509,31 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
   for (auto &param : node->params)
   {
     auto symbol = make_shared<Symbol>(param->type, true); // 参数默认已初始化
-    analyzer.declareVariable(param->identifier, symbol);
+
+    // 当参数是数组时，检查数组下标
+    if (param->type.arrayDimensionCount() > 0)
+    {
+      // 数组参数，检查数组维度
+      if (!isValidArrayIndex(param->identifier, param->type.arraySizes()))
+      {
+        addError("Invalid array index for parameter '" + param->identifier + "'");
+      }
+
+      // 检查数组下标是否为int字面量
+      for (auto &size : param->type.arraySizes())
+      {
+        if (!exprChecker(size, true))
+        {
+          addError("Array size for parameter '" + param->identifier + "' must be a constant integer expression");
+          break;
+        }
+      }
+    }
+
+    if (!analyzer.declareVariable(param->identifier, symbol))
+    {
+      addError("Parameter '" + param->identifier + "' already declared in this function");
+    }
   }
 
   // 访问函数体
@@ -527,8 +548,6 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
 void TypeCheckerVisitor::visitBlockStmt(shared_ptr<BlockStmtNode> node)
 {
-  analyzer.enterScope();
-
   for (auto &stmt : node->stmts)
   {
     if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(stmt))
@@ -545,11 +564,15 @@ void TypeCheckerVisitor::visitBlockStmt(shared_ptr<BlockStmtNode> node)
     }
     else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(stmt))
     {
+      analyzer.enterScope(); // 进入if语句作用域
       visitIfElseStmt(ifStmt);
+      analyzer.exitScope(); // 退出if语句作用域
     }
     else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(stmt))
     {
+      analyzer.enterScope(); // 进入while语句作用域
       visitWhileStmt(whileStmt);
+      analyzer.exitScope(); // 退出while语句作用域
     }
     else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(stmt))
     {
@@ -565,149 +588,101 @@ void TypeCheckerVisitor::visitBlockStmt(shared_ptr<BlockStmtNode> node)
     }
     else if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(stmt))
     {
+      analyzer.enterScope(); // 进入嵌套块作用域
       visitBlockStmt(blockStmt);
+      analyzer.exitScope(); // 退出嵌套块作用域
     }
   }
-
-  analyzer.exitScope();
 }
 
 void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
 {
   // 检查变量是否已声明（在当前作用域）
-  if (analyzer.currentScope->table.find(node->identifier) != analyzer.currentScope->table.end())
+  // 没有循环展开
+  if (!analyzer.declareVariable(node->identifier, make_shared<Symbol>(node->type)))
   {
     addError("Variable '" + node->identifier + "' already declared in this scope");
     return;
   }
-  // 检查全局变量是否用常量初始化
+
   bool isGlobal = (analyzer.currentScope->parent == nullptr);
-  if (isGlobal && node->initializer)
+  auto symbol = analyzer.resolveVariable(node->identifier);
+  if (isGlobal)
   {
-    // 普通变量
-    if (node->indices.empty())
-    {
-      if (!node->initializer->isConstExp)
-      {
-        addError("Global variable '" + node->identifier + "' must be initialized with a constant expression");
-      }
-    }
-    // 数组
-    else
-    {
-      if (!checkArrayInit(node->initializer, node->type, 0, /*isConstArray=*/true))
-      {
-        addError("Global array '" + node->identifier + "' must be initialized with constant expressions");
-      }
-    }
-  }
-  // 检查类型是否为void或者数组维度是否合法
-  if (!node->indices.empty())
-  {
-    // 检查数组声明 不能为void类型
-    if (node->type.baseType == PrimaryDataType::VOID)
-    {
-      addError("Array '" + node->identifier + "' must have a valid base type");
-      return;
-    }
-    // 检查数组维度
-    for (const auto &size : node->indices)
-    {
-      DataType indexType = getExpressionType(size, ExprContext::ARRAY_INDEX);
-      // 非整型 是数组 或者不是常量
-      if (indexType.baseType != PrimaryDataType::INT || indexType.isArray() || !size->isConstExp)
-      {
-        addError("Array '" + node->identifier + "' index must be integer type constant");
-        return;
-      }
-    }
-  }
-  // 创建符号并声明
-  auto symbol = make_shared<Symbol>(node->type, node->initializer != nullptr, node->type.isConst());
-  // 如果是数组,保存下标信息,不是则为空
-  symbol->indices = node->indices;
-  // 如果有初始化表达式，检查类型匹配
-  if (node->initializer)
-  {
-    visitInitExpr(node->initializer);
-    // 这里可以进一步检查初始化表达式的类型是否与变量类型兼容
-    DataType initType = getExpressionType(node->initializer, ExprContext::EXPRESSION);
 
-    // 普通变量
-    if (node->indices.empty())
+    // 全局变量默认已初始化
+    if (symbol)
     {
-      // 类型兼容性检查
-      if (!isTypeCompatible(initType, node->type))
+      symbol->isInitialized = true;
+    }
+
+    // 检查全局变量的初始化
+    if (node->type.arrayDimensionCount() > 0)
+    {
+      for (const auto &size : node->type.arraySizes())
       {
-        addError("Initializer type does not match variable type for '" + node->identifier + "' initType:" + to_string(static_cast<int>(initType.baseType)) + " declType:" + to_string(static_cast<int>(node->type.baseType)) + " arrayDim:" + to_string(node->type.arrayDimensionCount()));
-      }
-      // 如果是const变量，检查初始化表达式是否为常量
-      if (node->type.isConst())
-      {
-        if (!node->initializer->isConstExp)
+        // 检查数组下标是否为constexp
+        if (!exprChecker(size, true))
         {
-          addError("Const variable '" + node->identifier + "' must be initialized with a constant expression");
+          addError("Array size for global variable '" + node->identifier + "' must be a constant integer expression");
+          return;
         }
       }
+      isValidArrayIndex(node->identifier, node->type.arraySizes());
+      if (node->initializer)
+      {
+        // 检查数组初始化
+        checkExprTypeCompatible(node->identifier, node->initializer, node->type, ExprContext::ARRAY_INDEX, true);
+      }
     }
-    // 数组
     else
     {
-      // 检查初始化表达式是否为数组初始化
-      if (!initType.isArray())
+      if (node->initializer)
       {
-        addError("Array '" + node->identifier + "' must be initialized with an array initializer");
-      }
-      else
-      {
-        // 检查维度和元素类型（可递归实现）
-        if (!checkArrayInit(node->initializer, node->type, 0, node->type.isConst()))
-        {
-          addError("Array initializer type or dimension does not match for '" + node->identifier + "'");
-        }
+        // 检查全局变量初始化
+        checkExprTypeCompatible(node->identifier, node->initializer, node->type, ExprContext::EXPRESSION, true);
       }
     }
   }
-
-  analyzer.declareVariable(node->identifier, symbol);
+  else
+  {
+    // 检查局部变量的初始化
+    if (node->type.arrayDimensionCount() > 0)
+    {
+      for (const auto &size : node->type.arraySizes())
+      {
+        // 检查数组下标是否为constexp
+        if (!exprChecker(size, true))
+        {
+          addError("Array size for local variable '" + node->identifier + "' must be a constant integer expression");
+          return;
+        }
+      }
+      // 检查数组下标是否为整数
+      isValidArrayIndex(node->identifier, node->type.arraySizes());
+      if (node->initializer)
+      {
+        symbol->isInitialized = true;
+        // 检查数组初始化
+        checkExprTypeCompatible(node->identifier, node->initializer, node->type, ExprContext::ARRAY_INDEX, node->type.isConst());
+      }
+    }
+    else if (node->initializer)
+    {
+      if (symbol)
+      {
+        symbol->isInitialized = true;
+      }
+      checkExprTypeCompatible(node->identifier, node->initializer, node->type, ExprContext::EXPRESSION, node->type.isConst());
+    }
+  }
 }
 
 void TypeCheckerVisitor::visitExprStmt(shared_ptr<ExprStmtNode> node)
 {
   if (node->expr)
   {
-    // 获取表达式类型（上下文为EXPRESSION）
-    DataType exprStmt = getExpressionType(node->expr, ExprContext::EXPRESSION);
-
-    // 根据表达式类型进行相应的访问
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->expr))
-    {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->expr))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->expr))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(node->expr))
-    {
-      visitCallExpr(call);
-    }
-    else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->expr))
-    {
-      visitIntLiteralExpr(intLiteral);
-    }
-    else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->expr))
-    {
-      visitFloatLiteralExpr(floatLiteral);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->expr))
-    {
-      visitStringLiteralExpr(stringLiteral);
-    }
+    exprChecker(node->expr, false);
   }
 }
 
@@ -715,73 +690,16 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
 {
   // 检查左值
   visitLValueExpr(node->lvalue);
-
-  // 检查左值是否已声明
   auto symbol = analyzer.resolveVariable(node->lvalue->identifier);
-  if (!symbol)
-  {
-    addError("Variable '" + node->lvalue->identifier + "' not declared");
-    return;
-  }
 
   // 检查const正确性
   if (symbol->type.isConst())
   {
     addError("Cannot modify const variable '" + node->lvalue->identifier + "'");
-    return;
-  }
-
-  // 检查数组访问
-  if (!node->lvalue->indices.empty())
-  {
-    isValidArrayAccess(node->lvalue);
-    // 错误已在isValidArrayAccess中报告
   }
 
   // 检查右值表达式
-  if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->rvalue))
-  {
-    visitBinaryExpr(binary);
-  }
-  else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->rvalue))
-  {
-    visitUnaryExpr(unary);
-  }
-  else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->rvalue))
-  {
-    visitLValueExpr(lvalue);
-  }
-  else if (auto call = dynamic_pointer_cast<CallExprNode>(node->rvalue))
-  {
-    visitCallExpr(call);
-  }
-  else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->rvalue))
-  {
-    visitIntLiteralExpr(intLiteral);
-  }
-  else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->rvalue))
-  {
-    visitFloatLiteralExpr(floatLiteral);
-  }
-  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->rvalue))
-  {
-    visitStringLiteralExpr(stringLiteral);
-  }
-
-  // 检查类型兼容性
-  DataType lvalueType = symbol->type;
-  // 如果是数组访问，需要获取元素类型
-  if (!node->lvalue->indices.empty())
-  {
-    // 简化处理：假设访问后是基本类型
-    lvalueType = DataType(lvalueType.baseType);
-  }
-
-  DataType rvalueType = getExpressionType(node->rvalue, ExprContext::EXPRESSION);
-  if (!isTypeCompatible(rvalueType, lvalueType))
-  {
-    addError("Type mismatch in assignment");
-  }
+  checkExprTypeCompatible(node->lvalue->identifier, node->rvalue, symbol->type, ExprContext::EXPRESSION, false);
 
   // 标记变量为已初始化
   symbol->isInitialized = true;
@@ -792,104 +710,18 @@ void TypeCheckerVisitor::visitIfElseStmt(shared_ptr<IfElseStmtNode> node)
   // 检查条件表达式
   if (node->condition)
   {
-    DataType condType = getExpressionType(node->condition, ExprContext::CONDITION);
-    // 条件必须是可转换为bool的类型
-    if (condType.baseType == PrimaryDataType::VOID)
-    {
-      addError("Invalid condition type in if statement");
-    }
-
-    // 递归检查条件表达式
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->condition))
-    {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->condition))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->condition))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(node->condition))
-    {
-      visitCallExpr(call);
-    }
+    checkExprTypeCompatible("if condition", node->condition, DataType(PrimaryDataType::VOID), ExprContext::CONDITION, false);
   }
 
   // 检查then分支
   if (node->then_body)
   {
-    if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(node->then_body))
-    {
-      visitBlockStmt(blockStmt);
-    }
-    else if (auto assignStmt = dynamic_pointer_cast<AssignStmtNode>(node->then_body))
-    {
-      visitAssignStmt(assignStmt);
-    }
-    else if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node->then_body))
-    {
-      visitExprStmt(exprStmt);
-    }
-    else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(node->then_body))
-    {
-      visitIfElseStmt(ifStmt);
-    }
-    else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(node->then_body))
-    {
-      visitWhileStmt(whileStmt);
-    }
-    else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(node->then_body))
-    {
-      visitBreakStmt(breakStmt);
-    }
-    else if (auto continueStmt = dynamic_pointer_cast<ContinueStmtNode>(node->then_body))
-    {
-      visitContinueStmt(continueStmt);
-    }
-    else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node->then_body))
-    {
-      visitReturnStmt(returnStmt);
-    }
+    visitBlockStmt(dynamic_pointer_cast<BlockStmtNode>(node->then_body));
   }
-
   // 检查else分支
   if (node->else_body)
   {
-    if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(node->else_body))
-    {
-      visitBlockStmt(blockStmt);
-    }
-    else if (auto assignStmt = dynamic_pointer_cast<AssignStmtNode>(node->else_body))
-    {
-      visitAssignStmt(assignStmt);
-    }
-    else if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node->else_body))
-    {
-      visitExprStmt(exprStmt);
-    }
-    else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(node->else_body))
-    {
-      visitIfElseStmt(ifStmt);
-    }
-    else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(node->else_body))
-    {
-      visitWhileStmt(whileStmt);
-    }
-    else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(node->else_body))
-    {
-      visitBreakStmt(breakStmt);
-    }
-    else if (auto continueStmt = dynamic_pointer_cast<ContinueStmtNode>(node->else_body))
-    {
-      visitContinueStmt(continueStmt);
-    }
-    else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node->else_body))
-    {
-      visitReturnStmt(returnStmt);
-    }
+    visitBlockStmt(dynamic_pointer_cast<BlockStmtNode>(node->else_body));
   }
 }
 
@@ -898,74 +730,12 @@ void TypeCheckerVisitor::visitWhileStmt(shared_ptr<WhileStmtNode> node)
   // 检查条件表达式
   if (node->condition)
   {
-    DataType condType = getExpressionType(node->condition, ExprContext::CONDITION);
-    if (condType.baseType == PrimaryDataType::VOID)
-    {
-      addError("Invalid condition type in while statement");
-    }
-
-    // 递归检查条件表达式
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->condition))
-    {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->condition))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->condition))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(node->condition))
-    {
-      visitCallExpr(call);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->condition))
-    {
-      visitStringLiteralExpr(stringLiteral);
-    }
+    checkExprTypeCompatible("while condition", node->condition, DataType(PrimaryDataType::VOID), ExprContext::CONDITION, false);
   }
-
   // 检查循环体
   if (node->body)
   {
-    if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(node->body))
-    {
-      visitBlockStmt(blockStmt);
-    }
-    else if (auto assignStmt = dynamic_pointer_cast<AssignStmtNode>(node->body))
-    {
-      visitAssignStmt(assignStmt);
-    }
-    else if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node->body))
-    {
-      visitExprStmt(exprStmt);
-    }
-    else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(node->body))
-    {
-      visitIfElseStmt(ifStmt);
-    }
-    else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(node->body))
-    {
-      visitWhileStmt(whileStmt);
-    }
-    else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(node->body))
-    {
-      visitBreakStmt(breakStmt);
-    }
-    else if (auto continueStmt = dynamic_pointer_cast<ContinueStmtNode>(node->body))
-    {
-      visitContinueStmt(continueStmt);
-    }
-    else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node->body))
-    {
-      visitReturnStmt(returnStmt);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->body))
-    {
-      visitStringLiteralExpr(stringLiteral);
-    }
+    visitBlockStmt(dynamic_pointer_cast<BlockStmtNode>(node->body));
   }
 }
 
@@ -998,42 +768,7 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
   if (node->ret_expr)
   {
     // 有返回值
-    DataType actualReturnType = getExpressionType(node->ret_expr, ExprContext::EXPRESSION);
-
-    if (!isTypeCompatible(actualReturnType, expectedReturnType))
-    {
-      addError("Return type mismatch with function '" + currentFunction->identifier + "'");
-    }
-
-    // 递归检查返回表达式
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->ret_expr))
-    {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->ret_expr))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->ret_expr))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(node->ret_expr))
-    {
-      visitCallExpr(call);
-    }
-    else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->ret_expr))
-    {
-      visitIntLiteralExpr(intLiteral);
-    }
-    else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->ret_expr))
-    {
-      visitFloatLiteralExpr(floatLiteral);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->ret_expr))
-    {
-      visitStringLiteralExpr(stringLiteral);
-    }
+    checkExprTypeCompatible(currentFunction->identifier, node->ret_expr, expectedReturnType, ExprContext::EXPRESSION, false);
   }
   else
   {
@@ -1052,352 +787,80 @@ void TypeCheckerVisitor::visitLValueExpr(shared_ptr<LValueExprNode> node)
   if (!symbol)
   {
     addError("Variable '" + node->identifier + "' not declared");
-    return;
   }
 
   // 检查变量是否已初始化
-  // if (!symbol->isInitialized)
-  // {
-  //   addError("Variable '" + node->identifier + "' used before initialization");
-  // }
+  if (!symbol->isInitialized)
+  {
+    addError("Variable '" + node->identifier + "' used before initialization");
+  }
 
   // 检查数组访问
   if (!node->indices.empty())
   {
-    isValidArrayAccess(node);
+    if (!symbol->type.isArray())
+    {
+      addError("Variable '" + node->identifier + "' is not an array");
+    }
 
-    // 递归检查数组索引表达式
-    for (auto &index : node->indices)
+    // 当不处于函数调用中时，检查数组维度
+    if (!inFunctionCall)
     {
-      if (auto binary = dynamic_pointer_cast<BinaryExprNode>(index))
+      if (symbol->type.arrayDimensionCount() != node->indices.size())
       {
-        visitBinaryExpr(binary);
-      }
-      else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(index))
-      {
-        visitUnaryExpr(unary);
-      }
-      else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(index))
-      {
-        visitLValueExpr(lvalue);
-      }
-      else if (auto call = dynamic_pointer_cast<CallExprNode>(index))
-      {
-        visitCallExpr(call);
-      }
-      else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(index))
-      {
-        visitIntLiteralExpr(intLiteral);
-      }
-      else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(index))
-      {
-        visitFloatLiteralExpr(floatLiteral);
-      }
-      else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(index))
-      {
-        visitStringLiteralExpr(stringLiteral);
+        addError("Array '" + node->identifier + "' access dimension mismatch");
       }
     }
-  }
-}
 
-void TypeCheckerVisitor::visitInitExpr(shared_ptr<InitExprNode> node)
-{
-  if (node->singleInitVal)
-  {
-    // 单一初始值 - 检查表达式类型（应该是EXPRESSION上下文）
-    DataType initType = getExpressionType(node->singleInitVal, ExprContext::EXPRESSION);
+    for (const auto &index : node->indices)
+    {
+      exprChecker(index, false);
+    }
 
-    // 递归访问子表达式
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->singleInitVal))
-    {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->singleInitVal))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->singleInitVal))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(node->singleInitVal))
-    {
-      visitCallExpr(call);
-    }
-    else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->singleInitVal))
-    {
-      visitIntLiteralExpr(intLiteral);
-    }
-    else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->singleInitVal))
-    {
-      visitFloatLiteralExpr(floatLiteral);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->singleInitVal))
-    {
-      visitStringLiteralExpr(stringLiteral);
-    }
-  }
-  else
-  {
-    // 复合初始值
-    for (auto &initVal : node->multiInitVal)
-    {
-      visitInitExpr(initVal);
-    }
+    // 检查数组访问的索引为整数
+    isValidArrayIndex(node->identifier, node->indices);
   }
 }
 
 void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
 {
-  checkFunctionCall(node);
+  // 检查函数名是否已声明
+  auto func = analyzer.resolveFunction(node->callee);
+  if (!func)
+  {
+    addError("Callee '" + node->callee + "' is not defined");
+    return;
+  }
 
-  // 递归检查参数表达式
+  // 检查函数调用参数数量是否一致
   inFunctionCall = true;
-  for (auto &arg : node->args)
+  auto targetParamsType = func->functionNode->params;
+
+  if (targetParamsType.size() != node->args.size())
   {
-    if (auto binary = dynamic_pointer_cast<BinaryExprNode>(arg))
+    addError("Function '" + node->callee + "' expects " +
+             to_string(targetParamsType.size()) + " arguments, got " +
+             to_string(node->args.size()));
+    inFunctionCall = false;
+    return;
+  }
+
+  // 检查每个参数类型
+  for (size_t i = 0; i < targetParamsType.size(); i++)
+  {
+    if (i < node->args.size())
     {
-      visitBinaryExpr(binary);
-    }
-    else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(arg))
-    {
-      visitUnaryExpr(unary);
-    }
-    else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(arg))
-    {
-      visitLValueExpr(lvalue);
-    }
-    else if (auto call = dynamic_pointer_cast<CallExprNode>(arg))
-    {
-      visitCallExpr(call);
-    }
-    else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(arg))
-    {
-      visitIntLiteralExpr(intLiteral);
-    }
-    else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(arg))
-    {
-      visitFloatLiteralExpr(floatLiteral);
-    }
-    else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(arg))
-    {
-      visitStringLiteralExpr(stringLiteral);
+      checkExprTypeCompatible(node->callee, node->args[i], targetParamsType[i]->type, ExprContext::CALL, true);
     }
   }
+
   inFunctionCall = false;
-}
-
-void TypeCheckerVisitor::visitBinaryExpr(shared_ptr<BinaryExprNode> node)
-{
-  // 递归检查左右操作数
-  if (auto leftBinary = dynamic_pointer_cast<BinaryExprNode>(node->left))
-  {
-    visitBinaryExpr(leftBinary);
-  }
-  else if (auto leftUnary = dynamic_pointer_cast<UnaryExprNode>(node->left))
-  {
-    visitUnaryExpr(leftUnary);
-  }
-  else if (auto leftLvalue = dynamic_pointer_cast<LValueExprNode>(node->left))
-  {
-    visitLValueExpr(leftLvalue);
-  }
-  else if (auto leftCall = dynamic_pointer_cast<CallExprNode>(node->left))
-  {
-    visitCallExpr(leftCall);
-  }
-  else if (auto leftIntLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->left))
-  {
-    visitIntLiteralExpr(leftIntLiteral);
-  }
-  else if (auto leftFloatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->left))
-  {
-    visitFloatLiteralExpr(leftFloatLiteral);
-  }
-  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->left))
-  {
-    visitStringLiteralExpr(stringLiteral);
-  }
-
-  if (auto rightBinary = dynamic_pointer_cast<BinaryExprNode>(node->right))
-  {
-    visitBinaryExpr(rightBinary);
-  }
-  else if (auto rightUnary = dynamic_pointer_cast<UnaryExprNode>(node->right))
-  {
-    visitUnaryExpr(rightUnary);
-  }
-  else if (auto rightLvalue = dynamic_pointer_cast<LValueExprNode>(node->right))
-  {
-    visitLValueExpr(rightLvalue);
-  }
-  else if (auto rightCall = dynamic_pointer_cast<CallExprNode>(node->right))
-  {
-    visitCallExpr(rightCall);
-  }
-  else if (auto rightIntLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->right))
-  {
-    visitIntLiteralExpr(rightIntLiteral);
-  }
-  else if (auto rightFloatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->right))
-  {
-    visitFloatLiteralExpr(rightFloatLiteral);
-  }
-  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->right))
-  {
-    visitStringLiteralExpr(stringLiteral);
-  }
-
-  // 检查操作数类型
-  DataType leftType = getExpressionType(node->left, ExprContext::EXPRESSION);
-  DataType rightType = getExpressionType(node->right, ExprContext::EXPRESSION);
-
-  // 检查除零
-  if (node->op == BinaryOp::Div || node->op == BinaryOp::Mod)
-  {
-    if (auto rightIntLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->right))
-    {
-      if (rightIntLiteral->value == 0)
-      {
-        addError("Division by zero");
-      }
-    }
-    else if (auto rightFloatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->right))
-    {
-      if (rightFloatLiteral->value == 0.0f)
-      {
-        addError("Division by zero");
-      }
-    }
-  }
-
-  // 检查模运算只能用于整数
-  if (node->op == BinaryOp::Mod)
-  {
-    if (leftType.baseType != PrimaryDataType::INT || rightType.baseType != PrimaryDataType::INT)
-    {
-      addError("Modulo operation requires integer operands");
-    }
-  }
-}
-
-void TypeCheckerVisitor::visitUnaryExpr(shared_ptr<UnaryExprNode> node)
-{
-  // 递归检查操作数
-  if (auto binary = dynamic_pointer_cast<BinaryExprNode>(node->operand))
-  {
-    visitBinaryExpr(binary);
-  }
-  else if (auto unary = dynamic_pointer_cast<UnaryExprNode>(node->operand))
-  {
-    visitUnaryExpr(unary);
-  }
-  else if (auto lvalue = dynamic_pointer_cast<LValueExprNode>(node->operand))
-  {
-    visitLValueExpr(lvalue);
-  }
-  else if (auto call = dynamic_pointer_cast<CallExprNode>(node->operand))
-  {
-    visitCallExpr(call);
-  }
-  else if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node->operand))
-  {
-    visitIntLiteralExpr(intLiteral);
-  }
-  else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node->operand))
-  {
-    visitFloatLiteralExpr(floatLiteral);
-  }
-  else if (auto stringLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node->operand))
-  {
-    visitStringLiteralExpr(stringLiteral);
-  }
-
-  // 检查操作数类型
-  DataType operandType = getExpressionType(node->operand, ExprContext::EXPRESSION);
-
-  // 如果是数组，不能直接应用一元操作
-  if (operandType.isArray())
-  {
-    addError("Cannot apply unary operator to array");
-  }
-}
-
-// void TypeCheckerVisitor::visitLiteralExpr(shared_ptr<LiteralExprNode> node)
-// {
-//   // 但可以检查类型是否符合预期
-//   if (auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node))
-//   {
-//     // 整数字面量是32位整数，所以范围在-2147483648到2147483647之间
-//     if (intLiteral->value < -2147483648 ||
-//         intLiteral->value > 2147483647)
-//     {
-//       addError("Integer literal out of range: " + to_string(intLiteral->value));
-//     }
-//   }
-//   else if (auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node))
-//   {
-//     // 浮点数字面量通常是32位单精度浮点数
-//     // 检查是否在有效范围内
-//     if (floatLiteral->value < -3.402823e38f ||
-//         floatLiteral->value > 3.402823e38f)
-//     {
-//       addError("Float literal out of range: " + to_string(floatLiteral->value));
-//     }
-//   }
-//   else if (auto strLiteral = dynamic_pointer_cast<StringLiteralExprNode>(node))
-//   {
-//     if (!InFunctionCall)
-//     {
-//       addError("String literal can only be used in function calls");
-//     }
-//   }
-//   else
-//   {
-//     addError("Unknown literal expression type");
-//   }
-// }
-
-void TypeCheckerVisitor::visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node)
-{
-  auto intLiteral = dynamic_pointer_cast<IntLiteralExprNode>(node);
-  if (intLiteral->value < -2147483648 ||
-      intLiteral->value > 2147483647)
-  {
-    addError("Integer literal out of range: " + to_string(intLiteral->value));
-  }
-}
-
-void TypeCheckerVisitor::visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node)
-{
-  auto floatLiteral = dynamic_pointer_cast<FloatLiteralExprNode>(node);
-  if (floatLiteral->value < -3.402823e38f ||
-      floatLiteral->value > 3.402823e38f)
-  {
-    addError("Float literal out of range: " + to_string(floatLiteral->value));
-  }
 }
 
 void TypeCheckerVisitor::visitStringLiteralExpr(shared_ptr<StringLiteralExprNode> node)
 {
   if (!inFunctionCall)
   {
-    addError("String literal can only be used in function calls");
+    addError("String literal can only be used in runtime function calls");
   }
 }
-
-// shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType)
-// {
-//   if (!needsImplicitConversion(expr->dataType, targetType))
-//   {
-//     return expr;
-//   }
-
-//   // 创建类型转换节点
-//   auto castNode = make_shared<CastExpNode>();
-//   castNode->sourceExpr = expr;
-//   castNode->targetType = targetType;
-
-//   return castNode;
-// }

@@ -1,9 +1,27 @@
-Semantic errors found:
-Variable 'b' not declared
-Variable 'b' not declared
-Variable 'b' not declared
-Initializer type does not match variable type for 'd'
-Variable 'f' not declared
-Variable 'f' not declared
-Variable 'f' not declared
-Initializer type does not match variable type for 'g'
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      BlockStmtNode
+        DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 20
+
+        DeclStmtNode: c : int = InitExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b
+
+      DeclStmtNode: d : int = InitExprNode: LValueExprNode: b
+
+      BlockStmtNode
+        DeclStmtNode: e : int = InitExprNode: IntegerLiteralExprNode: 30
+
+        BlockStmtNode
+          DeclStmtNode: f : int = InitExprNode: LValueExprNode: e
+
+        DeclStmtNode: g : int = InitExprNode: LValueExprNode: f
+
+      ReturnStmtNode
+        BinaryExprNode: LValueExprNode: a + LValueExprNode: d
+          LValueExprNode: a
+          LValueExprNode: d

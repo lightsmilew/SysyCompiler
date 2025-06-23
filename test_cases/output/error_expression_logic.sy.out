@@ -1,19 +1,34 @@
-Semantic errors found:
-Logical or comparison operations are not allowed in expression
-Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'c'
-Logical or comparison operations are not allowed in expression
-Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'd'
-Logical NOT operation is not allowed in expression
-Logical NOT operation is not allowed in expression
-Initializer type does not match variable type for 'e'
-Logical or comparison operations are not allowed in expression
-Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'f'
-Logical or comparison operations are not allowed in expression
-Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'g'
-Logical or comparison operations are not allowed in expression
-Logical or comparison operations are not allowed in expression
-Initializer type does not match variable type for 'h'
+CompUnitNode
+  Function
+    int main(
+      Parameters:
+    )
+    BlockStmtNode
+      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
+
+      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 20
+
+      DeclStmtNode: c : int = InitExprNode: BinaryExprNode: LValueExprNode: a && LValueExprNode: b
+
+      DeclStmtNode: d : int = InitExprNode: BinaryExprNode: LValueExprNode: a || LValueExprNode: b
+
+      DeclStmtNode: e : int = InitExprNode: UnaryExprNode: !LValueExprNode: a
+
+      DeclStmtNode: f : int = InitExprNode: BinaryExprNode: LValueExprNode: a < LValueExprNode: b
+
+      DeclStmtNode: g : int = InitExprNode: BinaryExprNode: LValueExprNode: a > LValueExprNode: b
+
+      DeclStmtNode: h : int = InitExprNode: BinaryExprNode: LValueExprNode: a == LValueExprNode: b
+
+      ReturnStmtNode
+        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f + LValueExprNode: g + LValueExprNode: h
+          BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f + LValueExprNode: g
+            BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f
+              BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e
+                BinaryExprNode: LValueExprNode: c + LValueExprNode: d
+                  LValueExprNode: c
+                  LValueExprNode: d
+                LValueExprNode: e
+              LValueExprNode: f
+            LValueExprNode: g
+          LValueExprNode: h

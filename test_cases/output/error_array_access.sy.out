@@ -1,7 +1,0 @@
-Semantic errors found:
-Too many indices for array 'arr'
-Array 'arr' access dimension exceeds array dimension count
-Too many indices for array 'arr'
-Initializer type does not match variable type for 'a'
-Initializer type does not match variable type for 'b'
-Array 'arr' index must be integer type

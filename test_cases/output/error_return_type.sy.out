@@ -1,4 +1,2 @@
 Semantic errors found:
-Return type mismatch with function 'testVoid1'
-Return type mismatch with function 'testVoid2'
 Function 'testInt' must return a value

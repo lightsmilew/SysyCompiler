@@ -1,19 +1,5 @@
 Semantic errors found:
-Global variable 'globalVar' must be initialized with a constant expression
-Global variable 'BASE' must be initialized with a constant expression
-Const variable 'BASE' must be initialized with a constant expression
-Global variable 'MULTIPLIER' must be initialized with a constant expression
-Const variable 'MULTIPLIER' must be initialized with a constant expression
-Global variable 'COMPLEX_CONST' must be initialized with a constant expression
-Const variable 'COMPLEX_CONST' must be initialized with a constant expression
-Global variable 'PI' must be initialized with a constant expression
-Const variable 'PI' must be initialized with a constant expression
-Global variable 'AREA' must be initialized with a constant expression
-Const variable 'AREA' must be initialized with a constant expression
-Initializer type does not match variable type for 'matrix' initType:0 declType:0 arrayDim:2
-Const variable 'local1' must be initialized with a constant expression
-Const variable 'local2' must be initialized with a constant expression
-Initializer type does not match variable type for 'matrix' initType:0 declType:1 arrayDim:2
-Const variable 'constArr' must be initialized with a constant expression
-Initializer type does not match variable type for 'constMatrix' initType:0 declType:1 arrayDim:2
-Const variable 'constMatrix' must be initialized with a constant expression
+Variable 'result' used before initialization
+Variable 'array' used before initialization
+Variable 'minArray' used before initialization
+Variable 'cube' used before initialization
