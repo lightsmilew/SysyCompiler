@@ -16,9 +16,8 @@ namespace ir_builder
         BasicBlock *currentBlock;       // 当前基本块
 
         // === 符号表管理 ===
-        SemanticAnalyzer *semanticAnalyzer;                                   // 复用语义分析器的符号表
-        std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射
-        std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈
+        std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
+        std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
         struct LoopContext
@@ -41,8 +40,10 @@ namespace ir_builder
               tempVarCounter(0), labelCounter(0)
         {
             module = std::make_unique<Module>(moduleName);
+            initializeLibraryFunctions(); // 初始化库函数
         }
-
+        // === 初始化库函数 ===
+        void initializeLibraryFunctions();
         // === 主入口：构建整个模块 ===
         std::unique_ptr<Module> buildModule(std::shared_ptr<ast::CompUnitNode> compUnit);
 
