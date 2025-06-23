@@ -1,5 +1,6 @@
 #pragma once
 #include "ASTNode.h"
+#include "ASTNodeVisitor.h"
 #include <stdexcept>
 
 using namespace ast;
@@ -14,17 +15,16 @@ enum class SymbolType
 class Symbol
 {
 public:
-    SymbolType symbolType;                // 符号类型（变量或函数）
-    DataType type;                        // 符号的数据类型
-    bool isInitialized;                   // 符号是否已初始化
-    bool isConst;                         // 是否为常量
-    vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
-    shared_ptr<FuncNode> functionNode;    // 如果是函数，指向函数节点
+    SymbolType symbolType; // 符号类型（变量或函数）
+    DataType type;         // 符号的数据类型（包含常量性信息）
+    bool isInitialized;    // 符号是否已初始化
+    // vector<shared_ptr<ExprNode>> indices; // 数组下标，可能为空
+    shared_ptr<FuncNode> functionNode; // 如果是函数，指向函数节点
 
-    Symbol(DataType type, bool isInitialized = false, bool isConst = false)
-        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), isConst(isConst), functionNode(nullptr) {}
+    Symbol(DataType type, bool isInitialized = false)
+        : symbolType(SymbolType::VARIABLE), type(type), isInitialized(isInitialized), functionNode(nullptr) {}
     Symbol(shared_ptr<FuncNode> funcNode)
-        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), isConst(false), functionNode(funcNode) {}
+        : symbolType(SymbolType::FUNCTION), type(funcNode->returnType), isInitialized(true), functionNode(funcNode) {}
 };
 
 // 符号表类，用于存储符号信息
@@ -59,7 +59,7 @@ public:
 
     void enterScope();
     void exitScope();
-    void declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
+    bool declareVariable(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveVariable(const std::string &name);
     bool declareFunction(const std::string &name, const std::shared_ptr<Symbol> &symbol);
     shared_ptr<Symbol> resolveFunction(const std::string &name);
@@ -100,9 +100,11 @@ private:
     // 表达式上下文枚举
     enum class ExprContext
     {
-        EXPRESSION, // 普通表达式上下文（不允许逻辑和比较操作）
-        CONDITION,  // 条件表达式上下文（允许逻辑和比较操作）
-        ARRAY_INDEX // 数组索引上下文（不允许逻辑和比较操作）
+        EXPRESSION,  // 普通表达式上下文（不允许逻辑和比较操作）
+        CONDITION,   // 条件表达式上下文（允许逻辑和比较操作）
+        ARRAY_INDEX, // 数组索引上下文（不允许逻辑和比较操作）
+        CALL,        // 函数调用上下文
+        ASSIGNMENT   // 初始化上下文
     };
 
     SemanticAnalyzer analyzer; // 引用语义分析器
@@ -120,10 +122,12 @@ public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
         initializeFunction(); // 初始化运行库函数定义
+        // analyzer.enterScope();
         visitCompUnitForCheck(astRoot);
         return errors.empty();
     }
     vector<string> getErrors() const { return errors; }
+
 private:
     void visitCompUnitForCheck(shared_ptr<CompUnitNode> node);
     void visitFuncNode(shared_ptr<FuncNode> node);
@@ -137,23 +141,27 @@ private:
     void visitContinueStmt(shared_ptr<ContinueStmtNode> node);
     void visitReturnStmt(shared_ptr<ReturnStmtNode> node);
     void visitLValueExpr(shared_ptr<LValueExprNode> node);
-    void visitInitExpr(shared_ptr<InitExprNode> node);
+
+    // void visitInitExpr(shared_ptr<InitExprNode> node);
     void visitCallExpr(shared_ptr<CallExprNode> node);
     void visitBinaryExpr(shared_ptr<BinaryExprNode> node);
     void visitUnaryExpr(shared_ptr<UnaryExprNode> node);
-    // void visitLiteralExpr(shared_ptr<LiteralExprNode> node);
     void visitIntLiteralExpr(shared_ptr<IntLiteralExprNode> node);
     void visitFloatLiteralExpr(shared_ptr<FloatLiteralExprNode> node);
     void visitStringLiteralExpr(shared_ptr<StringLiteralExprNode> node);
 
-    // 新增辅助方法
-    shared_ptr<ExprNode> castExpression(shared_ptr<ExprNode> expr, DataType targetType);
-    void addError(const string &message);
-    DataType getExpressionType(shared_ptr<ExprNode> expr, ExprContext context = ExprContext::EXPRESSION);
-    bool isTypeCompatible(DataType from, DataType to);
-    bool isValidArrayAccess(shared_ptr<LValueExprNode> lvalue);
-    bool checkArrayInit(const shared_ptr<ExprNode> &init, const DataType &declaredType, int dim, bool isConst = false);
-    void checkFunctionCall(shared_ptr<CallExprNode> call);
-    //初始化运行库函数定义
+    //===辅助方法===
+
+    // 获取expr的primaryType,也附带检查了callexp、lval、字面值
+    PrimaryDataType getExpressionType(shared_ptr<ExprNode> expr);
+    // 数组索引是否为整数
+    bool isValidArrayIndex(string ident, vector<shared_ptr<ExprNode>> indices);
+    // 初始化运行库函数定义
     void initializeFunction();
+    // 检查表达式类型是否与目标类型兼容,且在指定上下文中
+    bool checkExprTypeCompatible(string ident, shared_ptr<ExprNode> expr, DataType targetType, ExprContext context = ExprContext::EXPRESSION, bool isConst = false);
+    // 检查表达式是否存在逻辑和比较操作，且是否为常量表达式
+    bool exprChecker(shared_ptr<ExprNode> expr, bool isConst = false);
+    // adderror
+    void addError(const string &message);
 };
