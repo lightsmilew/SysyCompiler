@@ -51,9 +51,18 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     for (size_t i = 0; i < node->params.size(); i++)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
+        // 如果是指针类型参数（如退化后的数组参数），直接用参数本身
+        if (paramTypes[i]->isPointerTy()) 
+        {
+            // 直接使用参数，不需要额外的 alloca
+        varToValue[node->params[i]->identifier] = arg;
+        } 
+        else
+        {
         Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier);
         createStore(arg, alloca);
         varToValue[node->params[i]->identifier] = alloca;
+        }
     }
 
     // 进入新的作用域
@@ -304,8 +313,10 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
 Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
-    {
-        return visitBinaryExpr(binaryExpr);
+    {   
+        auto value = visitBinaryExpr(binaryExpr);
+        std::cout<<"Visiting Binary Expression: " << binaryExpr->toString() <<"type"+to_string(value->getType()->getTypeID())<< std::endl;
+        return value;
     }
     else if (auto unaryExpr = std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
     {
@@ -314,7 +325,10 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
     else if (auto lvalueExpr = std::dynamic_pointer_cast<ast::LValueExprNode>(node))
     {
         Value *ptr = visitLValueExpr(lvalueExpr);
-        return createLoad(ptr);
+        auto value = createLoad(ptr);
+        std::cout << "Visiting LValue Expression: " << lvalueExpr->toString() << " type" << to_string(value->getType()->getTypeID()) << std::endl;
+        return value;
+
     }
     else if (auto callExpr = std::dynamic_pointer_cast<ast::CallExprNode>(node))
     {
@@ -449,7 +463,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     auto it = varToValue.find(node->identifier);
     if (it == varToValue.end())
     {
-        throw std::runtime_error("Undefined variable: " + node->identifier+",line:"+ std::to_string(node->line));
+        throw std::runtime_error("Undefined variable: " + node->identifier + ",line:" + std::to_string(node->line));
     }
 
     Value *ptr = it->second;
@@ -458,7 +472,17 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     if (!node->indices.empty())
     {
         std::vector<Value *> indices;
-        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 第一个索引总是0
+
+        // 判断是否需要加第一个0
+        // 如果 ptr 是指向数组的指针（如 alloca 或全局变量），加0
+        // 如果 ptr 是参数指针（如 int arr[]），不加0
+        if (ptr->getType()->isPointerTy()) {
+            Type *elemType = static_cast<PointerType*>(ptr->getType())->ElementType;
+            std::cout<<"the type of this point is: " << node->toString() <<"type"+to_string(elemType->getTypeID())<< std::endl;
+            if (elemType->isArrayTy()) {
+                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+            }
+        }
 
         for (auto &indexExpr : node->indices)
         {
@@ -475,8 +499,16 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         currentBlock->addInstruction(std::move(gepInst));
         return result;
     }
-
-    // 无下标时直接返回指针（参数传递时由 visitCallExpr 处理退化）
+    // 如果是数组类型，自动退化为指针（GEP 0,0）
+    if (ptr->getType()->isArrayTy()) {
+        std::vector<Value *> indices;
+        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
+        Value *result = gepInst.get();
+        currentBlock->addInstruction(std::move(gepInst));
+        return result;
+    }
+    // 无下标且不是数组，直接返回指针
     return ptr;
 }
 
@@ -946,6 +978,7 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
             int start = 0;
             if (!sizes.empty() && sizes[0] == -1)
             {
+                std::cout<<"this is a function parameter array, first dimension is -1"<<std::endl;
                 start = 1;
             }
             for (int i = sizes.size() - 1; i >= start; i--)
@@ -984,7 +1017,7 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
     case PrimaryDataType::VOID:
         return VoidType::getInstance();
     default:
-        throw std::runtime_error("Unsupported type " );
+        throw std::runtime_error("Unsupported type in convertASTtoIR" );
     }
 }
 
@@ -1008,7 +1041,7 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
     //
     else
     {
-        throw std::runtime_error("Unsupported type conversion");
+        throw std::runtime_error("Unsupported type conversion in creatcast:" + to_string(srcType->getTypeID()) + " to " + to_string(targetType->getTypeID()));
     }
 
     auto castInst = std::make_unique<CastInst>(castOp, value, targetType, getNextTempName());
