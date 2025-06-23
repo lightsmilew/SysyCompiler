@@ -15,7 +15,7 @@ int main() {
     // 调用不存在的函数
     int c = unknown(5);    // 错误：函数未声明
     
-    noParam(10);           // 错误：给无参函数传参数
+    int d = noParam(10);           // 错误：给无参函数传参数
     
     return a + b + c;
 }
