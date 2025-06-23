@@ -32,4 +32,6 @@ def main():
             print(f"Test case {case} failed with return code {return_code}.")
 
 if __name__ == "__main__":
+    os.system("cd myCompiler/build && make")
+    os.system("cd ../..")
     main()

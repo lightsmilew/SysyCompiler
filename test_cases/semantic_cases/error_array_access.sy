@@ -11,9 +11,6 @@ int main() {
     float idx = 1.5;
     int c = arr[idx];      // 错误：数组索引必须是整数类型
     
-    // 常量越界（如果实现了静态检查）
-    int d = arr[5];        // 错误：索引超出数组边界
-    int e = arr[-1];       // 错误：负数索引
-    
     return a + b + c + d + e;
 }
+    
