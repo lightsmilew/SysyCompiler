@@ -38,7 +38,8 @@ public:
     bool isArrayTy() const { return ID == ArrayTyID; }
     bool isFunctionTy() const { return ID == FunctionTyID; }
     bool isBooleanTy() const { return ID == BooleanTyID; }
-
+    bool isTypeEqual(Type* a, Type* b);
+    
     virtual string toString() const = 0;
 };
 
