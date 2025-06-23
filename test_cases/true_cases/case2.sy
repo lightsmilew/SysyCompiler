@@ -254,16 +254,24 @@ int process2DArray(int arr[][3]) {
 int testArrayAsParameter() {
     int arr1[5] = {1, 2, 3, 4, 5};
     int matrix[2][3] = {{1, 2, 3}, {4, 5, 6}};
-    
+    //测试ifelse PHI，只为被赋值的变量插入
+    int x=0,y=0
     if(arr1[1]>matrix[0][1]) {
+        int e=0;
         arr1[1]=arr1[1]+1; // 确保数组访问正确
+        x=x+1;
     }
     else{
         arr1[1]=arr1[1]-1; // 确保数组访问正确
+        x=x-1;
     }
+    y=x;
+    //测试while循环phi插入
+    int j=0;
     while(arr1[4]>0){
         arr1[4]=arr1[4]-1; // 确保数组访问正确
-        arr1[5]=arr1[5]+1; // 确保数组访问正确
+        arr1[3]=arr1[3]+1; // 确保数组访问正确
+        j=j+1;
         if(arr1[3]>8){
             break;
         }

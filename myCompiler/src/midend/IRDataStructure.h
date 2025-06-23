@@ -629,6 +629,8 @@ public:
 };
 
 // ===== Function =====
+// Argument 类表示函数参数
+
 class Argument : public Value
 {
 public:

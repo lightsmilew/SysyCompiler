@@ -220,59 +220,121 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     BasicBlock *elseBlock = node->else_body ? createBasicBlock("if.else") : nullptr;
     BasicBlock *mergeBlock = createBasicBlock("if.end");
 
+    // 记录分支前变量状态
+    auto varToValueBefore = varToValue;
+
     // 条件跳转
     createCondBranch(condition, thenBlock, elseBlock ? elseBlock : mergeBlock);
 
     // then 分支
     setCurrentBlock(thenBlock);
     visitStatement(node->then_body);
+    auto varToValueThen = varToValue; // then分支后的变量状态
     if (!currentBlock->hasTerminator())
     {
         createBranch(mergeBlock);
     }
 
     // else 分支
+    std::unordered_map<std::string, Value*> varToValueElse = varToValueBefore;
     if (elseBlock)
     {
         setCurrentBlock(elseBlock);
+        varToValue = varToValueBefore; // else分支变量初始状态与if前一致
         visitStatement(node->else_body);
+        varToValueElse = varToValue; // else分支后的变量状态
         if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
     }
 
+    // 合流块
     setCurrentBlock(mergeBlock);
+
+    // 插入PHI，只为被赋值的变量插入
+    for (const auto& [name, valThen] : varToValueThen) {
+        auto itElse = varToValueElse.find(name);
+        if (itElse != varToValueElse.end() && (valThen != itElse->second)) {
+            PHINode* phi = createPhi(valThen->getType(), getNextTempName());
+            phi->IncomingValues.push_back({valThen, thenBlock});
+            phi->IncomingValues.push_back({itElse->second, elseBlock ? elseBlock : mergeBlock});
+            varToValue[name] = phi;
+        } else if (itElse != varToValueElse.end()) {
+            // 两分支一致，直接用任意一个
+            varToValue[name] = valThen;
+        }
+    }
+    // 处理只在else分支被赋值的变量
+    for (const auto& [name, valElse] : varToValueElse) {
+        if (varToValueThen.find(name) == varToValueThen.end()) {
+            PHINode* phi = createPhi(valElse->getType(), getNextTempName());
+            phi->IncomingValues.push_back({varToValueBefore[name], thenBlock});
+            phi->IncomingValues.push_back({valElse, elseBlock ? elseBlock : mergeBlock});
+            varToValue[name] = phi;
+        }
+    }
 }
 
 void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
 {
+    // 1. 创建基本块
     BasicBlock *condBlock = createBasicBlock("while.cond");
     BasicBlock *bodyBlock = createBasicBlock("while.body");
     BasicBlock *exitBlock = createBasicBlock("while.end");
 
-    // 跳转到条件判断
+    // 2. 记录循环前变量SSA状态
+    auto varToValueBefore = varToValue;
+
+    // 3. 跳转到条件判断块
     createBranch(condBlock);
 
-    // 条件判断块
+    // 4. 设置当前块为条件判断块
     setCurrentBlock(condBlock);
+
+    // 5. 生成条件表达式的 IR
     Value *condition = visitExpression(node->condition);
     createCondBranch(condition, bodyBlock, exitBlock);
 
-    // 循环体
+    // 6. 进入循环体
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
+    auto varToValueBodyEntry = varToValue; // 进入循环体前的变量状态
     visitStatement(node->body);
     loopStack.pop();
 
+    // 7. 记录循环体后变量状态
+    auto varToValueAfter = varToValue;
+
+    // 8. 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
     {
         createBranch(condBlock);
     }
 
+    // 9. 回到 condBlock，插入 PHI，只为被赋值的变量插入
+    setCurrentBlock(condBlock); // 确保在 condBlock 插入
+    //用于记录每个变量名对应的 PHI 节点指针，便于后续查找和管理
+    std::unordered_map<std::string, PHINode*> phiNodes;
+    for (const auto& [name, valueBefore] : varToValueBefore) {
+        auto it = varToValueAfter.find(name);
+        // 只为循环体内被赋值的变量插入PHI
+        if (it != varToValueAfter.end() && it->second != valueBefore) {
+            PHINode* phi = createPhi(valueBefore->getType(), getNextTempName());
+            // 循环前的输入
+            phi->IncomingValues.push_back({valueBefore, condBlock->Predecessors.front()});
+            // 循环体的输入
+            phi->IncomingValues.push_back({it->second, bodyBlock});
+            //记录该变量的 PHI 节点
+            phiNodes[name] = phi;
+            //更新 condBlock 作用域下该变量的 SSA 值为 PHI 节点，后续 IR 取变量都用 PHI
+            varToValue[name] = phi;
+        }
+    }
+
+    // 10. 设置当前块为循环结束块
     setCurrentBlock(exitBlock);
 }
-
 void IRBuilder::visitBreakStmt(std::shared_ptr<ast::BreakStmtNode> node)
 {
     if (loopStack.empty())
