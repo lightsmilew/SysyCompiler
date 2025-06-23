@@ -5,13 +5,89 @@
 using namespace ir_builder;
 using namespace ast;
 
+// ===== 库函数初始化函数 =====
+void IRBuilder::initializeLibraryFunctions()
+{
+    // int getint();
+    {
+        FunctionType* funcType = new FunctionType(IntegerType::getInstance(), {});
+        module->addFunction(funcType, "getint");
+    }
+    // int getch();
+    {
+        FunctionType* funcType = new FunctionType(IntegerType::getInstance(), {});
+        module->addFunction(funcType, "getch");
+    }
+    // float getfloat();
+    {
+        FunctionType* funcType = new FunctionType(FloatType::getInstance(), {});
+        module->addFunction(funcType, "getfloat");
+    }
+    // int getarray(int a[]);
+    {
+        std::vector<Type*> params = { new PointerType(IntegerType::getInstance()) };
+        FunctionType* funcType = new FunctionType(IntegerType::getInstance(), params);
+        module->addFunction(funcType, "getarray");
+    }
+    // int getfarray(float a[]);
+    {
+        std::vector<Type*> params = { new PointerType(FloatType::getInstance()) };
+        FunctionType* funcType = new FunctionType(IntegerType::getInstance(), params);
+        module->addFunction(funcType, "getfarray");
+    }
+    // void putint(int a);
+    {
+        std::vector<Type*> params = { IntegerType::getInstance() };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putint");
+    }
+    // void putch(int a);
+    {
+        std::vector<Type*> params = { IntegerType::getInstance() };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putch");
+    }
+    // void putfloat(float a);
+    {
+        std::vector<Type*> params = { FloatType::getInstance() };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putfloat");
+    }
+    // void putarray(int n, int a[]);
+    {
+        std::vector<Type*> params = { IntegerType::getInstance(), new PointerType(IntegerType::getInstance()) };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putarray");
+    }
+    // void putfarray(int n, float a[]);
+    {
+        std::vector<Type*> params = { IntegerType::getInstance(), new PointerType(FloatType::getInstance()) };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putfarray");
+    }
+    // void putf(string a); 这里假设 string 用 i8* 表示
+    {
+        std::vector<Type*> params = { StringType::getInstance() }; 
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "putf");
+    }
+    // void starttime();
+    {
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), {});
+        module->addFunction(funcType, "starttime");
+    }
+    // void stoptime();
+    {
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), {});
+        module->addFunction(funcType, "stoptime");
+    }
+}
 // ===== 主入口：构建整个模块 =====
 std::unique_ptr<Module> IRBuilder::buildModule(std::shared_ptr<ast::CompUnitNode> compUnit)
 {
     visitCompUnit(compUnit);
     return std::move(module);
 }
-
 // ===== AST 节点访问实现 =====
 void IRBuilder::visitCompUnit(std::shared_ptr<ast::CompUnitNode> node)
 {
@@ -592,7 +668,6 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
     {
         Value *arg = visitExpression(node->args[i]);
         Type *expectedType = func->getFunctionType()->ParamTypes[i];
-
         // 多维数组退化：只要 expectedType 是指针，arg 是数组指针，且元素类型不一致，就递归GEP(0)
         while (expectedType->isPointerTy() && arg->getType()->isPointerTy()) {
             Type *argElemType = static_cast<PointerType*>(arg->getType())->ElementType;
@@ -632,10 +707,8 @@ Value *IRBuilder::visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNod
 }
 
 Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node)
-{
-    // 字符串字面量需要创建全局数组
-    // 这里简化处理，实际实现需要更复杂的逻辑
-    throw std::runtime_error("String literals not yet implemented,line:"+ std::to_string(node->line));
+{    // 假设字符串用 i8* 表示
+    return new ConstantString(StringType::getInstance(),node->value);
 }
 
 Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
