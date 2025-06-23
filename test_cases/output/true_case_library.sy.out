@@ -66,11 +66,11 @@ entry:
   store i32 3, i32* %t5
   %arr2 = alloca [3 x float]
   %t6 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 0
-  store float 1.100000, float* %t6
+  store float 0x000000003F8CCCCD, float* %t6
   %t7 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 1
-  store float 2.200000, float* %t7
+  store float 0x00000000400CCCCD, float* %t7
   %t8 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 2
-  store float 3.300000, float* %t8
+  store float 0x0000000040533333, float* %t8
   %d = alloca i32
   %t9 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 0
   %t10 = call i32 @getarray(i32* %t9)
@@ -81,12 +81,12 @@ entry:
   store i32 %t12, i32* %e
   call void @putint(i32 1)
   call void @putch(i32 2)
-  call void @putfloat(float 3.300000)
+  call void @putfloat(float 0x0000000040533333)
   %t16 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 0
   call void @putarray(i32 3, i32* %t16)
   %t18 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 0
   call void @putfarray(i32 3, float* %t18)
-  call void @putf(i8* "hello,world!")
+  call void @putf(i8* c"hello,world!")
   call void @starttime()
   call void @stoptime()
   ret i32 0
