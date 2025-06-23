@@ -1,6 +1,11 @@
 #pragma once
 #include "../frontend/ASTNode.h"
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include <cstdint>
+#include <cstring>
+
 using namespace ast;
 
 // 前向声明
@@ -282,7 +287,17 @@ public:
     float Value;
 
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
-    string toString() const override { return to_string(Value); }
+    // string toString() const override { return to_string(Value); }
+    string toString() const override 
+    {
+        uint32_t bits;
+        // 将 float 的内存表示复制到 uint32_t 中
+        std::memcpy(&bits, &Value, sizeof(float));
+
+         std::ostringstream oss;
+        oss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << bits;
+        return oss.str();
+    }
 };
 
 class ConstantString : public Constant
@@ -291,7 +306,16 @@ public:
     std::string Value;
     ConstantString(StringType *ty, const std::string &val)
         : Constant(ty), Value(val) {}
-    string toString() const override { return "\"" + Value + "\""; }
+    string toString() const override {
+        // 输出为 LLVM IR 字符串常量格式
+        std::string s = "c\"";
+        for (char c : Value) {
+            if (c == '\\' || c == '\"') s += '\\'; // 转义
+            s += c;
+        }
+        s += "\"";
+        return s;
+    }
 };
 
 class ConstantArray : public Constant
@@ -307,7 +331,7 @@ public:
         std::string s = "[";
         for (size_t i = 0; i < Elements.size(); ++i) {
             if (i > 0) s += ", ";
-            s += Elements[i] ? Elements[i]->toString() : "undef";
+            s += Elements[i] ?Elements[i]->getType()->toString()+" "+Elements[i]->toString() : "undef";
         }
         s += "]";
         return s;
