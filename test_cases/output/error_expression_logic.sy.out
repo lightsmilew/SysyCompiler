@@ -1,34 +1,6 @@
-CompUnitNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
-
-      DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 20
-
-      DeclStmtNode: c : int = InitExprNode: BinaryExprNode: LValueExprNode: a && LValueExprNode: b
-
-      DeclStmtNode: d : int = InitExprNode: BinaryExprNode: LValueExprNode: a || LValueExprNode: b
-
-      DeclStmtNode: e : int = InitExprNode: UnaryExprNode: !LValueExprNode: a
-
-      DeclStmtNode: f : int = InitExprNode: BinaryExprNode: LValueExprNode: a < LValueExprNode: b
-
-      DeclStmtNode: g : int = InitExprNode: BinaryExprNode: LValueExprNode: a > LValueExprNode: b
-
-      DeclStmtNode: h : int = InitExprNode: BinaryExprNode: LValueExprNode: a == LValueExprNode: b
-
-      ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f + LValueExprNode: g + LValueExprNode: h
-          BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f + LValueExprNode: g
-            BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e + LValueExprNode: f
-              BinaryExprNode: BinaryExprNode: LValueExprNode: c + LValueExprNode: d + LValueExprNode: e
-                BinaryExprNode: LValueExprNode: c + LValueExprNode: d
-                  LValueExprNode: c
-                  LValueExprNode: d
-                LValueExprNode: e
-              LValueExprNode: f
-            LValueExprNode: g
-          LValueExprNode: h
+Logical and comparison operations are not allowed in expressions
+Logical and comparison operations are not allowed in expressions
+Logical NOT operations are not allowed in expressions
+Logical and comparison operations are not allowed in expressions
+Logical and comparison operations are not allowed in expressions
+Logical and comparison operations are not allowed in expressions

@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include "../common/Common.h"
 #include <algorithm>
+#include <iostream>
 
 using std::dynamic_pointer_cast;
 using std::to_string;
@@ -88,150 +89,23 @@ void TypeCheckerVisitor::addError(const string &message)
 {
   errors.push_back(message);
 }
-PrimaryDataType TypeCheckerVisitor::getMultivalType(shared_ptr<InitExprNode> node)
-{
-  if (node->multiInitVal.empty())
-  {
-    // 单一初始值
-    return getExpressionType(node->singleInitVal);
-  }
-  else
-  {
-    for (const auto &initVal : node->multiInitVal)
-    {
-      // 递归获取多维数组的初始值类型
-      PrimaryDataType type = getMultivalType(initVal);
-      if (type == PrimaryDataType::FLOAT)
-      {
-        return PrimaryDataType::FLOAT; // 如果有一个是float，直接返回
-      }
-    }
-  }
-  return PrimaryDataType::INT; // 如果所有都是int，返回int
-}
-
-bool TypeCheckerVisitor::MultivalExprChecker(string ident, shared_ptr<InitExprNode> node, bool isConst)
-{
-  if (isConst)
-  {
-    if (node->multiInitVal.empty())
-    {
-      // 单一初始值
-      if (!exprChecker(node->singleInitVal, true))
-      {
-        return false;
-      }
-    }
-    else
-    {
-      // 复合初始值
-      for (const auto &initVal : node->multiInitVal)
-      {
-        if (!MultivalExprChecker(ident, initVal, true))
-        {
-          addError("Array '" + ident + "' initializer must be a constant expression");
-          return false;
-        }
-      }
-    }
-  }
-  else
-  {
-    if (node->multiInitVal.empty())
-    {
-      // 单一初始值
-      if (!exprChecker(node->singleInitVal, false))
-      {
-        addError("Array '" + ident + "' initializer must be a valid expression");
-        return false;
-      }
-    }
-    else
-    {
-      // 复合初始值
-      for (const auto &initVal : node->multiInitVal)
-      {
-        if (!MultivalExprChecker(ident, initVal, false))
-        {
-          addError("Array '" + ident + "' initializer must be a valid expression");
-          return false;
-        }
-      }
-    }
-  }
-  return true;
-}
-
-bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNode> expr, DataType targetType, ExprContext context, bool isConst)
-{
-  if (context == ExprContext::ARRAY_INDEX)
-  {
-    auto initExpr = dynamic_pointer_cast<InitExprNode>(expr);
-    // int可以赋给float, float不能赋给int
-    if (targetType.baseType == PrimaryDataType::INT)
-    {
-      PrimaryDataType exprType = getMultivalType(initExpr);
-      if (exprType == PrimaryDataType::FLOAT)
-      {
-        addError("Array '" + ident + "' index cannot be a float type");
-      }
-    }
-    MultivalExprChecker(ident, initExpr, isConst);
-  }
-  else if (context == ExprContext::CALL)
-  {
-    // 传递的是数组
-    auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
-    if (lval && !lval->indices.empty())
-    {
-      visitLValueExpr(lval);
-      auto array = analyzer.resolveVariable(lval->identifier);
-      if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
-      {
-        addError("Function '" + ident + "' expects " +
-                 to_string(targetType.arrayDimensionCount()) +
-                 " array indices, but got " +
-                 to_string(array->type.arrayDimensionCount() - lval->indices.size()));
-      }
-      if (array->type.baseType != targetType.baseType)
-      {
-        addError("Function '" + ident + "' expects type '" +
-                 convertPrimaryDataType2String(targetType.baseType) + "', but got '" +
-                 convertPrimaryDataType2String(array->type.baseType) + "'");
-      }
-    }
-    else
-    {
-      // 传递的是expr
-      PrimaryDataType exprType = getExpressionType(expr);
-
-      if (targetType.arrayDimensionCount() > 0)
-      {
-        addError("Function '" + ident + "' expects an array, but got a single value");
-      }
-
-      if (exprType != targetType.baseType)
-      {
-        addError("Function '" + ident + "' expects type '" +
-                 convertPrimaryDataType2String(targetType.baseType) + "', but got '" +
-                 convertPrimaryDataType2String(exprType) + "'");
-      }
-    }
-  }
-  else if (context == ExprContext::CONDITION)
-  {
-  }
-  else if (context == ExprContext::EXPRESSION)
-  {
-    exprChecker(expr, isConst);
-  }
-
-  return true;
-}
 
 PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
 {
-  if (auto binaryExp = dynamic_pointer_cast<BinaryExprNode>(expr))
+  if (auto intnum = dynamic_pointer_cast<IntLiteralExprNode>(expr))
+  {
+    return PrimaryDataType::INT;
+  }
+  else if (auto floatnum = dynamic_pointer_cast<FloatLiteralExprNode>(expr))
+  {
+    return PrimaryDataType::FLOAT;
+  }
+  else if (auto str = dynamic_pointer_cast<StringLiteralExprNode>(expr))
+  {
+    visitStringLiteralExpr(str);
+    return PrimaryDataType::STRING;
+  }
+  else if (auto binaryExp = dynamic_pointer_cast<BinaryExprNode>(expr))
   {
     PrimaryDataType lexp = getExpressionType(binaryExp->left);
     PrimaryDataType rexp = getExpressionType(binaryExp->right);
@@ -257,45 +131,58 @@ PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
   {
     visitCallExpr(callexp);
     auto call = analyzer.resolveFunction(callexp->callee);
+    if (!call)
+    {
+      return PrimaryDataType::VOID;
+    }
+
     return call->functionNode->returnType.baseType;
   }
   else if (auto lval = dynamic_pointer_cast<LValueExprNode>(expr))
   {
+    auto symbol = analyzer.resolveVariable(lval->identifier);
+    if (!symbol)
+    {
+      return PrimaryDataType::VOID;
+    }
+    if (!symbol->isInitialized)
+    {
+      addError("Variable '" + lval->identifier + "' is not initialized before use");
+    }
     visitLValueExpr(lval);
     auto lv = analyzer.resolveVariable(lval->identifier);
     return lv->type.baseType;
   }
-  else if (auto intnum = dynamic_pointer_cast<IntLiteralExprNode>(expr))
+  else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
   {
-    return PrimaryDataType::INT;
-  }
-  else if (auto floatnum = dynamic_pointer_cast<FloatLiteralExprNode>(expr))
-  {
-    return PrimaryDataType::FLOAT;
-  }
-  else if (auto str = dynamic_pointer_cast<StringLiteralExprNode>(expr))
-  {
-    visitStringLiteralExpr(str);
-    return PrimaryDataType::STRING;
-  }
-
-  return PrimaryDataType::VOID; // 如果没有匹配到任何类型，返回void
-}
-
-bool TypeCheckerVisitor::isValidArrayIndex(string ident, vector<shared_ptr<ExprNode>> indices)
-{
-  // 检查索引为整数
-  for (auto &index : indices)
-  {
-    PrimaryDataType indexType = getExpressionType(index);
-    if (!(indexType == PrimaryDataType::INT))
+    // 如果是初始化表达式，获取其主数据类型
+    if (initExpr->singleInitVal)
     {
-      addError("Array '" + ident + "' index must be integer type");
-      return false;
+      return getExpressionType(initExpr->singleInitVal);
+    }
+    else if (!initExpr->multiInitVal.empty())
+    {
+      vector<PrimaryDataType> types;
+      for (auto &initVal : initExpr->multiInitVal)
+      {
+        // 递归获取多维数组的初始值类型
+        PrimaryDataType type = getExpressionType(initVal);
+        types.push_back(type);
+      }
+
+      if (std::find(types.begin(), types.end(), PrimaryDataType::VOID) != types.end())
+      {
+        addError("Array initializer contains void type");
+        return PrimaryDataType::VOID; // 如果有一个是void，直接返回
+      }
+      else if (std::find(types.begin(), types.end(), PrimaryDataType::FLOAT) != types.end())
+      {
+        return PrimaryDataType::FLOAT; // 如果有一个是float，直接返回
+      }
+      return PrimaryDataType::INT; // 如果所有都是int，返回int
     }
   }
-
-  return true;
+  return PrimaryDataType::VOID; // 如果没有匹配到任何类型，返回void
 }
 
 bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
@@ -328,8 +215,24 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
   }
   else if (auto lval = dynamic_pointer_cast<LValueExprNode>(expr))
   {
+    auto symbol = analyzer.resolveVariable(lval->identifier);
     visitLValueExpr(lval);
+    if (!symbol)
+    {
+      return false; // 如果变量未找到，返回false
+    }
+
+    if (!symbol->isInitialized)
+    {
+      addError("Variable '" + lval->identifier + "' is not initialized before use");
+      return false; // 如果变量未初始化，直接返回false}
+    }
+
     auto lv = analyzer.resolveVariable(lval->identifier);
+    if (!lv)
+    {
+      return false; // 如果变量未找到，返回false
+    }
     // 变量不允许在常量表达式中出现
     return lv->type.isConst() || !isConst;
   }
@@ -345,8 +248,193 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
   {
     return false; // 字符串字面量不是常量表达式
   }
-
+  else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
+  {
+    if (initExpr->singleInitVal)
+    {
+      // 单一初始值
+      return exprChecker(initExpr->singleInitVal, isConst);
+    }
+    else if (!initExpr->multiInitVal.empty())
+    {
+      // 复合初始值
+      for (const auto &initVal : initExpr->multiInitVal)
+      {
+        if (!exprChecker(initVal, isConst))
+        {
+          addError("Array initializer must be a valid expression");
+          return false;
+        }
+      }
+      return true; // 复合初始值只要所有元素都是有效表达式即可
+    }
+  }
   return false; // 如果没有匹配到任何类型，返回false
+}
+
+bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNode> expr, DataType targetType, ExprContext context, bool isConst)
+{
+  if (context == ExprContext::ARRAY_INDEX)
+  {
+    auto initExpr = dynamic_pointer_cast<InitExprNode>(expr);
+    // int可以赋给float, float不能赋给int
+    if (targetType.baseType == PrimaryDataType::INT)
+    {
+      PrimaryDataType exprType = getExpressionType(initExpr);
+      if (exprType == PrimaryDataType::FLOAT)
+      {
+        addError("Array '" + ident + "' index cannot be a float type");
+      }
+    }
+    if (!exprChecker(initExpr, isConst))
+    {
+      addError("Array '" + ident + "' index must be a valid expression");
+    }
+  }
+  else if (context == ExprContext::CALL)
+  {
+    // // 直接传递变量
+    // auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
+    // if (lval)
+    // {
+    //   // 该变量是数组
+    //   if (!lval->indices.empty())
+    //   {
+    //     visitLValueExpr(lval);
+    //     auto array = analyzer.resolveVariable(lval->identifier);
+    //     if (!array)
+    //     {
+    //       return false;
+    //     }
+
+    //     if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
+    //     {
+    //       addError("Function '" + ident + "' expects " +
+    //                to_string(targetType.arrayDimensionCount()) +
+    //                " array indices, but got " +
+    //                to_string(array->type.arrayDimensionCount() - lval->indices.size()));
+    //     }
+    //   }
+    //   // 单个变量
+    //   else
+    //   {
+    //     if (expr->)
+    //     {
+    //       /* code */
+    //     }
+
+    //   }
+    // }
+    // else
+    // {
+    //   // 传递的是expr
+    //   PrimaryDataType exprType = getExpressionType(expr);
+
+    //   if (targetType.arrayDimensionCount() > 0)
+    //   {
+    //     addError("Function '" + ident + "' expects an array, but got a single value");
+    //   }
+
+    //   if (exprType == PrimaryDataType::VOID)
+    //   {
+    //     addError("Function '" + ident + "' expects a valid expression, but got void");
+    //     return false;
+    //   }
+    // }
+
+    if (!exprChecker(expr, false))
+    {
+      return false;
+    }
+
+    // 目标是数组
+    if (targetType.arrayDimensionCount() > 0)
+    {
+      auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
+      if (!lval)
+      {
+        addError("Function '" + ident + "' need an array");
+        return false;
+      }
+      visitLValueExpr(lval);
+
+      auto array = analyzer.resolveVariable(lval->identifier);
+      if (!array)
+      {
+        return false;
+      }
+
+      if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
+      {
+        addError("Function '" + ident + "' expects " +
+                 to_string(targetType.arrayDimensionCount()) +
+                 " array indices, but got " +
+                 to_string(array->type.arrayDimensionCount() - lval->indices.size()));
+      }
+    }
+    else
+    {
+      auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
+      if (lval)
+      {
+        visitLValueExpr(lval);
+        auto array = analyzer.resolveVariable(lval->identifier);
+        if (!array)
+        {
+          return false;
+        }
+
+        if (array->type.arrayDimensionCount() - lval->indices.size() != 0)
+        {
+          addError("Function '" + ident + "' expects a variable but got a array");
+        }
+      }
+      else
+      {
+        PrimaryDataType exprType = getExpressionType(expr);
+
+        if (exprType == PrimaryDataType::VOID)
+        {
+          addError("Funcrion '" + ident + "' expects " + convertPrimaryDataType2String(targetType.baseType) + " but get void");
+          return false;
+        }
+      }
+    }
+  }
+  else if (context == ExprContext::CONDITION)
+  {
+    // 条件表达式只能是int或float
+    PrimaryDataType exprType = getExpressionType(expr);
+  }
+  else if (context == ExprContext::EXPRESSION)
+  {
+    exprChecker(expr, isConst);
+    PrimaryDataType exprType = getExpressionType(expr);
+    if (exprType == PrimaryDataType::VOID)
+
+    {
+      addError("Expression type mismatch: " + ident + " expected '" +
+               convertPrimaryDataType2String(targetType.baseType) + "', but got void");
+      return false;
+    }
+  }
+  return true;
+}
+
+bool TypeCheckerVisitor::isValidArrayIndex(string ident, vector<shared_ptr<ExprNode>> indices)
+{
+  // 检查索引为整数
+  for (auto &index : indices)
+  {
+    PrimaryDataType indexType = getExpressionType(index);
+    if (!(indexType == PrimaryDataType::INT))
+    {
+      addError("Array '" + ident + "' index must be integer type");
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void TypeCheckerVisitor::initializeFunction()
@@ -471,8 +559,6 @@ void TypeCheckerVisitor::visitCompUnitForCheck(shared_ptr<CompUnitNode> node)
   {
     addError("No main function found");
   }
-
-  analyzer.exitScope(); // 退出全局作用域
 }
 
 void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
@@ -609,12 +695,9 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
   auto symbol = analyzer.resolveVariable(node->identifier);
   if (isGlobal)
   {
-
     // 全局变量默认已初始化
-    if (symbol)
-    {
-      symbol->isInitialized = true;
-    }
+
+    symbol->isInitialized = true;
 
     // 检查全局变量的初始化
     if (node->type.arrayDimensionCount() > 0)
@@ -669,10 +752,9 @@ void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
     }
     else if (node->initializer)
     {
-      if (symbol)
-      {
-        symbol->isInitialized = true;
-      }
+
+      symbol->isInitialized = true;
+
       checkExprTypeCompatible(node->identifier, node->initializer, node->type, ExprContext::EXPRESSION, node->type.isConst());
     }
   }
@@ -691,6 +773,11 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
   // 检查左值
   visitLValueExpr(node->lvalue);
   auto symbol = analyzer.resolveVariable(node->lvalue->identifier);
+
+  if (!symbol)
+  {
+    return;
+  }
 
   // 检查const正确性
   if (symbol->type.isConst())
@@ -787,12 +874,7 @@ void TypeCheckerVisitor::visitLValueExpr(shared_ptr<LValueExprNode> node)
   if (!symbol)
   {
     addError("Variable '" + node->identifier + "' not declared");
-  }
-
-  // 检查变量是否已初始化
-  if (!symbol->isInitialized)
-  {
-    addError("Variable '" + node->identifier + "' used before initialization");
+    return;
   }
 
   // 检查数组访问

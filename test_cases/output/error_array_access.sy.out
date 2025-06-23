@@ -1,0 +1,14 @@
+Array 'arr' access dimension mismatch
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Array 'arr' access dimension mismatch
+Array 'matrix' access dimension mismatch
+Variable 'matrix' is not initialized before use
+Variable 'matrix' is not initialized before use
+Array 'matrix' access dimension mismatch
+Array 'arr' index must be integer type
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Array 'arr' index must be integer type
+Variable 'd' not declared
+Expression type mismatch: main expected 'int', but got void

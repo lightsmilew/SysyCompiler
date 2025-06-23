@@ -1,10 +1,8 @@
-Semantic errors found:
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'arr3' used before initialization
-Variable 'arr1' used before initialization
-Variable 'arr2' used before initialization
-Variable 'matrix' used before initialization
-Variable 'floatVar' used before initialization
+Variable 'arr1' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr2' is not initialized before use
+Variable 'arr3' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr2' is not initialized before use
+Variable 'matrix' is not initialized before use

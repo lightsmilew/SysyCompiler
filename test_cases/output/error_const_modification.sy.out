@@ -1,4 +1,3 @@
-Semantic errors found:
 Cannot modify const variable 'a'
 Cannot modify const variable 'b'
 Cannot modify const variable 'arr'

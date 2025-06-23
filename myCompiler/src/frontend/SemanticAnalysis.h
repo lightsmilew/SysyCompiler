@@ -103,7 +103,8 @@ private:
         EXPRESSION,  // 普通表达式上下文（不允许逻辑和比较操作）
         CONDITION,   // 条件表达式上下文（允许逻辑和比较操作）
         ARRAY_INDEX, // 数组索引上下文（不允许逻辑和比较操作）
-        CALL         // 函数调用上下文
+        CALL,        // 函数调用上下文
+        ASSIGNMENT   // 初始化上下文
     };
 
     SemanticAnalyzer analyzer; // 引用语义分析器
@@ -159,11 +160,8 @@ private:
     void initializeFunction();
     // 检查表达式类型是否与目标类型兼容,且在指定上下文中
     bool checkExprTypeCompatible(string ident, shared_ptr<ExprNode> expr, DataType targetType, ExprContext context = ExprContext::EXPRESSION, bool isConst = false);
-    // 检查初始化节点是否存在逻辑和比较操作，且是否为常量表达式
-    bool MultivalExprChecker(string ident, shared_ptr<InitExprNode> node, bool isConst = false);
     // 检查表达式是否存在逻辑和比较操作，且是否为常量表达式
     bool exprChecker(shared_ptr<ExprNode> expr, bool isConst = false);
-    // 获取初始化节点的主数据类型
-    PrimaryDataType getMultivalType(shared_ptr<InitExprNode> node);
+    // adderror
     void addError(const string &message);
 };

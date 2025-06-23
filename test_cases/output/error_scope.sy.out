@@ -1,27 +1,4 @@
-CompUnitNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: a : int = InitExprNode: IntegerLiteralExprNode: 10
-
-      BlockStmtNode
-        DeclStmtNode: b : int = InitExprNode: IntegerLiteralExprNode: 20
-
-        DeclStmtNode: c : int = InitExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b
-
-      DeclStmtNode: d : int = InitExprNode: LValueExprNode: b
-
-      BlockStmtNode
-        DeclStmtNode: e : int = InitExprNode: IntegerLiteralExprNode: 30
-
-        BlockStmtNode
-          DeclStmtNode: f : int = InitExprNode: LValueExprNode: e
-
-        DeclStmtNode: g : int = InitExprNode: LValueExprNode: f
-
-      ReturnStmtNode
-        BinaryExprNode: LValueExprNode: a + LValueExprNode: d
-          LValueExprNode: a
-          LValueExprNode: d
+Variable 'b' not declared
+Expression type mismatch: d expected 'int', but got void
+Variable 'f' not declared
+Expression type mismatch: g expected 'int', but got void

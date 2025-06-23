@@ -1,26 +1,2 @@
-CompUnitNode
-  Function
-    void acceptInt(
-      Parameters:
-        DeclStmtNode: x : int
-    )
-    BlockStmtNode
-      ReturnStmtNode
-  Function
-    void acceptFloat(
-      Parameters:
-        DeclStmtNode: x : float
-    )
-    BlockStmtNode
-      ReturnStmtNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: a : float = InitExprNode: FloatLiteralExprNode: 3.140000
-
-      DeclStmtNode: arr : int[0x55f7bd2b48d0]
-      DeclStmtNode: farr : float[0x55f7bd2b4320]
-      ReturnStmtNode
-        IntegerLiteralExprNode: 0
+Variable 'farr' is not initialized before use
+Variable 'farr' is not initialized before use

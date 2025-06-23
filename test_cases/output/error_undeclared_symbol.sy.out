@@ -1,14 +1,4 @@
-CompUnitNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: a : int = InitExprNode: LValueExprNode: b
-
-      DeclStmtNode: c : int = InitExprNode: CallExprNode: func()
-
-      ReturnStmtNode
-        BinaryExprNode: LValueExprNode: a + LValueExprNode: c
-          LValueExprNode: a
-          LValueExprNode: c
+Variable 'b' not declared
+Expression type mismatch: a expected 'int', but got void
+Callee 'func' is not defined
+Expression type mismatch: c expected 'int', but got void

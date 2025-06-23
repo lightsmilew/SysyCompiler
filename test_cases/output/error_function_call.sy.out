@@ -1,38 +1,4 @@
-CompUnitNode
-  Function
-    int add(
-      Parameters:
-        DeclStmtNode: a : int
-        DeclStmtNode: b : int
-    )
-    BlockStmtNode
-      ReturnStmtNode
-        BinaryExprNode: LValueExprNode: a + LValueExprNode: b
-          LValueExprNode: a
-          LValueExprNode: b
-  Function
-    void noParam(
-      Parameters:
-    )
-    BlockStmtNode
-      ReturnStmtNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: a : int = InitExprNode: CallExprNode: add(IntegerLiteralExprNode: 5)
-
-      DeclStmtNode: b : int = InitExprNode: CallExprNode: add(IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2, IntegerLiteralExprNode: 3)
-
-      DeclStmtNode: c : int = InitExprNode: CallExprNode: unknown(IntegerLiteralExprNode: 5)
-
-      ExprStmtNode
-        CallExprNode: noParam(IntegerLiteralExprNode: 10)
-          IntegerLiteralExprNode: 10
-      ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c
-          BinaryExprNode: LValueExprNode: a + LValueExprNode: b
-            LValueExprNode: a
-            LValueExprNode: b
-          LValueExprNode: c
+Function 'add' expects 2 arguments, got 1
+Function 'add' expects 2 arguments, got 3
+Callee 'unknown' is not defined
+Expression type mismatch: c expected 'int', but got void
