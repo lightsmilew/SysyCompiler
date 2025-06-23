@@ -204,10 +204,19 @@ namespace ast
     }
 
     // LValueExpr
-    string LValueExprNode::toString() const
-    {
-        return "LValueExprNode: " + identifier;
+string LValueExprNode::toString() const
+{
+    std::string res = "LValueExprNode: " + identifier;
+    if (!indices.empty()) {
+        res += "[";
+        for (size_t i = 0; i < indices.size(); ++i) {
+            if (i > 0) res += ", ";
+            res += indices[i] ? indices[i]->toString() : "?";
+        }
+        res += "]";
     }
+    return res;
+}
 
     void LValueExprNode::print(ostream &out, unsigned indent) const
     {
