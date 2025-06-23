@@ -1,0 +1,342 @@
+
+// ===== 测试1: 有且只有一个main函数 ✔ =====
+
+// 正确案例：有main函数
+int main() {
+    return 0;
+}
+
+
+// ===== 测试2: 符号解析 - 变量/函数是否已声明 ✔ =====
+
+// 正确案例：变量先声明后使用
+int testSymbolResolution() {
+    int a = 10;
+    int b = a;  // a已声明
+    return b;
+}
+
+// 正确案例：函数先声明后调用
+int helperFunction(int x) {
+    return x * 2;
+}
+
+int testFunctionCall() {
+    return helperFunction(5);  // helperFunction已声明
+}
+
+// ===== 测试3: 类型匹配 - 赋值、参数传递的类型兼容性 ✔ =====
+
+// 正确案例：类型匹配的赋值
+int testTypeMatching() {
+    int a = 10;
+    int b = a;          // int = int ✓
+    
+    float c = 3.14;
+    float d = c;        // float = float ✓
+    
+    // 隐式类型转换
+    float e = a;        // float = int ✓ (隐式转换)
+    
+    return 0;
+}
+
+// 正确案例：参数类型匹配
+int acceptInt(int x) {
+    return x;
+}
+
+float acceptFloat(float x) {
+    return x;
+}
+
+int testParameterTypes() {
+    int a = 5;
+    float b = 3.14;
+    
+    int result1 = acceptInt(a);      // int参数传给int形参 ✓
+    float result2 = acceptFloat(b);  // float参数传给float形参 ✓
+    float result3 = acceptFloat(a);  // int参数传给float形参 ✓ (隐式转换)
+    
+    return 0;
+}
+
+// ===== 测试4: 类型提升 - int + float → float ✔ =====
+
+float testTypePromotion() {
+    int a = 10;
+    float b = 3.14;
+    
+    float result1 = a + b;    // int + float → float ✓
+    float result2 = b + a;    // float + int → float ✓
+    float result3 = a * b;    // int * float → float ✓
+    float result4 = b / a;    // float / int → float ✓
+    
+    return result1 + result2 + result3 + result4;
+}
+
+// ===== 测试5: const正确性 - 不能修改const变量 ✔ =====
+
+int testConstCorrectness() {
+    const int a = 10;
+    int b = a;          // 读取const变量 ✓
+    // a = 20;          // 修改const变量 ✗ (应该在错误测试中)
+    
+    const float c = 3.14;
+    float d = c;        // 读取const变量 ✓
+    
+    return b;
+}
+
+// ===== 测试6: 数组边界 - 维度匹配，索引为整数 ✔ =====
+
+int testArrayBounds() {
+    int arr1[5];
+    int arr2[3][4];
+    
+    // 正确的数组访问
+    arr1[0] = 10;           // 一维数组，索引为整数 ✓
+    arr1[4] = 20;           // 边界内访问 ✓
+    
+    arr2[0][0] = 30;        // 二维数组，维度匹配 ✓
+    arr2[2][3] = 40;        // 边界内访问 ✓
+    
+    int value1 = arr1[1];   // 读取数组元素 ✓
+    int value2 = arr2[1][2]; // 读取二维数组元素 ✓
+    
+    return value1 + value2;
+}
+
+// ===== 测试7: 函数签名 - 参数个数和类型匹配 ✔ =====
+
+int add(int a, int b) {
+    return a + b;
+}
+
+float multiply(float x, float y, float z) {
+    return x * y * z;
+}
+
+int testFunctionSignature() {
+    // 正确的函数调用
+    int result1 = add(5, 10);              // 参数个数和类型匹配 ✓
+    float result2 = multiply(1.5, 2.0, 3.0); // 参数个数和类型匹配 ✓
+    
+    // 隐式类型转换的参数传递
+    int a = 5, b = 10;
+    float result3 = multiply(a, b, 2.0);   // int→float隐式转换 ✓
+    
+    return (result1 + result2 + result3);
+}
+
+// ===== 测试8: 作用域规则 - 变量可见性和生命周期 ✔ =====
+
+int globalVar = 100;
+
+int testScopeRules() {
+    int localVar = 10;
+    
+    {
+        int blockVar = 20;
+        int sum1 = globalVar + localVar + blockVar;  // 全局、外层、当前作用域变量 ✓
+        
+        {
+            int innerVar = 30;
+            int sum2 = globalVar + localVar + blockVar + innerVar;  // 所有上层作用域变量 ✓
+        }
+        // innerVar在此处不可见
+    }
+    // blockVar在此处不可见
+    
+    return globalVar + localVar;  // 全局和当前作用域变量 ✓
+}
+
+// ===== 测试9: 初始化检查 - 变量使用前是否已初始化 ✔ =====
+
+int testInitializationCheck() {
+    int a = 10;         // 初始化 ✓
+    int b = a;          // 使用已初始化的变量 ✓
+    
+    int arr[3] = {1, 2, 3};  // 数组初始化 ✓
+    int c = arr[0];          // 使用已初始化的数组元素 ✓
+    
+    return b + c;
+}
+
+// ===== 测试10: expression中不能存在与或非和大小比较 ✔ =====
+
+int testExpressionRestrictions() {
+    int a = 10, b = 20;
+    
+    // 正确的expression（算术运算）
+    int result1 = a + b;     // 加法 ✓
+    int result2 = a * b;     // 乘法 ✓
+    int result3 = -a;        // 一元负号 ✓
+    int result4 = +b;        // 一元正号 ✓
+    
+    return result1 + result2 + result3 + result4;
+}
+
+// ===== 测试11: void函数只能出现不带返回值的return语句 ✔ =====
+
+void testVoidReturn() {
+    int a = 10;
+    if (a > 5) {
+        return;  // void函数的return语句不带返回值 ✓
+    }
+    return;      // void函数的return语句 ✓
+}
+
+// ===== 测试12: 数组长度必须为常量 ✔ =====
+
+int testArraySizeConstant() {
+    const int SIZE = 5;
+    int arr1[5];           // 字面量常量 ✓
+    int arr2[SIZE];        // const常量 ✓
+    int arr3[3 + 2];       // 常量表达式 ✓
+    
+    return arr1[0] + arr2[0] + arr3[0];
+}
+
+// ===== 测试13: 数组初始化多种形式 ✔ =====
+
+int testArrayInitialization() {
+    // 一维数组初始化
+    int arr1[5] = {1, 2, 3, 4, 5};     // 完整初始化 ✓
+    int arr2[5] = {1, 2, 3};           // 部分初始化 ✓
+    int arr3[5] = {1, 2, 3, 4, 5};     // 完整初始化 ✓
+    // 二维数组初始化
+    int matrix1[2][3] = {{1, 2, 3}, {4, 5, 6}};  // 完整初始化 ✓
+    int matrix2[2][3] = {{1, 2}, {4}};           // 部分初始化 ✓
+    
+    return arr1[0] + arr2[0] + arr3[0] + matrix1[0][0] + matrix2[0][0];
+}
+
+// ===== 测试14: 必须用常量初始化常量表达式 ✔ =====
+
+int testConstantExpression() {
+    const int a = 10;              // 常量初始化 ✓
+    const int b = 5 + 3;           // 常量表达式初始化 ✓
+    const int c = a + b;           // 用其他常量初始化 ✓
+    
+    const float d = 3.14;          // 浮点常量 ✓
+    const float e = d * 2.0;       // 常量表达式 ✓
+    
+    return (a + b + c + d + e);
+}
+
+// ===== 测试15: 全局变量的初值必须为常量表达式 ✔ =====
+
+const int GLOBAL_CONST = 100;
+int globalArray[5] = {1, 2, 3, 4, 5};          // 全局数组常量初始化 ✓
+float globalFloat = 3.14 + 1.0;                // 全局变量常量表达式初始化 ✓
+
+// ===== 测试16: 数组初始化要检查初值类型是否匹配 ✔ =====
+
+int testArrayInitTypeMatch() {
+    int intArray[3] = {1, 2, 3};           // int数组用int初始化 ✓
+    float floatArray[3] = {1.0, 2.0, 3.0}; // float数组用float初始化 ✓
+    float mixedArray[3] = {1, 2.0, 3};     // float数组用int/float混合初始化(隐式转换) ✓
+    
+    return (intArray[0] + floatArray[0] + mixedArray[0]);
+}
+
+// ===== 测试17: 可以把多维数组的一维当作参数传递 ✔ =====
+
+int processArray(int arr[]) {
+    return arr[0] + arr[1];
+}
+
+int process2DArray(int arr[][3]) {
+    return arr[0][0] + arr[0][1];
+}
+
+int testArrayAsParameter() {
+    int arr1[5] = {1, 2, 3, 4, 5};
+    int matrix[2][3] = {{1, 2, 3}, {4, 5, 6}};
+
+    int result1 = processArray(arr1);      // 一维数组传递 ✓
+    int result2 = process2DArray(matrix);  // 二维数组传递 ✓
+
+    result1=1;
+    result2=1;
+    return result1 + result2;
+}
+void testControl(){
+    int arr1[5] = {1, 2, 3, 4, 5};
+    int matrix[2][3] = {{1, 2, 3}, {4, 5, 6}};
+    //测试ifelse PHI，只为被赋值的变量插入
+    int x=0,y=0
+    if(arr1[1]>matrix[0][1]){ // 确保数组访问正确
+        int e=0;
+        arr1[1]=arr1[1]+1; // 确保数组访正确
+        x=x+1;
+    }
+    else{
+        arr1[1]=arr1[1]-1; // 确保数组访问正确
+        x=x-1;
+    }
+    y=x;
+    //测试while循环phi插入
+    int j=0;
+    while(arr1[4]>0){ 
+        arr1[4]=arr1[4]-1; // 确保数组访问正确
+        arr1[3]=arr1[3]+1; // 确保数组访问正确
+        j=j+1;
+        if(arr1[3]>8){
+            break;
+        }
+        else{
+            continue;
+        }
+    }
+}
+
+// ===== 测试18: 数组维度必须非负整数 ✔ =====
+
+int testArrayDimensions() {
+    int arr1[5];        // 正数维度 ✓
+    int arr2[1];        // 最小正数维度 ✓
+    int matrix[3][4];   // 多维正数维度 ✓
+    
+    return arr1[0] + arr2[0] + matrix[0][0];
+}
+
+// ===== 测试19: 变量类型隐式转换在数组情况下 ✔ =====
+
+int testArrayElementConversion() {
+    int intArray[3] = {1, 2, 3};
+    float floatVar;
+    
+    // 数组元素的隐式转换
+    floatVar = intArray[0];     // int数组元素 → float变量 ✓
+    floatVar = intArray[1] + 2.5; // int数组元素参与float运算 ✓
+    
+    return floatVar;
+}
+
+// ===== 主函数调用所有测试 =====
+
+int runAllTests() {
+    int result = 0;
+    
+    result = result + testSymbolResolution();
+    result = result + testTypeMatching();
+    result = result + testTypePromotion();
+    result = result + testConstCorrectness();
+    result = result + testArrayBounds();
+    result = result + testFunctionSignature();
+    result = result + testScopeRules();
+    result = result + testInitializationCheck();
+    result = result + testExpressionRestrictions();
+    testVoidReturn();  // void函数
+    result = result + testArraySizeConstant();
+    result = result + testArrayInitialization();
+    result = result + testConstantExpression();
+    result = result + testArrayInitTypeMatch();
+    result = result + testArrayAsParameter();
+    result = result + testArrayDimensions();
+    result = result + testArrayElementConversion();
+
+    return result;
+}
