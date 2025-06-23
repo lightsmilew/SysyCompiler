@@ -293,55 +293,6 @@ bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNo
   }
   else if (context == ExprContext::CALL)
   {
-    // // 直接传递变量
-    // auto lval = dynamic_pointer_cast<LValueExprNode>(expr);
-    // if (lval)
-    // {
-    //   // 该变量是数组
-    //   if (!lval->indices.empty())
-    //   {
-    //     visitLValueExpr(lval);
-    //     auto array = analyzer.resolveVariable(lval->identifier);
-    //     if (!array)
-    //     {
-    //       return false;
-    //     }
-
-    //     if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
-    //     {
-    //       addError("Function '" + ident + "' expects " +
-    //                to_string(targetType.arrayDimensionCount()) +
-    //                " array indices, but got " +
-    //                to_string(array->type.arrayDimensionCount() - lval->indices.size()));
-    //     }
-    //   }
-    //   // 单个变量
-    //   else
-    //   {
-    //     if (expr->)
-    //     {
-    //       /* code */
-    //     }
-
-    //   }
-    // }
-    // else
-    // {
-    //   // 传递的是expr
-    //   PrimaryDataType exprType = getExpressionType(expr);
-
-    //   if (targetType.arrayDimensionCount() > 0)
-    //   {
-    //     addError("Function '" + ident + "' expects an array, but got a single value");
-    //   }
-
-    //   if (exprType == PrimaryDataType::VOID)
-    //   {
-    //     addError("Function '" + ident + "' expects a valid expression, but got void");
-    //     return false;
-    //   }
-    // }
-
     if (!exprChecker(expr, false))
     {
       return false;
@@ -855,6 +806,12 @@ void TypeCheckerVisitor::visitReturnStmt(shared_ptr<ReturnStmtNode> node)
   if (node->ret_expr)
   {
     // 有返回值
+    if (expectedReturnType.baseType == PrimaryDataType::VOID)
+    {
+      addError("Function '" + currentFunction->identifier + "' should not return a value");
+      return;
+    }
+
     checkExprTypeCompatible(currentFunction->identifier, node->ret_expr, expectedReturnType, ExprContext::EXPRESSION, false);
   }
   else
