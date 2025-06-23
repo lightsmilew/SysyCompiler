@@ -655,7 +655,7 @@ CompUnitNode
 @globalVar = global i32 100
 @GLOBAL_CONST = constant i32 100
 @globalArray = global [5 x i32] [i32 1, i32 2, i32 3, i32 4, i32 5]
-@globalFloat = global float 0x0000000040847AE2
+@globalFloat = global float 0x40847AE2
 
 define i32 @main() {
 entry:
@@ -696,7 +696,7 @@ entry:
   %t5 = load i32, i32* %a
   store i32 %t5, i32* %b
   %c = alloca float
-  store float 0x000000004048F5C3, float* %c
+  store float 0x4048F5C3, float* %c
   %d = alloca float
   %t6 = load float, float* %c
   store float %t6, float* %d
@@ -727,7 +727,7 @@ entry:
   %a = alloca i32
   store i32 5, i32* %a
   %b = alloca float
-  store float 0x000000004048F5C3, float* %b
+  store float 0x4048F5C3, float* %b
   %result1 = alloca i32
   %t10 = load i32, i32* %a
   %t11 = call i32 @acceptInt(i32 %t10)
@@ -749,7 +749,7 @@ entry:
   %a = alloca i32
   store i32 10, i32* %a
   %b = alloca float
-  store float 0x000000004048F5C3, float* %b
+  store float 0x4048F5C3, float* %b
   %result1 = alloca float
   %t17 = load i32, i32* %a
   %t18 = load float, float* %b
@@ -792,7 +792,7 @@ entry:
   %t40 = load i32, i32* %a
   store i32 %t40, i32* %b
   %c = alloca float
-  store float 0x000000004048F5C3, float* %c
+  store float 0x4048F5C3, float* %c
   %d = alloca float
   %t41 = load float, float* %c
   store float %t41, float* %d
@@ -860,7 +860,7 @@ entry:
   %t62 = call i32 @add(i32 5, i32 10)
   store i32 %t62, i32* %result1
   %result2 = alloca float
-  %t63 = call float @multiply(float 0x000000003FC00000, float 0x0000000040000000, float 0x0000000040400000)
+  %t63 = call float @multiply(float 0x3FC00000, float 0x40000000, float 0x40400000)
   store float %t63, float* %result2
   %a = alloca i32
   store i32 5, i32* %a
@@ -871,7 +871,7 @@ entry:
   %t65 = sitofp i32 %t64 to float
   %t66 = load i32, i32* %b
   %t67 = sitofp i32 %t66 to float
-  %t68 = call float @multiply(float %t65, float %t67, float 0x0000000040000000)
+  %t68 = call float @multiply(float %t65, float %t67, float 0x40000000)
   store float %t68, float* %result3
   %t69 = load i32, i32* %result1
   %t70 = load float, float* %result2
@@ -1092,10 +1092,10 @@ entry:
   %t170 = add i32 %t168, %t169
   store i32 %t170, i32* %c
   %d = alloca float
-  store float 0x000000004048F5C3, float* %d
+  store float 0x4048F5C3, float* %d
   %e = alloca float
   %t171 = load float, float* %d
-  %t172 = fmul float %t171, 0x0000000040000000
+  %t172 = fmul float %t171, 0x40000000
   store float %t172, float* %e
   %t173 = load i32, i32* %a
   %t174 = load i32, i32* %b
@@ -1122,16 +1122,16 @@ entry:
   store i32 3, i32* %t186
   %floatArray = alloca [3 x float]
   %t187 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 0
-  store float 0x000000003F800000, float* %t187
+  store float 0x3F800000, float* %t187
   %t188 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 1
-  store float 0x0000000040000000, float* %t188
+  store float 0x40000000, float* %t188
   %t189 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 2
-  store float 0x0000000040400000, float* %t189
+  store float 0x40400000, float* %t189
   %mixedArray = alloca [3 x float]
   %t190 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 0
   store i32 1, float* %t190
   %t191 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 1
-  store float 0x0000000040000000, float* %t191
+  store float 0x40000000, float* %t191
   %t192 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 2
   store i32 3, float* %t192
   %t193 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 0
@@ -1339,7 +1339,7 @@ entry:
   %t290 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 1
   %t291 = load i32, i32* %t290
   %t292 = sitofp i32 %t291 to float
-  %t293 = fadd float %t292, 0x0000000040200000
+  %t293 = fadd float %t292, 0x40200000
   store float %t293, float* %floatVar
   %t294 = load float, float* %floatVar
   %t295 = fptosi float %t294 to i32
