@@ -135,7 +135,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
         } 
         else
         {
-        Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier);
+        Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
         createStore(arg, alloca);
         varToValue[node->params[i]->identifier] = alloca;
         }
