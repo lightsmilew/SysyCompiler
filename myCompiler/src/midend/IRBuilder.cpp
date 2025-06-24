@@ -108,13 +108,12 @@ void IRBuilder::visitCompUnit(std::shared_ptr<ast::CompUnitNode> node)
 void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
 {
     // 创建函数类型
-    Type *retType = convertASTTypeToIRType(node->returnType);
+    Type *retType = convertASTTypeToIRType(node->returnType,false);
     std::vector<Type *> paramTypes;
     for (auto &param : node->params)
     {
-        paramTypes.push_back(convertASTTypeToIRType(param->type));
+        paramTypes.push_back(convertASTTypeToIRType(param->type,true));
     }
-
     FunctionType *funcType = new FunctionType(retType, paramTypes);
     Function *func = module->addFunction(funcType, node->identifier);
     currentFunction = func;
@@ -230,7 +229,7 @@ void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
 
 void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 {
-    Type *varType = convertASTTypeToIRType(node->type);
+    Type *varType = convertASTTypeToIRType(node->type,false);
 
     if (currentFunction == nullptr)
     {
@@ -921,7 +920,18 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 
     throw std::runtime_error("Non-constant expression in constant context ,line: " + std::to_string(node->line));
 }
-
+int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
+    auto value=evaluateConstantExpr(node);
+    if(auto int_value=dynamic_cast<ConstantInt*>(value)){
+        return int_value->Value;
+    }
+    else if(auto float_value=dynamic_cast<ConstantFloat*>(value)){
+        return (int)float_value->Value;
+    }
+    else{
+        throw std::runtime_error("Unsupported constant expression type in getExpressionConstantValue");
+    }
+}
 // ===== 基本块管理 =====
 BasicBlock *IRBuilder::createBasicBlock(const std::string &name)
 {
@@ -1146,7 +1156,7 @@ PHINode *IRBuilder::createPhi(Type *type, const std::string &name)
 }
 
 // ===== 类型转换 ===== 修改该函数以支持int a[][10]这种情况，第一维度默认-1,此时退化为指针
-Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
+Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam)
 {
     switch (astType.baseType)
     {
@@ -1155,27 +1165,37 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         {
             Type *elemType = IntegerType::getInstance();
             const auto &sizes = astType.arraySizes();
-            // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
-            int start = 0;
-            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            if(isFunctionParam)
             {
-                start = 1;
-            }
-            for (int i = sizes.size() - 1; i >= start; i--)
-            {
-                elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
-            }
-            // 如果第一维是-1，直接返回元素类型的指针类型（退化为指针）
-            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            {
+                for (int i = sizes.size() - 1; i >=1; i--)
+                {
+                    elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
+                }
                 return new PointerType(elemType);
             }
+            for(int i=sizes.size()-1;i>=0;i--)
+            {
+                elemType=new ArrayType(elemType,getExpressionConstantValue(sizes[i]));
+            }
             return elemType;
-            // for (int i = sizes.size() - 1; i >=1; i--)
+            // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
+            // int start = 0;
+            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            // {
+            //     start = 1;
+            // }
+            // for (int i = sizes.size() - 1; i >= start; i--)
             // {
             //     elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
             // }
-            return new PointerType(elemType);
+            // // 如果第一维是-1，直接返回元素类型的指针类型（退化为指针）
+            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            // {
+            //     return new PointerType(elemType);
+            // }
+            // return elemType;
+            //不是函数参数
+
         }
         return IntegerType::getInstance();
     case PrimaryDataType::FLOAT:
@@ -1183,20 +1203,34 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
         {
             Type *elemType = FloatType::getInstance();
             const auto &sizes = astType.arraySizes();
-            int start = 0;
-            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            if(isFunctionParam)
             {
-                start = 1;
-            }
-            for (int i = sizes.size() - 1; i >= start; i--)
-            {
-                elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
-            }
-            if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            {
+                for (int i = sizes.size() - 1; i >=1; i--)
+                {
+                    elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
+                }
                 return new PointerType(elemType);
             }
+            for(int i=sizes.size()-1;i>=0;i--)
+            {
+                elemType=new ArrayType(elemType,getExpressionConstantValue(sizes[i]));
+            }
             return elemType;
+            // int start = 0;
+            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            // {
+            //     start = 1;
+            // }
+            // for (int i = sizes.size() - 1; i >= start; i--)
+            // {
+            //     elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
+            // }
+            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
+            // {
+            //     return new PointerType(elemType);
+            // }
+            // return elemType;
+            
         }
         return FloatType::getInstance();
     case PrimaryDataType::VOID:

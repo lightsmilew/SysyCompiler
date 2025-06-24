@@ -100,10 +100,11 @@ namespace ir_builder
         void createBranch(BasicBlock *target);                                                  // 无条件跳转
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
-        PHINode *createPhi(Type *type, const std::string &name = "");                           // PHI 指令
-
+        PHINode *createPhi(Type *type, const std::string &name = "");
+                                   // PHI 指令
+        int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node); // 获取表达式的常量值
         // 类型转换
-        Type *convertASTTypeToIRType(const ast::DataType &astType);
+        Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
         Value *createCast(Value *value, Type *targetType);
         Value *convertToBool(Value *value); // 转换为布尔值
         // 临时变量名生成
