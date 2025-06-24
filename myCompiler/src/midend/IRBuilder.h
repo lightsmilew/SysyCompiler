@@ -105,7 +105,7 @@ namespace ir_builder
         Type *convertASTTypeToIRType(const ast::DataType &astType);
         Value *createCast(Value *value, Type *targetType);
         Value *convertToBool(Value *value); // 转换为布尔值
-
+        int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node); // 获取表达式的常量值
         // 临时变量名生成
         std::string getNextTempName()
         {
