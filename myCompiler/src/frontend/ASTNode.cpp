@@ -64,7 +64,7 @@ namespace ast
 
     void DeclStmtNode::print(ostream &out, unsigned indent) const
     {
-        out << std::string(indent, ' ') << "DeclStmtNode: " << (type.isConst()? "const " : "") << identifier << " : ";
+        out << std::string(indent, ' ') << "DeclStmtNode: " << (type.isConst() ? "const " : "") << identifier << " : ";
         switch (type.baseType)
         {
         case PrimaryDataType::VOID:
@@ -82,7 +82,7 @@ namespace ast
         }
         for (int i = 0; i < type.arrayDimensionCount(); ++i)
         {
-            out << "[" << type.arraySizes()[i] << "]";
+            out << "[" << type.arraySizes()[i]->toString() << "]";
         }
 
         if (initializer)
@@ -180,7 +180,7 @@ namespace ast
         {
             ret_expr->print(out, indent + 2);
         }
-    }    // InitExpr
+    } // InitExpr
     string InitExprNode::toString() const
     {
         if (singleInitVal)
@@ -342,7 +342,7 @@ namespace ast
     void FloatLiteralExprNode::print(ostream &out, unsigned indent) const
     {
         ASTNode::print(out, indent);
-    }    // StringLiteralExpr
+    } // StringLiteralExpr
     string StringLiteralExprNode::toString() const
     {
         return "StringLiteralExprNode: \"" + value + "\"";

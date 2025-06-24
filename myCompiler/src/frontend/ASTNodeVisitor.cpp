@@ -2,7 +2,6 @@
 #include <memory>
 #include <string>
 #include <typeinfo>
-#include "../common/Common.h"
 
 using namespace ast;
 // 字符串类型名转化为基础数据类型的枚举名
