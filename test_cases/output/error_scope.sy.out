@@ -1,5 +1,0 @@
-Semantic errors found:
-Variable 'b' not declared
-Expression type mismatch: d expected 'int', but got void
-Variable 'f' not declared
-Expression type mismatch: g expected 'int', but got void

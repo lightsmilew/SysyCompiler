@@ -1,5 +1,0 @@
-Semantic errors found:
-Function 'add' expects 2 arguments, got 1
-Function 'add' expects 2 arguments, got 3
-Callee 'unknown' is not defined
-Expression type mismatch: c expected 'int', but got void
