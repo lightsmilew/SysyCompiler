@@ -1,74 +1,17 @@
-CompUnitNode
-  Function
-    int main(
-      Parameters:
-    )
-    BlockStmtNode
-      DeclStmtNode: arr : int[5]
-      DeclStmtNode: matrix : int[3][4]
-      DeclStmtNode: a : int = InitExprNode: LValueExprNode: arr
-
-      DeclStmtNode: b : int = InitExprNode: LValueExprNode: matrix
-
-      DeclStmtNode: idx : float = InitExprNode: FloatLiteralExprNode: 1.500000
-
-      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr
-
-      DeclStmtNode: d : int = InitExprNode: LValueExprNode: arr
-
-      DeclStmtNode: e : int = InitExprNode: LValueExprNode: arr
-
-      ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d + LValueExprNode: e
-          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c + LValueExprNode: d
-            BinaryExprNode: BinaryExprNode: LValueExprNode: a + LValueExprNode: b + LValueExprNode: c
-              BinaryExprNode: LValueExprNode: a + LValueExprNode: b
-                LValueExprNode: a
-                LValueExprNode: b
-              LValueExprNode: c
-            LValueExprNode: d
-          LValueExprNode: e
-; ModuleID = 'main_module'
-
-define i32 @main() {
-entry:
-  %arr = alloca [5 x i32]
-  %matrix = alloca [3 x [4 x i32]]
-  %a = alloca i32
-  %t0 = getelementptr [5 x i32], [5 x i32]* %arr, i32 0, i32 0, i32 1
-  %t1 = load i32, i32* %t0
-  store i32 %t1, i32* %a
-  %b = alloca i32
-  %t2 = getelementptr [3 x [4 x i32]], [3 x [4 x i32]]* %matrix, i32 0, i32 0
-  %t3 = load [4 x i32], [4 x i32]* %t2
-  store [4 x i32] %t3, i32* %b
-  %idx = alloca float
-  store float 1.500000, float* %idx
-  %c = alloca i32
-  %t4 = load float, float* %idx
-  %t5 = fptosi float %t4 to i32
-  %t6 = getelementptr [5 x i32], [5 x i32]* %arr, i32 0, i32 %t5
-  %t7 = load i32, i32* %t6
-  store i32 %t7, i32* %c
-  %d = alloca i32
-  %t8 = getelementptr [5 x i32], [5 x i32]* %arr, i32 0, i32 5
-  %t9 = load i32, i32* %t8
-  store i32 %t9, i32* %d
-  %e = alloca i32
-  %t10 = sub i32 0, 1
-  %t11 = getelementptr [5 x i32], [5 x i32]* %arr, i32 0, i32 %t10
-  %t12 = load i32, i32* %t11
-  store i32 %t12, i32* %e
-  %t13 = load i32, i32* %a
-  %t14 = load i32, i32* %b
-  %t15 = add i32 %t13, %t14
-  %t16 = load i32, i32* %c
-  %t17 = add i32 %t15, %t16
-  %t18 = load i32, i32* %d
-  %t19 = add i32 %t17, %t18
-  %t20 = load i32, i32* %e
-  %t21 = add i32 %t19, %t20
-  ret i32 %t21
-}
-
-
+Semantic errors found:
+Array 'arr' access dimension mismatch
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Array 'arr' access dimension mismatch
+Array 'matrix' access dimension mismatch
+Variable 'matrix' is not initialized before use
+Variable 'matrix' is not initialized before use
+Array 'matrix' access dimension mismatch
+Array 'arr' index must be integer type
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Array 'arr' index must be integer type
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use
+Variable 'arr' is not initialized before use

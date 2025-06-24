@@ -1,27 +1,2 @@
-CompUnitNode
-  Function
-    int someFunction(
-      Parameters:
-    )
-    BlockStmtNode
-      ReturnStmtNode
-        IntegerLiteralExprNode: 0
-  Function
-    void anotherFunction(
-      Parameters:
-    )
-    BlockStmtNode
-      ReturnStmtNode
-; ModuleID = 'main_module'
-
-define i32 @someFunction() {
-entry:
-  ret i32 0
-}
-
-define void @anotherFunction() {
-entry:
-  ret void
-}
-
-
+Semantic errors found:
+No main function found

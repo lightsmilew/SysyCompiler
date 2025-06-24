@@ -10,9 +10,9 @@ CompUnitNode
 
       DeclStmtNode: c : float = InitExprNode: CallExprNode: getfloat()
 
-      DeclStmtNode: arr1 : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: arr1 : int[0x5599a0c25e50] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: arr2 : float[3] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000, InitExprNode: FloatLiteralExprNode: 3.300000}
+      DeclStmtNode: arr2 : float[0x5599a0c26120] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000, InitExprNode: FloatLiteralExprNode: 3.300000}
 
       DeclStmtNode: d : int = InitExprNode: CallExprNode: getarray(LValueExprNode: arr1)
 
@@ -44,52 +44,3 @@ CompUnitNode
         CallExprNode: stoptime()
       ReturnStmtNode
         IntegerLiteralExprNode: 0
-; ModuleID = 'main_module'
-
-define i32 @main() {
-entry:
-  %a = alloca i32
-  %t0 = call i32 @getint()
-  store i32 %t0, i32* %a
-  %b = alloca i32
-  %t1 = call i32 @getch()
-  store i32 %t1, i32* %b
-  %c = alloca float
-  %t2 = call float @getfloat()
-  store float %t2, float* %c
-  %arr1 = alloca [3 x i32]
-  %t3 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 0
-  store i32 1, i32* %t3
-  %t4 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 1
-  store i32 2, i32* %t4
-  %t5 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 2
-  store i32 3, i32* %t5
-  %arr2 = alloca [3 x float]
-  %t6 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 0
-  store float 0x000000003F8CCCCD, float* %t6
-  %t7 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 1
-  store float 0x00000000400CCCCD, float* %t7
-  %t8 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 2
-  store float 0x0000000040533333, float* %t8
-  %d = alloca i32
-  %t9 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 0
-  %t10 = call i32 @getarray(i32* %t9)
-  store i32 %t10, i32* %d
-  %e = alloca i32
-  %t11 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 0
-  %t12 = call i32 @getfarray(float* %t11)
-  store i32 %t12, i32* %e
-  call void @putint(i32 1)
-  call void @putch(i32 2)
-  call void @putfloat(float 0x0000000040533333)
-  %t16 = getelementptr [3 x i32], [3 x i32]* %arr1, i32 0, i32 0
-  call void @putarray(i32 3, i32* %t16)
-  %t18 = getelementptr [3 x float], [3 x float]* %arr2, i32 0, i32 0
-  call void @putfarray(i32 3, float* %t18)
-  call void @putf(i8* c"hello,world!")
-  call void @starttime()
-  call void @stoptime()
-  ret i32 0
-}
-
-

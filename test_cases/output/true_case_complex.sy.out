@@ -1,9 +1,17 @@
+Variable 'arr1' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr2' is not initialized before use
+Variable 'arr3' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr1' is not initialized before use
+Variable 'arr2' is not initialized before use
+Variable 'matrix' is not initialized before use
 CompUnitNode
   DeclStmtNode: globalVar : int = InitExprNode: IntegerLiteralExprNode: 100
 
   DeclStmtNode: const GLOBAL_CONST : int = InitExprNode: IntegerLiteralExprNode: 100
 
-  DeclStmtNode: globalArray : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+  DeclStmtNode: globalArray : int[0x5619d2b3ab60] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
   DeclStmtNode: globalFloat : float = InitExprNode: BinaryExprNode: FloatLiteralExprNode: 3.140000 + FloatLiteralExprNode: 1.000000
 
@@ -138,29 +146,29 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr1 : int[5]
-      DeclStmtNode: arr2 : int[3][4]
+      DeclStmtNode: arr1 : int[0x5619d2b3d480]
+      DeclStmtNode: arr2 : int[0x5619d2b3e570][0x5619d2bc11e0]
       AssignStmtNode
-        LValueExprNode: arr1[IntegerLiteralExprNode: 0]
+        LValueExprNode: arr1
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 10
       AssignStmtNode
-        LValueExprNode: arr1[IntegerLiteralExprNode: 4]
+        LValueExprNode: arr1
           IntegerLiteralExprNode: 4
         IntegerLiteralExprNode: 20
       AssignStmtNode
-        LValueExprNode: arr2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+        LValueExprNode: arr2
           IntegerLiteralExprNode: 0
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 30
       AssignStmtNode
-        LValueExprNode: arr2[IntegerLiteralExprNode: 2, IntegerLiteralExprNode: 3]
+        LValueExprNode: arr2
           IntegerLiteralExprNode: 2
           IntegerLiteralExprNode: 3
         IntegerLiteralExprNode: 40
-      DeclStmtNode: value1 : int = InitExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+      DeclStmtNode: value1 : int = InitExprNode: LValueExprNode: arr1
 
-      DeclStmtNode: value2 : int = InitExprNode: LValueExprNode: arr2[IntegerLiteralExprNode: 1, IntegerLiteralExprNode: 2]
+      DeclStmtNode: value2 : int = InitExprNode: LValueExprNode: arr2
 
       ReturnStmtNode
         BinaryExprNode: LValueExprNode: value1 + LValueExprNode: value2
@@ -242,9 +250,9 @@ CompUnitNode
 
       DeclStmtNode: b : int = InitExprNode: LValueExprNode: a
 
-      DeclStmtNode: arr : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: arr : int[0x5619d2bc3600] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0]
+      DeclStmtNode: c : int = InitExprNode: LValueExprNode: arr
 
       ReturnStmtNode
         BinaryExprNode: LValueExprNode: b + LValueExprNode: c
@@ -296,48 +304,48 @@ CompUnitNode
     BlockStmtNode
       DeclStmtNode: const SIZE : int = InitExprNode: IntegerLiteralExprNode: 5
 
-      DeclStmtNode: arr1 : int[5]
-      DeclStmtNode: arr2 : int[1]
-      DeclStmtNode: arr3 : int[1]
+      DeclStmtNode: arr1 : int[0x5619d2bc5bf0]
+      DeclStmtNode: arr2 : int[0x5619d2bc5d80]
+      DeclStmtNode: arr3 : int[0x5619d2bc6160]
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]
-          BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
-            LValueExprNode: arr1[IntegerLiteralExprNode: 0]
+        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3
+          BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 0
-            LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+            LValueExprNode: arr2
               IntegerLiteralExprNode: 0
-          LValueExprNode: arr3[IntegerLiteralExprNode: 0]
+          LValueExprNode: arr3
             IntegerLiteralExprNode: 0
   Function
     int testArrayInitialization(
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr1 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: arr1 : int[0x5619d2bc6680] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      DeclStmtNode: arr2 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: arr2 : int[0x5619d2bc6d20] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: arr3 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: arr3 : int[0x5619d2bc6f00] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      DeclStmtNode: matrix1 : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+      DeclStmtNode: matrix1 : int[0x5619d2bc6d70][0x5619d2bc7650] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
 
-      DeclStmtNode: matrix2 : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4}}
+      DeclStmtNode: matrix2 : int[0x5619d2bc7680][0x5619d2bc76b0] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4}}
 
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
-          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0] + LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
-            BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: arr3[IntegerLiteralExprNode: 0]
-              BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
-                LValueExprNode: arr1[IntegerLiteralExprNode: 0]
+        BinaryExprNode: BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3 + LValueExprNode: matrix1 + LValueExprNode: matrix2
+          BinaryExprNode: BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3 + LValueExprNode: matrix1
+            BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: arr3
+              BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
+                LValueExprNode: arr1
                   IntegerLiteralExprNode: 0
-                LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+                LValueExprNode: arr2
                   IntegerLiteralExprNode: 0
-              LValueExprNode: arr3[IntegerLiteralExprNode: 0]
+              LValueExprNode: arr3
                 IntegerLiteralExprNode: 0
-            LValueExprNode: matrix1[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+            LValueExprNode: matrix1
               IntegerLiteralExprNode: 0
               IntegerLiteralExprNode: 0
-          LValueExprNode: matrix2[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+          LValueExprNode: matrix2
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
   Function
@@ -370,45 +378,45 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: intArray : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: intArray : int[0x5619d2bc94b0] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
-      DeclStmtNode: floatArray : float[3] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.000000, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: FloatLiteralExprNode: 3.000000}
+      DeclStmtNode: floatArray : float[0x5619d2bc9500] = InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.000000, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: FloatLiteralExprNode: 3.000000}
 
-      DeclStmtNode: mixedArray : float[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: mixedArray : float[0x5619d2bc9a90] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: IntegerLiteralExprNode: 3}
 
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0] + LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]
-          BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 0] + LValueExprNode: floatArray[IntegerLiteralExprNode: 0]
-            LValueExprNode: intArray[IntegerLiteralExprNode: 0]
+        BinaryExprNode: BinaryExprNode: LValueExprNode: intArray + LValueExprNode: floatArray + LValueExprNode: mixedArray
+          BinaryExprNode: LValueExprNode: intArray + LValueExprNode: floatArray
+            LValueExprNode: intArray
               IntegerLiteralExprNode: 0
-            LValueExprNode: floatArray[IntegerLiteralExprNode: 0]
+            LValueExprNode: floatArray
               IntegerLiteralExprNode: 0
-          LValueExprNode: mixedArray[IntegerLiteralExprNode: 0]
+          LValueExprNode: mixedArray
             IntegerLiteralExprNode: 0
   Function
     int processArray(
       Parameters:
-        DeclStmtNode: arr : int[-1]
+        DeclStmtNode: arr : int[0x5619d2bc9480]
     )
     BlockStmtNode
       ReturnStmtNode
-        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 1]
-          LValueExprNode: arr[IntegerLiteralExprNode: 0]
+        BinaryExprNode: LValueExprNode: arr + LValueExprNode: arr
+          LValueExprNode: arr
             IntegerLiteralExprNode: 0
-          LValueExprNode: arr[IntegerLiteralExprNode: 1]
+          LValueExprNode: arr
             IntegerLiteralExprNode: 1
   Function
     int process2DArray(
       Parameters:
-        DeclStmtNode: arr : int[-1][3]
+        DeclStmtNode: arr : int[0x5619d2bca720][0x5619d2bca770]
     )
     BlockStmtNode
       ReturnStmtNode
-        BinaryExprNode: LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0] + LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
-          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+        BinaryExprNode: LValueExprNode: arr + LValueExprNode: arr
+          LValueExprNode: arr
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
-          LValueExprNode: arr[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
+          LValueExprNode: arr
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 1
   Function
@@ -416,9 +424,9 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr1 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: arr1 : int[0x5619d2bca9e0] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      DeclStmtNode: matrix : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+      DeclStmtNode: matrix : int[0x5619d2bcb2c0][0x5619d2bcb310] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
 
       DeclStmtNode: result1 : int = InitExprNode: CallExprNode: processArray(LValueExprNode: arr1)
 
@@ -439,29 +447,29 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr1 : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: arr1 : int[0x5619d2bcb830] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      DeclStmtNode: matrix : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+      DeclStmtNode: matrix : int[0x5619d2bcc7b0][0x5619d2bcc800] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
 
       DeclStmtNode: x : int = InitExprNode: IntegerLiteralExprNode: 0
 
       DeclStmtNode: y : int = InitExprNode: IntegerLiteralExprNode: 0
 
       IfElseStmtNode
-        BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 1] > LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
-          LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+        BinaryExprNode: LValueExprNode: arr1 > LValueExprNode: matrix
+          LValueExprNode: arr1
             IntegerLiteralExprNode: 1
-          LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 1]
+          LValueExprNode: matrix
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 1
         BlockStmtNode
           DeclStmtNode: e : int = InitExprNode: IntegerLiteralExprNode: 0
 
           AssignStmtNode
-            LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 1
-            BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 1] + IntegerLiteralExprNode: 1
-              LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+            BinaryExprNode: LValueExprNode: arr1 + IntegerLiteralExprNode: 1
+              LValueExprNode: arr1
                 IntegerLiteralExprNode: 1
               IntegerLiteralExprNode: 1
           AssignStmtNode
@@ -471,10 +479,10 @@ CompUnitNode
               IntegerLiteralExprNode: 1
         BlockStmtNode
           AssignStmtNode
-            LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 1
-            BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 1] - IntegerLiteralExprNode: 1
-              LValueExprNode: arr1[IntegerLiteralExprNode: 1]
+            BinaryExprNode: LValueExprNode: arr1 - IntegerLiteralExprNode: 1
+              LValueExprNode: arr1
                 IntegerLiteralExprNode: 1
               IntegerLiteralExprNode: 1
           AssignStmtNode
@@ -488,23 +496,23 @@ CompUnitNode
       DeclStmtNode: j : int = InitExprNode: IntegerLiteralExprNode: 0
 
       WhileStmtNode
-        BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 4] > IntegerLiteralExprNode: 0
-          LValueExprNode: arr1[IntegerLiteralExprNode: 4]
+        BinaryExprNode: LValueExprNode: arr1 > IntegerLiteralExprNode: 0
+          LValueExprNode: arr1
             IntegerLiteralExprNode: 4
           IntegerLiteralExprNode: 0
         BlockStmtNode
           AssignStmtNode
-            LValueExprNode: arr1[IntegerLiteralExprNode: 4]
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 4
-            BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 4] - IntegerLiteralExprNode: 1
-              LValueExprNode: arr1[IntegerLiteralExprNode: 4]
+            BinaryExprNode: LValueExprNode: arr1 - IntegerLiteralExprNode: 1
+              LValueExprNode: arr1
                 IntegerLiteralExprNode: 4
               IntegerLiteralExprNode: 1
           AssignStmtNode
-            LValueExprNode: arr1[IntegerLiteralExprNode: 3]
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 3
-            BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 3] + IntegerLiteralExprNode: 1
-              LValueExprNode: arr1[IntegerLiteralExprNode: 3]
+            BinaryExprNode: LValueExprNode: arr1 + IntegerLiteralExprNode: 1
+              LValueExprNode: arr1
                 IntegerLiteralExprNode: 3
               IntegerLiteralExprNode: 1
           AssignStmtNode
@@ -513,8 +521,8 @@ CompUnitNode
               LValueExprNode: j
               IntegerLiteralExprNode: 1
           IfElseStmtNode
-            BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 3] > IntegerLiteralExprNode: 8
-              LValueExprNode: arr1[IntegerLiteralExprNode: 3]
+            BinaryExprNode: LValueExprNode: arr1 > IntegerLiteralExprNode: 8
+              LValueExprNode: arr1
                 IntegerLiteralExprNode: 3
               IntegerLiteralExprNode: 8
             BlockStmtNode
@@ -526,17 +534,17 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: arr1 : int[5]
-      DeclStmtNode: arr2 : int[1]
-      DeclStmtNode: matrix : int[3][4]
+      DeclStmtNode: arr1 : int[0x5619d2bcea60]
+      DeclStmtNode: arr2 : int[0x5619d2bceb70]
+      DeclStmtNode: matrix : int[0x5619d2bcec90][0x5619d2bcecc0]
       ReturnStmtNode
-        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0] + LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
-          BinaryExprNode: LValueExprNode: arr1[IntegerLiteralExprNode: 0] + LValueExprNode: arr2[IntegerLiteralExprNode: 0]
-            LValueExprNode: arr1[IntegerLiteralExprNode: 0]
+        BinaryExprNode: BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2 + LValueExprNode: matrix
+          BinaryExprNode: LValueExprNode: arr1 + LValueExprNode: arr2
+            LValueExprNode: arr1
               IntegerLiteralExprNode: 0
-            LValueExprNode: arr2[IntegerLiteralExprNode: 0]
+            LValueExprNode: arr2
               IntegerLiteralExprNode: 0
-          LValueExprNode: matrix[IntegerLiteralExprNode: 0, IntegerLiteralExprNode: 0]
+          LValueExprNode: matrix
             IntegerLiteralExprNode: 0
             IntegerLiteralExprNode: 0
   Function
@@ -544,17 +552,17 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: intArray : int[3] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
+      DeclStmtNode: intArray : int[0x5619d2bceee0] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}
 
       DeclStmtNode: floatVar : float
       AssignStmtNode
         LValueExprNode: floatVar
-        LValueExprNode: intArray[IntegerLiteralExprNode: 0]
+        LValueExprNode: intArray
           IntegerLiteralExprNode: 0
       AssignStmtNode
         LValueExprNode: floatVar
-        BinaryExprNode: LValueExprNode: intArray[IntegerLiteralExprNode: 1] + FloatLiteralExprNode: 2.500000
-          LValueExprNode: intArray[IntegerLiteralExprNode: 1]
+        BinaryExprNode: LValueExprNode: intArray + FloatLiteralExprNode: 2.500000
+          LValueExprNode: intArray
             IntegerLiteralExprNode: 1
           FloatLiteralExprNode: 2.500000
       ReturnStmtNode
@@ -650,775 +658,3 @@ CompUnitNode
           CallExprNode: testArrayElementConversion()
       ReturnStmtNode
         LValueExprNode: result
-; ModuleID = 'main_module'
-
-@globalVar = global i32 100
-@GLOBAL_CONST = constant i32 100
-@globalArray = global [5 x i32] [i32 1, i32 2, i32 3, i32 4, i32 5]
-@globalFloat = global float 0x0000000040847AE2
-
-define i32 @main() {
-entry:
-  ret i32 0
-}
-
-define i32 @testSymbolResolution() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  %t0 = load i32, i32* %a
-  store i32 %t0, i32* %b
-  %t1 = load i32, i32* %b
-  ret i32 %t1
-}
-
-define i32 @helperFunction(i32 %x) {
-entry:
-  %x.addr = alloca i32
-  store i32 %x, i32* %x.addr
-  %t2 = load i32, i32* %x.addr
-  %t3 = mul i32 %t2, 2
-  ret i32 %t3
-}
-
-define i32 @testFunctionCall() {
-entry:
-  %t4 = call i32 @helperFunction(i32 5)
-  ret i32 %t4
-}
-
-define i32 @testTypeMatching() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  %t5 = load i32, i32* %a
-  store i32 %t5, i32* %b
-  %c = alloca float
-  store float 0x000000004048F5C3, float* %c
-  %d = alloca float
-  %t6 = load float, float* %c
-  store float %t6, float* %d
-  %e = alloca float
-  %t7 = load i32, i32* %a
-  store i32 %t7, float* %e
-  ret i32 0
-}
-
-define i32 @acceptInt(i32 %x) {
-entry:
-  %x.addr = alloca i32
-  store i32 %x, i32* %x.addr
-  %t8 = load i32, i32* %x.addr
-  ret i32 %t8
-}
-
-define float @acceptFloat(float %x) {
-entry:
-  %x.addr = alloca float
-  store float %x, float* %x.addr
-  %t9 = load float, float* %x.addr
-  ret float %t9
-}
-
-define i32 @testParameterTypes() {
-entry:
-  %a = alloca i32
-  store i32 5, i32* %a
-  %b = alloca float
-  store float 0x000000004048F5C3, float* %b
-  %result1 = alloca i32
-  %t10 = load i32, i32* %a
-  %t11 = call i32 @acceptInt(i32 %t10)
-  store i32 %t11, i32* %result1
-  %result2 = alloca float
-  %t12 = load float, float* %b
-  %t13 = call float @acceptFloat(float %t12)
-  store float %t13, float* %result2
-  %result3 = alloca float
-  %t14 = load i32, i32* %a
-  %t15 = sitofp i32 %t14 to float
-  %t16 = call float @acceptFloat(float %t15)
-  store float %t16, float* %result3
-  ret i32 0
-}
-
-define float @testTypePromotion() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca float
-  store float 0x000000004048F5C3, float* %b
-  %result1 = alloca float
-  %t17 = load i32, i32* %a
-  %t18 = load float, float* %b
-  %t19 = sitofp i32 %t17 to float
-  %t20 = fadd float %t19, %t18
-  store float %t20, float* %result1
-  %result2 = alloca float
-  %t21 = load float, float* %b
-  %t22 = load i32, i32* %a
-  %t23 = sitofp i32 %t22 to float
-  %t24 = fadd float %t21, %t23
-  store float %t24, float* %result2
-  %result3 = alloca float
-  %t25 = load i32, i32* %a
-  %t26 = load float, float* %b
-  %t27 = sitofp i32 %t25 to float
-  %t28 = fmul float %t27, %t26
-  store float %t28, float* %result3
-  %result4 = alloca float
-  %t29 = load float, float* %b
-  %t30 = load i32, i32* %a
-  %t31 = sitofp i32 %t30 to float
-  %t32 = fdiv float %t29, %t31
-  store float %t32, float* %result4
-  %t33 = load float, float* %result1
-  %t34 = load float, float* %result2
-  %t35 = fadd float %t33, %t34
-  %t36 = load float, float* %result3
-  %t37 = fadd float %t35, %t36
-  %t38 = load float, float* %result4
-  %t39 = fadd float %t37, %t38
-  ret float %t39
-}
-
-define i32 @testConstCorrectness() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  %t40 = load i32, i32* %a
-  store i32 %t40, i32* %b
-  %c = alloca float
-  store float 0x000000004048F5C3, float* %c
-  %d = alloca float
-  %t41 = load float, float* %c
-  store float %t41, float* %d
-  %t42 = load i32, i32* %b
-  ret i32 %t42
-}
-
-define i32 @testArrayBounds() {
-entry:
-  %arr1 = alloca [5 x i32]
-  %arr2 = alloca [3 x [4 x i32]]
-  %t43 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  store i32 10, i32* %t43
-  %t44 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  store i32 20, i32* %t44
-  %t45 = getelementptr [3 x [4 x i32]], [3 x [4 x i32]]* %arr2, i32 0, i32 0, i32 0
-  store i32 30, i32* %t45
-  %t46 = getelementptr [3 x [4 x i32]], [3 x [4 x i32]]* %arr2, i32 0, i32 2, i32 3
-  store i32 40, i32* %t46
-  %value1 = alloca i32
-  %t47 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t48 = load i32, i32* %t47
-  store i32 %t48, i32* %value1
-  %value2 = alloca i32
-  %t49 = getelementptr [3 x [4 x i32]], [3 x [4 x i32]]* %arr2, i32 0, i32 1, i32 2
-  %t50 = load i32, i32* %t49
-  store i32 %t50, i32* %value2
-  %t51 = load i32, i32* %value1
-  %t52 = load i32, i32* %value2
-  %t53 = add i32 %t51, %t52
-  ret i32 %t53
-}
-
-define i32 @add(i32 %a, i32 %b) {
-entry:
-  %a.addr = alloca i32
-  store i32 %a, i32* %a.addr
-  %b.addr = alloca i32
-  store i32 %b, i32* %b.addr
-  %t54 = load i32, i32* %a.addr
-  %t55 = load i32, i32* %b.addr
-  %t56 = add i32 %t54, %t55
-  ret i32 %t56
-}
-
-define float @multiply(float %x, float %y, float %z) {
-entry:
-  %x.addr = alloca float
-  store float %x, float* %x.addr
-  %y.addr = alloca float
-  store float %y, float* %y.addr
-  %z.addr = alloca float
-  store float %z, float* %z.addr
-  %t57 = load float, float* %x.addr
-  %t58 = load float, float* %y.addr
-  %t59 = fmul float %t57, %t58
-  %t60 = load float, float* %z.addr
-  %t61 = fmul float %t59, %t60
-  ret float %t61
-}
-
-define i32 @testFunctionSignature() {
-entry:
-  %result1 = alloca i32
-  %t62 = call i32 @add(i32 5, i32 10)
-  store i32 %t62, i32* %result1
-  %result2 = alloca float
-  %t63 = call float @multiply(float 0x000000003FC00000, float 0x0000000040000000, float 0x0000000040400000)
-  store float %t63, float* %result2
-  %a = alloca i32
-  store i32 5, i32* %a
-  %b = alloca i32
-  store i32 10, i32* %b
-  %result3 = alloca float
-  %t64 = load i32, i32* %a
-  %t65 = sitofp i32 %t64 to float
-  %t66 = load i32, i32* %b
-  %t67 = sitofp i32 %t66 to float
-  %t68 = call float @multiply(float %t65, float %t67, float 0x0000000040000000)
-  store float %t68, float* %result3
-  %t69 = load i32, i32* %result1
-  %t70 = load float, float* %result2
-  %t71 = sitofp i32 %t69 to float
-  %t72 = fadd float %t71, %t70
-  %t73 = load float, float* %result3
-  %t74 = fadd float %t72, %t73
-  %t75 = fptosi float %t74 to i32
-  ret i32 %t75
-}
-
-define i32 @testScopeRules() {
-entry:
-  %localVar = alloca i32
-  store i32 10, i32* %localVar
-  %blockVar = alloca i32
-  store i32 20, i32* %blockVar
-  %sum1 = alloca i32
-  %t76 = load i32, i32 %globalVar
-  %t77 = load i32, i32* %localVar
-  %t78 = add i32 %t76, %t77
-  %t79 = load i32, i32* %blockVar
-  %t80 = add i32 %t78, %t79
-  store i32 %t80, i32* %sum1
-  %innerVar = alloca i32
-  store i32 30, i32* %innerVar
-  %sum2 = alloca i32
-  %t81 = load i32, i32 %globalVar
-  %t82 = load i32, i32* %localVar
-  %t83 = add i32 %t81, %t82
-  %t84 = load i32, i32* %blockVar
-  %t85 = add i32 %t83, %t84
-  %t86 = load i32, i32* %innerVar
-  %t87 = add i32 %t85, %t86
-  store i32 %t87, i32* %sum2
-  %t88 = load i32, i32 %globalVar
-  %t89 = load i32, i32* %localVar
-  %t90 = add i32 %t88, %t89
-  ret i32 %t90
-}
-
-define i32 @testInitializationCheck() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  %t91 = load i32, i32* %a
-  store i32 %t91, i32* %b
-  %arr = alloca [3 x i32]
-  %t92 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0
-  store i32 1, i32* %t92
-  %t93 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 1
-  store i32 2, i32* %t93
-  %t94 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 2
-  store i32 3, i32* %t94
-  %c = alloca i32
-  %t95 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0
-  %t96 = load i32, i32* %t95
-  store i32 %t96, i32* %c
-  %t97 = load i32, i32* %b
-  %t98 = load i32, i32* %c
-  %t99 = add i32 %t97, %t98
-  ret i32 %t99
-}
-
-define i32 @testExpressionRestrictions() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  store i32 20, i32* %b
-  %result1 = alloca i32
-  %t100 = load i32, i32* %a
-  %t101 = load i32, i32* %b
-  %t102 = add i32 %t100, %t101
-  store i32 %t102, i32* %result1
-  %result2 = alloca i32
-  %t103 = load i32, i32* %a
-  %t104 = load i32, i32* %b
-  %t105 = mul i32 %t103, %t104
-  store i32 %t105, i32* %result2
-  %result3 = alloca i32
-  %t106 = load i32, i32* %a
-  %t107 = sub i32 0, %t106
-  store i32 %t107, i32* %result3
-  %result4 = alloca i32
-  %t108 = load i32, i32* %b
-  store i32 %t108, i32* %result4
-  %t109 = load i32, i32* %result1
-  %t110 = load i32, i32* %result2
-  %t111 = add i32 %t109, %t110
-  %t112 = load i32, i32* %result3
-  %t113 = add i32 %t111, %t112
-  %t114 = load i32, i32* %result4
-  %t115 = add i32 %t113, %t114
-  ret i32 %t115
-}
-
-define void @testVoidReturn() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %t116 = load i32, i32* %a
-  %t117 = icmp sgt i32 %t116, 5
-  br i1 %t117, label %if.then, label %if.end
-if.then:
-  ret void
-if.end:
-  ret void
-}
-
-define i32 @testArraySizeConstant() {
-entry:
-  %SIZE = alloca i32
-  store i32 5, i32* %SIZE
-  %arr1 = alloca [5 x i32]
-  %arr2 = alloca [1 x i32]
-  %arr3 = alloca [1 x i32]
-  %t118 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  %t119 = load i32, i32* %t118
-  %t120 = getelementptr [1 x i32], [1 x i32]* %arr2, i32 0, i32 0
-  %t121 = load i32, i32* %t120
-  %t122 = add i32 %t119, %t121
-  %t123 = getelementptr [1 x i32], [1 x i32]* %arr3, i32 0, i32 0
-  %t124 = load i32, i32* %t123
-  %t125 = add i32 %t122, %t124
-  ret i32 %t125
-}
-
-define i32 @testArrayInitialization() {
-entry:
-  %arr1 = alloca [5 x i32]
-  %t126 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  store i32 1, i32* %t126
-  %t127 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  store i32 2, i32* %t127
-  %t128 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 2
-  store i32 3, i32* %t128
-  %t129 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  store i32 4, i32* %t129
-  %t130 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  store i32 5, i32* %t130
-  %arr2 = alloca [5 x i32]
-  %t131 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 0
-  store i32 1, i32* %t131
-  %t132 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 1
-  store i32 2, i32* %t132
-  %t133 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 2
-  store i32 3, i32* %t133
-  %t134 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 3
-  store i32 0, i32* %t134
-  %t135 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 4
-  store i32 0, i32* %t135
-  %arr3 = alloca [5 x i32]
-  %t136 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 0
-  store i32 1, i32* %t136
-  %t137 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 1
-  store i32 2, i32* %t137
-  %t138 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 2
-  store i32 3, i32* %t138
-  %t139 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 3
-  store i32 4, i32* %t139
-  %t140 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 4
-  store i32 5, i32* %t140
-  %matrix1 = alloca [2 x [3 x i32]]
-  %t141 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 0, i32 0
-  store i32 1, i32* %t141
-  %t142 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 0, i32 1
-  store i32 2, i32* %t142
-  %t143 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 0, i32 2
-  store i32 3, i32* %t143
-  %t144 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 1, i32 0
-  store i32 4, i32* %t144
-  %t145 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 1, i32 1
-  store i32 5, i32* %t145
-  %t146 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 1, i32 2
-  store i32 6, i32* %t146
-  %matrix2 = alloca [2 x [3 x i32]]
-  %t147 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 0, i32 0
-  store i32 1, i32* %t147
-  %t148 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 0, i32 1
-  store i32 2, i32* %t148
-  %t149 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 0, i32 2
-  store i32 4, i32* %t149
-  %t150 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 1, i32 0
-  store i32 0, i32* %t150
-  %t151 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 1, i32 1
-  store i32 0, i32* %t151
-  %t152 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 1, i32 2
-  store i32 0, i32* %t152
-  %t153 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  %t154 = load i32, i32* %t153
-  %t155 = getelementptr [5 x i32], [5 x i32]* %arr2, i32 0, i32 0
-  %t156 = load i32, i32* %t155
-  %t157 = add i32 %t154, %t156
-  %t158 = getelementptr [5 x i32], [5 x i32]* %arr3, i32 0, i32 0
-  %t159 = load i32, i32* %t158
-  %t160 = add i32 %t157, %t159
-  %t161 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix1, i32 0, i32 0, i32 0
-  %t162 = load i32, i32* %t161
-  %t163 = add i32 %t160, %t162
-  %t164 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix2, i32 0, i32 0, i32 0
-  %t165 = load i32, i32* %t164
-  %t166 = add i32 %t163, %t165
-  ret i32 %t166
-}
-
-define i32 @testConstantExpression() {
-entry:
-  %a = alloca i32
-  store i32 10, i32* %a
-  %b = alloca i32
-  %t167 = add i32 5, 3
-  store i32 %t167, i32* %b
-  %c = alloca i32
-  %t168 = load i32, i32* %a
-  %t169 = load i32, i32* %b
-  %t170 = add i32 %t168, %t169
-  store i32 %t170, i32* %c
-  %d = alloca float
-  store float 0x000000004048F5C3, float* %d
-  %e = alloca float
-  %t171 = load float, float* %d
-  %t172 = fmul float %t171, 0x0000000040000000
-  store float %t172, float* %e
-  %t173 = load i32, i32* %a
-  %t174 = load i32, i32* %b
-  %t175 = add i32 %t173, %t174
-  %t176 = load i32, i32* %c
-  %t177 = add i32 %t175, %t176
-  %t178 = load float, float* %d
-  %t179 = sitofp i32 %t177 to float
-  %t180 = fadd float %t179, %t178
-  %t181 = load float, float* %e
-  %t182 = fadd float %t180, %t181
-  %t183 = fptosi float %t182 to i32
-  ret i32 %t183
-}
-
-define i32 @testArrayInitTypeMatch() {
-entry:
-  %intArray = alloca [3 x i32]
-  %t184 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 0
-  store i32 1, i32* %t184
-  %t185 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 1
-  store i32 2, i32* %t185
-  %t186 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 2
-  store i32 3, i32* %t186
-  %floatArray = alloca [3 x float]
-  %t187 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 0
-  store float 0x000000003F800000, float* %t187
-  %t188 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 1
-  store float 0x0000000040000000, float* %t188
-  %t189 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 2
-  store float 0x0000000040400000, float* %t189
-  %mixedArray = alloca [3 x float]
-  %t190 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 0
-  store i32 1, float* %t190
-  %t191 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 1
-  store float 0x0000000040000000, float* %t191
-  %t192 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 2
-  store i32 3, float* %t192
-  %t193 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 0
-  %t194 = load i32, i32* %t193
-  %t195 = getelementptr [3 x float], [3 x float]* %floatArray, i32 0, i32 0
-  %t196 = load float, float* %t195
-  %t197 = sitofp i32 %t194 to float
-  %t198 = fadd float %t197, %t196
-  %t199 = getelementptr [3 x float], [3 x float]* %mixedArray, i32 0, i32 0
-  %t200 = load float, float* %t199
-  %t201 = fadd float %t198, %t200
-  %t202 = fptosi float %t201 to i32
-  ret i32 %t202
-}
-
-define i32 @processArray(i32* %arr) {
-entry:
-  %t203 = getelementptr i32, i32* %arr, i32 0
-  %t204 = load i32, i32* %t203
-  %t205 = getelementptr i32, i32* %arr, i32 1
-  %t206 = load i32, i32* %t205
-  %t207 = add i32 %t204, %t206
-  ret i32 %t207
-}
-
-define i32 @process2DArray([3 x i32]* %arr) {
-entry:
-  %t208 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0, i32 0
-  %t209 = load i32, i32* %t208
-  %t210 = getelementptr [3 x i32], [3 x i32]* %arr, i32 0, i32 0, i32 1
-  %t211 = load i32, i32* %t210
-  %t212 = add i32 %t209, %t211
-  ret i32 %t212
-}
-
-define i32 @testArrayAsParameter() {
-entry:
-  %arr1 = alloca [5 x i32]
-  %t213 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  store i32 1, i32* %t213
-  %t214 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  store i32 2, i32* %t214
-  %t215 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 2
-  store i32 3, i32* %t215
-  %t216 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  store i32 4, i32* %t216
-  %t217 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  store i32 5, i32* %t217
-  %matrix = alloca [2 x [3 x i32]]
-  %t218 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 0
-  store i32 1, i32* %t218
-  %t219 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 1
-  store i32 2, i32* %t219
-  %t220 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 2
-  store i32 3, i32* %t220
-  %t221 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 0
-  store i32 4, i32* %t221
-  %t222 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 1
-  store i32 5, i32* %t222
-  %t223 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 2
-  store i32 6, i32* %t223
-  %result1 = alloca i32
-  %t224 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  %t225 = call i32 @processArray(i32* %t224)
-  store i32 %t225, i32* %result1
-  %result2 = alloca i32
-  %t226 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0
-  %t227 = call i32 @process2DArray([3 x i32]* %t226)
-  store i32 %t227, i32* %result2
-  store i32 1, i32* %result1
-  store i32 1, i32* %result2
-  %t228 = load i32, i32* %result1
-  %t229 = load i32, i32* %result2
-  %t230 = add i32 %t228, %t229
-  ret i32 %t230
-}
-
-define void @testControl() {
-entry:
-  %arr1 = alloca [5 x i32]
-  %t231 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  store i32 1, i32* %t231
-  %t232 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  store i32 2, i32* %t232
-  %t233 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 2
-  store i32 3, i32* %t233
-  %t234 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  store i32 4, i32* %t234
-  %t235 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  store i32 5, i32* %t235
-  %matrix = alloca [2 x [3 x i32]]
-  %t236 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 0
-  store i32 1, i32* %t236
-  %t237 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 1
-  store i32 2, i32* %t237
-  %t238 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 2
-  store i32 3, i32* %t238
-  %t239 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 0
-  store i32 4, i32* %t239
-  %t240 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 1
-  store i32 5, i32* %t240
-  %t241 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 1, i32 2
-  store i32 6, i32* %t241
-  %x = alloca i32
-  store i32 0, i32* %x
-  %y = alloca i32
-  store i32 0, i32* %y
-  %t242 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t243 = load i32, i32* %t242
-  %t244 = getelementptr [2 x [3 x i32]], [2 x [3 x i32]]* %matrix, i32 0, i32 0, i32 1
-  %t245 = load i32, i32* %t244
-  %t246 = icmp sgt i32 %t243, %t245
-  br i1 %t246, label %if.then, label %if.else
-if.then:
-  %e = alloca i32
-  store i32 0, i32* %e
-  %t247 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t248 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t249 = load i32, i32* %t248
-  %t250 = add i32 %t249, 1
-  store i32 %t250, i32* %t247
-  %t251 = load i32, i32* %x
-  %t252 = add i32 %t251, 1
-  store i32 %t252, i32* %x
-  br label %if.end
-if.else:
-  %t253 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t254 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 1
-  %t255 = load i32, i32* %t254
-  %t256 = sub i32 %t255, 1
-  store i32 %t256, i32* %t253
-  %t257 = load i32, i32* %x
-  %t258 = sub i32 %t257, 1
-  store i32 %t258, i32* %x
-  br label %if.end
-if.end:
-  %t259 = load i32, i32* %x
-  store i32 %t259, i32* %y
-  %j = alloca i32
-  store i32 0, i32* %j
-  br label %while.cond
-while.cond:
-  %t260 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  %t261 = load i32, i32* %t260
-  %t262 = icmp sgt i32 %t261, 0
-  br i1 %t262, label %while.body, label %while.end
-while.body:
-  %t263 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  %t264 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 4
-  %t265 = load i32, i32* %t264
-  %t266 = sub i32 %t265, 1
-  store i32 %t266, i32* %t263
-  %t267 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  %t268 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  %t269 = load i32, i32* %t268
-  %t270 = add i32 %t269, 1
-  store i32 %t270, i32* %t267
-  %t271 = load i32, i32* %j
-  %t272 = add i32 %t271, 1
-  store i32 %t272, i32* %j
-  %t273 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 3
-  %t274 = load i32, i32* %t273
-  %t275 = icmp sgt i32 %t274, 8
-  br i1 %t275, label %if.then, label %if.else
-while.end:
-  ret void
-if.then:
-  br label %while.end
-if.else:
-  br label %while.cond
-if.end:
-  br label %while.cond
-}
-
-define i32 @testArrayDimensions() {
-entry:
-  %arr1 = alloca [5 x i32]
-  %arr2 = alloca [1 x i32]
-  %matrix = alloca [3 x [4 x i32]]
-  %t276 = getelementptr [5 x i32], [5 x i32]* %arr1, i32 0, i32 0
-  %t277 = load i32, i32* %t276
-  %t278 = getelementptr [1 x i32], [1 x i32]* %arr2, i32 0, i32 0
-  %t279 = load i32, i32* %t278
-  %t280 = add i32 %t277, %t279
-  %t281 = getelementptr [3 x [4 x i32]], [3 x [4 x i32]]* %matrix, i32 0, i32 0, i32 0
-  %t282 = load i32, i32* %t281
-  %t283 = add i32 %t280, %t282
-  ret i32 %t283
-}
-
-define i32 @testArrayElementConversion() {
-entry:
-  %intArray = alloca [3 x i32]
-  %t284 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 0
-  store i32 1, i32* %t284
-  %t285 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 1
-  store i32 2, i32* %t285
-  %t286 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 2
-  store i32 3, i32* %t286
-  %floatVar = alloca float
-  %t287 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 0
-  %t288 = load i32, i32* %t287
-  %t289 = sitofp i32 %t288 to float
-  store float %t289, float* %floatVar
-  %t290 = getelementptr [3 x i32], [3 x i32]* %intArray, i32 0, i32 1
-  %t291 = load i32, i32* %t290
-  %t292 = sitofp i32 %t291 to float
-  %t293 = fadd float %t292, 0x0000000040200000
-  store float %t293, float* %floatVar
-  %t294 = load float, float* %floatVar
-  %t295 = fptosi float %t294 to i32
-  ret i32 %t295
-}
-
-define i32 @runAllTests() {
-entry:
-  %result = alloca i32
-  store i32 0, i32* %result
-  %t296 = load i32, i32* %result
-  %t297 = call i32 @testSymbolResolution()
-  %t298 = add i32 %t296, %t297
-  store i32 %t298, i32* %result
-  %t299 = load i32, i32* %result
-  %t300 = call i32 @testTypeMatching()
-  %t301 = add i32 %t299, %t300
-  store i32 %t301, i32* %result
-  %t302 = load i32, i32* %result
-  %t303 = call float @testTypePromotion()
-  %t304 = sitofp i32 %t302 to float
-  %t305 = fadd float %t304, %t303
-  %t306 = fptosi float %t305 to i32
-  store i32 %t306, i32* %result
-  %t307 = load i32, i32* %result
-  %t308 = call i32 @testConstCorrectness()
-  %t309 = add i32 %t307, %t308
-  store i32 %t309, i32* %result
-  %t310 = load i32, i32* %result
-  %t311 = call i32 @testArrayBounds()
-  %t312 = add i32 %t310, %t311
-  store i32 %t312, i32* %result
-  %t313 = load i32, i32* %result
-  %t314 = call i32 @testFunctionSignature()
-  %t315 = add i32 %t313, %t314
-  store i32 %t315, i32* %result
-  %t316 = load i32, i32* %result
-  %t317 = call i32 @testScopeRules()
-  %t318 = add i32 %t316, %t317
-  store i32 %t318, i32* %result
-  %t319 = load i32, i32* %result
-  %t320 = call i32 @testInitializationCheck()
-  %t321 = add i32 %t319, %t320
-  store i32 %t321, i32* %result
-  %t322 = load i32, i32* %result
-  %t323 = call i32 @testExpressionRestrictions()
-  %t324 = add i32 %t322, %t323
-  store i32 %t324, i32* %result
-  call void @testVoidReturn()
-  %t326 = load i32, i32* %result
-  %t327 = call i32 @testArraySizeConstant()
-  %t328 = add i32 %t326, %t327
-  store i32 %t328, i32* %result
-  %t329 = load i32, i32* %result
-  %t330 = call i32 @testArrayInitialization()
-  %t331 = add i32 %t329, %t330
-  store i32 %t331, i32* %result
-  %t332 = load i32, i32* %result
-  %t333 = call i32 @testConstantExpression()
-  %t334 = add i32 %t332, %t333
-  store i32 %t334, i32* %result
-  %t335 = load i32, i32* %result
-  %t336 = call i32 @testArrayInitTypeMatch()
-  %t337 = add i32 %t335, %t336
-  store i32 %t337, i32* %result
-  %t338 = load i32, i32* %result
-  %t339 = call i32 @testArrayAsParameter()
-  %t340 = add i32 %t338, %t339
-  store i32 %t340, i32* %result
-  %t341 = load i32, i32* %result
-  %t342 = call i32 @testArrayDimensions()
-  %t343 = add i32 %t341, %t342
-  store i32 %t343, i32* %result
-  %t344 = load i32, i32* %result
-  %t345 = call i32 @testArrayElementConversion()
-  %t346 = add i32 %t344, %t345
-  store i32 %t346, i32* %result
-  %t347 = load i32, i32* %result
-  ret i32 %t347
-}
-
-

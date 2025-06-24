@@ -42,9 +42,9 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: matrix : int[2][3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
+      DeclStmtNode: matrix : int[IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 3] = InitExprNode: {InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3}, InitExprNode: {InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5, InitExprNode: IntegerLiteralExprNode: 6}}
 
-      DeclStmtNode: result : float[2][3]
+      DeclStmtNode: result : float[IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 3]
       AssignStmtNode
         LValueExprNode: result
           IntegerLiteralExprNode: 0
@@ -129,7 +129,7 @@ CompUnitNode
 
       DeclStmtNode: const local2 : float = InitExprNode: BinaryExprNode: LValueExprNode: AREA + FloatLiteralExprNode: 1.000000
 
-      DeclStmtNode: array : int[1]
+      DeclStmtNode: array : int[LValueExprNode: COMPLEX_CONST]
       AssignStmtNode
         LValueExprNode: array
           IntegerLiteralExprNode: 0
@@ -142,7 +142,7 @@ CompUnitNode
   Function
     int processVector(
       Parameters:
-        DeclStmtNode: vec : int[-1]
+        DeclStmtNode: vec : int[IntegerLiteralExprNode: -1]
         DeclStmtNode: size : int
     )
     BlockStmtNode
@@ -171,7 +171,7 @@ CompUnitNode
   Function
     float processMatrix(
       Parameters:
-        DeclStmtNode: mat : float[-1][3]
+        DeclStmtNode: mat : float[IntegerLiteralExprNode: -1][IntegerLiteralExprNode: 3]
         DeclStmtNode: rows : int
     )
     BlockStmtNode
@@ -215,9 +215,9 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: vector : int[5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
+      DeclStmtNode: vector : int[IntegerLiteralExprNode: 5] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 1, InitExprNode: IntegerLiteralExprNode: 2, InitExprNode: IntegerLiteralExprNode: 3, InitExprNode: IntegerLiteralExprNode: 4, InitExprNode: IntegerLiteralExprNode: 5}
 
-      DeclStmtNode: matrix : float[2][3] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.000000, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: FloatLiteralExprNode: 3.000000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 4.000000, InitExprNode: FloatLiteralExprNode: 5.000000, InitExprNode: FloatLiteralExprNode: 6.000000}}
+      DeclStmtNode: matrix : float[IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 3] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.000000, InitExprNode: FloatLiteralExprNode: 2.000000, InitExprNode: FloatLiteralExprNode: 3.000000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 4.000000, InitExprNode: FloatLiteralExprNode: 5.000000, InitExprNode: FloatLiteralExprNode: 6.000000}}
 
       DeclStmtNode: vectorSum : int = InitExprNode: CallExprNode: processVector(LValueExprNode: vector, IntegerLiteralExprNode: 5)
 
@@ -261,12 +261,12 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: minArray : int[1]
+      DeclStmtNode: minArray : int[IntegerLiteralExprNode: 1]
       AssignStmtNode
         LValueExprNode: minArray
           IntegerLiteralExprNode: 0
         IntegerLiteralExprNode: 42
-      DeclStmtNode: cube : int[2][2][2]
+      DeclStmtNode: cube : int[IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 2]
       AssignStmtNode
         LValueExprNode: cube
           IntegerLiteralExprNode: 0
@@ -295,9 +295,9 @@ CompUnitNode
       Parameters:
     )
     BlockStmtNode
-      DeclStmtNode: const constArr : int[4] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 10, InitExprNode: IntegerLiteralExprNode: 20, InitExprNode: IntegerLiteralExprNode: 30, InitExprNode: IntegerLiteralExprNode: 40}
+      DeclStmtNode: const constArr : int[IntegerLiteralExprNode: 4] = InitExprNode: {InitExprNode: IntegerLiteralExprNode: 10, InitExprNode: IntegerLiteralExprNode: 20, InitExprNode: IntegerLiteralExprNode: 30, InitExprNode: IntegerLiteralExprNode: 40}
 
-      DeclStmtNode: const constMatrix : float[2][2] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 3.300000, InitExprNode: FloatLiteralExprNode: 4.400000}}
+      DeclStmtNode: const constMatrix : float[IntegerLiteralExprNode: 2][IntegerLiteralExprNode: 2] = InitExprNode: {InitExprNode: {InitExprNode: FloatLiteralExprNode: 1.100000, InitExprNode: FloatLiteralExprNode: 2.200000}, InitExprNode: {InitExprNode: FloatLiteralExprNode: 3.300000, InitExprNode: FloatLiteralExprNode: 4.400000}}
 
       DeclStmtNode: sum1 : float = InitExprNode: BinaryExprNode: LValueExprNode: constArr + LValueExprNode: constArr
 
@@ -314,5 +314,47 @@ CompUnitNode
     BlockStmtNode
       DeclStmtNode: result : int = InitExprNode: IntegerLiteralExprNode: 0
 
-terminate called after throwing an instance of 'std::runtime_error'
-  what():  Non-constant expression in constant context ,line: 0
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: complexScopeTest()
+          LValueExprNode: result
+          CallExprNode: complexScopeTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: complexArrayTest()
+          LValueExprNode: result
+          CallExprNode: complexArrayTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: level1Function(IntegerLiteralExprNode: 5, IntegerLiteralExprNode: 3)
+          LValueExprNode: result
+          CallExprNode: level1Function(IntegerLiteralExprNode: 5, IntegerLiteralExprNode: 3)
+            IntegerLiteralExprNode: 5
+            IntegerLiteralExprNode: 3
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: complexConstTest()
+          LValueExprNode: result
+          CallExprNode: complexConstTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: complexParameterTest()
+          LValueExprNode: result
+          CallExprNode: complexParameterTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: complexExpressionTest()
+          LValueExprNode: result
+          CallExprNode: complexExpressionTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: boundaryTest()
+          LValueExprNode: result
+          CallExprNode: boundaryTest()
+      AssignStmtNode
+        LValueExprNode: result
+        BinaryExprNode: LValueExprNode: result + CallExprNode: constArrayTest()
+          LValueExprNode: result
+          CallExprNode: constArrayTest()
+      ReturnStmtNode
+        LValueExprNode: result
