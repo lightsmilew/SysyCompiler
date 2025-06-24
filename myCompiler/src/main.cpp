@@ -30,16 +30,8 @@ int main(int argc, const char *argv[])
     // cout << tree->toStringTree(&parser, true) << endl;
     ASTNodeVisitor ast_visitor;
 
-    auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);  
-    ast_root->print(cout, 0);
-    if (argc > 2 && strcmp(argv[2], "-ir") == 0)
-    {
-        //输出IR中间代码
-        IRBuilder irbuilder;
-        auto ir_module = irbuilder.buildModule(ast_root);
-        cout<<ir_module->toString() << endl;
-        return 0;
-    }
+    auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
+
     TypeCheckerVisitor type_checker;
     type_checker.checkSemantic(ast_root);
     if (!type_checker.getErrors().empty())
@@ -52,6 +44,15 @@ int main(int argc, const char *argv[])
         return 1; // 返回错误代码
     }
 
-  
+    ast_root->print(cout, 0);
+    if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    {
+        // 输出IR中间代码
+        IRBuilder irbuilder;
+        auto ir_module = irbuilder.buildModule(ast_root);
+        cout << ir_module->toString() << endl;
+        return 0;
+    }
+
     return 0;
 }
