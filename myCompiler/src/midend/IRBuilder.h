@@ -15,7 +15,8 @@ namespace ir_builder
         Function *currentFunction;      // 当前函数
         BasicBlock *currentBlock;       // 当前基本块
 
-        // === 符号表管理 ===                               
+        // === 符号表管理 ===
+        std::unordered_map<std::string, Constant*> constVarInitValues;        // 常量符号表                               
         std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
         std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
@@ -105,7 +106,6 @@ namespace ir_builder
         Type *convertASTTypeToIRType(const ast::DataType &astType);
         Value *createCast(Value *value, Type *targetType);
         Value *convertToBool(Value *value); // 转换为布尔值
-        int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node); // 获取表达式的常量值
         // 临时变量名生成
         std::string getNextTempName()
         {
