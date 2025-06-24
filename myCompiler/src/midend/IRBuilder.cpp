@@ -82,26 +82,6 @@ void IRBuilder::initializeLibraryFunctions()
         module->addFunction(funcType, "stoptime");
     }
 }
-int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
-    // 这里假设所有的常量表达式都已经被计算为整数
-    if (auto intNode = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node)) {
-        return intNode->value;
-    } else if (auto floatNode = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node)) {
-        return static_cast<int>(floatNode->value); // 简化处理，将浮点数转换为整数
-    }
-    // else if(auto LvalueNode = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
-    //     // 如果是变量，查找符号表
-    //     auto it = varToValue.find(LvalueNode->identifier);
-    //     if (it != varToValue.end()) {
-    //         Value *value = it->second;
-    //         if (auto constValue = dynamic_cast<Constant *>(value)) {
-    //             return constValue->getIntValue(); // 假设 Constant 有 getIntValue 方法
-    //         }
-    //     }
-    //     throw std::runtime_error("Variable not found in symbol table: " + LvalueNode->identifier);
-    // }
-    throw std::runtime_error("Unsupported constant expression type");
-}
 // ===== 主入口：构建整个模块 =====
 std::unique_ptr<Module> IRBuilder::buildModule(std::shared_ptr<ast::CompUnitNode> compUnit)
 {
@@ -269,6 +249,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
         varToValue[node->identifier] = globalVar;
+        //全局变量必须有const初始值
+        constVarInitValues[node->identifier] = initializer;
     }
     else
     {
@@ -278,14 +260,30 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 
         if (node->initializer)
         {
-            if (varType->isArrayTy()) {
+            if (varType->isArrayTy()) 
+            {
                 // 直接初始化 alloca 指向的空间
                 visitInitExpr(node->initializer, varType, alloca);
-            } else {
+            } 
+            else 
+            {
                 Value *initValue = visitInitExpr(node->initializer, varType);
                 createStore(initValue, alloca);
             }
         }
+        if( node->type.isConst()) {
+            Constant *initializer = nullptr;
+            // 如果是常量变量，记录初始值
+            if(varType->isArrayTy()) 
+            {
+               initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+            }
+            else 
+            {
+               initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+            }
+               constVarInitValues[node->identifier] = initializer;
+        } 
     }
 }
 
@@ -892,14 +890,33 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
-
-    // 常量变量引用（只允许 const 变量）
-    // if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
-    //     auto it = constVarToValue.find(lval->identifier);
-    //     if (it == constVarToValue.end())
-    //         throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier);
-    //     return it->second;
-    // }
+    //常量变量引用（只允许 const 变量）
+    if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
+        auto it = constVarInitValues.find(lval->identifier);
+        if (it == constVarInitValues.end())
+            throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier);
+        if(auto constInt= dynamic_cast<ConstantInt*>(it->second)) {
+            return constInt;
+        } else if(auto constFloat = dynamic_cast<ConstantFloat*>(it->second)) {
+            return constFloat;
+        } else if(auto constArray = dynamic_cast<ConstantArray*>(it->second)) {
+            auto indices= lval->indices;
+            auto indice_size=lval->indices.size();
+            auto tmp_array=constArray;
+            //获取元素
+            for(int i=0;i<indice_size-2;i++){
+                auto j=getExpressionConstantValue(indices[i]);
+                tmp_array=dynamic_cast<ConstantArray*>(tmp_array->Elements[j]);
+                //转换失败:常量计算不允许指针操作
+                if(tmp_array==nullptr)
+                {
+                    throw std::runtime_error("Point is not allowed to appear in constant expression");
+                }
+            }
+            // 最后一维
+            return tmp_array->Elements[getExpressionConstantValue(indices[indice_size-1])];
+        }
+    }
 
     throw std::runtime_error("Non-constant expression in constant context ,line: " + std::to_string(node->line));
 }
@@ -1153,6 +1170,11 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType)
                 return new PointerType(elemType);
             }
             return elemType;
+            // for (int i = sizes.size() - 1; i >=1; i--)
+            // {
+            //     elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
+            // }
+            return new PointerType(elemType);
         }
         return IntegerType::getInstance();
     case PrimaryDataType::FLOAT:
