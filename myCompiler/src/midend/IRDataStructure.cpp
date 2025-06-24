@@ -1,35 +1,7 @@
 #include "IRDataStructure.h"
 #include <sstream>
 #include <algorithm>
-int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
-    // 这里假设所有的常量表达式都已经被计算为整数
-    if (auto intNode = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node)) {
-        return intNode->value;
-    } else if (auto floatNode = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node)) {
-        return static_cast<int>(floatNode->value); // 简化处理，将浮点数转换为整数
-    }
-    else if(auto binaryNode = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
-        int leftValue = getExpressionConstantValue(binaryNode->left);
-        int rightValue = getExpressionConstantValue(binaryNode->right);
-        switch (binaryNode->op) {
-            case ast::BinaryOp::Add: return leftValue + rightValue;
-            case ast::BinaryOp::Sub: return leftValue - rightValue;
-            case ast::BinaryOp::Mul: return leftValue * rightValue;
-            case ast::BinaryOp::Div: return leftValue / rightValue;
-            case ast::BinaryOp::Mod: return leftValue % rightValue;
-            default: throw std::runtime_error("Unsupported binary operation in constant expression");
-        }
-    }
-    else if(auto unaryNode = std::dynamic_pointer_cast<ast::UnaryExprNode>(node)) {
-        int operandValue = getExpressionConstantValue(unaryNode->operand);
-        switch (unaryNode->op) {
-            case ast::UnaryOp::Minus: return -operandValue; // 处理负号
-            case ast::UnaryOp::Plus: return operandValue; // 处理+号
-            default: throw std::runtime_error("Unsupported unary operation in constant expression");
-        }
-    throw std::runtime_error("Unsupported constant expression type");
-    }
-}
+
 std::string FunctionType::toString() const
 {
     std::stringstream ss;
@@ -540,101 +512,11 @@ std::string Module::toString() const
     {
         ss << "\n";
     }
-
     // Functions 从库函数后一项开始遍历，下标是13
     for(int i=13; i < Functions.size(); ++i)
     {
         ss << Functions[i]->toString() << "\n";
     }
-    // for (const auto &func : Functions)
-    // {
-    //     ss << func->toString() << "\n";
-    // }
     return ss.str();
 }
 
-// ===== Utility Functions =====
-
-// 类型转换辅助函数
-namespace IRUtils
-{
-    // 从AST DataType转换为IR Type
-    Type *convertASTTypeToIRType(const DataType &astType)
-    {
-        switch (astType.baseType)
-        {
-        case PrimaryDataType::INT:
-            if (astType.isArray())
-            {
-                Type *elementType = IntegerType::getInstance();
-                for (int i = astType.arraySizes().size() - 1; i >= 0; --i)
-                {
-                    elementType = new ArrayType(elementType, getExpressionConstantValue(astType.arraySizes()[i]));
-                }
-                return elementType;
-            }
-            return IntegerType::getInstance();
-
-        case PrimaryDataType::FLOAT:
-            if (astType.isArray())
-            {
-                Type *elementType = FloatType::getInstance();
-                for (int i = astType.arraySizes().size() - 1; i >= 0; --i)
-                {
-                    elementType = new ArrayType(elementType, getExpressionConstantValue(astType.arraySizes()[i]));
-                }
-                return elementType;
-            }
-            return FloatType::getInstance();
-
-        case PrimaryDataType::VOID:
-            return VoidType::getInstance();
-
-        default:
-            return VoidType::getInstance();
-        }
-    }
-
-    // 检查两个类型是否兼容
-    bool isTypeCompatible(Type *t1, Type *t2)
-    {
-        if (t1 == t2)
-            return true;
-
-        // 数值类型之间可以转换
-        if ((t1->isIntegerTy() || t1->isFloatTy()) &&
-            (t2->isIntegerTy() || t2->isFloatTy()))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    // 获取二元运算的结果类型
-    Type *getBinaryOpResultType(Type *lhs, Type *rhs, BinaryOp op)
-    {
-        // 浮点运算优先
-        if (lhs->isFloatTy() || rhs->isFloatTy())
-        {
-            return FloatType::getInstance();
-        }
-
-        // 比较运算返回布尔类型
-        if (op == BinaryOp::Lt || op == BinaryOp::Gt ||
-            op == BinaryOp::Le || op == BinaryOp::Ge ||
-            op == BinaryOp::Eq || op == BinaryOp::Ne)
-        {
-            return BooleanType::getInstance();
-        }
-
-        // 逻辑运算返回布尔类型
-        if (op == BinaryOp::And || op == BinaryOp::Or)
-        {
-            return BooleanType::getInstance();
-        }
-
-        // 其他算术运算返回整数类型
-        return IntegerType::getInstance();
-    }
-}

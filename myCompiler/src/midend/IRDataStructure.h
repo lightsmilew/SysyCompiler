@@ -13,7 +13,7 @@ class BasicBlock;
 class Function;
 class Module;
 
-int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node); // 获取表达式的常量值
+
 
 // 类似LLVM的ir数据结构
 class Type
