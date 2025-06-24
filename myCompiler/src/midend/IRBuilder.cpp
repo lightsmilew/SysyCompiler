@@ -248,8 +248,11 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
         varToValue[node->identifier] = globalVar;
-        //全局变量必须有const初始值
-        constVarInitValues[node->identifier] = initializer;
+        // const变量加入常量表
+        if(node->type.isConst())
+        {
+             constVarInitValues[node->identifier] = initializer;
+        }
     }
     else
     {
@@ -258,31 +261,35 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         varToValue[node->identifier] = alloca;
 
         if (node->initializer)
-        {
-            if (varType->isArrayTy()) 
+        {   
+            if(!node->type.isConst())
             {
-                // 直接初始化 alloca 指向的空间
-                visitInitExpr(node->initializer, varType, alloca);
-            } 
-            else 
-            {
-                Value *initValue = visitInitExpr(node->initializer, varType);
-                createStore(initValue, alloca);
+                if (varType->isArrayTy()) 
+                {
+                    // 直接初始化 alloca 指向的空间
+                    visitInitExpr(node->initializer, varType, alloca);
+                } 
+                else 
+                {
+                    Value *initValue = visitInitExpr(node->initializer, varType);
+                    createStore(initValue, alloca);
+                }
             }
-        }
-        if( node->type.isConst()) {
-            Constant *initializer = nullptr;
-            // 如果是常量变量，记录初始值
-            if(varType->isArrayTy()) 
+            else
             {
-               initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+                Constant *initializer = nullptr;
+                // 如果是常量变量，记录初始值
+                if(varType->isArrayTy()) 
+                {
+                    initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+                }
+                else 
+                {
+                    initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+                }
+                    constVarInitValues[node->identifier] = initializer;
             }
-            else 
-            {
-               initializer = evaluateConstantExpr(node->initializer->singleInitVal);
-            }
-               constVarInitValues[node->identifier] = initializer;
-        } 
+        }  
     }
 }
 
@@ -465,7 +472,7 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
     }
 }
 
-// ===== 表达式访问实现 =====
+// ===== 表达式访问实现 =====  这里需要检测int和float是否越界，左值表达式需要检测数组下标是否合法(非负以及不超过范围)
 Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
@@ -820,7 +827,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vecto
         createStore(val, elemPtr);
     }
 }
-// 用于数组初始化 返回一个ConstantArray
+// 用于数组初始化 递归返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
     std::vector<Constant*> elements;
     int dim = arrayType->getNumElements();
@@ -845,6 +852,7 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     }
     return new ConstantArray(arrayType, elements);
 }
+// 这里需要判断int和float范围-->动态检测
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
     if (!node) 
@@ -890,7 +898,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
-    //常量变量引用（只允许 const 变量）
+    // 常量变量引用（只允许 const 变量）
     if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
         auto it = constVarInitValues.find(lval->identifier);
         if (it == constVarInitValues.end())
@@ -931,6 +939,12 @@ int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
     else{
         throw std::runtime_error("Unsupported constant expression type in getExpressionConstantValue");
     }
+}
+bool IRBuilder::isConstVariable(Value *value){
+    auto identifier=value->getName();
+    auto it=constVarInitValues.find(identifier);
+    if(it==constVarInitValues.end())return false;
+    return true;
 }
 // ===== 基本块管理 =====
 BasicBlock *IRBuilder::createBasicBlock(const std::string &name)
@@ -1178,24 +1192,6 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType,bool isFunc
                 elemType=new ArrayType(elemType,getExpressionConstantValue(sizes[i]));
             }
             return elemType;
-            // 如果是函数参数，第一维为-1表示未指定（如 int a[][10]），此时第一维不参与IR类型
-            // int start = 0;
-            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            // {
-            //     start = 1;
-            // }
-            // for (int i = sizes.size() - 1; i >= start; i--)
-            // {
-            //     elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
-            // }
-            // // 如果第一维是-1，直接返回元素类型的指针类型（退化为指针）
-            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            // {
-            //     return new PointerType(elemType);
-            // }
-            // return elemType;
-            //不是函数参数
-
         }
         return IntegerType::getInstance();
     case PrimaryDataType::FLOAT:
@@ -1215,22 +1211,7 @@ Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType,bool isFunc
             {
                 elemType=new ArrayType(elemType,getExpressionConstantValue(sizes[i]));
             }
-            return elemType;
-            // int start = 0;
-            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            // {
-            //     start = 1;
-            // }
-            // for (int i = sizes.size() - 1; i >= start; i--)
-            // {
-            //     elemType = new ArrayType(elemType, getExpressionConstantValue(sizes[i]));
-            // }
-            // if (!sizes.empty() && getExpressionConstantValue(sizes[0]) == -1)
-            // {
-            //     return new PointerType(elemType);
-            // }
-            // return elemType;
-            
+            return elemType;          
         }
         return FloatType::getInstance();
     case PrimaryDataType::VOID:
