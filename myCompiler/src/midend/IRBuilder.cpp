@@ -821,6 +821,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vecto
         createStore(val, elemPtr);
     }
 }
+// 用于数组初始化 返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
     std::vector<Constant*> elements;
     int dim = arrayType->getNumElements();
