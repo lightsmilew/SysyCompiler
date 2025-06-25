@@ -235,15 +235,24 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     {
         // 全局变量
         Constant *initializer = nullptr;
+        // 检查数组维度是否合法
+        if(varType->isArrayTy())
+        {
+            for(auto it:node->type.arraySizes())
+            {
+                int indice=getExpressionConstantValue(it);
+                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero");
+            }
+        }
         if (node->initializer)
         {
             if (varType->isArrayTy()) 
             {
-            initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+                initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
             } 
             else 
             {
-            initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+                initializer = evaluateConstantExpr(node->initializer->singleInitVal);
             }
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
@@ -259,7 +268,14 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         // 局部变量
         Value *alloca = createAlloca(varType, node->identifier);
         varToValue[node->identifier] = alloca;
-
+        if(varType->isArrayTy())
+        {
+            for(auto it:node->type.arraySizes())
+            {
+                int indice=getExpressionConstantValue(it);
+                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero");
+            }
+        }
         if (node->initializer)
         {   
             if(!node->type.isConst())
@@ -289,7 +305,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
                 }
                     constVarInitValues[node->identifier] = initializer;
             }
-        }  
+        }
+
     }
 }
 
@@ -863,11 +880,11 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         return new ConstantInt(IntegerType::getInstance(), intLiteral->value);
 
     // 浮点字面量
-    if (auto floatLiteral = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node))
+    else if (auto floatLiteral = std::dynamic_pointer_cast<ast::FloatLiteralExprNode>(node))
         return new ConstantFloat(FloatType::getInstance(), floatLiteral->value);
 
     // 常量二元表达式
-    if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
+    else if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
         auto lhs = evaluateConstantExpr(binExpr->left);
         auto rhs = evaluateConstantExpr(binExpr->right);
         // 这里只处理 int/float 常量
@@ -898,8 +915,35 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
+    else if(auto uval=std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
+    {
+        auto operand=evaluateConstantExpr(uval->operand);
+        if(operand->getType()->isIntegerTy())
+        {
+            int v=static_cast<ConstantInt*>(operand)->Value;
+            int res=0;
+            switch(uval->op)
+            {
+                case ast::UnaryOp::Plus:res=v;break;
+                case ast::UnaryOp::Minus:res=0-v;break;
+                default:throw std::runtime_error("Unsupported op in const int expr");
+            }
+            return  new ConstantInt(IntegerType::getInstance(), res);
+        }else if(operand->getType()->isFloatTy())
+        {
+            float v=static_cast<ConstantFloat*>(operand)->Value;
+            float res=0;
+            switch(uval->op)
+            {
+                case ast::UnaryOp::Plus:res=v;break;
+                case ast::UnaryOp::Minus:res=0-v;break;
+                default:throw std::runtime_error("Unsupported op in const float expr");
+            }
+            return new ConstantFloat(FloatType::getInstance(), res);
+        }
+    }
     // 常量变量引用（只允许 const 变量）
-    if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
+    else if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
         auto it = constVarInitValues.find(lval->identifier);
         if (it == constVarInitValues.end())
             throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier);
@@ -1280,3 +1324,159 @@ Value *IRBuilder::convertToBool(Value *value)
 
     return createComparison(BinaryOp::Ne, value, zero);
 }
+// bool IRBuilder::isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs){
+//     if(lhs->getType()->isIntegerTy())
+//     {
+//         auto lhs_int=dynamic_cast<ConstantInt*>(lhs);
+//         auto rhs_int=dynamic_cast<ConstantInt*>(rhs);
+//         // 不是常数终止判断
+//         if(lhs_int==nullptr||rhs_int==nullptr)return false;
+//         switch(op)
+//         {
+//             case BinaryOp::Add:
+//             {
+//                if(lhs_int->Value>0&&rhs_int->Value>0)
+//                {
+//                   if(MAX_INT-rhs_int->Value<lhs_int->Value)return true;
+//                }
+//                else if(lhs_int->Value<0&&rhs_int->Value<0)
+//                {
+//                  std::cout<<lhs_int->Value<<" "<<rhs_int->Value<<" "<<MIN_INT-rhs_int->Value<<std::endl;
+//                   if(MIN_INT-rhs_int->Value>lhs_int->Value)return true;
+//                }
+//                break;
+//             }
+//             case BinaryOp::Sub:
+//             {
+//                 if(lhs_int->Value>0&&rhs_int->Value<0)
+//                 {
+//                   if(MAX_INT+rhs_int->Value<lhs_int->Value)return true;
+//                 }
+//                 else if(lhs_int->Value<=0&&rhs_int->Value>0)
+//                 {
+//                     std::cout<<lhs_int->Value<<" "<<rhs_int->Value<<" "<<MIN_INT+rhs_int->Value<<std::endl;
+//                   if(MIN_INT+rhs_int->Value>lhs_int->Value)return true;
+//                 }
+//                 break;
+//             }
+//             case BinaryOp::Mul:
+//             {
+//                 if(lhs_int->Value>0&&rhs_int->Value>0)
+//                 {
+//                   if(MAX_INT/rhs_int->Value<lhs_int->Value)return true;
+//                 }
+//                 else if(lhs_int->Value<0&&rhs_int->Value<0)
+//                 {
+//                   if(MIN_INT/rhs_int->Value>lhs_int->Value)return true;
+//                 }
+//                 else if(lhs_int->Value>0&&rhs_int->Value<0)
+//                 {
+//                   if(MAX_INT/rhs_int->Value<lhs_int->Value)return true;
+//                 }
+//                 else if(lhs_int->Value<0&&rhs_int->Value>0)
+//                 {
+//                   if(MIN_INT/rhs_int->Value>lhs_int->Value)return true;
+//                 }
+//                 break;
+//             }
+//             default:break;
+//         }
+//     }
+//     else if(lhs->getType()->isFloatTy())
+//     {
+//         auto lhs_float=dynamic_cast<ConstantFloat*>(lhs);
+//         auto rhs_float=dynamic_cast<ConstantFloat*>(rhs);
+//         if(lhs_float==nullptr||rhs_float==nullptr)return false;
+//         switch(op)
+//         {
+//             case BinaryOp::Add:
+//             {
+//                if(lhs_float->Value>0&&rhs_float->Value>0)
+//                {
+//                   if(MAX_FLOAT-rhs_float->Value<lhs_float->Value)return true;
+//                }
+//                else if(lhs_float->Value<0&&rhs_float->Value<0)
+//                {
+//                   if(MIN_FLOAT-rhs_float->Value>lhs_float->Value)return true;
+//                }
+//                break;
+//             }
+//             case BinaryOp::Sub:
+//             {
+//                if(lhs_float->Value>0&&rhs_float->Value<0)
+//                {
+//                   if(MAX_FLOAT+rhs_float->Value<lhs_float->Value)return true;
+//                }
+//                else if(lhs_float->Value<=0&&rhs_float->Value>0)
+//                {
+//                   if(MIN_FLOAT+rhs_float->Value>lhs_float->Value)return true;
+//                }
+//                 break;
+//             }
+//             case BinaryOp::Mul:
+//             {
+//                 if(lhs_float->Value>0&&rhs_float->Value>0)
+//                 {
+//                   if(MAX_FLOAT/rhs_float->Value<lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value<0&&rhs_float->Value<0)
+//                 {
+//                   if(MIN_FLOAT/rhs_float->Value>lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value>0&&rhs_float->Value<0)
+//                 {
+//                   if(MAX_FLOAT/rhs_float->Value<lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value<0&&rhs_float->Value>0)
+//                 {
+//                   if(MIN_FLOAT/rhs_float->Value>lhs_float->Value)return true;
+//                 }
+//                 break;
+//             }
+//             case BinaryOp::Div:
+//             {
+//                 if(lhs_float->Value>0&&rhs_float->Value>0)
+//                 {
+//                   if(MAX_FLOAT*rhs_float->Value<lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value<0&&rhs_float->Value<0)
+//                 {
+//                   if(MIN_FLOAT*rhs_float->Value>lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value>0&&rhs_float->Value<0)
+//                 {
+//                   if(MAX_FLOAT*rhs_float->Value<lhs_float->Value)return true;
+//                 }
+//                 else if(lhs_float->Value<0&&rhs_float->Value>0)
+//                 {
+//                   if(MIN_FLOAT*rhs_float->Value>lhs_float->Value)return true;
+//                 }
+//                 break;
+//             }
+//             default:break;
+//         }
+//     }
+//     else
+//     {
+//         throw std::runtime_error("not supported type in isOverflow()");
+//     }
+//     return false;
+// }
+// bool IRBuilder::isOverflow(ast::UnaryOp op, Value *operand)
+// {
+//     if(op==UnaryOp::Plus)return false;
+//     else if(op==UnaryOp::Minus)
+//     {
+//         Value *zero;
+//         if (operand->getType()->isFloatTy())
+//         {
+//             zero = new ConstantFloat(FloatType::getInstance(), 0.0f);
+//         }
+//         else
+//         {
+//             zero = new ConstantInt(IntegerType::getInstance(), 0);
+//         }
+//         return isOverflow(BinaryOp::Sub,zero,operand);
+//     }
+//     else return false;
+// }

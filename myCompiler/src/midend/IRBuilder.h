@@ -104,6 +104,9 @@ namespace ir_builder
                                    // PHI 指令
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
         bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
+        // 判断是否溢出
+        //bool isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs);
+        //bool isOverflow(ast::UnaryOp op, Value *operand);
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
         Value *createCast(Value *value, Type *targetType);
