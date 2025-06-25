@@ -13,8 +13,6 @@ class BasicBlock;
 class Function;
 class Module;
 
-
-
 // 类似LLVM的ir数据结构
 class Type
 {
@@ -47,8 +45,8 @@ public:
     bool isFunctionTy() const { return ID == FunctionTyID; }
     bool isBooleanTy() const { return ID == BooleanTyID; }
     bool isStringTy() const { return ID == StringTyID; }
-    bool isTypeEqual(Type* a, Type* b);
-    
+    bool isTypeEqual(Type *a, Type *b);
+
     virtual string toString() const = 0;
 };
 
@@ -94,7 +92,7 @@ public:
 class StringType : public Type
 {
 public:
-    StringType() : Type(StringTyID){} // 自定义 StringTyID
+    StringType() : Type(StringTyID) {} // 自定义 StringTyID
     static StringType *getInstance()
     {
         static StringType instance;
@@ -290,13 +288,13 @@ public:
 
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
     // string toString() const override { return to_string(Value); }
-    string toString() const override 
+    string toString() const override
     {
         uint32_t bits;
         // 将 float 的内存表示复制到 uint32_t 中
         std::memcpy(&bits, &Value, sizeof(float));
 
-         std::ostringstream oss;
+        std::ostringstream oss;
         oss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << bits;
         return oss.str();
     }
@@ -308,11 +306,14 @@ public:
     std::string Value;
     ConstantString(StringType *ty, const std::string &val)
         : Constant(ty), Value(val) {}
-    string toString() const override {
+    string toString() const override
+    {
         // 输出为 LLVM IR 字符串常量格式
         std::string s = "c\"";
-        for (char c : Value) {
-            if (c == '\\' || c == '\"') s += '\\'; // 转义
+        for (char c : Value)
+        {
+            if (c == '\\' || c == '\"')
+                s += '\\'; // 转义
             s += c;
         }
         s += "\"";
@@ -323,17 +324,19 @@ public:
 class ConstantArray : public Constant
 {
 public:
-    std::vector<Constant*> Elements;
+    std::vector<Constant *> Elements;
 
-    ConstantArray(ArrayType *ty, const std::vector<Constant*> &elements)
+    ConstantArray(ArrayType *ty, const std::vector<Constant *> &elements)
         : Constant(ty), Elements(elements) {}
 
     string toString() const override
     {
         std::string s = "[";
-        for (size_t i = 0; i < Elements.size(); ++i) {
-            if (i > 0) s += ", ";
-            s += Elements[i] ?Elements[i]->getType()->toString()+" "+Elements[i]->toString() : "undef";
+        for (size_t i = 0; i < Elements.size(); ++i)
+        {
+            if (i > 0)
+                s += ", ";
+            s += Elements[i] ? Elements[i]->getType()->toString() + " " + Elements[i]->toString() : "undef";
         }
         s += "]";
         return s;
