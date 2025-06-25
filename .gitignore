@@ -1,3 +1,4 @@
 myCompiler/build/
 .vscode/
 test_cases/output/
+test_cases/official_output/
