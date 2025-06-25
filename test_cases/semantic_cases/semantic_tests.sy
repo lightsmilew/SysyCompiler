@@ -268,7 +268,7 @@ int testArrayAsParameter() {
 
 int testArrayDimensions() {
     int arr1[5]={1,2,3,4,5};        // 正数维度 ✓
-    int arr2[1]={1,2,3,4,5};        // 最小正数维度 ✓
+    int arr2[5]={1,2,3,4,5};        // 最小正数维度 ✓
     int matrix[3][4]={};   // 多维正数维度 ✓
     
     return arr1[0] + arr2[0] + matrix[0][0];

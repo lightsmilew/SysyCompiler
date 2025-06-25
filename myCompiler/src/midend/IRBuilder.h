@@ -74,12 +74,16 @@ namespace ir_builder
         Value *visitIntLiteralExpr(std::shared_ptr<ast::IntLiteralExprNode> node);
         Value *visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNode> node);
         Value *visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node);
-        Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);//✔
+        Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);
         // 新增重载 处理数组初始化
-        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);//✔
-        //辅助函数 用于支持嵌套和平铺赋值
-        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);//✔
-        void visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx);//✔
+        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);
+        // 辅助函数 用于支持嵌套和平铺赋值
+        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
+        void visitInitExprImpl(Type *targetType, Value *targetPtr,
+                                  std::vector<int>& indices,
+                                  std::shared_ptr<ast::InitExprNode> initNode,
+                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                  size_t& flat_idx);
         // 常量数组求值
         Constant *evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType);
         // 编译时常量表达式求值
@@ -102,6 +106,8 @@ namespace ir_builder
         void createReturn(Value *value = nullptr);                                              // 返回指令
         PHINode *createPhi(Type *type, const std::string &name = "");
                                    // PHI 指令
+        size_t getArrayTotalElements(Type* type);
+        vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
         bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
         // 判断是否溢出
@@ -110,7 +116,7 @@ namespace ir_builder
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
         Value *createCast(Value *value, Type *targetType);
-        Value *convertToBool(Value *value); // 转换为布尔值
+        Value *convertToBool(Value *value);                                                     // 转换为布尔值
         // 临时变量名生成
         std::string getNextTempName()
         {
@@ -121,7 +127,6 @@ namespace ir_builder
         {
             return "label" + std::to_string(labelCounter++);
         }
-
         // === 获取结果 ===
         Module *getModule() { return module.get(); }
         std::string getModuleString() { return module->toString(); }
