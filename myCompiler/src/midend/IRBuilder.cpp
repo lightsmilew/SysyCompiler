@@ -798,9 +798,18 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
     std::vector<int> indices;
     size_t flat_idx = 0;
     std::vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
-    // 展开所有叶子节点
+
+    // 展平所有叶子节点，用于底层赋值
     flattenInitList(node, flat_inits);
-    visitInitExprImpl(targetType, targetPtr, indices, flat_inits, flat_idx);
+
+    // 计算数组总元素个数（支持多维）
+    size_t totalElements = getArrayTotalElements(targetType);
+    if (flat_inits.size() > totalElements) {
+        throw std::runtime_error("Initializer list has more elements than array dimension");
+    }
+
+    // 递归处理初始化并检查每一维的初始化项数量
+    visitInitExprImpl(targetType, targetPtr, indices, node, flat_inits, flat_idx);
 }
 
 // 展开所有叶子节点到 flat_inits
@@ -815,13 +824,26 @@ void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::ve
     }
 }
 
-void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vector<int>& indices, const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits, size_t& flat_idx) {
+void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
+                                  std::vector<int>& indices,
+                                  std::shared_ptr<ast::InitExprNode> initNode,
+                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                  size_t& flat_idx) {
     if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
         int dim = arrayType->getNumElements();
         Type *elemType = arrayType->ElementType;
+
+        auto children = getChildrenAtCurrentLevel(initNode);
+
+        // 检查当前层级初始化项数量是否超过维度
+        if (children.size() > static_cast<size_t>(dim)) {
+            throw std::runtime_error("Too many initializers for array dimension");
+        }
+
         for (int i = 0; i < dim; ++i) {
             indices.push_back(i);
-            visitInitExprImpl(elemType, targetPtr, indices, flat_inits, flat_idx);
+            auto childNode = (i < children.size()) ? children[i] : nullptr;
+            visitInitExprImpl(elemType, targetPtr, indices, childNode, flat_inits, flat_idx);
             indices.pop_back();
         }
     } else {
@@ -831,9 +853,11 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr, std::vecto
         for (int idx : indices) {
             gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
         }
+
         auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, gep_indices, getNextTempName());
         Value *elemPtr = gepInst.get();
         currentBlock->addInstruction(std::move(gepInst));
+
         Value *val;
         if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) {
             val = visitExpression(flat_inits[flat_idx]->singleInitVal);
@@ -1323,6 +1347,22 @@ Value *IRBuilder::convertToBool(Value *value)
     }
 
     return createComparison(BinaryOp::Ne, value, zero);
+}
+size_t IRBuilder::getArrayTotalElements(Type* type) {
+    if (auto arrayType = dynamic_cast<ArrayType*>(type)) {
+        return arrayType->getNumElements() * getArrayTotalElements(arrayType->ElementType);
+    } else {
+        return 1;
+    }
+}
+vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
+    shared_ptr<ast::InitExprNode> node) {
+    if (!node) return {};
+    if (node->multiInitVal.empty()) {
+        return {node}; // 单个值视为一个子项
+    } else {
+        return node->multiInitVal; // 多个子项
+    }
 }
 // bool IRBuilder::isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs){
 //     if(lhs->getType()->isIntegerTy())
