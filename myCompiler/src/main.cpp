@@ -45,14 +45,13 @@ int main(int argc, const char *argv[])
     }
 
     ast_root->print(cout, 0);
-    if (argc > 2 && strcmp(argv[2], "-ir") == 0)
-    {
+    //if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    //{
         // 输出IR中间代码
         IRBuilder irbuilder;
         auto ir_module = irbuilder.buildModule(ast_root);
         cout << ir_module->toString() << endl;
-        return 0;
-    }
+    //}
 
     return 0;
 }
