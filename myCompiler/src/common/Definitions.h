@@ -23,6 +23,10 @@
 #define Move std::move
 #define Scast static_cast
 #define thisPtr(T) std::enable_shared_from_this<T>::shared_from_this()
+#define  MAX_INT 2147483647
+#define  MIN_INT -2147483648
+#define  MAX_FLOAT 3.4028235E38f
+#define  MIN_FLOAT -1.17549435E-38f
 
 #define castPtr std::dynamic_pointer_cast
 using String = std::string;
