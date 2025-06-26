@@ -349,7 +349,7 @@ public:
     bool IsConstant;
 
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
-        : Value(ty, name), Initializer(init), IsConstant(isConst) {}
+        : Value(PointerType::getInstance(ty), name), Initializer(init), IsConstant(isConst) {}
     string toString() const override;
 };
 

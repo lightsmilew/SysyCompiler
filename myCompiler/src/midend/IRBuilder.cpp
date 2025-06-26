@@ -122,6 +122,9 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     BasicBlock *entryBlock = createBasicBlock("entry");
     setCurrentBlock(entryBlock);
 
+    // 进入新的作用域 访问参数之前调用，防止形参实参之间干扰或者不同函数形参名相同产生干扰
+    varToValueStack.push(varToValue);
+
     // 添加参数并为每个参数创建 alloca
     for (size_t i = 0; i < node->params.size(); i++)
     {
@@ -139,9 +142,6 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
         varToValue[node->params[i]->identifier] = alloca;
         }
     }
-
-    // 进入新的作用域
-    varToValueStack.push(varToValue);
 
     // 访问函数体
     visitBlock(node->body);
@@ -323,7 +323,7 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
 {
     Value *lvalue = visitLValueExpr(node->lvalue);
     Value *rvalue = visitExpression(node->rvalue);
-
+    
     // 类型转换（如果需要）
     Type *targetType = static_cast<PointerType *>(lvalue->getType())->ElementType;
     if (rvalue->getType() != targetType)
