@@ -90,7 +90,7 @@ namespace ir_builder
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);
 
         // 基本块管理
-        BasicBlock *createBasicBlock(const std::string &name = "");
+        BasicBlock *createBasicBlock(const std::string &name = "",const vector<BasicBlock*> &beforeblocks = {});
         void setCurrentBlock(BasicBlock *block);
 
         // 指令生成辅助
@@ -110,6 +110,7 @@ namespace ir_builder
         vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
         bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
+        bool hasTerminatorInst(BasicBlock *block);                                              // 判断一个基本块是否有终止指令 找不到就递归查找前驱
         // 判断是否溢出
         //bool isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs);
         //bool isOverflow(ast::UnaryOp op, Value *operand);

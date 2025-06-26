@@ -156,7 +156,16 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
         else
         {
             // 非 void 函数必须有返回值
-            throw std::runtime_error("Non-void function must return a value");
+            if(!hasTerminatorInst(currentBlock))
+            {
+                throw std::runtime_error("Non-void function must return a value");    
+            }
+
+            // for(auto it:currentBlock->Predecessors)
+            // {
+            //     if(!it->hasTerminator())throw std::runtime_error("Non-void function must return a value");    
+            // }
+
         }
     }
 
@@ -336,7 +345,12 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 
     BasicBlock *thenBlock = createBasicBlock("if.then");
     BasicBlock *elseBlock = node->else_body ? createBasicBlock("if.else") : nullptr;
-    BasicBlock *mergeBlock = createBasicBlock("if.end");
+    vector<BasicBlock*> preblocks = {thenBlock};
+    if (elseBlock)
+    {
+        preblocks.push_back(elseBlock);
+    }
+    BasicBlock *mergeBlock = createBasicBlock("if.end",preblocks);
 
     // 记录分支前变量状态
     auto varToValueBefore = varToValue;
@@ -1015,10 +1029,17 @@ bool IRBuilder::isConstVariable(Value *value){
     return true;
 }
 // ===== 基本块管理 =====
-BasicBlock *IRBuilder::createBasicBlock(const std::string &name)
+BasicBlock *IRBuilder::createBasicBlock(const std::string &name,const vector<BasicBlock*> &beforeBlocks)
 {
     std::string actualName = name.empty() ? getNextLabelName() : name;
-    return currentFunction->addBasicBlock(actualName);
+    // 创建副本
+    std::vector<BasicBlock*> blocks = beforeBlocks;
+    // 对副本进行修改
+    if (blocks.empty()) 
+    {
+        if(currentBlock)blocks.push_back(currentBlock);
+    }
+    return currentFunction->addBasicBlock(actualName,blocks);
 }
 
 void IRBuilder::setCurrentBlock(BasicBlock *block)
@@ -1362,6 +1383,20 @@ vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
         return {node}; // 单个值视为一个子项
     } else {
         return node->multiInitVal; // 多个子项
+    }
+}
+bool IRBuilder::hasTerminatorInst(BasicBlock *block){
+    if(block->hasTerminator())return true;
+    else
+    {
+        bool result=true;
+        for(auto pre:block->Predecessors)
+        {
+            if(pre->Parent!=currentFunction)return false;
+            result=hasTerminatorInst(pre);
+            if(!result)return result;
+        }
+        return result;
     }
 }
 // bool IRBuilder::isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs){

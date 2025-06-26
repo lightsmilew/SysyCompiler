@@ -706,10 +706,19 @@ public:
         : Value(funcTy, name), Parent(parent) {}
 
     // 添加基本块
-    BasicBlock *addBasicBlock(const string &name = "")
+    BasicBlock *addBasicBlock(const string &name = "",const vector<BasicBlock *> beforeblocks = {})
     {
         auto bb = make_unique<BasicBlock>(name, this);
         BasicBlock *ptr = bb.get();
+        // 如果有前驱块则插入前驱后继关系
+        if (!beforeblocks.empty())
+        {
+            for(auto it:beforeblocks)
+            {
+                 it->addSuccessor(ptr);
+                 ptr->addPredecessor(it);
+            }
+        }
         BasicBlocks.push_back(std::move(bb));
         return ptr;
     }
