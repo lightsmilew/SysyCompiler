@@ -345,30 +345,61 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
 }
 
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
-{
-    // GEP总是返回指针类型
-    if (indices.empty())
+{    
+    if(ptr->getType()->isArrayTy())
     {
-        return ptr->getType(); // 返回原指针类型
-    }
-
-    Type *currentType = ptr->getType();
-    if (auto ptrType = dynamic_cast<PointerType *>(currentType))
-    {
-        currentType = ptrType->ElementType;
-    }
-
-    // 跳过第一个索引（通常是0），处理后续索引
-    for (size_t i = 1; i < indices.size(); ++i)
-    {
-        if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        //不会进入此分支
+        if (indices.empty())
         {
+            return ptr->getType(); // 返回原指针类型
+        }
+
+        Type *currentType = ptr->getType();
+
+        // 跳过第一个索引（通常是0），处理后续索引
+        for (size_t i = 1; i < indices.size(); ++i)
+        {
+            if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
+            {
             //获取到数组元素基本类型 即退化一维
             currentType = arrayType->ElementType;
+            }
         }
+        // 如果仍然是数组则退化返回指针类型
+        if(auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        {
+            return PointerType::getInstance(arrayType->ElementType);
+        }
+        // 否则返回基础类型
+        return currentType;
     }
-    // 最终返回指向当前类型的指针
-    return PointerType::getInstance(currentType);
+    //如果是指针类型
+    else if(ptr->getType()->isPointerTy())
+    {
+        if (indices.empty())
+        {
+            return ptr->getType(); // 返回原指针类型
+        }
+        auto ptrType = static_cast<PointerType*>(ptr->getType());
+        Type *currentType = ptrType->ElementType;
+        // 跳过第一个索引(已经解引用)，处理后续索引
+        for (size_t i = 1; i < indices.size(); ++i)
+        {
+            if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
+            {
+            //获取到数组元素基本类型 即退化一维
+            currentType = arrayType->ElementType;
+            }
+        }
+        // 如果仍然是数组则退化返回指针类型
+        if(auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        {
+            return PointerType::getInstance(arrayType->ElementType);
+        }
+        // 否则返回基础类型
+        return currentType;
+    }
+
 }
 bool Type ::isTypeEqual(Type* a, Type* b) {
     if (a == b) return true;

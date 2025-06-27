@@ -11,7 +11,7 @@ find_package(Threads REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 
 # 设置 C++ 编译器标志，这里没有额外添加，使用默认
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 # 设置调试模式下的编译器标志，开启 DEBUG 宏
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")

@@ -239,7 +239,6 @@ void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
 void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 {
     Type *varType = convertASTTypeToIRType(node->type,false);
-
     if (currentFunction == nullptr)
     {
         // 全局变量
@@ -325,10 +324,10 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
     Value *rvalue = visitExpression(node->rvalue);
     
     // 类型转换（如果需要）
-    Type *targetType = static_cast<PointerType *>(lvalue->getType())->ElementType;
-    if (rvalue->getType() != targetType)
+    //Type *targetType = static_cast<PointerType *>(lvalue->getType())->ElementType;
+    if (rvalue->getType() != lvalue->getType())
     {
-        rvalue = createCast(rvalue, targetType);
+        rvalue = createCast(rvalue, lvalue->getType());
     }
 
     createStore(rvalue, lvalue);
@@ -517,16 +516,22 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
     }
     else if (auto lvalueExpr = std::dynamic_pointer_cast<ast::LValueExprNode>(node))    
     {
+        // 返回指针或int/float
         Value *ptr = visitLValueExpr(lvalueExpr);
-         // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
-        Type *ptrType = ptr->getType();
-        if (ptrType->isPointerTy()) {
-            Type *elemType = static_cast<PointerType*>(ptrType)->ElementType;
-            if (elemType->isArrayTy()) 
-            {
+        // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
+        // if (ptrType->isPointerTy()) {
+        //     Type *elemType = static_cast<PointerType*>(ptrType)->ElementType;
+        //     if (elemType->isArrayTy()) 
+        //     {
+        //     return ptr;
+        //     }
+        // }
+        // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
+        if (ptr->getType()->isPointerTy()) 
+        {
             return ptr;
-            }
         }
+        // 返回指针的基础类型
         auto value = createLoad(ptr);
         return value;
     }
@@ -667,7 +672,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     }
 
     Value *ptr = it->second;
-
+    // a[1]
     // 处理数组索引
     if (!node->indices.empty())
     {
@@ -676,13 +681,18 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         // 判断是否需要加第一个0
         // 如果 ptr 是指向数组的指针（如 alloca 或全局变量），加0
         // 如果 ptr 是参数指针（如 int arr[]），不加0
-        if (ptr->getType()->isPointerTy()) {
-            Type *elemType = static_cast<PointerType*>(ptr->getType())->ElementType;
-            if (elemType->isArrayTy()) {
-                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-            }
+        // if (ptr->getType()->isPointerTy()) {
+        //     Type *elemType = static_cast<PointerType*>(ptr->getType())->ElementType;
+        //     if (elemType->isArrayTy()) {
+        //         indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        //     }
+        // }
+        // 如果原类型为数组，则加0解引用
+        if (ptr->getType()->isArrayTy()) 
+        {
+            indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         }
-
+        // 如果是指针则不进行操作
         for (auto &indexExpr : node->indices)
         {
             Value *index = visitExpression(indexExpr);
@@ -692,23 +702,26 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
             }
             indices.push_back(index);
         }
-
+        
         auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
         Value *result = gepInst.get();
         currentBlock->addInstruction(std::move(gepInst));
         return result;
     }
-    // 如果是数组类型，自动退化为指针（GEP 0,0）
+    // 如果是数组类型且无下标，自动退化为指针（GEP 0,0)
     if (ptr->getType()->isArrayTy()) {
         std::vector<Value *> indices;
         indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-        indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        //indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        //获取到原来维度大小
+        auto it=dynamic_cast<ArrayType*>(ptr->getType());
+        int indice=it->getNumElements();
         auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
         Value *result = gepInst.get();
         currentBlock->addInstruction(std::move(gepInst));
         return result;
     }
-    // 无下标且不是数组，直接返回指针
+    // 无下标且不是数组则直接返回指针   
     return ptr;
 }
 
@@ -732,12 +745,14 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
                 // 退化一维
                 std::vector<Value*> indices;
                 indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-                indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+               // indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
                 auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
                 Value *result = gepInst.get();
                 currentBlock->addInstruction(std::move(gepInst));
                 arg = result;
-            } else {
+            }
+            else
+            {
                 break;
             }
         }
@@ -1332,6 +1347,8 @@ Value *IRBuilder::createCast(Value *value, Type *targetType)
         {
             return value; // 指针类型一致，直接返回
         }
+        auto srcPtrType=dynamic_cast<PointerType*>(srcType);
+        auto targetPtrType=dynamic_cast<PointerType*>(targetType);
         throw std::runtime_error("Unsupported pointer type cast");
     }
     // 不支持的类型转换

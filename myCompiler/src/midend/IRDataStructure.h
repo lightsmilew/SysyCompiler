@@ -136,6 +136,12 @@ public:
     ArrayType(Type *elemTy, unsigned numElements)
         : Type(ArrayTyID), ElementType(elemTy), NumElements(numElements) {}
     unsigned getNumElements() const { return NumElements; }
+    Type *getElementType() const { return ElementType; }
+    static ArrayType* getInstance(Type *elemTy, unsigned numElements)
+    {
+        // 为每种元素类型和元素数量创建不同的数组类型实例
+        return new ArrayType(elemTy, numElements);
+    }
     string toString() const override
     {
         return "[" + to_string(NumElements) + " x " + ElementType->toString() + "]";
@@ -167,6 +173,7 @@ public:
     virtual ~Value() = default;
 
     Type *getType() const { return Ty; }
+    void setType(Type *ty) { Ty = ty; }
     const string &getName() const { return Name; }
     void setName(const string &name) { Name = name; }
 
@@ -349,7 +356,7 @@ public:
     bool IsConstant;
 
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
-        : Value(PointerType::getInstance(ty), name), Initializer(init), IsConstant(isConst) {}
+        : Value(ty, name), Initializer(init), IsConstant(isConst) {}
     string toString() const override;
 };
 
@@ -484,7 +491,7 @@ public:
     Type *AllocatedType;
 
     AllocaInst(Type *ty, const string &name = "")
-        : Instruction(PointerType::getInstance(ty), Opcode::Alloca, name), AllocatedType(ty) {}
+        : Instruction(ty, Opcode::Alloca, name), AllocatedType(ty) {}
     string toString() const override;
 };
 

@@ -122,7 +122,6 @@ public:
     bool checkSemantic(shared_ptr<CompUnitNode> astRoot)
     {
         initializeFunction(); // 初始化运行库函数定义
-        // analyzer.enterScope();
         visitCompUnitForCheck(astRoot);
         return errors.empty();
     }
@@ -131,7 +130,8 @@ public:
 private:
     void visitCompUnitForCheck(shared_ptr<CompUnitNode> node);
     void visitFuncNode(shared_ptr<FuncNode> node);
-    void visitBlockStmt(shared_ptr<BlockStmtNode> node);
+    void visitStmt(shared_ptr<StmtNode> node);
+    void visitBlockStmt(shared_ptr<StmtNode> node);
     void visitDeclStmt(shared_ptr<DeclStmtNode> node);
     void visitExprStmt(shared_ptr<ExprStmtNode> node);
     void visitAssignStmt(shared_ptr<AssignStmtNode> node);
