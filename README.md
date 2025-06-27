@@ -43,7 +43,7 @@ python3 test.py
 
 ### 一. 文法错误
 1.'SysY.g4' 中的exp文法有误，但是目前没有修正。
-
+2.ifelse语句支持多分支
 ### 二. 语法分析
 1.isConst属性需要向上传递-->已处理   
 2.visitConstDecl没有把const修饰的变量设置为常量表达式-->已处理   
