@@ -33,24 +33,31 @@ int main(int argc, const char *argv[])
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
 
     TypeCheckerVisitor type_checker;
-    type_checker.checkSemantic(ast_root);
-    if (!type_checker.getErrors().empty())
+    try
     {
-        cerr << "Semantic errors found:" << endl;
-        for (const auto &error : type_checker.getErrors())
+        type_checker.checkSemantic(ast_root);
+        if (!type_checker.getErrors().empty())
         {
-            cerr << error << endl;
+            cerr << "Semantic errors found:" << endl;
+            for (const auto &error : type_checker.getErrors())
+            {
+                cerr << error << endl;
+            }
         }
+    }
+    catch (const std::exception &e)
+    {
+        cerr << "Semantic analysis failed: " << e.what() << endl;
         return 1; // 返回错误代码
     }
 
     ast_root->print(cout, 0);
-    //if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    // if (argc > 2 && strcmp(argv[2], "-ir") == 0)
     //{
-        // 输出IR中间代码
-        IRBuilder irbuilder;
-        auto ir_module = irbuilder.buildModule(ast_root);
-        cout << ir_module->toString() << endl;
+    //  输出IR中间代码
+    IRBuilder irbuilder;
+    auto ir_module = irbuilder.buildModule(ast_root);
+    cout << ir_module->toString() << endl;
     //}
 
     return 0;

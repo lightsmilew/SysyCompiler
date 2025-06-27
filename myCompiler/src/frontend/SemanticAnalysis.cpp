@@ -591,6 +591,12 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
 void TypeCheckerVisitor::visitBlockStmt(shared_ptr<BlockStmtNode> node)
 {
+
+  if (!node)
+  {
+    return;
+  }
+
   for (auto &stmt : node->stmts)
   {
     if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(stmt))
