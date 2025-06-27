@@ -119,7 +119,8 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     currentFunction = func;
 
     // 创建入口基本块
-    BasicBlock *entryBlock = createBasicBlock("entry");
+    //entry
+    BasicBlock *entryBlock = createBasicBlock();
     setCurrentBlock(entryBlock);
 
     // 进入新的作用域 访问参数之前调用，防止形参实参之间干扰或者不同函数形参名相同产生干扰
@@ -341,15 +342,18 @@ void IRBuilder::visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node)
 void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 {
     Value *condition = visitExpression(node->condition);
-
-    BasicBlock *thenBlock = createBasicBlock("if.then");
-    BasicBlock *elseBlock = node->else_body ? createBasicBlock("if.else") : nullptr;
+    
+    //if.then
+    BasicBlock *thenBlock = createBasicBlock();
+    //if.else
+    BasicBlock *elseBlock = node->else_body ? createBasicBlock() : nullptr;
     vector<BasicBlock*> preblocks = {thenBlock};
     if (elseBlock)
     {
         preblocks.push_back(elseBlock);
     }
-    BasicBlock *mergeBlock = createBasicBlock("if.end",preblocks);
+    //if.end
+    BasicBlock *mergeBlock = createBasicBlock("",preblocks);
 
     // 记录分支前变量状态
     auto varToValueBefore = varToValue;
@@ -410,9 +414,12 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
 {
     // 1. 创建基本块
-    BasicBlock *condBlock = createBasicBlock("while.cond");
-    BasicBlock *bodyBlock = createBasicBlock("while.body");
-    BasicBlock *exitBlock = createBasicBlock("while.end");
+    //while.cond
+    BasicBlock *condBlock = createBasicBlock();
+    //while.body
+    BasicBlock *bodyBlock = createBasicBlock();
+    //while.end
+    BasicBlock *exitBlock = createBasicBlock();
 
     // 2. 记录循环前变量SSA状态
     auto varToValueBefore = varToValue;
@@ -600,8 +607,10 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
     if (node->op == BinaryOp::And)
     {
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
-        BasicBlock *rhsBlock = createBasicBlock("logical.rhs");
-        BasicBlock *mergeBlock = createBasicBlock("logical.end");
+        //"logical.rhs"
+        BasicBlock *rhsBlock = createBasicBlock();
+        //"logical.end"
+        BasicBlock *mergeBlock = createBasicBlock();
         BasicBlock *lhsBlock = currentBlock;
 
         Value *lhs = visitExpression(node->left);
@@ -628,8 +637,10 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
     else if (node->op == BinaryOp::Or)
     {
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
-        BasicBlock *rhsBlock = createBasicBlock("logical.rhs");
-        BasicBlock *mergeBlock = createBasicBlock("logical.end");
+        //"logical.rhs"
+        BasicBlock *rhsBlock = createBasicBlock();
+        //"logical.end"
+        BasicBlock *mergeBlock = createBasicBlock();
         BasicBlock *lhsBlock = currentBlock;
 
         Value *lhs = visitExpression(node->left);
@@ -903,11 +914,17 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     int dim = arrayType->getNumElements();
     Type *elemType = arrayType->ElementType;
     size_t i = 0;
-    for (; i < node->multiInitVal.size(); ++i) {
-        if (elemType->isArrayTy()) {
-            elements.push_back(evaluateConstantArray(node->multiInitVal[i], static_cast<ArrayType*>(elemType)));
-        } else {
-            elements.push_back(evaluateConstantExpr(node->multiInitVal[i]->singleInitVal));
+    if(node)
+    {
+        for (; i < node->multiInitVal.size(); ++i) {
+            if (elemType->isArrayTy()) 
+            {
+                elements.push_back(evaluateConstantArray(node->multiInitVal[i], static_cast<ArrayType*>(elemType)));
+            } 
+            else 
+            {
+                elements.push_back(evaluateConstantExpr(node->multiInitVal[i]->singleInitVal));
+            }
         }
     }
     // 补零
@@ -922,7 +939,6 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     }
     return new ConstantArray(arrayType, elements);
 }
-// 这里需要判断int和float范围-->动态检测
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
     if (!node) 

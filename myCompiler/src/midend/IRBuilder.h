@@ -33,12 +33,13 @@ namespace ir_builder
         // === 计数器 ===
         unsigned tempVarCounter; // 临时变量计数器
         unsigned labelCounter;   // 标签计数器
+        unsigned jmpCounter;      // 跳转计数器
 
     public:
         // === 构造与初始化 ===
         IRBuilder( const std::string &moduleName = "main_module")
             : currentFunction(nullptr), currentBlock(nullptr),
-              tempVarCounter(0), labelCounter(0)
+              tempVarCounter(0), labelCounter(0), jmpCounter(0)
         {
             module = std::make_unique<Module>(moduleName);
             initializeLibraryFunctions(); // 初始化库函数
@@ -122,6 +123,10 @@ namespace ir_builder
         std::string getNextTempName()
         {
             return "t" + std::to_string(tempVarCounter++);
+        }
+        std::string getNextJmpName()
+        {
+            return std::to_string(jmpCounter++);
         }
 
         std::string getNextLabelName()
