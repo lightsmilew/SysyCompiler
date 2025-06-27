@@ -17,6 +17,9 @@ def run_test_case(case):
         return result.returncode
 
 def main():
+    os.system("cd myCompiler/build && make")
+    os.system("cd ../..")
+
     if not os.path.exists(outputDir):
         os.makedirs(outputDir)
 
