@@ -491,7 +491,7 @@ public:
     Type *AllocatedType;
 
     AllocaInst(Type *ty, const string &name = "")
-        : Instruction(ty, Opcode::Alloca, name), AllocatedType(ty) {}
+        : Instruction(PointerType::getInstance(ty), Opcode::Alloca, name), AllocatedType(ty) {}
     string toString() const override;
 };
 
