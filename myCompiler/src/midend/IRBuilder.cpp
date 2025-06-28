@@ -134,13 +134,15 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
         if (paramTypes[i]->isPointerTy()) 
         {
             // 直接使用参数，不需要额外的 alloca
-        varToValue[node->params[i]->identifier] = arg;
+            varToValue[node->params[i]->identifier] = arg;
         } 
         else
         {
-        Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
-        createStore(arg, alloca);
-        varToValue[node->params[i]->identifier] = alloca;
+            Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
+            createStore(arg, alloca);
+            //转回原来类型
+            LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
+            varToValue[node->params[i]->identifier] = loadinst;
         }
     }
 
@@ -161,11 +163,6 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
             {
                 throw std::runtime_error("Non-void function must return a value");    
             }
-
-            // for(auto it:currentBlock->Predecessors)
-            // {
-            //     if(!it->hasTerminator())throw std::runtime_error("Non-void function must return a value");    
-            // }
 
         }
     }
@@ -276,7 +273,9 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     {
         // 局部变量
         Value *alloca = createAlloca(varType, node->identifier);
-        varToValue[node->identifier] = alloca;
+        //转回原类型
+        LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
+        varToValue[node->identifier] = loadinst;
         if(varType->isArrayTy())
         {
             for(auto it:node->type.arraySizes())
@@ -330,8 +329,8 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
     {
         rvalue = createCast(rvalue, lvalue->getType());
     }
-
-    createStore(rvalue, lvalue);
+    AllocaInst *allocaInst =new AllocaInst(lvalue->getType(),lvalue->getName());
+    createStore(rvalue, allocaInst);
 }
 
 void IRBuilder::visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node)
@@ -526,20 +525,13 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
         // 返回指针或int/float
         Value *ptr = visitLValueExpr(lvalueExpr);
         // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
-        // if (ptrType->isPointerTy()) {
-        //     Type *elemType = static_cast<PointerType*>(ptrType)->ElementType;
-        //     if (elemType->isArrayTy()) 
-        //     {
-        //     return ptr;
-        //     }
-        // }
-        // 如果是数组退化为指针（如 int a[] 作为参数），直接返回指针，不 load
         if (ptr->getType()->isPointerTy()) 
         {
             return ptr;
         }
         // 返回指针的基础类型
-        auto value = createLoad(ptr);
+        AllocaInst *allocaInst =new AllocaInst(ptr->getType(),ptr->getName());
+        auto value = createLoad(allocaInst);
         return value;
     }
     else if (auto callExpr = std::dynamic_pointer_cast<ast::CallExprNode>(node))
@@ -683,21 +675,10 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     }
 
     Value *ptr = it->second;
-    // a[1]
     // 处理数组索引
     if (!node->indices.empty())
     {
         std::vector<Value *> indices;
-
-        // 判断是否需要加第一个0
-        // 如果 ptr 是指向数组的指针（如 alloca 或全局变量），加0
-        // 如果 ptr 是参数指针（如 int arr[]），不加0
-        // if (ptr->getType()->isPointerTy()) {
-        //     Type *elemType = static_cast<PointerType*>(ptr->getType())->ElementType;
-        //     if (elemType->isArrayTy()) {
-        //         indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-        //     }
-        // }
         // 如果原类型为数组，则加0解引用
         if (ptr->getType()->isArrayTy()) 
         {
@@ -810,7 +791,6 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
         {
             // 计算当前元素的 GEP
             std::vector<Value *> indices;
-            indices.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 数组变量的第一个索引总是0
             indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
 
             // 递归初始化子元素
@@ -1432,159 +1412,3 @@ bool IRBuilder::hasTerminatorInst(BasicBlock *block){
         return result;
     }
 }
-// bool IRBuilder::isOverflow(ast::BinaryOp op, Value *lhs, Value *rhs){
-//     if(lhs->getType()->isIntegerTy())
-//     {
-//         auto lhs_int=dynamic_cast<ConstantInt*>(lhs);
-//         auto rhs_int=dynamic_cast<ConstantInt*>(rhs);
-//         // 不是常数终止判断
-//         if(lhs_int==nullptr||rhs_int==nullptr)return false;
-//         switch(op)
-//         {
-//             case BinaryOp::Add:
-//             {
-//                if(lhs_int->Value>0&&rhs_int->Value>0)
-//                {
-//                   if(MAX_INT-rhs_int->Value<lhs_int->Value)return true;
-//                }
-//                else if(lhs_int->Value<0&&rhs_int->Value<0)
-//                {
-//                  std::cout<<lhs_int->Value<<" "<<rhs_int->Value<<" "<<MIN_INT-rhs_int->Value<<std::endl;
-//                   if(MIN_INT-rhs_int->Value>lhs_int->Value)return true;
-//                }
-//                break;
-//             }
-//             case BinaryOp::Sub:
-//             {
-//                 if(lhs_int->Value>0&&rhs_int->Value<0)
-//                 {
-//                   if(MAX_INT+rhs_int->Value<lhs_int->Value)return true;
-//                 }
-//                 else if(lhs_int->Value<=0&&rhs_int->Value>0)
-//                 {
-//                     std::cout<<lhs_int->Value<<" "<<rhs_int->Value<<" "<<MIN_INT+rhs_int->Value<<std::endl;
-//                   if(MIN_INT+rhs_int->Value>lhs_int->Value)return true;
-//                 }
-//                 break;
-//             }
-//             case BinaryOp::Mul:
-//             {
-//                 if(lhs_int->Value>0&&rhs_int->Value>0)
-//                 {
-//                   if(MAX_INT/rhs_int->Value<lhs_int->Value)return true;
-//                 }
-//                 else if(lhs_int->Value<0&&rhs_int->Value<0)
-//                 {
-//                   if(MIN_INT/rhs_int->Value>lhs_int->Value)return true;
-//                 }
-//                 else if(lhs_int->Value>0&&rhs_int->Value<0)
-//                 {
-//                   if(MAX_INT/rhs_int->Value<lhs_int->Value)return true;
-//                 }
-//                 else if(lhs_int->Value<0&&rhs_int->Value>0)
-//                 {
-//                   if(MIN_INT/rhs_int->Value>lhs_int->Value)return true;
-//                 }
-//                 break;
-//             }
-//             default:break;
-//         }
-//     }
-//     else if(lhs->getType()->isFloatTy())
-//     {
-//         auto lhs_float=dynamic_cast<ConstantFloat*>(lhs);
-//         auto rhs_float=dynamic_cast<ConstantFloat*>(rhs);
-//         if(lhs_float==nullptr||rhs_float==nullptr)return false;
-//         switch(op)
-//         {
-//             case BinaryOp::Add:
-//             {
-//                if(lhs_float->Value>0&&rhs_float->Value>0)
-//                {
-//                   if(MAX_FLOAT-rhs_float->Value<lhs_float->Value)return true;
-//                }
-//                else if(lhs_float->Value<0&&rhs_float->Value<0)
-//                {
-//                   if(MIN_FLOAT-rhs_float->Value>lhs_float->Value)return true;
-//                }
-//                break;
-//             }
-//             case BinaryOp::Sub:
-//             {
-//                if(lhs_float->Value>0&&rhs_float->Value<0)
-//                {
-//                   if(MAX_FLOAT+rhs_float->Value<lhs_float->Value)return true;
-//                }
-//                else if(lhs_float->Value<=0&&rhs_float->Value>0)
-//                {
-//                   if(MIN_FLOAT+rhs_float->Value>lhs_float->Value)return true;
-//                }
-//                 break;
-//             }
-//             case BinaryOp::Mul:
-//             {
-//                 if(lhs_float->Value>0&&rhs_float->Value>0)
-//                 {
-//                   if(MAX_FLOAT/rhs_float->Value<lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value<0&&rhs_float->Value<0)
-//                 {
-//                   if(MIN_FLOAT/rhs_float->Value>lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value>0&&rhs_float->Value<0)
-//                 {
-//                   if(MAX_FLOAT/rhs_float->Value<lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value<0&&rhs_float->Value>0)
-//                 {
-//                   if(MIN_FLOAT/rhs_float->Value>lhs_float->Value)return true;
-//                 }
-//                 break;
-//             }
-//             case BinaryOp::Div:
-//             {
-//                 if(lhs_float->Value>0&&rhs_float->Value>0)
-//                 {
-//                   if(MAX_FLOAT*rhs_float->Value<lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value<0&&rhs_float->Value<0)
-//                 {
-//                   if(MIN_FLOAT*rhs_float->Value>lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value>0&&rhs_float->Value<0)
-//                 {
-//                   if(MAX_FLOAT*rhs_float->Value<lhs_float->Value)return true;
-//                 }
-//                 else if(lhs_float->Value<0&&rhs_float->Value>0)
-//                 {
-//                   if(MIN_FLOAT*rhs_float->Value>lhs_float->Value)return true;
-//                 }
-//                 break;
-//             }
-//             default:break;
-//         }
-//     }
-//     else
-//     {
-//         throw std::runtime_error("not supported type in isOverflow()");
-//     }
-//     return false;
-// }
-// bool IRBuilder::isOverflow(ast::UnaryOp op, Value *operand)
-// {
-//     if(op==UnaryOp::Plus)return false;
-//     else if(op==UnaryOp::Minus)
-//     {
-//         Value *zero;
-//         if (operand->getType()->isFloatTy())
-//         {
-//             zero = new ConstantFloat(FloatType::getInstance(), 0.0f);
-//         }
-//         else
-//         {
-//             zero = new ConstantInt(IntegerType::getInstance(), 0);
-//         }
-//         return isOverflow(BinaryOp::Sub,zero,operand);
-//     }
-//     else return false;
-// }

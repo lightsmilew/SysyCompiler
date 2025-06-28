@@ -1,3 +1,4 @@
+#include "sylib.h"
 const int global_int = 303;
 const float global_float = 3.14;
 const int space = 32;
