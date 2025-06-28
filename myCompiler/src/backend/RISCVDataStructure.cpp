@@ -525,4 +525,91 @@ namespace RISCV
 
         return ss.str();
     }
+
+    // RISCVInstruction 工厂方法实现
+    shared_ptr<RISCVInstruction> RISCVInstruction::createRType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rd,
+                                                                shared_ptr<RISCVRegister> rs1,
+                                                                shared_ptr<RISCVRegister> rs2)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::R_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(rs1), 
+                          make_shared<RISCVOperand>(rs2)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createIType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rd,
+                                                                shared_ptr<RISCVRegister> rs1,
+                                                                int64_t imm)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::I_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(rs1), 
+                          make_shared<RISCVOperand>(imm)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createSType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rs1,
+                                                                shared_ptr<RISCVRegister> rs2,
+                                                                int64_t imm)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::S_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rs1), 
+                          make_shared<RISCVOperand>(rs2), 
+                          make_shared<RISCVOperand>(imm)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createBType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rs1,
+                                                                shared_ptr<RISCVRegister> rs2,
+                                                                const string &label)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::B_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rs1), 
+                          make_shared<RISCVOperand>(rs2), 
+                          make_shared<RISCVOperand>(label)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createUType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rd,
+                                                                int64_t imm)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::U_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(imm)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createJType(RISCVOpcode op,
+                                                                shared_ptr<RISCVRegister> rd,
+                                                                const string &label)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::J_TYPE);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(label)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudo(RISCVOpcode op,
+                                                                 shared_ptr<RISCVRegister> rd,
+                                                                 shared_ptr<RISCVRegister> rs1)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::PSEUDO);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(rs1)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::LI, InstructionType::PSEUDO);
+        instr->operands = {make_shared<RISCVOperand>(rd), 
+                          make_shared<RISCVOperand>(imm)};
+        return instr;
+    }
 }

@@ -345,10 +345,10 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
 }
 
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
-{    
-    if(ptr->getType()->isArrayTy())
+{
+    if (ptr->getType()->isArrayTy())
     {
-        //不会进入此分支
+        // 不会进入此分支
         if (indices.empty())
         {
             return ptr->getType(); // 返回原指针类型
@@ -361,57 +361,62 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
         {
             if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
             {
-            //获取到数组元素基本类型 即退化一维
-            currentType = arrayType->ElementType;
+                // 获取到数组元素基本类型 即退化一维
+                currentType = arrayType->ElementType;
             }
         }
         // 如果仍然是数组则退化返回指针类型
-        if(auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
         {
             return PointerType::getInstance(arrayType->ElementType);
         }
         // 否则返回基础类型
         return currentType;
     }
-    //如果是指针类型
-    else if(ptr->getType()->isPointerTy())
+    // 如果是指针类型
+    else if (ptr->getType()->isPointerTy())
     {
         if (indices.empty())
         {
             return ptr->getType(); // 返回原指针类型
         }
-        auto ptrType = static_cast<PointerType*>(ptr->getType());
+        auto ptrType = static_cast<PointerType *>(ptr->getType());
         Type *currentType = ptrType->ElementType;
         // 跳过第一个索引(已经解引用)，处理后续索引
         for (size_t i = 1; i < indices.size(); ++i)
         {
             if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
             {
-            //获取到数组元素基本类型 即退化一维
-            currentType = arrayType->ElementType;
+                // 获取到数组元素基本类型 即退化一维
+                currentType = arrayType->ElementType;
             }
         }
         // 如果仍然是数组则退化返回指针类型
-        if(auto arrayType = dynamic_cast<ArrayType *>(currentType))
+        if (auto arrayType = dynamic_cast<ArrayType *>(currentType))
         {
             return PointerType::getInstance(arrayType->ElementType);
         }
         // 否则返回基础类型
         return currentType;
     }
-
 }
-bool Type ::isTypeEqual(Type* a, Type* b) {
-    if (a == b) return true;
-    if (a->getTypeID() != b->getTypeID()) return false;
+
+bool Type::isTypeEqual(Type *a, Type *b)
+{
+    if (a == b)
+        return true;
+    if (a->getTypeID() != b->getTypeID())
+        return false;
     // 针对 ArrayType、PointerType 递归比较元素类型和长度
-    if (a->isArrayTy() && b->isArrayTy()) {
-        auto aa = static_cast<ArrayType*>(a);
-        auto bb = static_cast<ArrayType*>(b);
+    if (a->isArrayTy() && b->isArrayTy())
+    {
+        auto aa = static_cast<ArrayType *>(a);
+        auto bb = static_cast<ArrayType *>(b);
         return aa->getNumElements() == bb->getNumElements() && isTypeEqual(aa->ElementType, bb->ElementType);
     }
-    if (a->isPointerTy() && b->isPointerTy()) {
-        return isTypeEqual(static_cast<PointerType*>(a)->ElementType, static_cast<PointerType*>(b)->ElementType);
+    if (a->isPointerTy() && b->isPointerTy())
+    {
+        return isTypeEqual(static_cast<PointerType *>(a)->ElementType, static_cast<PointerType *>(b)->ElementType);
     }
     // 基本类型直接比较
 
@@ -544,10 +549,9 @@ std::string Module::toString() const
         ss << "\n";
     }
     // Functions 从库函数后一项开始遍历，下标是13
-    for(int i=13; i < Functions.size(); ++i)
+    for (int i = 13; i < Functions.size(); ++i)
     {
         ss << Functions[i]->toString() << "\n";
     }
     return ss.str();
 }
-

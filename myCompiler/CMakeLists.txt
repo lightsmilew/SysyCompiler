@@ -24,12 +24,15 @@ file(GLOB COMMON_SRC "src/common/*.cpp")
 # 查找IRbuilder.cpp和IDDataStructure.cpp文件
 file(GLOB IR_BUILDER_SRC "src/midend/IRBuilder.cpp")
 file(GLOB ID_DATA_STRUCTURE_SRC "src/midend/IRDataStructure.cpp")
+# 查找后端源文件
+file(GLOB BACKEND_SRC "src/backend/*.cpp")
 set(SRC
     ${FRONTEND_SRC}
     ${GENERATE_SRC}
     ${COMMON_SRC}
     ${IR_BUILDER_SRC}
     ${ID_DATA_STRUCTURE_SRC}
+    ${BACKEND_SRC}
     # 添加其他源文件
     src/main.cpp
 )

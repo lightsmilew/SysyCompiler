@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include "midend/IRBuilder.h"
+#include "backend/RISCVBuilder.h"
 
 using namespace antlr4;
 using namespace tree;
@@ -51,14 +52,16 @@ int main(int argc, const char *argv[])
         return 1; // 返回错误代码
     }
 
-
-    //if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    // if (argc > 2 && strcmp(argv[2], "-ir") == 0)
     //{
-    //  输出IR中间代码
+    //   输出IR中间代码
     IRBuilder irbuilder;
     auto ir_module = irbuilder.buildModule(ast_root);
     cout << ir_module->toString() << endl;
-    //}
+
+    RISCV::RISCVBuilder riscv_builder;
+    auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
+    cout << riscv_module->toString() << endl;
 
     return 0;
 }

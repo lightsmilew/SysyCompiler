@@ -271,57 +271,44 @@ namespace RISCV
         string comment; // 调试注释
 
     public:
-        // RISCVInstruction 实现
-        RISCVInstruction::RISCVInstruction(RISCVOpcode op, InstructionType type)
+        // 基础构造函数
+        RISCVInstruction(RISCVOpcode op, InstructionType type)
             : opcode(op), instrType(type) {}
 
-        // R_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rd,
-                         shared_ptr<RISCVRegister> rs1, shared_ptr<RISCVRegister> rs2)
-            : RISCVInstruction(op, InstructionType::R_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(rs1), make_shared<RISCVOperand>(rs2)};
-        }
-        // I_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rd,
-                         shared_ptr<RISCVRegister> rs1, int64_t imm)
-            : RISCVInstruction(op, InstructionType::I_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(rs1), make_shared<RISCVOperand>(imm)};
-        }
-        // S_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rs1,
-                         shared_ptr<RISCVRegister> rs2, int64_t imm)
-            : RISCVInstruction(op, InstructionType::S_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rs1), make_shared<RISCVOperand>(rs2), make_shared<RISCVOperand>(imm)};
-        }
-        // B_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rs1,
-                         shared_ptr<RISCVRegister> rs2, const string &label)
-            : RISCVInstruction(op, InstructionType::B_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rs1), make_shared<RISCVOperand>(rs2), make_shared<RISCVOperand>(label)};
-        }
-        // U_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rd, int64_t imm)
-            : RISCVInstruction(op, InstructionType::U_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(imm)};
-        }
-        // J_TYPE
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rd, const string &label)
-            : RISCVInstruction(op, InstructionType::J_TYPE)
-        {
-            operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(label)};
-        }
-        // PSEUDO
-        RISCVInstruction(RISCVOpcode op, shared_ptr<RISCVRegister> rd,
-                         shared_ptr<RISCVRegister> rs1)
-            : RISCVInstruction(op, InstructionType::PSEUDO)
-        {
-            operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(rs1)};
-        }
+        // 工厂方法用于创建不同类型的指令
+        static shared_ptr<RISCVInstruction> createRType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rd,
+                                                         shared_ptr<RISCVRegister> rs1, 
+                                                         shared_ptr<RISCVRegister> rs2);
+        
+        static shared_ptr<RISCVInstruction> createIType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rd,
+                                                         shared_ptr<RISCVRegister> rs1, 
+                                                         int64_t imm);
+        
+        static shared_ptr<RISCVInstruction> createSType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rs1,
+                                                         shared_ptr<RISCVRegister> rs2, 
+                                                         int64_t imm);
+        
+        static shared_ptr<RISCVInstruction> createBType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rs1,
+                                                         shared_ptr<RISCVRegister> rs2, 
+                                                         const string &label);
+        
+        static shared_ptr<RISCVInstruction> createUType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rd, 
+                                                         int64_t imm);
+        
+        static shared_ptr<RISCVInstruction> createJType(RISCVOpcode op, 
+                                                         shared_ptr<RISCVRegister> rd, 
+                                                         const string &label);
+        
+        static shared_ptr<RISCVInstruction> createPseudo(RISCVOpcode op, 
+                                                          shared_ptr<RISCVRegister> rd,
+                                                          shared_ptr<RISCVRegister> rs1);
+
+        static shared_ptr<RISCVInstruction> createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm);
 
         // 访问器
         RISCVOpcode getOpcode() const { return opcode; }

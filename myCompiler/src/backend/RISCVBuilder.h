@@ -9,6 +9,7 @@ namespace RISCV
     {
     private:
         shared_ptr<RISCVModule> riscvModule;
+        shared_ptr<Module> irModule; // 保存IR模块引用
 
     public:
         RISCVBuilder() = default;
@@ -33,30 +34,34 @@ namespace RISCV
     private:
         shared_ptr<RISCVFunction> currentFunc;
         shared_ptr<RISCVBasicBlock> currentBB;
+        unordered_map<Value *, shared_ptr<RISCVRegister>> registerMap; // IR值到虚拟寄存器的映射
 
     public:
         InstructionSelector() = default;
 
         // 为函数生成指令
-        void selectInstructions(shared_ptr<RISCVFunction> func);
+        void selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc);
 
     private:
+        // 通用指令访问接口
+        void visitInstruction(Instruction *inst);
+
         // IR指令到RISC-V指令的映射
-        void visitBinaryOp(shared_ptr<BinaryOperator> inst);
-        void visitUnaryOp(shared_ptr<UnaryOperator> inst);
-        void visitLoadInst(shared_ptr<LoadInst> inst);
-        void visitStoreInst(shared_ptr<StoreInst> inst);
-        void visitCallInst(shared_ptr<CallInst> inst);
-        void visitReturnInst(shared_ptr<ReturnInst> inst);
-        void visitBranchInst(shared_ptr<BranchInst> inst);
-        void visitAllocaInst(shared_ptr<AllocaInst> inst);
-        void visitElementPtrInst(shared_ptr<GetElementPtrInst> inst);
-        void visitFCmpInst(shared_ptr<FCmpInst> inst);
-        void visitICmpInst(shared_ptr<ICmpInst> inst);
+        void visitBinaryOp(BinaryOperator *inst);
+        void visitUnaryOp(UnaryOperator *inst);
+        void visitLoadInst(LoadInst *inst);
+        void visitStoreInst(StoreInst *inst);
+        void visitCallInst(CallInst *inst);
+        void visitReturnInst(ReturnInst *inst);
+        void visitBranchInst(BranchInst *inst);
+        void visitAllocaInst(AllocaInst *inst);
+        void visitElementPtrInst(GetElementPtrInst *inst);
+        void visitFCmpInst(FCmpInst *inst);
+        void visitICmpInst(ICmpInst *inst);
 
         // 辅助方法
-        shared_ptr<RISCVRegister> getOrCreateVirtualReg(shared_ptr<Value> value);
-        void mapArguments(shared_ptr<RISCVFunction> func);
+        shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);
+        void mapArguments(shared_ptr<RISCVFunction> func, Function *irFunc);
         void handleFunctionPrologue(shared_ptr<RISCVFunction> func);
         void handleFunctionEpilogue(shared_ptr<RISCVFunction> func);
     };
