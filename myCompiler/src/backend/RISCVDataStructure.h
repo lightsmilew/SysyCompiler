@@ -276,37 +276,37 @@ namespace RISCV
             : opcode(op), instrType(type) {}
 
         // 工厂方法用于创建不同类型的指令
-        static shared_ptr<RISCVInstruction> createRType(RISCVOpcode op, 
+        static shared_ptr<RISCVInstruction> createRType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rd,
+                                                        shared_ptr<RISCVRegister> rs1,
+                                                        shared_ptr<RISCVRegister> rs2);
+
+        static shared_ptr<RISCVInstruction> createIType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rd,
+                                                        shared_ptr<RISCVRegister> rs1,
+                                                        int64_t imm);
+
+        static shared_ptr<RISCVInstruction> createSType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rs1,
+                                                        shared_ptr<RISCVRegister> rs2,
+                                                        int64_t imm);
+
+        static shared_ptr<RISCVInstruction> createBType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rs1,
+                                                        shared_ptr<RISCVRegister> rs2,
+                                                        const string &label);
+
+        static shared_ptr<RISCVInstruction> createUType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rd,
+                                                        int64_t imm);
+
+        static shared_ptr<RISCVInstruction> createJType(RISCVOpcode op,
+                                                        shared_ptr<RISCVRegister> rd,
+                                                        const string &label);
+
+        static shared_ptr<RISCVInstruction> createPseudo(RISCVOpcode op,
                                                          shared_ptr<RISCVRegister> rd,
-                                                         shared_ptr<RISCVRegister> rs1, 
-                                                         shared_ptr<RISCVRegister> rs2);
-        
-        static shared_ptr<RISCVInstruction> createIType(RISCVOpcode op, 
-                                                         shared_ptr<RISCVRegister> rd,
-                                                         shared_ptr<RISCVRegister> rs1, 
-                                                         int64_t imm);
-        
-        static shared_ptr<RISCVInstruction> createSType(RISCVOpcode op, 
-                                                         shared_ptr<RISCVRegister> rs1,
-                                                         shared_ptr<RISCVRegister> rs2, 
-                                                         int64_t imm);
-        
-        static shared_ptr<RISCVInstruction> createBType(RISCVOpcode op, 
-                                                         shared_ptr<RISCVRegister> rs1,
-                                                         shared_ptr<RISCVRegister> rs2, 
-                                                         const string &label);
-        
-        static shared_ptr<RISCVInstruction> createUType(RISCVOpcode op, 
-                                                         shared_ptr<RISCVRegister> rd, 
-                                                         int64_t imm);
-        
-        static shared_ptr<RISCVInstruction> createJType(RISCVOpcode op, 
-                                                         shared_ptr<RISCVRegister> rd, 
-                                                         const string &label);
-        
-        static shared_ptr<RISCVInstruction> createPseudo(RISCVOpcode op, 
-                                                          shared_ptr<RISCVRegister> rd,
-                                                          shared_ptr<RISCVRegister> rs1);
+                                                         shared_ptr<RISCVRegister> rs1);
 
         static shared_ptr<RISCVInstruction> createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm);
 

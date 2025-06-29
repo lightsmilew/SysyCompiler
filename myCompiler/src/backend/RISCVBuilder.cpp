@@ -861,8 +861,8 @@ bool PeepholeOptimizer::optimizeConstantFolding(shared_ptr<RISCVBasicBlock> bb)
             {
                 // addi rd, rs, 0 -> mv rd, rs
                 auto newInst = RISCVInstruction::createPseudo(RISCVOpcode::MV,
-                                                             operands[0]->getReg(),
-                                                             operands[1]->getReg());
+                                                              operands[0]->getReg(),
+                                                              operands[1]->getReg());
                 *it = newInst;
                 changed = true;
             }
