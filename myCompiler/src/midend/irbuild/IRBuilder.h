@@ -1,5 +1,5 @@
-#include "../frontend/ASTNode.h"
-#include "../frontend/SemanticAnalysis.h"
+#include "../../frontend/ASTNode.h"
+#include "../../frontend/SemanticAnalysis.h"
 #include "IRDataStructure.h"
 #include <stack>
 #include <unordered_map>

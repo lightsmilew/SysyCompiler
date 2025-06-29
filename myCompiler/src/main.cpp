@@ -8,7 +8,7 @@
 #include "frontend/SemanticAnalysis.h"
 #include <fstream>
 #include <iostream>
-#include "midend/IRBuilder.h"
+#include "midend/irbuild/IRBuilder.h"
 #include "backend/RISCVBuilder.h"
 
 using namespace antlr4;
@@ -59,9 +59,9 @@ int main(int argc, const char *argv[])
     auto ir_module = irbuilder.buildModule(ast_root);
     cout << ir_module->toString() << endl;
 
-    RISCV::RISCVBuilder riscv_builder;
-    auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
-    cout << riscv_module->toString() << endl;
+    // RISCV::RISCVBuilder riscv_builder;
+    // auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
+    // cout << riscv_module->toString() << endl;
 
     return 0;
 }
