@@ -13,7 +13,7 @@ import subprocess
 def run_test_case(case):
     output_file = os.path.join(outputDir, os.path.basename(case) + ".out")
     with open(output_file, "w") as out:
-        result = subprocess.run([compilerPath, case,"-ir"], stdout=out, stderr=subprocess.STDOUT)
+        result = subprocess.run([compilerPath, case], stdout=out, stderr=subprocess.STDOUT)
         return result.returncode
 
 def main():

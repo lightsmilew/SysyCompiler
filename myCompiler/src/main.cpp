@@ -8,7 +8,7 @@
 #include "frontend/SemanticAnalysis.h"
 #include <fstream>
 #include <iostream>
-#include "midend/IRBuilder.h"
+#include "midend/irbuild/IRBuilder.h"
 #include "backend/RISCVBuilder.h"
 
 using namespace antlr4;

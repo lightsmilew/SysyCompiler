@@ -1,6 +1,6 @@
 #pragma once
 #include "RISCVDataStructure.h"
-#include "../midend/IRDataStructure.h"
+#include "../midend/irbuild/IRDataStructure.h"
 
 namespace RISCV
 {

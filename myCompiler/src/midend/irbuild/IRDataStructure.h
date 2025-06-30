@@ -1,5 +1,5 @@
 #pragma once
-#include "../frontend/ASTNode.h"
+#include "../../frontend/ASTNode.h"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
@@ -263,7 +263,32 @@ public:
 
     // 获取操作数数量
     unsigned getNumOperands() const { return Operands.size(); }
-
+    // 获取所有操作数
+    const vector<Value *> &getOperands() const { return Operands; }
+    // 获取指定索引的操作数
+    Value *getOperand(unsigned index) const
+    {
+        if (index < Operands.size())
+        {            return Operands[index];
+        }
+        throw std::out_of_range("Invalid operand index");
+    }
+    // 设置指定索引的操作数
+    void setOperand(unsigned index, Value *value)
+    {
+        if (index < Operands.size())
+        {            
+            if (Operands[index])
+            {                
+                Operands[index]->removeUser(this);
+            }
+                Operands[index] = value;
+            if (value)
+            {                
+                value->addUser(this);
+            }
+        }
+    }
     string toString() const override;
 };
 
@@ -410,7 +435,68 @@ public:
     // 带操作数的构造函数
     Instruction(Type *ty, Opcode op, const vector<Value *> &operands, const string &name = "")
         : User(ty, operands, name), Op(op), Parent(nullptr) {}
-
+    // 获取操作符
+    Opcode getOpcode() const { return Op; }
+    // 获取操作符名称
+    string getOpcodeName() const
+    {
+        switch (Op)
+        {
+        case Opcode::Ret: return "ret";
+        case Opcode::Br: return "br";
+        case Opcode::Add: return "add";
+        case Opcode::Sub: return "sub";
+        case Opcode::Mul: return "mul";
+        case Opcode::SDiv: return "sdiv";
+        case Opcode::SRem: return "srem";
+        case Opcode::FAdd: return "fadd";
+        case Opcode::FSub: return "fsub";
+        case Opcode::FMul: return "fmul";
+        case Opcode::FDiv: return "fdiv";
+        case Opcode::ICmp: return "icmp";
+        case Opcode::FCmp: return "fcmp";
+        case Opcode::Alloca: return "alloca";
+        case Opcode::Load: return "load";
+        case Opcode::Store: return "store";
+        case Opcode::GetElementPtr: return "getelementptr";
+        case Opcode::SIToFP: return "sitofp";
+        case Opcode::FPToSI: return "fptosi";
+        case Opcode::Call: return "call";
+        case Opcode::Phi: return "phi";
+        default: throw std::runtime_error("Unknown opcode");
+        }
+    }
+    // 是否为二元操作
+    bool isBinaryOp() const
+    {
+        return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
+               Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
+               Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv;
+    }
+    // 是否为比较操作
+    bool isComparisonOp() const
+    {
+        return Op == Opcode::ICmp || Op == Opcode::FCmp;
+    }
+    // 是否为终结指令
+    bool isTerminator() const
+    {
+        return Op == Opcode::Ret || Op == Opcode::Br;
+    }
+    // 是否为复制指令
+    bool isCopy() const
+    {
+        return Op == Opcode::Load
+            || Op == Opcode::GetElementPtr
+            || Op == Opcode::SIToFP
+            || Op == Opcode::FPToSI;
+    }
+    // 是否有负面作用
+    bool mayHaveSideEffects() const
+    {
+        return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
+               Op == Opcode::Ret || Op == Opcode::Alloca;
+    }
     virtual string toString() const = 0;
 };
 
@@ -422,7 +508,6 @@ public:
 
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name), LHS(lhs), RHS(rhs) {}
-
     string toString() const override;
 };
 
@@ -458,6 +543,8 @@ public:
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred), LHS(lhs), RHS(rhs) {}
+    // 获取比较操作符
+    Predicate getPredicate() const { return Pred; }
     string toString() const override;
 };
 
@@ -677,7 +764,21 @@ public:
     {
         return Instructions.empty() ? nullptr : Instructions.back().get();
     }
-
+    // 获取所有指令
+    vector<unique_ptr<Instruction>> &getInstructions() 
+    {
+        return Instructions;
+    }
+    // 获取前驱基本块
+    const vector<BasicBlock *> &getPredecessors() const
+    {
+        return Predecessors;
+    }
+    // 获取后继基本块
+    const vector<BasicBlock *> &getSuccessors() const
+    {
+        return Successors;
+    }
     // 检查是否有终结指令
     bool hasTerminator()
     {
@@ -750,7 +851,11 @@ public:
     {
         return static_cast<FunctionType *>(getType());
     }
-
+    // 获取所有基本块
+    const vector<unique_ptr<BasicBlock>> &getBasicBlocks() const
+    {
+        return BasicBlocks;
+    }
     string toString() const override;
 };
 

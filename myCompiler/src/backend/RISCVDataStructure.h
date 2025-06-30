@@ -1,5 +1,5 @@
 #pragma once
-#include "../midend/IRDataStructure.h"
+#include "../midend/irbuild/IRDataStructure.h"
 #include <string>
 #include <vector>
 #include <memory>
