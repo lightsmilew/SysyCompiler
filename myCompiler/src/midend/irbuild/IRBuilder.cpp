@@ -131,19 +131,24 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
         // 如果是指针类型参数（如退化后的数组参数），直接用参数本身
-        if (paramTypes[i]->isPointerTy()) 
-        {
-            // 直接使用参数，不需要额外的 alloca
-            varToValue[node->params[i]->identifier] = arg;
-        } 
-        else
-        {
-            Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
+        // if (paramTypes[i]->isPointerTy()) 
+        // {
+        //     // 直接使用参数，不需要额外的 alloca
+        //     varToValue[node->params[i]->identifier] = arg;
+        // } 
+        // else
+        // {
+        //     Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
+        //     createStore(arg, alloca);
+        //     //转回原来类型
+        //     LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
+        //     varToValue[node->params[i]->identifier] = loadinst;
+        // }
+            Value *alloca = createAlloca(paramTypes[i]);
             createStore(arg, alloca);
             //转回原来类型
             LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
             varToValue[node->params[i]->identifier] = loadinst;
-        }
     }
 
     // 访问函数体
@@ -272,7 +277,9 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     else
     {
         // 局部变量
-        Value *alloca = createAlloca(varType, node->identifier);
+        //Value *alloca = createAlloca(varType, node->identifier);
+        Value *alloca = createAlloca(varType);
+        //getNextTempName
         //转回原类型
         LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
         varToValue[node->identifier] = loadinst;
