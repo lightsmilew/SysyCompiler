@@ -32,7 +32,7 @@ int main(int argc, const char *argv[])
     ASTNodeVisitor ast_visitor;
 
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
-    ast_root->print(cout, 0);
+
     TypeCheckerVisitor type_checker;
     try
     {
@@ -44,6 +44,8 @@ int main(int argc, const char *argv[])
             {
                 cerr << error << endl;
             }
+
+            return 1; // 返回错误代码
         }
     }
     catch (const std::exception &e)
@@ -52,16 +54,29 @@ int main(int argc, const char *argv[])
         return 1; // 返回错误代码
     }
 
-    // if (argc > 2 && strcmp(argv[2], "-ir") == 0)
-    //{
-    //   输出IR中间代码
     IRBuilder irbuilder;
     auto ir_module = irbuilder.buildModule(ast_root);
-    cout << ir_module->toString() << endl;
 
-    // RISCV::RISCVBuilder riscv_builder;
-    // auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
-    // cout << riscv_module->toString() << endl;
+    int num = argc > 1 ? argc - 1 : 0;
+
+    if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    {
+        // 输出IR中间代码
+        cout << ir_module->toString() << endl;
+    }
+    else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
+    {
+        // 输出RISC-V代码
+        RISCV::RISCVBuilder riscv_builder;
+        auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
+        string assembly_code = riscv_builder.generateAssembly(riscv_module);
+        cout << assembly_code << endl;
+    }
+    else if (argc > 2 && strcmp(argv[2], "-ast") == 0)
+    {
+        // 输出AST
+        ast_root->print(cout, 0);
+    }
 
     return 0;
 }

@@ -399,6 +399,8 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
         // 否则返回基础类型
         return currentType;
     }
+
+    return nullptr; // 如果不是数组或指针类型，返回空指针
 }
 
 bool Type::isTypeEqual(Type *a, Type *b)
