@@ -380,10 +380,12 @@ namespace RISCV
         string label;
         vector<string> data;
         int size;
-        bool isReadOnly;
+
+        // 辅助方法：检查字符串是否为零值
+        bool isZeroValue(const string &value) const;
 
     public:
-        RISCVGlobalBlock(const string &label, bool readOnly = false);
+        RISCVGlobalBlock(const string &label);
 
         void addData(const string &dataStr);
         void addData(const vector<string> &dataList);
@@ -391,7 +393,6 @@ namespace RISCV
         const string &getLabel() const { return label; }
         const vector<string> &getData() const { return data; }
         int getSize() const { return size; }
-        bool getIsReadOnly() const { return isReadOnly; }
 
         string toString() const;
     };
@@ -447,7 +448,7 @@ namespace RISCV
         shared_ptr<RISCVFunction> getFunction(const string &name) const;
 
         // 全局变量管理
-        shared_ptr<RISCVGlobalBlock> createGlobalBlock(const string &label, bool readOnly = false);
+        shared_ptr<RISCVGlobalBlock> createGlobalBlock(const string &label);
         void addGlobalBlock(shared_ptr<RISCVGlobalBlock> block);
 
         // 访问器

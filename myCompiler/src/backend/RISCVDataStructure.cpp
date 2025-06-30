@@ -414,8 +414,8 @@ namespace RISCV
     }
 
     // RISCVGlobalBlock 实现
-    RISCVGlobalBlock::RISCVGlobalBlock(const string &label, bool readOnly)
-        : label(label), size(0), isReadOnly(readOnly) {}
+    RISCVGlobalBlock::RISCVGlobalBlock(const string &label)
+        : label(label), size(0) {}
 
     void RISCVGlobalBlock::addData(const string &dataStr)
     {
@@ -431,16 +431,72 @@ namespace RISCV
         }
     }
 
+    bool RISCVGlobalBlock::isZeroValue(const string &value) const
+    {
+        // 检查各种零值表示形式
+        if (value == "0")
+        {
+            return true;
+        }
+        // 检查浮点零值的十六进制表示
+        if (value == "0x00000000" || value == "0x0" || value == "0X00000000" || value == "0X0")
+        {
+            return true;
+        }
+        // 检查其他可能的零值表示
+        if (value == "0.0" || value == "0f" || value == "0.0f")
+        {
+            return true;
+        }
+        return false;
+    }
+
     string RISCVGlobalBlock::toString() const
     {
         std::stringstream ss;
-        ss << (isReadOnly ? ".section .rodata\n" : ".section .data\n");
-        ss << ".align 2\n";
+
         ss << label << ":\n";
-        for (const auto &item : data)
+
+        // 优化连续的零数据
+        size_t i = 0;
+        while (i < data.size())
         {
-            ss << "    .word " << item << "\n";
+            if (isZeroValue(data[i]))
+            {
+                // 计算连续零的数量
+                size_t zeroCount = 0;
+                size_t j = i;
+                while (j < data.size() && isZeroValue(data[j]))
+                {
+                    zeroCount++;
+                    j++;
+                }
+
+                // 如果连续零的数量大于等于2，使用.zero指令优化
+                if (zeroCount >= 2)
+                {
+                    size_t zeroBytes = zeroCount * 4; // 假设每个word是4字节
+                    ss << "    .zero " << zeroBytes << "\n";
+                    i = j; // 跳过所有连续的零
+                }
+                else
+                {
+                    // 连续零较少，使用常规.word输出
+                    for (size_t k = 0; k < zeroCount; k++)
+                    {
+                        ss << "    .word 0\n";
+                    }
+                    i = j;
+                }
+            }
+            else
+            {
+                // 非零数据，正常输出
+                ss << "    .word " << data[i] << "\n";
+                i++;
+            }
         }
+
         return ss.str();
     }
 
@@ -466,10 +522,6 @@ namespace RISCV
     string RISCVFunction::toString() const
     {
         std::stringstream ss;
-        ss << ".text\n";
-        ss << ".align 2\n";
-        ss << ".globl " << name << "\n";
-        ss << ".type " << name << ", @function\n";
         ss << name << ":\n";
 
         for (const auto &bb : basicBlocks)
@@ -477,7 +529,6 @@ namespace RISCV
             ss << bb->toString();
         }
 
-        ss << ".size " << name << ", .-" << name << "\n";
         return ss.str();
     }
 
@@ -494,9 +545,9 @@ namespace RISCV
         return (it != functionMap.end()) ? it->second : nullptr;
     }
 
-    shared_ptr<RISCVGlobalBlock> RISCVModule::createGlobalBlock(const string &label, bool readOnly)
+    shared_ptr<RISCVGlobalBlock> RISCVModule::createGlobalBlock(const string &label)
     {
-        auto block = std::make_shared<RISCVGlobalBlock>(label, readOnly);
+        auto block = std::make_shared<RISCVGlobalBlock>(label);
         globalBlocks.push_back(block);
         return block;
     }
@@ -520,6 +571,11 @@ namespace RISCV
         // 输出函数
         for (const auto &func : functions)
         {
+            if (func->getName() == "")
+            {
+                /* code */
+            }
+
             ss << func->toString() << "\n";
         }
 

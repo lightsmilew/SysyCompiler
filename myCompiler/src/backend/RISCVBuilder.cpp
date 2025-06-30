@@ -2,10 +2,14 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <cstring>
+#include <iomanip>
+#include <set>
 
 using namespace RISCV;
 using std::endl;
 using std::max;
+using std::set;
 using std::stringstream;
 
 shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irModule)
@@ -35,13 +39,17 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
     // 初始化全局变量块
     for (const auto &globalVar : irModule->GlobalVariables)
     {
-        auto globalBlock = riscvModule->createGlobalBlock(globalVar->getName(), globalVar->IsConstant);
+        auto globalBlock = riscvModule->createGlobalBlock(globalVar->getName());
         // 初始化全局变量的数据
         if (globalVar->Initializer)
         {
-            // TODO: 处理全局变量的初始化数据
+            processGlobalInitializer(globalBlock, globalVar->Initializer);
         }
-        riscvModule->addGlobalBlock(globalBlock);
+        else
+        {
+            // 没有初始化器，添加零初始化
+            processZeroInitializer(globalBlock, globalVar->getType());
+        }
     }
 
     // 初始化函数
@@ -889,11 +897,6 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
 {
     stringstream ss;
 
-    // 输出汇编头部
-    ss << ".text" << endl;
-    ss << ".globl main" << endl
-       << endl;
-
     // 输出全局变量
     if (!module->getGlobalBlocks().empty())
     {
@@ -903,7 +906,11 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
     // 输出函数
     for (auto func : module->getFunctions())
     {
-        ss << emitFunction(func) << endl;
+        // 跳过库函数的输出
+        if (!isLibraryFunction(func->getName()))
+        {
+            ss << emitFunction(func) << endl;
+        }
     }
 
     return ss.str();
@@ -914,6 +921,7 @@ string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &
     stringstream ss;
 
     ss << ".data" << endl;
+
     for (auto global : globals)
     {
         ss << global->toString() << endl;
@@ -925,6 +933,8 @@ string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &
 string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
 {
     stringstream ss;
+
+    ss << ".text" << endl;
 
     // 函数标签
     ss << func->getName() << ":" << endl;
@@ -969,8 +979,119 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     // 输出指令
     for (auto inst : bb->getInstructions())
     {
-        ss << "    " << inst->toString() << endl;
+        ss << inst->toString() << endl;
     }
 
     return ss.str();
+}
+
+// ===== RISCVBuilder 全局变量初始化处理 =====
+
+void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer)
+{
+    if (auto constInt = dynamic_cast<ConstantInt *>(initializer))
+    {
+        // 整数常量
+        globalBlock->addData(to_string(constInt->Value));
+    }
+    else if (auto constFloat = dynamic_cast<ConstantFloat *>(initializer))
+    {
+        // 浮点常量 - 转换为IEEE 754十六进制表示
+        uint32_t bits;
+        std::memcpy(&bits, &constFloat->Value, sizeof(float));
+        globalBlock->addData("0x" + std::to_string(bits));
+    }
+    else if (auto constString = dynamic_cast<ConstantString *>(initializer))
+    {
+        // 字符串常量
+        const string &str = constString->Value;
+        vector<string> byteData;
+
+        // 将字符串转换为字节数据
+        for (char c : str)
+        {
+            byteData.push_back(to_string(static_cast<int>(c)));
+        }
+        // 添加字符串结束符
+        byteData.push_back("0");
+
+        globalBlock->addData(byteData);
+    }
+    else if (auto constArray = dynamic_cast<ConstantArray *>(initializer))
+    {
+        // 数组常量
+        for (Constant *element : constArray->Elements)
+        {
+            if (element)
+            {
+                processGlobalInitializer(globalBlock, element);
+            }
+            else
+            {
+                // 未定义元素，使用零初始化
+                globalBlock->addData("0");
+            }
+        }
+    }
+    else
+    {
+        // 其他类型的常量，默认为0
+        globalBlock->addData("0");
+    }
+}
+
+void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type)
+{
+    if (type->isIntegerTy() || type->isBooleanTy() || type->isPointerTy())
+    {
+        // 整数、布尔或指针类型，初始化为0
+        globalBlock->addData("0");
+    }
+    else if (type->isFloatTy())
+    {
+        // 浮点类型，初始化为0.0
+        globalBlock->addData("0x00000000"); // float 0.0的IEEE 754表示
+    }
+    else if (auto arrayType = dynamic_cast<ArrayType *>(type))
+    {
+        // 数组类型，递归初始化每个元素
+        for (unsigned i = 0; i < arrayType->getNumElements(); ++i)
+        {
+            processZeroInitializer(globalBlock, arrayType->getElementType());
+        }
+    }
+    else
+    {
+        // 其他类型，默认为0
+        globalBlock->addData("0");
+    }
+}
+
+string RISCVBuilder::constantToRISCVData(Constant *constant)
+{
+    if (auto constInt = dynamic_cast<ConstantInt *>(constant))
+    {
+        return to_string(constInt->Value);
+    }
+    else if (auto constFloat = dynamic_cast<ConstantFloat *>(constant))
+    {
+        uint32_t bits;
+        std::memcpy(&bits, &constFloat->Value, sizeof(float));
+        return "0x" + std::to_string(bits);
+    }
+    else
+    {
+        return "0"; // 默认值
+    }
+}
+
+bool AssemblyEmitter::isLibraryFunction(const string &funcName)
+{
+    // SysY 语言的内置库函数列表
+    static const set<string> libraryFunctions = {
+        "getint", "getch", "getfloat", "getarray", "getfarray",
+        "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
+        "starttime", "stoptime"};
+
+    return libraryFunctions.find(funcName) != libraryFunctions.end();
 }

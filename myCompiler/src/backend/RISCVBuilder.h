@@ -26,6 +26,11 @@ namespace RISCV
         void generateInstructions();
         void allocateRegisters();
         void optimizeCode();
+
+        // 全局变量初始化处理
+        void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
+        void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type);
+        string constantToRISCVData(Constant *constant);
     };
 
     // 指令选择器
@@ -140,5 +145,6 @@ namespace RISCV
         string emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &globals);
         string emitFunction(shared_ptr<RISCVFunction> func);
         string emitBasicBlock(shared_ptr<RISCVBasicBlock> bb);
+        bool isLibraryFunction(const string &funcName);
     };
 }
