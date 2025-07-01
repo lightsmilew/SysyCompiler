@@ -53,7 +53,7 @@ namespace RISCV
 
         // IR指令到RISC-V指令的映射
         void visitBinaryOp(BinaryOperator *inst);
-        void visitUnaryOp(UnaryOperator *inst);
+        // void visitUnaryOp(UnaryOperator *inst);
         void visitLoadInst(LoadInst *inst);
         void visitStoreInst(StoreInst *inst);
         void visitCallInst(CallInst *inst);
@@ -66,9 +66,25 @@ namespace RISCV
 
         // 辅助方法
         shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);
+        shared_ptr<RISCVRegister> getReg(Value *value);
         void mapArguments(shared_ptr<RISCVFunction> func, Function *irFunc);
         void handleFunctionPrologue(shared_ptr<RISCVFunction> func);
         void handleFunctionEpilogue(shared_ptr<RISCVFunction> func);
+
+        // 栈帧管理相关方法
+        void prescanFunction(shared_ptr<RISCVFunction> func, Function *irFunc);
+        void generateFunctionPrologue(shared_ptr<RISCVFunction> func);
+        void generateFunctionEpilogue(shared_ptr<RISCVFunction> func);
+        void storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg);
+        shared_ptr<RISCVRegister> loadValueFromStack(Value *value);
+
+        // 栈偏移计算辅助方法
+        void generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore);
+        bool isImmediateInRange(int immediate, int bits = 12);
+
+        // 常量加载优化方法
+        void generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value);
+        void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
     };
 
     // 寄存器分配器

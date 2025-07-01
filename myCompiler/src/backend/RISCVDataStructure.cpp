@@ -342,6 +342,8 @@ namespace RISCV
                 return "mv";
             case RISCVOpcode::FMV_S:
                 return "fmv.s";
+            case RISCVOpcode::FMV_W_X:
+                return "fmv.w.x";
             case RISCVOpcode::ECALL:
                 return "ecall";
             case RISCVOpcode::EBREAK:
@@ -372,13 +374,47 @@ namespace RISCV
     // StackFrame 实现
     int StackFrame::getTotalSize() const
     {
-        return localVarSize + tempVarSize + savedRegSize + maxCallArgSize;
+        return valueStackSize;
     }
 
-    void StackFrame::updateMaxCallArgSize(int size)
+    int StackFrame::allocateSpace(Value *value, int size)
     {
-        if (size > maxCallArgSize)
-            maxCallArgSize = size;
+        if (valueToOffset.find(value) != valueToOffset.end())
+        {
+            // 已经分配过，返回现有偏移
+            return valueToOffset[value];
+        }
+
+        int offset = currentOffset;
+        valueToOffset[value] = offset;
+        currentOffset += size;
+
+        // 更新相应的大小统计
+        valueStackSize += size;
+
+        return offset;
+    }
+
+    int StackFrame::getOffset(Value *value) const
+    {
+        auto it = valueToOffset.find(value);
+        if (it != valueToOffset.end())
+        {
+            return it->second;
+        }
+        throw std::runtime_error("Value not found in stack frame");
+    }
+
+    bool StackFrame::hasAllocation(Value *value) const
+    {
+        return valueToOffset.find(value) != valueToOffset.end();
+    }
+
+    int StackFrame::getAlignedSize() const
+    {
+        int total = getTotalSize();
+        // 16字节对齐
+        return (total + 15) & ~15;
     }
 
     // RISCVBasicBlock 实现
