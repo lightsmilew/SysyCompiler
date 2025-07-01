@@ -30,7 +30,6 @@ namespace RISCV
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
         void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type);
-        string constantToRISCVData(Constant *constant);
     };
 
     // 指令选择器
@@ -66,10 +65,7 @@ namespace RISCV
 
         // 辅助方法
         shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);
-        shared_ptr<RISCVRegister> getReg(Value *value);
         void mapArguments(shared_ptr<RISCVFunction> func, Function *irFunc);
-        void handleFunctionPrologue(shared_ptr<RISCVFunction> func);
-        void handleFunctionEpilogue(shared_ptr<RISCVFunction> func);
 
         // 栈帧管理相关方法
         void prescanFunction(shared_ptr<RISCVFunction> func, Function *irFunc);
@@ -87,69 +83,69 @@ namespace RISCV
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
     };
 
-    // 寄存器分配器
-    class RegisterAllocator
-    {
-    public:
-        struct LiveInterval
-        {
-            shared_ptr<RISCVRegister> virtualReg;
-            int start;
-            int end;
-            shared_ptr<RISCVRegister> assignedReg;
-            bool isSpilled;
+    // // 寄存器分配器
+    // class RegisterAllocator
+    // {
+    // public:
+    //     struct LiveInterval
+    //     {
+    //         shared_ptr<RISCVRegister> virtualReg;
+    //         int start;
+    //         int end;
+    //         shared_ptr<RISCVRegister> assignedReg;
+    //         bool isSpilled;
 
-            LiveInterval(shared_ptr<RISCVRegister> reg, int s, int e)
-                : virtualReg(reg), start(s), end(e), assignedReg(nullptr), isSpilled(false) {}
-        };
+    //         LiveInterval(shared_ptr<RISCVRegister> reg, int s, int e)
+    //             : virtualReg(reg), start(s), end(e), assignedReg(nullptr), isSpilled(false) {}
+    //     };
 
-    private:
-        shared_ptr<RISCVFunction> currentFunc;
-        vector<LiveInterval> intervals;
+    // private:
+    //     shared_ptr<RISCVFunction> currentFunc;
+    //     vector<LiveInterval> intervals;
 
-        // 可用的物理寄存器
-        static const vector<shared_ptr<RISCVRegister>> availableGeneralRegs;
-        static const vector<shared_ptr<RISCVRegister>> availableFloatRegs;
+    //     // 可用的物理寄存器
+    //     static const vector<shared_ptr<RISCVRegister>> availableGeneralRegs;
+    //     static const vector<shared_ptr<RISCVRegister>> availableFloatRegs;
 
-    public:
-        RegisterAllocator() = default;
+    // public:
+    //     RegisterAllocator() = default;
 
-        // 主要接口
-        void allocateRegisters(shared_ptr<RISCVFunction> func);
+    //     // 主要接口
+    //     void allocateRegisters(shared_ptr<RISCVFunction> func);
 
-    private:
-        // 活跃变量分析
-        void computeLiveness();
-        void computeLiveIntervals();
+    // private:
+    //     // 活跃变量分析
+    //     void computeLiveness();
+    //     void computeLiveIntervals();
 
-        // 线性扫描寄存器分配
-        void linearScanAllocation();
-        void expireOldIntervals(const LiveInterval &current,
-                                vector<LiveInterval *> &active);
-        void spillAtInterval(LiveInterval &current,
-                             vector<LiveInterval *> &active);
+    //     // 线性扫描寄存器分配
+    //     void linearScanAllocation();
+    //     void expireOldIntervals(const LiveInterval &current,
+    //                             vector<LiveInterval *> &active);
+    //     void spillAtInterval(LiveInterval &current,
+    //                          vector<LiveInterval *> &active);
 
-        // 插入溢出代码
-        void insertSpillCode();
-    };
+    //     // 插入溢出代码
+    //     void insertSpillCode();
+    // };
 
-    // 窥孔优化器
-    class PeepholeOptimizer
-    {
-    private:
-        shared_ptr<RISCVFunction> currentFunc;
+    // // 窥孔优化器
+    // class PeepholeOptimizer
+    // {
+    // private:
+    //     shared_ptr<RISCVFunction> currentFunc;
 
-    public:
-        PeepholeOptimizer() = default;
+    // public:
+    //     PeepholeOptimizer() = default;
 
-        void optimize(shared_ptr<RISCVFunction> func);
+    //     void optimize(shared_ptr<RISCVFunction> func);
 
-    private:
-        // 优化模式
-        bool optimizeRedundantMoves(shared_ptr<RISCVBasicBlock> bb);
-        bool optimizeConstantFolding(shared_ptr<RISCVBasicBlock> bb);
-        bool optimizeDeadCode(shared_ptr<RISCVBasicBlock> bb);
-    };
+    // private:
+    //     // 优化模式
+    //     bool optimizeRedundantMoves(shared_ptr<RISCVBasicBlock> bb);
+    //     bool optimizeConstantFolding(shared_ptr<RISCVBasicBlock> bb);
+    //     bool optimizeDeadCode(shared_ptr<RISCVBasicBlock> bb);
+    // };
 
     // 汇编生成器
     class AssemblyEmitter

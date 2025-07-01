@@ -83,15 +83,15 @@ void RISCVBuilder::generateInstructions()
     }
 }
 
-void RISCVBuilder::allocateRegisters()
-{
-    // 为每个函数进行寄存器分配
-    for (const auto &func : riscvModule->getFunctions())
-    {
-        RegisterAllocator allocator;
-        allocator.allocateRegisters(func);
-    }
-}
+// void RISCVBuilder::allocateRegisters()
+// {
+//     // 为每个函数进行寄存器分配
+//     for (const auto &func : riscvModule->getFunctions())
+//     {
+//         RegisterAllocator allocator;
+//         allocator.allocateRegisters(func);
+//     }
+// }
 
 void RISCVBuilder::optimizeCode()
 {
@@ -1136,61 +1136,57 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
 
 void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer)
 {
-    // 处理全局变量初始化器
+    // 处理全局变量初始化器 - 只添加数值，不添加.word前缀
     if (auto constInt = dynamic_cast<ConstantInt *>(initializer))
     {
-        globalBlock->addData(".word " + std::to_string(constInt->Value));
+        globalBlock->addData(std::to_string(constInt->Value));
     }
     else if (auto constFloat = dynamic_cast<ConstantFloat *>(initializer))
     {
         // 将浮点数转换为32位整数表示
         uint32_t bits;
         std::memcpy(&bits, &constFloat->Value, sizeof(float));
-        globalBlock->addData(".word " + std::to_string(bits));
+        globalBlock->addData(std::to_string(bits));
     }
     else
     {
         // 默认零初始化
-        globalBlock->addData(".word 0");
+        globalBlock->addData("0");
     }
 }
 
 void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type)
 {
-    // 处理零初始化
+    // 处理零初始化 - 只添加数值，不添加.word前缀
     if (type->isArrayTy())
     {
         auto arrayType = static_cast<ArrayType *>(type);
         int numElements = arrayType->getNumElements();
         for (int i = 0; i < numElements; ++i)
         {
-            globalBlock->addData(".word 0");
+            globalBlock->addData("0");
         }
     }
     else
     {
-        globalBlock->addData(".word 0");
+        globalBlock->addData("0");
     }
 }
 
-// 简化的寄存器分配器实现
-void RegisterAllocator::allocateRegisters(shared_ptr<RISCVFunction> func)
-{
-    // 简单的寄存器分配：所有虚拟寄存器保持虚拟状态
-    // 在实际汇编生成时处理具体的物理寄存器分配
+// // 简化的寄存器分配器实现
+// void RegisterAllocator::allocateRegisters(shared_ptr<RISCVFunction> func)
+// {
+//     // 简单的寄存器分配：所有虚拟寄存器保持虚拟状态
+//     // 在实际汇编生成时处理具体的物理寄存器分配
 
-    // 这里暂时不做复杂的寄存器分配，
-    // 因为我们的重点是测试ABI规范的实现
-}
+//     // 这里暂时不做复杂的寄存器分配，
+//     // 因为我们的重点是测试ABI规范的实现
+// }
 
 // AssemblyEmitter 实现
 string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
 {
     stringstream ss;
-
-    // 生成汇编头部
-    ss << ".text\n";
-    ss << ".globl main\n\n";
 
     // 生成全局变量段
     if (!module->getGlobalBlocks().empty())
@@ -1203,6 +1199,12 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
     // 生成函数
     for (const auto &func : module->getFunctions())
     {
+        // 检查是否是库函数，如果是则跳过生成
+        if (isLibraryFunction(func->getName()))
+        {
+            continue;
+        }
+
         ss << emitFunction(func) << "\n";
     }
 
@@ -1256,8 +1258,13 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
 
 bool AssemblyEmitter::isLibraryFunction(const string &funcName)
 {
-    // 检查是否是库函数
+    // 检查是否是库函数 - 包括SysY运行时库函数
     static const set<string> libFuncs = {
-        "printf", "scanf", "malloc", "free", "memcpy", "strlen"};
+        // 标准C库函数
+        "printf", "scanf", "malloc", "free", "memcpy", "strlen",
+        // SysY运行时库函数
+        "getint", "getch", "getfloat", "getarray", "getfarray",
+        "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
+        "starttime", "stoptime"};
     return libFuncs.count(funcName) > 0;
 }
