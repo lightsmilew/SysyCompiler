@@ -213,8 +213,16 @@ void InstructionSelector::visitInstruction(Instruction *inst)
         }
         break;
     case Opcode::SIToFP:
+        if (auto castInst = dynamic_cast<CastInst *>(inst))
+        {
+            visitSIToFPInst(castInst);
+        }
+        break;
     case Opcode::FPToSI:
-        // TODO: 处理类型转换指令
+        if (auto castInst = dynamic_cast<CastInst *>(inst))
+        {
+            visitFPToSIInst(castInst);
+        }
         break;
     default:
         // 其他指令暂时忽略
@@ -654,6 +662,41 @@ void InstructionSelector::visitFCmpInst(FCmpInst *inst)
         auto cmpInst = RISCVInstruction::createRType(opcode, destReg, lhsReg, rhsReg);
         currentBB->addInstruction(cmpInst);
     }
+
+    // 将结果存储到栈中
+    storeValueToStack(inst, destReg);
+}
+
+void InstructionSelector::visitSIToFPInst(CastInst *inst)
+{
+    // 处理有符号整数到浮点数的转换指令
+    auto srcReg = getOrCreateVirtualReg(inst->Operand);
+
+    // 创建目标浮点寄存器
+    auto destReg = make_shared<RISCVRegister>(RegisterType::FLOAT);
+
+    // 生成 RISC-V 的 fcvt.s.w 指令（整数到单精度浮点）
+    auto fcvtInst = RISCVInstruction::createRType(RISCVOpcode::FCVT_S_W, destReg, srcReg,
+                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    currentBB->addInstruction(fcvtInst);
+
+    // 将结果存储到栈中
+    storeValueToStack(inst, destReg);
+}
+
+void InstructionSelector::visitFPToSIInst(CastInst *inst)
+{
+    // 处理浮点数到有符号整数的转换指令
+    auto srcReg = getOrCreateVirtualReg(inst->Operand);
+
+    // 创建目标整数寄存器
+    auto destReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+
+    // 生成 RISC-V 的 fcvt.w.s 指令（单精度浮点到整数）
+    // 使用RTZ（Round toward Zero）舍入模式，这是C语言标准的行为
+    auto fcvtInst = RISCVInstruction::createRType(RISCVOpcode::FCVT_W_S, destReg, srcReg,
+                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    currentBB->addInstruction(fcvtInst);
 
     // 将结果存储到栈中
     storeValueToStack(inst, destReg);
