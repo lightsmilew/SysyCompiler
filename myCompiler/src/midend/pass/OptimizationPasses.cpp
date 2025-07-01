@@ -303,29 +303,247 @@ void BasicBlockMergePass::mergeBlocks(BasicBlock *bb1, BasicBlock *bb2) {
     bb2->getInstructions().clear();
     // 更新控制流图（可根据你的IR结构完善）
 }
+// ========== 循环不变代码移动 ==========
+bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) {
+    bool changed = false;
+    // 1. 查找所有循环
+    auto loops = findLoops(func);
+    for (auto &loop : loops) {
+        // 2. 找到循环的前置块（preheader）
+        BasicBlock *preheader = findPreheader(loop);
+        if (!preheader) continue;
+
+        // 3. 收集所有循环不变指令
+        std::vector<Instruction*> invariants;
+        bool foundNew;
+        do {
+            foundNew = false;
+            for (auto *bb : loop.blocks) {
+                for (auto &instPtr : bb->getInstructions()) {
+                    Instruction *inst = instPtr.get();
+                    // 只处理未被移动过的、无副作用、非终结指令
+                    if (std::find(invariants.begin(), invariants.end(), inst) == invariants.end() &&
+                        !inst->mayHaveSideEffects() && !inst->isTerminator() &&
+                        isLoopInvariant(inst, loop)) {
+                        invariants.push_back(inst);
+                        foundNew = true;
+                    }
+                }
+            }
+        } while (foundNew); // 递增收集直到收敛
+
+        // 4. 将循环不变指令移动到 preheader
+        for (auto *inst : invariants) {
+            // 从原基本块移除
+            auto &insts = inst->getParent()->getInstructions();
+            auto it = std::find_if(insts.begin(), insts.end(),
+                                   [&](const std::unique_ptr<Instruction>& ptr) { return ptr.get() == inst; });
+            if (it != insts.end()) {
+                // 转移所有权到 preheader
+                std::unique_ptr<Instruction> movedInst = std::move(*it);
+                insts.erase(it);
+                preheader->addInstruction(std::move(movedInst));
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+// 辅助：DFS遍历，记录访问顺序和父节点
+void dfs(BasicBlock* bb, std::unordered_map<BasicBlock*, int>& dfn, std::vector<BasicBlock*>& order, int& idx) {
+    dfn[bb] = idx++;
+    order.push_back(bb);
+    for (auto* succ : bb->getSuccessors()) {
+        if (!dfn.count(succ)) {
+            dfs(succ, dfn, order, idx);
+        }
+    }
+}
+
+// 查找所有自然循环（基于回边）
+std::vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops(Function *func) {
+    std::vector<Loop> loops;
+    auto& bbs = func->getBasicBlocks();
+    if (bbs.empty()) return loops;
+
+    // 1. DFS遍历，记录访问顺序
+    std::unordered_map<BasicBlock*, int> dfn;
+    std::vector<BasicBlock*> order;
+    int idx = 0;
+    dfs(bbs[0].get(), dfn, order, idx);
+
+    // 2. 查找回边（from->to, 且 dfn[to] <= dfn[from]）
+    for (auto& bbPtr : bbs) {
+        BasicBlock* bb = bbPtr.get();
+        for (auto* succ : bb->getSuccessors()) {
+            if (dfn.count(succ) && dfn[succ] <= dfn[bb]) {
+                // 发现回边，定义循环头为succ
+                Loop loop;
+                loop.header = succ;
+                // 3. 收集循环体（所有能从bb逆向走到succ的块）
+                std::unordered_set<BasicBlock*> loopBlocks;
+                std::stack<BasicBlock*> stk;
+                loopBlocks.insert(bb);
+                stk.push(bb);
+                while (!stk.empty()) {
+                    BasicBlock* cur = stk.top(); stk.pop();
+                    for (auto* pred : cur->getPredecessors()) {
+                        if (!loopBlocks.count(pred) && pred != succ) {
+                            loopBlocks.insert(pred);
+                            stk.push(pred);
+                        }
+                    }
+                }
+                loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
+                loop.blocks.push_back(succ); // 加入循环头
+                loops.push_back(loop);
+            }
+        }
+    }
+    return loops;
+}
+
+// 判断指令是否在循环不变
+bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop &loop) {
+    // 检查指令是否在循环中，并且不依赖于循环
+    for (auto *op : inst->getOperands()) {
+        if (auto *def = dynamic_cast<Instruction *>(op)) {
+            // 如果操作数是循环中的变量，则不是循环不变
+            if (loop.contains(def)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+// 查找循环头的前驱块
+BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop) {
+    // 查找循环头的前驱块，通常是循环的入口块
+    for (auto *bb : loop.blocks) {
+        if (bb->getPredecessors().size() == 1) {
+            return bb->getPredecessors()[0];
+        }
+    }
+    return nullptr; // 如果没有找到前驱块，返回nullptr
+}
 
 // ========== mem2reg（内存提升到SSA）Pass ==========
 bool Mem2RegPass::runOnFunction(Function *func) {
-    // 这里只给出思路伪代码，实际实现需结合你的IR结构
-    // 1. 找出所有可提升的alloca
-    // 2. 分析store/load，插入phi
-    // 3. 重命名变量，替换load/store
-    // 4. 删除alloca/store/load
-    // 详见LLVM PromoteMemoryToRegister.cpp
-    return false;
+    // 1. 找出所有可提升的 alloca
+    std::vector<AllocaInst*> promotableAllocas;
+    for (auto &bb : func->getBasicBlocks()) {
+        for (auto &instPtr : bb->getInstructions()) {
+            if (auto *alloca = dynamic_cast<AllocaInst*>(instPtr.get())) {
+                if (alloca->AllocatedType->isIntegerTy() || alloca->AllocatedType->isFloatTy()) {
+                    promotableAllocas.push_back(alloca);
+                }
+            }
+        }
+    }
+    if (promotableAllocas.empty()) return false;
+    bool changed = false;
+
+    // 2. 对每个 alloca 做提升
+    for (auto *alloca : promotableAllocas) {
+        // 记录所有 store/load
+        std::vector<StoreInst*> stores;
+        std::vector<LoadInst*> loads;
+        for (auto &bb : func->getBasicBlocks()) {
+            for (auto &instPtr : bb->getInstructions()) {
+                if (auto *store = dynamic_cast<StoreInst*>(instPtr.get())) {
+                    if (store->Pointer == alloca) stores.push_back(store);
+                } else if (auto *load = dynamic_cast<LoadInst*>(instPtr.get())) {
+                    if (load->Pointer == alloca) loads.push_back(load);
+                }
+            }
+        }
+
+        // 3. 建立每个基本块最后一次store的SSA值
+        std::unordered_map<BasicBlock*, Value*> lastStoreValue;
+        for (auto *store : stores) {
+            lastStoreValue[store->getParent()] = store->ValueToStore;
+        }
+
+        // 4. 替换所有load为SSA值（优先用phi，否则用最近store）
+        for (auto *load : loads) {
+            BasicBlock *bb = load->getParent();
+            Value *ssaValue = nullptr;
+            // 优先查找phi（你的IRBuilder已插入）
+            for (auto &instPtr : bb->getInstructions()) {
+                if (auto *phi = dynamic_cast<PHINode*>(instPtr.get())) {
+                    if (phi->getType() == alloca->AllocatedType) {
+                        ssaValue = phi;
+                        break;
+                    }
+                }
+            }
+            // 没有phi就用最近store
+            if (!ssaValue && lastStoreValue.count(bb)) {
+                ssaValue = lastStoreValue[bb];
+            }
+            // fallback: 可能是未初始化变量，给个默认值
+            if (!ssaValue) {
+                if (alloca->AllocatedType->isIntegerTy())
+                    ssaValue = new ConstantInt(IntegerType::getInstance(), 0);
+                else if (alloca->AllocatedType->isFloatTy())
+                    ssaValue = new ConstantFloat(FloatType::getInstance(), 0.0f);
+            }
+            load->replaceAllUsesWith(ssaValue);
+            changed = true;
+        }
+
+        // 5. 删除所有相关的 load/store/alloca 指令
+        for (auto &bb : func->getBasicBlocks()) {
+            auto &insts = bb->getInstructions();
+            insts.erase(std::remove_if(insts.begin(), insts.end(),
+                [&](const std::unique_ptr<Instruction>& inst) {
+                    return inst.get() == alloca ||
+                           (dynamic_cast<StoreInst*>(inst.get()) && static_cast<StoreInst*>(inst.get())->Pointer == alloca) ||
+                           (dynamic_cast<LoadInst*>(inst.get()) && static_cast<LoadInst*>(inst.get())->Pointer == alloca);
+                }), insts.end());
+        }
+    }
+
+    return changed;
 }
 
-// ========== SSA构造/phi消除等可类似实现 ==========
-
+// phi消除
+bool PhiEliminationPass::runOnFunction(Function *func) {
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks()) {
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();) {
+            Instruction *inst = it->get();
+            if (auto *phi = dynamic_cast<PHINode *>(inst)) {
+                // 如果phi只有一个输入，直接替换
+                if (phi->getNumIncomingValues() == 1) {
+                    Value *incomingValue = phi->getIncomingValue(0);
+                    phi->replaceAllUsesWith(incomingValue);
+                    it = insts.erase(it);
+                    changed = true;
+                } else {
+                    ++it;
+                }
+            } else {
+                ++it;
+            }
+        }
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose) {
     auto pm = std::make_unique<PassManager>(verbose);
     if (level == OptimizationLevel::O0) {
-        // 无优化
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>());
     } else if (level == OptimizationLevel::O1) {
         pm->addPass(std::make_unique<ConstantFoldingPass>());
         pm->addPass(std::make_unique<CopyPropagationPass>());
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>());
     } else if (level == OptimizationLevel::O2) {
         pm->addPass(std::make_unique<ConstantFoldingPass>());
         pm->addPass(std::make_unique<CopyPropagationPass>());
@@ -334,7 +552,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
         pm->addPass(std::make_unique<Mem2RegPass>());
-        // 可继续添加SSA构造、phi消除等
+        pm->addPass(std::make_unique<PhiEliminationPass>());
     }
     return pm;
 }

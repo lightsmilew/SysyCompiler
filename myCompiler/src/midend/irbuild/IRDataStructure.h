@@ -504,6 +504,8 @@ public:
         return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
                Op == Opcode::Ret || Op == Opcode::Alloca;
     }
+    // 获取基本块
+    BasicBlock *getParent() const { return Parent; }
     virtual string toString() const = 0;
 };
 
@@ -670,7 +672,10 @@ public:
     BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock)
         : Instruction(VoidType::getInstance(), Opcode::Br, vector<Value *>{cond}),
           TrueBlock(trueBlock), FalseBlock(falseBlock), Condition(cond) {}
-
+    // 是否为条件分支
+    bool isConditional() const { return Condition != nullptr; }
+    // 获取条件
+    Value *getCondition() const { return Condition; }
     string toString() const override;
 };
 
@@ -681,6 +686,26 @@ public:
 
     PHINode(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
+    // 添加前驱基本块和对应的值
+    void addIncoming(Value *value, BasicBlock *block)
+    {
+        IncomingValues.emplace_back(value, block);
+        addOperand(value); // 添加到操作数列表中
+    }
+    // 获取前驱基本块和对应的值长度
+    unsigned getNumIncomingValues() const
+    {
+        return IncomingValues.size();
+    }
+    // 获取前驱value
+    Value *getIncomingValue(unsigned index) const
+    {
+        if (index < IncomingValues.size())
+        {
+            return IncomingValues[index].first;
+        }
+        throw std::out_of_range("Invalid incoming value index");
+    }
     string toString() const override;
 };
 
@@ -792,7 +817,11 @@ public:
         Instruction *term = getTerminator();
         return term && (term->Op == Opcode::Ret || term->Op == Opcode::Br);
     }
-
+    bool contains(Instruction *inst) const
+    {
+        return std::any_of(Instructions.begin(), Instructions.end(),
+                           [inst](const unique_ptr<Instruction> &i) { return i.get() == inst; });
+    }
     string toString() const override;
 };
 

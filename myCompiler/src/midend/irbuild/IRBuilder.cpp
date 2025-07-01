@@ -393,7 +393,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // 合流块
     setCurrentBlock(mergeBlock);
 
-    // 插入PHI，只为被赋值的变量插入
+    // // 插入PHI，只为被赋值的变量插入
     for (const auto& [name, valThen] : varToValueThen) {
         auto itElse = varToValueElse.find(name);
         if (itElse != varToValueElse.end() && (valThen != itElse->second)) {
@@ -627,7 +627,7 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PHINode *phi = createPhi(BooleanType::getInstance(), getNextTempName());
+        PHINode *phi = createPhi(BooleanType::getInstance());
         phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
         phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 

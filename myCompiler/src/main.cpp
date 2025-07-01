@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include "midend/irbuild/IRBuilder.h"
+#include "midend/pass/OptimizationPasses.h"
 #include "backend/RISCVBuilder.h"
 
 using namespace antlr4;
@@ -58,9 +59,22 @@ int main(int argc, const char *argv[])
     auto ir_module = irbuilder.buildModule(ast_root);
 
     int num = argc > 1 ? argc - 1 : 0;
-
     if (argc > 2 && strcmp(argv[2], "-ir") == 0)
     {
+        if(argc>4&&strcmp(argv[3], "-opt") == 0)
+         {
+        // 执行优化
+            optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O2; // 默认O2级别
+             if (strcmp(argv[4], "O0") == 0)
+                 opt_level = optimization::OptimizationLevel::O0;
+             else if (strcmp(argv[4], "O1") == 0)
+                 opt_level = optimization::OptimizationLevel::O1;
+             else if (strcmp(argv[4], "O2") == 0)
+                opt_level = optimization::OptimizationLevel::O2;
+             else opt_level = optimization::OptimizationLevel::O0; // 默认O0级别     
+             auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+             pass_manager->runOnModule(ir_module.get());
+        }
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
     }
