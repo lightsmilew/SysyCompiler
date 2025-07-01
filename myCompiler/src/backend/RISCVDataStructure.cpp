@@ -608,10 +608,6 @@ namespace RISCV
         // 输出函数
         for (const auto &func : functions)
         {
-            if (func->getName() == "")
-            {
-                /* code */
-            }
 
             ss << func->toString() << "\n";
         }
