@@ -410,9 +410,11 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     //while.cond
     BasicBlock *condBlock = createBasicBlock();
     //while.body
-    BasicBlock *bodyBlock = createBasicBlock();
+    BasicBlock *bodyBlock = createBasicBlock("",{condBlock});
+    //添加condBlock前驱
+    condBlock->addPredecessor(bodyBlock);
     //while.end
-    BasicBlock *exitBlock = createBasicBlock();
+    BasicBlock *exitBlock = createBasicBlock("", {condBlock, bodyBlock});
 
     // 2. 记录循环前变量SSA状态
     auto varToValueBefore = varToValue;
@@ -502,7 +504,7 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
     }
 }
 
-// ===== 表达式访问实现 =====  这里需要检测int和float是否越界，左值表达式需要检测数组下标是否合法(非负以及不超过范围)
+// ===== 表达式访问实现 ===== 
 Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
@@ -593,11 +595,12 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
     if (node->op == BinaryOp::And)
     {
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
+        BasicBlock *lhsBlock = currentBlock;
         //"logical.rhs"
         BasicBlock *rhsBlock = createBasicBlock();
         //"logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
-        BasicBlock *lhsBlock = currentBlock;
+        BasicBlock *mergeBlock = createBasicBlock("", {lhsBlock, rhsBlock});
+
 
         Value *lhs = visitExpression(node->left);
 
@@ -615,19 +618,22 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // 合并块
         setCurrentBlock(mergeBlock);
         PhiInst *phi = createPhi(BooleanType::getInstance());
-        phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
-        phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 0), lhsBlock); // true from lhs
+        phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
+        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
+        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 
         return phi;
     }
     else if (node->op == BinaryOp::Or)
     {
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
+        BasicBlock *lhsBlock = currentBlock;
         //"logical.rhs"
         BasicBlock *rhsBlock = createBasicBlock();
         //"logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
-        BasicBlock *lhsBlock = currentBlock;
+        BasicBlock *mergeBlock = createBasicBlock("", {lhsBlock, rhsBlock});
+
 
         Value *lhs = visitExpression(node->left);
 
@@ -644,9 +650,11 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PhiInst *phi = createPhi(BooleanType::getInstance(), getNextTempName());
-        phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 1), lhsBlock}); // true from lhs
-        phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
+        PhiInst *phi = createPhi(BooleanType::getInstance());
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 1), lhsBlock); // true from lhs
+        phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
+        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 1), lhsBlock}); // true from lhs
+        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 
         return phi;
     }
@@ -1036,7 +1044,7 @@ bool IRBuilder::isConstVariable(Value *value){
 // ===== 基本块管理 =====
 BasicBlock *IRBuilder::createBasicBlock(const std::string &name,const vector<BasicBlock*> &beforeBlocks)
 {
-    std::string actualName = name.empty() ? getNextLabelName() : name;
+    std::string actualName = (name.empty()||name=="") ? getNextLabelName() : name;
     // 创建副本
     std::vector<BasicBlock*> blocks = beforeBlocks;
     // 对副本进行修改

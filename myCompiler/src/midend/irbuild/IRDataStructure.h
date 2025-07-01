@@ -471,6 +471,7 @@ public:
         case Opcode::FPToSI: return "fptosi";
         case Opcode::Call: return "call";
         case Opcode::Phi: return "phi";
+        case Opcode::Copy: return "copy";
         default: throw std::runtime_error("Unknown opcode");
         }
     }
@@ -494,10 +495,7 @@ public:
     // 是否为复制指令
     bool isCopy() const
     {
-        return Op == Opcode::Load
-            || Op == Opcode::GetElementPtr
-            || Op == Opcode::SIToFP
-            || Op == Opcode::FPToSI;
+        return Op == Opcode::Copy;
     }
     // 是否有负面作用
     bool mayHaveSideEffects() const

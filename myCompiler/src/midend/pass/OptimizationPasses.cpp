@@ -538,7 +538,7 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
                 Value *val = phi->getIncomingValue(i);
                 // 在前驱块末尾插入: %phi = val
                 // 这里假设有 createCopy/Move 指令工厂
-                auto copy = std::make_unique<CopyInst>(phi, val,phi->getName()); // CopyInst: %phi = val
+                auto copy = std::make_unique<CopyInst>(phi, val, phi->getName()); // CopyInst: %phi = val
                 pred->addInstruction(std::move(copy));
             }
             phi->replaceAllUsesWith(phi); // phi本身已被move覆盖

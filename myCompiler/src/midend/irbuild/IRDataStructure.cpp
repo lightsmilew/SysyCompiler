@@ -328,7 +328,7 @@ std::string PhiInst::toString() const
     {
         if (i > 0)
             ss << ",";
-        ss << " [ " << IncomingValues[i].first->toString()
+        ss << " [ " << IncomingValues[i].first->toRef()
            << ", %" << IncomingValues[i].second->getName() << " ]";
     }
 
