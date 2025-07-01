@@ -491,6 +491,7 @@ namespace RISCV
     {
         std::stringstream ss;
 
+        ss << ".globl" << label << "\n";
         ss << label << ":\n";
 
         // 优化连续的零数据

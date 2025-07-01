@@ -24,8 +24,6 @@ namespace RISCV
         // 流水线各阶段
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
-        void allocateRegisters();
-        void optimizeCode();
 
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);

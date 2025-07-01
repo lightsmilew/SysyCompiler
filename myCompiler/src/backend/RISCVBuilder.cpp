@@ -93,18 +93,18 @@ void RISCVBuilder::generateInstructions()
 //     }
 // }
 
-void RISCVBuilder::optimizeCode()
-{
-    // 为每个函数进行窥孔优化
-    // TODO: 实现窥孔优化
-    /*
-    for (const auto &func : riscvModule->getFunctions())
-    {
-        PeepholeOptimizer optimizer;
-        optimizer.optimize(func);
-    }
-    */
-}
+// void RISCVBuilder::optimizeCode()
+// {
+//     // 为每个函数进行窥孔优化
+//     // TODO: 实现窥孔优化
+//     /*
+//     for (const auto &func : riscvModule->getFunctions())
+//     {
+//         PeepholeOptimizer optimizer;
+//         optimizer.optimize(func);
+//     }
+//     */
+// }
 
 // ===== InstructionSelector 实现 =====
 
@@ -1193,7 +1193,6 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
     {
         ss << ".data\n";
         ss << emitGlobals(module->getGlobalBlocks());
-        ss << "\n.text\n";
     }
 
     // 生成函数
@@ -1205,7 +1204,9 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
             continue;
         }
 
-        ss << emitFunction(func) << "\n";
+        else
+
+            ss << emitFunction(func) << "\n";
     }
 
     return ss.str();
@@ -1226,6 +1227,9 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
     stringstream ss;
 
     // 函数标签
+    ss << ".text\n";
+    ss << ".globl " << func->getName() << "\n";
+
     ss << func->getName() << ":\n";
 
     // 生成每个基本块
