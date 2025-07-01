@@ -12,7 +12,11 @@ void PassManager::addPass(std::unique_ptr<Pass> pass) {
 
 bool PassManager::runOnModule(Module *module) {
     bool changed = false;
-    for (auto &func : module->Functions) {
+    // function从下标13开始 前13项为库函数
+    for(size_t i = 13; i < module->Functions.size(); ++i) {
+        auto &func = module->Functions[i];
+        if (verbose)
+            std::cout << "[Optimization] Running passes on function " << func->getName() << std::endl;
         for (auto &pass : passes) {
             if (verbose)
                 std::cout << "[Optimization] Running " << pass->getName()
@@ -471,7 +475,7 @@ bool Mem2RegPass::runOnFunction(Function *func) {
             Value *ssaValue = nullptr;
             // 优先查找phi（你的IRBuilder已插入）
             for (auto &instPtr : bb->getInstructions()) {
-                if (auto *phi = dynamic_cast<PHINode*>(instPtr.get())) {
+                if (auto *phi = dynamic_cast<PhiInst*>(instPtr.get())) {
                     if (phi->getType() == alloca->AllocatedType) {
                         ssaValue = phi;
                         break;
@@ -515,19 +519,31 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
         auto &insts = bb->getInstructions();
         for (auto it = insts.begin(); it != insts.end();) {
             Instruction *inst = it->get();
-            if (auto *phi = dynamic_cast<PHINode *>(inst)) {
-                // 如果phi只有一个输入，直接替换
-                if (phi->getNumIncomingValues() == 1) {
-                    Value *incomingValue = phi->getIncomingValue(0);
-                    phi->replaceAllUsesWith(incomingValue);
-                    it = insts.erase(it);
-                    changed = true;
-                } else {
-                    ++it;
-                }
-            } else {
+            auto *phi = dynamic_cast<PhiInst *>(inst);
+            if (!phi) {
                 ++it;
+                continue;
             }
+            // 1. 只有一个输入，直接替换
+            if (phi->getNumIncomingValues() == 1) {
+                Value *incomingValue = phi->getIncomingValue(0);
+                phi->replaceAllUsesWith(incomingValue);
+                it = insts.erase(it);
+                changed = true;
+                continue;
+            }
+            // 2. 多输入phi，插入move/copy到前驱块末尾
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i) {
+                BasicBlock *pred = phi->getIncomingBlock(i);
+                Value *val = phi->getIncomingValue(i);
+                // 在前驱块末尾插入: %phi = val
+                // 这里假设有 createCopy/Move 指令工厂
+                auto copy = std::make_unique<CopyInst>(phi, val,phi->getName()); // CopyInst: %phi = val
+                pred->addInstruction(std::move(copy));
+            }
+            phi->replaceAllUsesWith(phi); // phi本身已被move覆盖
+            it = insts.erase(it);
+            changed = true;
         }
     }
     return changed;

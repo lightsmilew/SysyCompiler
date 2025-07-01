@@ -104,7 +104,7 @@ namespace ir_builder
         void createBranch(BasicBlock *target);                                                  // 无条件跳转
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
-        PHINode *createPhi(Type *type, const std::string &name = "");
+        PhiInst *createPhi(Type *type, const std::string &name = "");
                                    // PHI 指令
         size_t getArrayTotalElements(Type* type);
         vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);

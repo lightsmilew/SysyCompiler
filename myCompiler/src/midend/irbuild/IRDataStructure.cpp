@@ -319,7 +319,7 @@ std::string BranchInst::toString() const
     return ss.str();
 }
 
-std::string PHINode::toString() const
+std::string PhiInst::toString() const
 {
     std::stringstream ss;
     ss << "%" << getName() << " = phi " << getType()->toString();
@@ -332,6 +332,14 @@ std::string PHINode::toString() const
            << ", %" << IncomingValues[i].second->getName() << " ]";
     }
 
+    return ss.str();
+}
+// ===== CopyInst Implementation =====
+std::string CopyInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = " << Source->getType()->toString()
+       << " " << Source->toRef();
     return ss.str();
 }
 

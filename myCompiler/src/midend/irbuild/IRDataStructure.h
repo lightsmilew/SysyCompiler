@@ -426,7 +426,8 @@ enum class Opcode
     // Other operations
     Call,
     // when there are multiple predecessors, we use PHI node to select the value
-    Phi
+    Phi,
+    Copy // 用于复制值的指令
 };
 
 class Instruction : public User
@@ -679,12 +680,12 @@ public:
     string toString() const override;
 };
 
-class PHINode : public Instruction
+class PhiInst : public Instruction
 {
 public:
     vector<pair<Value *, BasicBlock *>> IncomingValues;
 
-    PHINode(Type *ty, const string &name = "")
+    PhiInst(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
     // 添加前驱基本块和对应的值
     void addIncoming(Value *value, BasicBlock *block)
@@ -705,6 +706,15 @@ public:
             return IncomingValues[index].first;
         }
         throw std::out_of_range("Invalid incoming value index");
+    }
+    // 获取前驱基本块
+    BasicBlock *getIncomingBlock(unsigned index) const
+    {
+        if (index < IncomingValues.size())
+        {
+            return IncomingValues[index].second;
+        }
+        throw std::out_of_range("Invalid incoming block index");
     }
     string toString() const override;
 };
@@ -737,6 +747,16 @@ public:
         : Instruction(destType, op, vector<Value *>{operand}, name),
           Operand(operand), DestType(destType) {}
 
+    string toString() const override;
+};
+class CopyInst : public Instruction
+{
+public:
+    Value *Dest;
+    Value *Source;
+    CopyInst(Value *dest, Value *source,const string &name = "")
+        : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name),
+          Dest(dest),Source(source) {}
     string toString() const override;
 };
 
