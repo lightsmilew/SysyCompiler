@@ -23,6 +23,8 @@ file(GLOB GENERATE_SRC "src/frontend/generate/*.cpp")
 file(GLOB COMMON_SRC "src/common/*.cpp")
 # 查找irbuild源文件
 file(GLOB IR_BUILDER_SRC "src/midend/irbuild/*.cpp")
+# 查找中端pass源文件
+file(GLOB IR_PASS_SRC "src/midend/pass/*.cpp")
 # 查找后端源文件
 file(GLOB BACKEND_SRC "src/backend/*.cpp")
 set(SRC
@@ -31,6 +33,7 @@ set(SRC
     ${COMMON_SRC}
     # 添加中端处理的源文件
     ${IR_BUILDER_SRC}
+    ${IR_PASS_SRC}
     ${BACKEND_SRC}
     # 添加其他源文件
     src/main.cpp

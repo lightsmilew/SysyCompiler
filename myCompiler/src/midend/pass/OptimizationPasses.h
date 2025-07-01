@@ -1,5 +1,5 @@
 #pragma once
-#include "IRDataStructure.h"
+#include "../irbuild/IRDataStructure.h"
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -117,8 +117,15 @@ private:
     struct Loop
     {
         BasicBlock *header;
+        //blocks是循环体内的所有基本块
+        //exits是循环的出口基本块（可能有多个）
         std::vector<BasicBlock *> blocks;
         std::vector<BasicBlock *> exits;
+        bool contains(Instruction *inst) const
+        {
+            return std::any_of(blocks.begin(), blocks.end(),
+                               [&](BasicBlock *bb) { return bb->contains(inst); });
+        }
     };
 
     std::vector<Loop> findLoops(Function *func);
@@ -136,15 +143,15 @@ private:
     // 可添加辅助函数，如插入phi、重命名变量等
 };
 
-// 8. SSA 构造 Pass（如果你有非SSA IR，可以单独做SSA化）
-class SSAConstructionPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    std::string getName() const override { return "SSAConstruction"; }
-private:
-    // 可添加辅助函数
-};
+// // 8. SSA 构造 Pass（如果你有非SSA IR，可以单独做SSA化）
+// class SSAConstructionPass : public Pass
+// {
+// public:
+//     bool runOnFunction(Function *func) override;
+//     std::string getName() const override { return "SSAConstruction"; }
+// private:
+//     // 可添加辅助函数
+// };
 
 // 9. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
