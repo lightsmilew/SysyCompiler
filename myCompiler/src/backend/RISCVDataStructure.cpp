@@ -226,6 +226,7 @@ namespace RISCV
     string RISCVInstruction::toString() const
     {
         std::stringstream ss;
+        bool memoryAccess = false;
 
         // 操作码转字符串
         auto opcodeToString = [](RISCVOpcode op) -> string
@@ -355,14 +356,33 @@ namespace RISCV
 
         ss << "    " << opcodeToString(opcode);
 
-        // 添加操作数
-        for (size_t i = 0; i < operands.size(); ++i)
+        // 特殊处理内存访问指令的操作数格式
+        if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
         {
-            if (i == 0)
-                ss << " ";
-            else
-                ss << ", ";
-            ss << operands[i]->toString();
+            // S-Type: sw rs2, offset(rs1)
+            // operands[0] = rs1 (基址), operands[1] = rs2 (源值), operands[2] = offset
+            ss << " " << operands[1]->toString() << ", " << operands[2]->toString() << "(" << operands[0]->toString() << ")";
+        }
+        else if ((instrType == InstructionType::I_TYPE) &&
+                 (opcode == RISCVOpcode::LW || opcode == RISCVOpcode::LH || opcode == RISCVOpcode::LB ||
+                  opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU || opcode == RISCVOpcode::FLW) &&
+                 operands.size() >= 3)
+        {
+            // I-Type内存加载: lw rd, offset(rs1)
+            // operands[0] = rd (目标), operands[1] = rs1 (基址), operands[2] = offset
+            ss << " " << operands[0]->toString() << ", " << operands[2]->toString() << "(" << operands[1]->toString() << ")";
+        }
+        else
+        {
+            // 其他指令按正常顺序输出操作数
+            for (size_t i = 0; i < operands.size(); ++i)
+            {
+                if (i == 0)
+                    ss << " ";
+                else
+                    ss << ", ";
+                ss << operands[i]->toString();
+            }
         }
 
         if (!comment.empty())
@@ -491,7 +511,7 @@ namespace RISCV
     {
         std::stringstream ss;
 
-        ss << ".globl" << label << "\n";
+        ss << ".globl " << label << "\n";
         ss << label << ":\n";
 
         // 优化连续的零数据

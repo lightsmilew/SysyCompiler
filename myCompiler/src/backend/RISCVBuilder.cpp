@@ -902,9 +902,8 @@ void InstructionSelector::generateFloatConstantLoad(shared_ptr<RISCVRegister> re
     if (value == 0.0f)
     {
         // 直接使用fmv.w.x将zero寄存器的值移动到浮点寄存器
-        auto fmvInst = RISCVInstruction::createRType(RISCVOpcode::FMV_W_X, reg,
-                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+        auto fmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, reg,
+                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
         currentBB->addInstruction(fmvInst);
         return;
     }
@@ -913,8 +912,7 @@ void InstructionSelector::generateFloatConstantLoad(shared_ptr<RISCVRegister> re
     generateConstantLoad(tempIntReg, static_cast<int64_t>(bits));
 
     // 使用fmv.w.x指令将整数寄存器的值移动到浮点寄存器
-    auto fmvInst = RISCVInstruction::createRType(RISCVOpcode::FMV_W_X, reg, tempIntReg,
-                                                 make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    auto fmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, reg, tempIntReg);
     currentBB->addInstruction(fmvInst);
 }
 
@@ -1343,13 +1341,17 @@ shared_ptr<RISCVRegister> InstructionSelector::getGeneralTempRegister(int index)
         RISCVRegister::PhysicalReg::T6  // index 6: 备用
     };
 
-    if (index >= 0 && index < tempRegs.size())
+    // 如果指定了特定的index，使用指定的寄存器
+    if (index > 0 && index < tempRegs.size())
     {
         return make_shared<RISCVRegister>(tempRegs[index]);
     }
 
-    // 默认返回T0
-    return make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0);
+    // 否则使用轮换策略避免冲突
+    int rotatedIndex = generalTempCounter % tempRegs.size();
+    generalTempCounter++;
+
+    return make_shared<RISCVRegister>(tempRegs[rotatedIndex]);
 }
 
 shared_ptr<RISCVRegister> InstructionSelector::getFloatTempRegister(int index)
@@ -1370,11 +1372,15 @@ shared_ptr<RISCVRegister> InstructionSelector::getFloatTempRegister(int index)
         RISCVRegister::PhysicalReg::FT11  // index 11: 备用
     };
 
-    if (index >= 0 && index < tempRegs.size())
+    // 如果指定了特定的index，使用指定的寄存器
+    if (index > 0 && index < tempRegs.size())
     {
         return make_shared<RISCVRegister>(tempRegs[index]);
     }
 
-    // 默认返回FT0
-    return make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0);
+    // 否则使用轮换策略避免冲突
+    int rotatedIndex = floatTempCounter % tempRegs.size();
+    floatTempCounter++;
+
+    return make_shared<RISCVRegister>(tempRegs[rotatedIndex]);
 }
