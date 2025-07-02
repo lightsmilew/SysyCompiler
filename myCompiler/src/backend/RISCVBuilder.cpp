@@ -473,25 +473,29 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 
     StackFrame &stackFrame = currentFunc->getStackFrame();
 
-    // 获取alloca分配的栈偏移地址
-    Type *allocatedType = inst->AllocatedType;
-    int allocatedSize = 4; // 默认值
-
-    if (allocatedType->isArrayTy())
+    // 检查是否已经为该alloca分配了栈空间
+    if (!stackFrame.hasAllocation(inst))
     {
-        auto arrayType = static_cast<ArrayType *>(allocatedType);
-        int elementSize = arrayType->getElementType()->isFloatTy() ? 4 : 4;
-        allocatedSize = arrayType->getNumElements() * elementSize;
-    }
-    else if (allocatedType->isIntegerTy() || allocatedType->isFloatTy())
-    {
-        allocatedSize = 4;
+        // 如果没有分配（虽然预扫描应该已经分配），现在分配
+        Type *allocatedType = inst->AllocatedType;
+        int allocatedSize = 4; // 默认值
+
+        if (allocatedType->isArrayTy())
+        {
+            auto arrayType = static_cast<ArrayType *>(allocatedType);
+            int elementSize = arrayType->getElementType()->isFloatTy() ? 4 : 4;
+            allocatedSize = arrayType->getNumElements() * elementSize;
+        }
+        else if (allocatedType->isIntegerTy() || allocatedType->isFloatTy())
+        {
+            allocatedSize = 4;
+        }
+
+        stackFrame.allocateSpace(inst, allocatedSize);
     }
 
-    // 为局部变量分配栈空间（在局部变量区域）
-    static int localVarOffset = 0;
-    int varOffset = localVarOffset;
-    localVarOffset += allocatedSize;
+    // 获取alloca的栈偏移
+    int varOffset = stackFrame.getOffset(inst);
 
     // 创建临时寄存器保存地址
     auto tempReg = getGeneralTempRegister(0);
@@ -732,9 +736,19 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     StackFrame &stackFrame = currentFunc->getStackFrame();
     if (stackFrame.hasAllocation(value))
     {
+        // 检查是否已经有加载过的寄存器
+        auto existing = registerMap.find(value);
+        if (existing != registerMap.end())
+        {
+            return existing->second;
+        }
+
         // 从栈中加载值到新的虚拟寄存器
         RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
         auto virtualReg = getTempRegister(regType, 0);
+
+        // 先保存映射，避免递归调用
+        registerMap[value] = virtualReg;
 
         // 生成从栈加载的指令
         int offset = stackFrame.getOffset(value);
@@ -745,7 +759,12 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
 
     // 默认情况：创建新的虚拟寄存器
     RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    return getTempRegister(regType, 0);
+    auto newReg = getTempRegister(regType, 0);
+
+    // 保存映射
+    registerMap[value] = newReg;
+
+    return newReg;
 }
 
 void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg)
@@ -1339,10 +1358,8 @@ shared_ptr<RISCVRegister> InstructionSelector::getGeneralTempRegister(int index)
         RISCVRegister::PhysicalReg::T4, // index 4: 备用
         RISCVRegister::PhysicalReg::T5, // index 5: 备用
         RISCVRegister::PhysicalReg::T6  // index 6: 备用
-    };
-
-    // 如果指定了特定的index，使用指定的寄存器
-    if (index > 0 && index < tempRegs.size())
+    }; // 如果指定了特定的index，使用指定的寄存器
+    if (index >= 1 && index < tempRegs.size())
     {
         return make_shared<RISCVRegister>(tempRegs[index]);
     }
@@ -1370,10 +1387,8 @@ shared_ptr<RISCVRegister> InstructionSelector::getFloatTempRegister(int index)
         RISCVRegister::PhysicalReg::FT9,  // index 9: 备用
         RISCVRegister::PhysicalReg::FT10, // index 10: 备用
         RISCVRegister::PhysicalReg::FT11  // index 11: 备用
-    };
-
-    // 如果指定了特定的index，使用指定的寄存器
-    if (index > 0 && index < tempRegs.size())
+    }; // 如果指定了特定的index，使用指定的寄存器
+    if (index >= 1 && index < tempRegs.size())
     {
         return make_shared<RISCVRegister>(tempRegs[index]);
     }
