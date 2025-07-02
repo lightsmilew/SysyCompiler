@@ -25,49 +25,49 @@ void IRBuilder::initializeLibraryFunctions()
     }
     // int getarray(int a[]);
     {
-        std::vector<Type*> params = { new PointerType(IntegerType::getInstance()) };
+        Vector<Type*> params = { new PointerType(IntegerType::getInstance()) };
         FunctionType* funcType = new FunctionType(IntegerType::getInstance(), params);
         module->addFunction(funcType, "getarray");
     }
     // int getfarray(float a[]);
     {
-        std::vector<Type*> params = { new PointerType(FloatType::getInstance()) };
+        Vector<Type*> params = { new PointerType(FloatType::getInstance()) };
         FunctionType* funcType = new FunctionType(IntegerType::getInstance(), params);
         module->addFunction(funcType, "getfarray");
     }
     // void putint(int a);
     {
-        std::vector<Type*> params = { IntegerType::getInstance() };
+        Vector<Type*> params = { IntegerType::getInstance() };
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putint");
     }
     // void putch(int a);
     {
-        std::vector<Type*> params = { IntegerType::getInstance() };
+        Vector<Type*> params = { IntegerType::getInstance() };
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putch");
     }
     // void putfloat(float a);
     {
-        std::vector<Type*> params = { FloatType::getInstance() };
+        Vector<Type*> params = { FloatType::getInstance() };
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putfloat");
     }
     // void putarray(int n, int a[]);
     {
-        std::vector<Type*> params = { IntegerType::getInstance(), new PointerType(IntegerType::getInstance()) };
+        Vector<Type*> params = { IntegerType::getInstance(), new PointerType(IntegerType::getInstance()) };
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putarray");
     }
     // void putfarray(int n, float a[]);
     {
-        std::vector<Type*> params = { IntegerType::getInstance(), new PointerType(FloatType::getInstance()) };
+        Vector<Type*> params = { IntegerType::getInstance(), new PointerType(FloatType::getInstance()) };
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putfarray");
     }
     // void putf(string a); 这里假设 string 用 i8* 表示
     {
-        std::vector<Type*> params = { StringType::getInstance() }; 
+        Vector<Type*> params = { StringType::getInstance() }; 
         FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
         module->addFunction(funcType, "putf");
     }
@@ -109,7 +109,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
 {
     // 创建函数类型
     Type *retType = convertASTTypeToIRType(node->returnType,false);
-    std::vector<Type *> paramTypes;
+    Vector<Type *> paramTypes;
     for (auto &param : node->params)
     {
         paramTypes.push_back(convertASTTypeToIRType(param->type,true));
@@ -340,7 +340,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     BasicBlock *thenBlock = createBasicBlock();
     //if.else
     BasicBlock *elseBlock = node->else_body ? createBasicBlock() : nullptr;
-    vector<BasicBlock*> preblocks = {thenBlock};
+    Vector<BasicBlock*> preblocks = {thenBlock};
     if (elseBlock)
     {
         preblocks.push_back(elseBlock);
@@ -364,7 +364,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     }
 
     // else 分支
-    std::unordered_map<std::string, Value*> varToValueElse = varToValueBefore;
+    std::unordered_map<String, Value*> varToValueElse = varToValueBefore;
     if (elseBlock)
     {
         setCurrentBlock(elseBlock);
@@ -448,7 +448,7 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     // 9. 回到 condBlock，插入 PHI，只为被赋值的变量插入
     setCurrentBlock(condBlock); // 确保在 condBlock 插入
     //用于记录每个变量名对应的 PHI 节点指针，便于后续查找和管理
-    std::unordered_map<std::string, PhiInst*> phiNodes;
+    std::unordered_map<String, PhiInst*> phiNodes;
     for (const auto& [name, valueBefore] : varToValueBefore) {
         auto it = varToValueAfter.find(name);
         // 只为循环体内被赋值的变量插入PHI
@@ -675,7 +675,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     // 处理数组索引
     if (!node->indices.empty())
     {
-        std::vector<Value *> indices;
+        Vector<Value *> indices;
         // 如果原类型为数组，则加0解引用
         if (ptr->getType()->isArrayTy()) 
         {
@@ -699,7 +699,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     }
     // 如果是数组类型且无下标，自动退化为指针（GEP 0,0)
     if (ptr->getType()->isArrayTy()) {
-        std::vector<Value *> indices;
+        Vector<Value *> indices;
         indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         //indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         //获取到原来维度大小
@@ -721,7 +721,7 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
     {
         throw std::runtime_error("Undefined function: " + node->callee+",line:"+ std::to_string(node->line));
     }
-    std::vector<Value *> args;
+    Vector<Value *> args;
     for (size_t i = 0; i < node->args.size(); i++)
     {
         Value *arg = visitExpression(node->args[i]);
@@ -732,7 +732,7 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
             Type *expElemType = static_cast<PointerType*>(expectedType)->ElementType;
             if (argElemType->isArrayTy()&& !argElemType->isTypeEqual(argElemType, expElemType)) {
                 // 退化一维
-                std::vector<Value*> indices;
+                Vector<Value*> indices;
                 indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
                // indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
                 auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
@@ -787,7 +787,7 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
         for (size_t i = 0; i < node->multiInitVal.size(); ++i)
         {
             // 计算当前元素的 GEP
-            std::vector<Value *> indices;
+            Vector<Value *> indices;
             indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
 
             // 递归初始化子元素
@@ -812,9 +812,9 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
 // 新增重载 处理数组初始化表达式
 // 支持平铺和嵌套初始化的递归数组初始化
 void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr) {
-    std::vector<int> indices;
+    Vector<int> indices;
     size_t flat_idx = 0;
-    std::vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
+    Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
 
     // 展平所有叶子节点，用于底层赋值
     flattenInitList(node, flat_inits);
@@ -830,7 +830,7 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
 }
 
 // 展开所有叶子节点到 flat_inits
-void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits) {
+void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits) {
     if (!node) return;
     if (node->singleInitVal) {
         flat_inits.push_back(node);
@@ -842,9 +842,9 @@ void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::ve
 }
 
 void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
-                                  std::vector<int>& indices,
+                                  Vector<int>& indices,
                                   std::shared_ptr<ast::InitExprNode> initNode,
-                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                  const Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
                                   size_t& flat_idx) {
     if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
         int dim = arrayType->getNumElements();
@@ -865,7 +865,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
         }
     } else {
         // 到达最底层元素
-        std::vector<Value *> gep_indices;
+        Vector<Value *> gep_indices;
         gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         for (int idx : indices) {
             gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
@@ -887,7 +887,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
 }
 // 用于数组初始化 递归返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
-    std::vector<Constant*> elements;
+    Vector<Constant*> elements;
     int dim = arrayType->getNumElements();
     Type *elemType = arrayType->ElementType;
     size_t i = 0;
@@ -1037,11 +1037,11 @@ bool IRBuilder::isConstVariable(Value *value){
     return true;
 }
 // ===== 基本块管理 =====
-BasicBlock *IRBuilder::createBasicBlock(const std::string &name,const vector<BasicBlock*> &beforeBlocks)
+BasicBlock *IRBuilder::createBasicBlock(const String &name,const Vector<BasicBlock*> &beforeBlocks)
 {
-    std::string actualName = (name.empty()||name=="") ? getNextLabelName() : name;
+    String actualName = (name.empty()||name=="") ? getNextLabelName() : name;
     // 创建副本
-    std::vector<BasicBlock*> blocks = beforeBlocks;
+    Vector<BasicBlock*> blocks = beforeBlocks;
     // 对副本进行修改
     if (blocks.empty()) 
     {
@@ -1212,7 +1212,7 @@ void IRBuilder::createStore(Value *value, Value *ptr)
     auto storeInst = std::make_unique<StoreInst>(value, ptr);
     currentBlock->addInstruction(std::move(storeInst));
 }
-Value *IRBuilder::createAlloca(Type *type, const std::string &name)
+Value *IRBuilder::createAlloca(Type *type, const String &name)
 {
     auto allocaInst = std::make_unique<AllocaInst>(type, name.empty() ? getNextTempName() : name);
     Value *result = allocaInst.get();
@@ -1220,7 +1220,7 @@ Value *IRBuilder::createAlloca(Type *type, const std::string &name)
     return result;
 }
 
-Value *IRBuilder::createCall(Function *func, const std::vector<Value *> &args)
+Value *IRBuilder::createCall(Function *func, const Vector<Value *> &args)
 {  
     auto callInst = std::make_unique<CallInst>(func, args, getNextTempName());
     Value *result = callInst.get();
@@ -1256,7 +1256,7 @@ void IRBuilder::createReturn(Value *value)
     currentBlock->addInstruction(std::move(retInst));
 }
 
-PhiInst *IRBuilder::createPhi(Type *type, const std::string &name)
+PhiInst *IRBuilder::createPhi(Type *type, const String &name)
 {
     std::string actualName = name.empty() ? getNextTempName() : name;
     auto phiInst = std::make_unique<PhiInst>(type, actualName);
@@ -1385,7 +1385,7 @@ size_t IRBuilder::getArrayTotalElements(Type* type) {
         return 1;
     }
 }
-vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
+Vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
     shared_ptr<ast::InitExprNode> node) {
     if (!node) return {};
     if (node->multiInitVal.empty()) {

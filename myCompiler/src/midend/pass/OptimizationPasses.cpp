@@ -55,6 +55,7 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
     for (auto &bb : func->getBasicBlocks()) {
         for (auto &instPtr : bb->getInstructions()) {
             Instruction *inst = instPtr.get();
+            //如果是关键指令
             if (isInstructionCritical(inst)) {
                 liveInsts.insert(inst);
                 worklist.push(inst);
@@ -194,15 +195,13 @@ Value *ConstantFoldingPass::foldComparison(ICmpInst *cmpInst) {
         case ICmpInst::Predicate::ICMP_SGE: res = (l >= r); break;
         default: return nullptr;
     }
-    return new ConstantInt(IntegerType::getInstance(), res ? 1 : 0);
+    return new ConstantBool(BooleanType::getInstance(), res);
 }
 
 bool ConstantFoldingPass::isConstant(Value *val) {
-    return dynamic_cast<ConstantInt *>(val) != nullptr;
-}
-int ConstantFoldingPass::getConstantValue(Value *val) {
-    if (auto *c = dynamic_cast<ConstantInt *>(val)) return c->Value;
-    return 0;
+    return dynamic_cast<ConstantInt *>(val) != nullptr||
+           dynamic_cast<ConstantFloat *>(val) != nullptr||
+           dynamic_cast<ConstantBool *>(val) != nullptr;
 }
 
 // ========== 公共子表达式消除 ==========
@@ -226,8 +225,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func) {
     return changed;
 }
 // 为每个指令生成唯一的表达式键
-std::pair<std::string, std::vector<Value *>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst) {
-    std::vector<Value *> ops = inst->getOperands();
+std::pair<string, vector<Value *>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst) {
+    vector<Value *> ops = inst->getOperands();
     return {inst->getOpcodeName(), ops};
 }
 // 判断指令是否可以作为公共子表达式
@@ -236,8 +235,8 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     return inst->isBinaryOp() && !inst->mayHaveSideEffects();
 }
 // 哈希函数，用于表达式键的哈希表
-std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<std::string, std::vector<Value *>> &expr) const {
-    std::size_t h = std::hash<std::string>()(expr.first);
+std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<string, vector<Value *>> &expr) const {
+    std::size_t h = std::hash<string>()(expr.first);
     for (auto *v : expr.second) h ^= std::hash<void *>()(v);
     return h;
 }
@@ -269,7 +268,8 @@ void CopyPropagationPass::collectCopies(Function *func) {
             Instruction *inst = instPtr.get();
             // 假设mov/copy指令为: %a = %b
             if (inst->isCopy()) {
-                copyMap[inst] = inst->getOperand(0);
+                // 记录复制关系 从第2个操作数复制到第1个操作数
+                copyMap[inst->getOperand(0)] = inst->getOperand(1);
             }
         }
     }
@@ -305,7 +305,16 @@ void BasicBlockMergePass::mergeBlocks(BasicBlock *bb1, BasicBlock *bb2) {
         bb1->addInstruction(std::move(inst));
     }
     bb2->getInstructions().clear();
-    // 更新控制流图（可根据你的IR结构完善）
+    // 更新前驱和后继关系
+    for (auto *succ : bb2->getSuccessors()) {
+        // 将bb2的后继转移到bb1
+        bb1->addSuccessor(succ);
+        // 更新后继的前驱为bb1
+        succ->removePredecessor(bb2);
+        succ->addPredecessor(bb1);
+    }
+    // 删除bb2
+    delete bb2;
 }
 // ========== 循环不变代码移动 ==========
 bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) {
@@ -318,7 +327,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) {
         if (!preheader) continue;
 
         // 3. 收集所有循环不变指令
-        std::vector<Instruction*> invariants;
+        vector<Instruction*> invariants;
         bool foundNew;
         do {
             foundNew = false;
@@ -355,7 +364,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) {
 }
 
 // 辅助：DFS遍历，记录访问顺序和父节点
-void dfs(BasicBlock* bb, std::unordered_map<BasicBlock*, int>& dfn, std::vector<BasicBlock*>& order, int& idx) {
+void dfs(BasicBlock* bb, std::unordered_map<BasicBlock*, int>& dfn, vector<BasicBlock*>& order, int& idx) {
     dfn[bb] = idx++;
     order.push_back(bb);
     for (auto* succ : bb->getSuccessors()) {
@@ -366,14 +375,14 @@ void dfs(BasicBlock* bb, std::unordered_map<BasicBlock*, int>& dfn, std::vector<
 }
 
 // 查找所有自然循环（基于回边）
-std::vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops(Function *func) {
-    std::vector<Loop> loops;
+vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops(Function *func) {
+    vector<Loop> loops;
     auto& bbs = func->getBasicBlocks();
     if (bbs.empty()) return loops;
 
     // 1. DFS遍历，记录访问顺序
     std::unordered_map<BasicBlock*, int> dfn;
-    std::vector<BasicBlock*> order;
+    vector<BasicBlock*> order;
     int idx = 0;
     dfs(bbs[0].get(), dfn, order, idx);
 
@@ -435,7 +444,7 @@ BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop) {
 // ========== mem2reg（内存提升到SSA）Pass ==========
 bool Mem2RegPass::runOnFunction(Function *func) {
     // 1. 找出所有可提升的 alloca
-    std::vector<AllocaInst*> promotableAllocas;
+    vector<AllocaInst*> promotableAllocas;
     for (auto &bb : func->getBasicBlocks()) {
         for (auto &instPtr : bb->getInstructions()) {
             if (auto *alloca = dynamic_cast<AllocaInst*>(instPtr.get())) {
@@ -451,8 +460,8 @@ bool Mem2RegPass::runOnFunction(Function *func) {
     // 2. 对每个 alloca 做提升
     for (auto *alloca : promotableAllocas) {
         // 记录所有 store/load
-        std::vector<StoreInst*> stores;
-        std::vector<LoadInst*> loads;
+        vector<StoreInst*> stores;
+        vector<LoadInst*> loads;
         for (auto &bb : func->getBasicBlocks()) {
             for (auto &instPtr : bb->getInstructions()) {
                 if (auto *store = dynamic_cast<StoreInst*>(instPtr.get())) {
@@ -547,8 +556,8 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
                 pred->insert(std::move(copy), termIt - predInsts.begin());
             }
             //从基本块中删除原来指令，phi对应value仍然保留
-            //needToDelete.push_back(it->release()); // 释放所有权，但不析构
-            Instruction *phiPtr = it->release(); // 释放所有权，但不析构
+            needToDelete.push_back(it->release()); // 释放所有权，但不析构
+            //Instruction *phiPtr = it->release(); // 释放所有权，但不析构
             it = insts.erase(it);
             changed = true;
         }

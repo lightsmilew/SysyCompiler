@@ -16,9 +16,9 @@ namespace ir_builder
         BasicBlock *currentBlock;       // 当前基本块
 
         // === 符号表管理 ===
-        std::unordered_map<std::string, Constant*> constVarInitValues;        // 常量符号表                               
-        std::unordered_map<std::string, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
-        std::stack<std::unordered_map<std::string, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
+        std::unordered_map<String, Constant*> constVarInitValues;        // 常量符号表                               
+        std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
+        std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
         struct LoopContext
@@ -36,7 +36,7 @@ namespace ir_builder
 
     public:
         // === 构造与初始化 ===
-        IRBuilder( const std::string &moduleName = "main_module")
+        IRBuilder( const String &moduleName = "main_module")
             : currentFunction(nullptr), currentBlock(nullptr),
               tempVarCounter(0), labelCounter(0)
         {
@@ -84,7 +84,7 @@ namespace ir_builder
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);
 
         // 基本块管理
-        BasicBlock *createBasicBlock(const std::string &name = "",const vector<BasicBlock*> &beforeblocks = {});
+        BasicBlock *createBasicBlock(const String &name = "",const Vector<BasicBlock*> &beforeblocks = {});
         void setCurrentBlock(BasicBlock *block);
 
         // 指令生成辅助
@@ -93,22 +93,22 @@ namespace ir_builder
         Value *createUnaryOp(ast::UnaryOp op, Value *operand);
         Value *createLoad(Value *ptr);
         void createStore(Value *value, Value *ptr);
-        Value *createAlloca(Type *type, const std::string &name = "");
-        Value *createCall(Function *func, const std::vector<Value *> &args);
+        Value *createAlloca(Type *type, const String &name = "");
+        Value *createCall(Function *func, const Vector<Value *> &args);
         void createBranch(BasicBlock *target);                                                  // 无条件跳转
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
-        PhiInst *createPhi(Type *type, const std::string &name = "");
+        PhiInst *createPhi(Type *type, const String &name = "");
  
         // 辅助函数 用于支持嵌套和平铺赋值
-        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
+        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
         void visitInitExprImpl(Type *targetType, Value *targetPtr,
-                                  std::vector<int>& indices,
+                                  Vector<int>& indices,
                                   std::shared_ptr<ast::InitExprNode> initNode,
-                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                  const Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
                                   size_t& flat_idx);
         size_t getArrayTotalElements(Type* type);
-        vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
+        Vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
 
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
         bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
@@ -120,17 +120,17 @@ namespace ir_builder
         Value *createCast(Value *value, Type *targetType);
         Value *convertToBool(Value *value);                                                     // 转换为布尔值
         // 临时变量名生成
-        std::string getNextTempName()
+        String getNextTempName()
         {
             return "t" + std::to_string(tempVarCounter++);
         }
 
-        std::string getNextLabelName()
+        String getNextLabelName()
         {
             return "label" + std::to_string(labelCounter++);
         }
         // === 获取结果 ===
         Module *getModule() { return module.get(); }
-        std::string getModuleString() { return module->toString(); }
+        String getModuleString() { return module->toString(); }
     };
 }

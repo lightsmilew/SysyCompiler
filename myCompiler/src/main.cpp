@@ -57,6 +57,7 @@ int main(int argc, const char *argv[])
     auto ir_module = irbuilder.buildModule(ast_root);
 
     //中间代码优化部分
+    unique_ptr<optimization::PassManager> pass_manager;
     if(argc>4&&strcmp(argv[3], "-opt") == 0)
     {
         optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O2; // 默认O2级别
@@ -67,7 +68,7 @@ int main(int argc, const char *argv[])
         else if (strcmp(argv[4], "O2") == 0)
             opt_level = optimization::OptimizationLevel::O2;
         else opt_level = optimization::OptimizationLevel::O0; // 默认O0级别     
-        auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+        pass_manager = optimization::createOptimizationPipeline(opt_level, true);
         pass_manager->runOnModule(ir_module.get());
     }
 
