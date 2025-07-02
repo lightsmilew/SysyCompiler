@@ -237,7 +237,7 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 
     // 创建临时寄存器存储计算结果
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto tempReg = make_shared<RISCVRegister>(regType);
+    auto tempReg = getTempRegister(regType, 0);
 
     RISCVOpcode opcode;
     bool isFloat = inst->getType()->isFloatTy();
@@ -289,7 +289,7 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
     // 创建临时寄存器存储加载结果
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto tempReg = make_shared<RISCVRegister>(regType);
+    auto tempReg = getTempRegister(regType, 0);
 
     RISCVOpcode opcode = inst->getType()->isFloatTy() ? RISCVOpcode::FLW : RISCVOpcode::LW;
 
@@ -494,7 +494,7 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     localVarOffset += allocatedSize;
 
     // 创建临时寄存器保存地址
-    auto tempReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    auto tempReg = getGeneralTempRegister(0);
 
     // 计算地址：sp + offset
     if (isImmediateInRange(varOffset))
@@ -523,7 +523,7 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
     auto ptrReg = getOrCreateVirtualReg(inst->PointerOperand);
-    auto destReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    auto destReg = getGeneralTempRegister(0);
 
     // 简化的GEP处理，假设只有一个索引
     if (!inst->Indices.empty())
@@ -550,7 +550,7 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
     auto lhsReg = getOrCreateVirtualReg(inst->LHS);
     auto rhsReg = getOrCreateVirtualReg(inst->RHS);
-    auto destReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    auto destReg = getGeneralTempRegister(0);
 
     RISCVOpcode opcode;
     switch (inst->Pred)
@@ -622,7 +622,7 @@ void InstructionSelector::visitFCmpInst(FCmpInst *inst)
 {
     auto lhsReg = getOrCreateVirtualReg(inst->LHS);
     auto rhsReg = getOrCreateVirtualReg(inst->RHS);
-    auto destReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    auto destReg = getGeneralTempRegister(0); // 浮点比较结果存储在通用寄存器中
 
     RISCVOpcode opcode;
     switch (inst->Pred)
@@ -672,8 +672,8 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
     // 处理有符号整数到浮点数的转换指令
     auto srcReg = getOrCreateVirtualReg(inst->Operand);
 
-    // 创建目标浮点寄存器
-    auto destReg = make_shared<RISCVRegister>(RegisterType::FLOAT);
+    // 创建目标浮点寄存器 - 使用临时寄存器管理
+    auto destReg = getFloatTempRegister(0); // 使用FT0进行类型转换
 
     // 生成 RISC-V 的 fcvt.s.w 指令（整数到单精度浮点）
     auto fcvtInst = RISCVInstruction::createRType(RISCVOpcode::FCVT_S_W, destReg, srcReg,
@@ -689,8 +689,8 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
     // 处理浮点数到有符号整数的转换指令
     auto srcReg = getOrCreateVirtualReg(inst->Operand);
 
-    // 创建目标整数寄存器
-    auto destReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    // 创建目标整数寄存器 - 使用临时寄存器管理
+    auto destReg = getGeneralTempRegister(0); // 使用T0进行类型转换
 
     // 生成 RISC-V 的 fcvt.w.s 指令（单精度浮点到整数）
     // 使用RTZ（Round toward Zero）舍入模式，这是C语言标准的行为
@@ -708,7 +708,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (auto constInt = dynamic_cast<ConstantInt *>(value))
     {
         // 根据常量大小优化加载指令
-        auto tempReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+        auto tempReg = getGeneralTempRegister(0);
         generateConstantLoad(tempReg, constInt->Value);
         return tempReg;
     }
@@ -716,7 +716,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (auto constFloat = dynamic_cast<ConstantFloat *>(value))
     {
         // 对于浮点常量，需要更复杂的处理
-        auto tempReg = make_shared<RISCVRegister>(RegisterType::FLOAT);
+        auto tempReg = getFloatTempRegister(0);
         generateFloatConstantLoad(tempReg, constFloat->Value);
         return tempReg;
     }
@@ -734,7 +734,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     {
         // 从栈中加载值到新的虚拟寄存器
         RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-        auto virtualReg = make_shared<RISCVRegister>(regType);
+        auto virtualReg = getTempRegister(regType, 0);
 
         // 生成从栈加载的指令
         int offset = stackFrame.getOffset(value);
@@ -745,7 +745,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
 
     // 默认情况：创建新的虚拟寄存器
     RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    return make_shared<RISCVRegister>(regType);
+    return getTempRegister(regType, 0);
 }
 
 void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg)
@@ -785,7 +785,7 @@ void InstructionSelector::generateStackAccess(int offset, shared_ptr<RISCVRegist
     else
     {
         // 偏移量超出范围，需要计算地址
-        auto tempReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+        auto tempReg = getGeneralTempRegister(1); // 使用T1用于地址计算
 
         // li temp, offset
         auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
@@ -896,7 +896,7 @@ void InstructionSelector::generateFloatConstantLoad(shared_ptr<RISCVRegister> re
     std::memcpy(&bits, &value, sizeof(float));
 
     // 创建临时的整数寄存器来加载位表示
-    auto tempIntReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+    auto tempIntReg = getGeneralTempRegister(2); // 使用T2用于浮点常量加载
 
     // 特殊情况：0.0
     if (value == 0.0f)
@@ -1042,7 +1042,7 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
         else
         {
             // 需要用li + add
-            auto tempReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+            auto tempReg = getGeneralTempRegister(1); // 使用T1用于栈指针计算
             auto liInst = RISCVInstruction::createPseudoLI(tempReg, -totalSize);
             func->getBasicBlocks()[0]->addInstruction(liInst);
 
@@ -1086,7 +1086,7 @@ void InstructionSelector::generateFunctionEpilogue(shared_ptr<RISCVFunction> fun
         }
         else
         {
-            auto tempReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
+            auto tempReg = getGeneralTempRegister(1); // 使用T1用于栈指针计算
             auto liInst = RISCVInstruction::createPseudoLI(tempReg, totalSize);
             currentBB->addInstruction(liInst);
 
@@ -1314,4 +1314,67 @@ bool AssemblyEmitter::isLibraryFunction(const string &funcName)
         "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
         "starttime", "stoptime"};
     return libFuncs.count(funcName) > 0;
+}
+
+// 临时寄存器管理方法的实现
+shared_ptr<RISCVRegister> InstructionSelector::getTempRegister(RegisterType type, int index)
+{
+    if (type == RegisterType::GENERAL)
+    {
+        return getGeneralTempRegister(index);
+    }
+    else if (type == RegisterType::FLOAT)
+    {
+        return getFloatTempRegister(index);
+    }
+    return nullptr;
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getGeneralTempRegister(int index)
+{
+    // 预定义的通用临时寄存器，确保不会冲突
+    static vector<RISCVRegister::PhysicalReg> tempRegs = {
+        RISCVRegister::PhysicalReg::T0, // index 0: 主要临时寄存器
+        RISCVRegister::PhysicalReg::T1, // index 1: 地址计算用
+        RISCVRegister::PhysicalReg::T2, // index 2: 复杂操作用
+        RISCVRegister::PhysicalReg::T3, // index 3: 备用
+        RISCVRegister::PhysicalReg::T4, // index 4: 备用
+        RISCVRegister::PhysicalReg::T5, // index 5: 备用
+        RISCVRegister::PhysicalReg::T6  // index 6: 备用
+    };
+
+    if (index >= 0 && index < tempRegs.size())
+    {
+        return make_shared<RISCVRegister>(tempRegs[index]);
+    }
+
+    // 默认返回T0
+    return make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0);
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getFloatTempRegister(int index)
+{
+    // 预定义的浮点临时寄存器，确保不会冲突
+    static vector<RISCVRegister::PhysicalReg> tempRegs = {
+        RISCVRegister::PhysicalReg::FT0,  // index 0: 主要浮点临时寄存器
+        RISCVRegister::PhysicalReg::FT1,  // index 1: 辅助浮点临时寄存器
+        RISCVRegister::PhysicalReg::FT2,  // index 2: 复杂操作用
+        RISCVRegister::PhysicalReg::FT3,  // index 3: 备用
+        RISCVRegister::PhysicalReg::FT4,  // index 4: 备用
+        RISCVRegister::PhysicalReg::FT5,  // index 5: 备用
+        RISCVRegister::PhysicalReg::FT6,  // index 6: 备用
+        RISCVRegister::PhysicalReg::FT7,  // index 7: 备用
+        RISCVRegister::PhysicalReg::FT8,  // index 8: 备用
+        RISCVRegister::PhysicalReg::FT9,  // index 9: 备用
+        RISCVRegister::PhysicalReg::FT10, // index 10: 备用
+        RISCVRegister::PhysicalReg::FT11  // index 11: 备用
+    };
+
+    if (index >= 0 && index < tempRegs.size())
+    {
+        return make_shared<RISCVRegister>(tempRegs[index]);
+    }
+
+    // 默认返回FT0
+    return make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0);
 }

@@ -81,6 +81,11 @@ namespace RISCV
         // 常量加载优化方法
         void generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value);
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
+
+        // 临时寄存器管理方法
+        shared_ptr<RISCVRegister> getTempRegister(RegisterType type, int index = 0);
+        shared_ptr<RISCVRegister> getGeneralTempRegister(int index = 0);
+        shared_ptr<RISCVRegister> getFloatTempRegister(int index = 0);
     };
 
     // // 寄存器分配器
