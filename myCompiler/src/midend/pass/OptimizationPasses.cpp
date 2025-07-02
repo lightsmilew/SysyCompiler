@@ -536,12 +536,19 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
             for (size_t i = 0; i < phi->getNumIncomingValues(); ++i) {
                 BasicBlock *pred = phi->getIncomingBlock(i);
                 Value *val = phi->getIncomingValue(i);
+                // 找到终结指令（如br/ret），插入到它前面
+                auto &predInsts = pred->getInstructions();
+                auto termIt = std::find_if(
+                    predInsts.begin(), predInsts.end(),
+                    [](const std::unique_ptr<Instruction>& inst) { return inst->isTerminator(); });
                 // 在前驱块末尾插入: %phi = val
                 // 这里假设有 createCopy/Move 指令工厂
                 auto copy = std::make_unique<CopyInst>(phi, val, phi->getName()); // CopyInst: %phi = val
-                pred->addInstruction(std::move(copy));
+                pred->insert(std::move(copy), termIt - predInsts.begin());
             }
-            phi->replaceAllUsesWith(phi); // phi本身已被move覆盖
+            //从基本块中删除原来指令，phi对应value仍然保留
+            //needToDelete.push_back(it->release()); // 释放所有权，但不析构
+            Instruction *phiPtr = it->release(); // 释放所有权，但不析构
             it = insts.erase(it);
             changed = true;
         }

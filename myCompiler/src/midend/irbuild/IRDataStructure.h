@@ -338,6 +338,14 @@ public:
         return oss.str();
     }
 };
+class ConstantBool : public Constant
+{
+public:
+    bool Value;
+
+    ConstantBool(BooleanType *ty, bool val) : Constant(ty), Value(val) {}
+    string toString() const override { return to_string(Value ? 1 : 0); }
+};
 
 class ConstantString : public Constant
 {
@@ -775,6 +783,16 @@ public:
     {
         inst->Parent = this;
         Instructions.push_back(std::move(inst));
+    }
+    //插入指令
+    void insert(unique_ptr<Instruction> inst, unsigned index)
+    {
+        if (index > Instructions.size())
+        {
+            throw std::out_of_range("Index out of range for inserting instruction");
+        }
+        inst->Parent = this;
+        Instructions.insert(Instructions.begin() + index, std::move(inst));
     }
 
     // 添加前驱基本块

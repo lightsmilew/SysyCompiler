@@ -618,10 +618,8 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // 合并块
         setCurrentBlock(mergeBlock);
         PhiInst *phi = createPhi(BooleanType::getInstance());
-        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 0), lhsBlock); // true from lhs
+        phi->addIncoming(new ConstantBool(BooleanType::getInstance(),false), lhsBlock); // true from lhs
         phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
-        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
-        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 
         return phi;
     }
@@ -651,11 +649,8 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // 合并块
         setCurrentBlock(mergeBlock);
         PhiInst *phi = createPhi(BooleanType::getInstance());
-        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 1), lhsBlock); // true from lhs
+        phi->addIncoming(new ConstantBool(BooleanType::getInstance(),true), lhsBlock); // true from lhs
         phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
-        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 1), lhsBlock}); // true from lhs
-        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
-
         return phi;
     }
 

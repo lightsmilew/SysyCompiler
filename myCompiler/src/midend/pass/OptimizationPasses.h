@@ -159,7 +159,16 @@ class PhiEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     std::string getName() const override { return "PhiElimination"; }
+    // ~PhiEliminationPass()
+    // {
+    //     for (auto *inst : needToDelete) 
+    //     {
+    //         delete inst; // 手动析构
+    //     }
+    // }
 private:
+    //vector<Instruction *>needToDelete; // 存储需要删除的phi指令
+
     // 可添加辅助函数，如插入move、重命名等
 };
 
