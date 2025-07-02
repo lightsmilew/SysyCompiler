@@ -77,13 +77,7 @@ namespace ir_builder
         Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType);
         // 新增重载 处理数组初始化
         void visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr);
-        // 辅助函数 用于支持嵌套和平铺赋值
-        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
-        void visitInitExprImpl(Type *targetType, Value *targetPtr,
-                                  std::vector<int>& indices,
-                                  std::shared_ptr<ast::InitExprNode> initNode,
-                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
-                                  size_t& flat_idx);
+
         // 常量数组求值
         Constant *evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType);
         // 编译时常量表达式求值
@@ -105,12 +99,22 @@ namespace ir_builder
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
         PhiInst *createPhi(Type *type, const std::string &name = "");
-                                   // PHI 指令
+ 
+        // 辅助函数 用于支持嵌套和平铺赋值
+        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
+        void visitInitExprImpl(Type *targetType, Value *targetPtr,
+                                  std::vector<int>& indices,
+                                  std::shared_ptr<ast::InitExprNode> initNode,
+                                  const std::vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                  size_t& flat_idx);
         size_t getArrayTotalElements(Type* type);
         vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
+
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
         bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
-        bool hasTerminatorInst(BasicBlock *block);                                              // 判断一个基本块是否有终止指令 找不到就递归查找前驱
+        bool hasTerminatorInst(BasicBlock *block);   
+        
+        // 判断一个基本块是否有终止指令 找不到就递归查找前驱
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
         Value *createCast(Value *value, Type *targetType);
