@@ -1,96 +1,106 @@
-const int global_int = 303;
-const float global_float = 3.14;
-const int space = 32;
-const int maxN=10000;
-int sorted_array[maxN];
+const int base = 16;
 
-void bubble_sort(int arr[], int n) {
-  int i;
-  i = 0;
-  int j;
-  while(i < n-1){
-    j=0;
-    while( j < n-1){
-      if (arr[j] > arr[j + 1]) {
-              int temp = arr[j];
-              arr[j] = arr[j + 1];
-              arr[j + 1] = temp;
+int getMaxNum(int n, int arr[]){
+    int ret = 0;
+    int i = 0;
+    while (i < n){
+        if (arr[i] > ret) ret = arr[i];
+        i = i + 1;
+    }
+    return ret;
+}
+
+int getNumPos(int num, int pos){
+    int tmp = 1;
+    int i = 0;
+    while (i < pos){
+        num = num / base;
+        i = i + 1;
+    }
+    return num % base;
+}
+
+void radixSort(int bitround, int a[], int l, int r){
+    int head[base] = {};
+    int tail[base] = {};
+    int cnt[base] = {};
+
+    if (bitround == -1 || l + 1 >= r) return;
+
+    {    
+        int i = l;
+        
+        while (i < r){
+            cnt[getNumPos(a[i], bitround)]
+                = cnt[getNumPos(a[i], bitround)] + 1;
+            i = i + 1;
+        }        
+        head[0] = l;
+        tail[0] = l + cnt[0];
+
+        i = 1;
+        while (i < base){
+            head[i] = tail[i - 1];
+            tail[i] = head[i] + cnt[i];
+            i = i + 1;
         }
-      j=j+1;
-    }
-    i=i+1;
-  }
-}
-
-int binary_search(int arr[], int n, int target) {
-    int low = 0;
-    int high = n - 1;
-
-    while (low <= high) {
-        int mid = (low + high) / 2;
-        if (arr[mid] == target) {
-            return mid;
-        } else if (arr[mid] < target) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+        i = 0;
+        while (i < base){
+            while (head[i] < tail[i]){
+                int v = a[head[i]];
+                while (getNumPos(v, bitround) != i){
+                    int t = v;
+                    v = a[head[getNumPos(t, bitround)]];
+                    a[head[getNumPos(t, bitround)]] = t;
+                    head[getNumPos(t, bitround)] = head[getNumPos(t, bitround)] + 1;
+                }
+                a[head[i]] = v;
+                head[i] = head[i] + 1;
+            }
+            i = i + 1;
         }
     }
 
-    return -1; // Target not found
-}
+    {
+        int i = l;
+        
+        head[0] = l;
+        tail[0] = l + cnt[0];
 
-void perform_operations() {
-    
-    int a = 10;
-    int b = 5;
-
-    // Arithmetic operations
-    int sum = a + b;
-    int diff = a - b;
-    int prod = a * b;
-    int quot = a / b;
-    int mod = a % b;
-
-    
-    putint(sum);putch(space);
-    putint(diff);putch(space);
-    putint(prod);putch(space);
-    putint(quot);putch(space);
-    putint(mod);putch(space);
-}
-
-void array_init_and_process() {
-
-    // Initialize the array with some values
-    int i=0;
-    while(i<maxN){
-      sorted_array[i] = i*303%maxN;
-      i=i+1;
+        i = 0;
+        while (i < base){
+            if (i > 0){
+                head[i] = tail[i - 1];
+                tail[i] = head[i] + cnt[i];
+            }
+            radixSort(bitround - 1, a, head[i], tail[i]);
+            i = i + 1;
+        }
     }
 
-    // Perform bubble sort
-    bubble_sort(sorted_array, maxN);
-
-
-    // Search for a value
-    int target = global_int;
-    
-    int index = binary_search(sorted_array, maxN, target);
-
-    
-    putint(target);putch(space);
-    putint(index);putch(space);
+    return;
 }
 
-int main() {
-    // Perform array initialization and processing
+int a[30000010];
+int ans;
+
+int main(){
+    int n = getarray(a);
+
     starttime();
-    array_init_and_process();
 
-    perform_operations();
+    radixSort(8, a, 0, n);
+
+    int i = 0;
+    while (i < n){
+        ans = ans + i * (a[i] % (2 + i));
+        i = i + 1;
+    }
+
+    if (ans < 0)
+        ans = -ans;
     stoptime();
+    putint(ans);
+    putch(10);
     return 0;
-    
 }
-

@@ -131,19 +131,6 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
         // 如果是指针类型参数（如退化后的数组参数），直接用参数本身
-        // if (paramTypes[i]->isPointerTy()) 
-        // {
-        //     // 直接使用参数，不需要额外的 alloca
-        //     varToValue[node->params[i]->identifier] = arg;
-        // } 
-        // else
-        // {
-        //     Value *alloca = createAlloca(paramTypes[i], node->params[i]->identifier+".addr");
-        //     createStore(arg, alloca);
-        //     //转回原来类型
-        //     LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
-        //     varToValue[node->params[i]->identifier] = loadinst;
-        // }
             Value *alloca = createAlloca(paramTypes[i]);
             createStore(arg, alloca);
             //转回原来类型
@@ -397,7 +384,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     for (const auto& [name, valThen] : varToValueThen) {
         auto itElse = varToValueElse.find(name);
         if (itElse != varToValueElse.end() && (valThen != itElse->second)) {
-            PHINode* phi = createPhi(valThen->getType(), getNextTempName());
+            PhiInst* phi = createPhi(valThen->getType(), getNextTempName());
             phi->IncomingValues.push_back({valThen, thenBlock});
             phi->IncomingValues.push_back({itElse->second, elseBlock ? elseBlock : mergeBlock});
             varToValue[name] = phi;
@@ -409,7 +396,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // 处理只在else分支被赋值的变量
     for (const auto& [name, valElse] : varToValueElse) {
         if (varToValueThen.find(name) == varToValueThen.end()) {
-            PHINode* phi = createPhi(valElse->getType(), getNextTempName());
+            PhiInst* phi = createPhi(valElse->getType(), getNextTempName());
             phi->IncomingValues.push_back({varToValueBefore[name], thenBlock});
             phi->IncomingValues.push_back({valElse, elseBlock ? elseBlock : mergeBlock});
             varToValue[name] = phi;
@@ -423,9 +410,11 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     //while.cond
     BasicBlock *condBlock = createBasicBlock();
     //while.body
-    BasicBlock *bodyBlock = createBasicBlock();
+    BasicBlock *bodyBlock = createBasicBlock("",{condBlock});
+    //添加condBlock前驱
+    condBlock->addPredecessor(bodyBlock);
     //while.end
-    BasicBlock *exitBlock = createBasicBlock();
+    BasicBlock *exitBlock = createBasicBlock("", {condBlock, bodyBlock});
 
     // 2. 记录循环前变量SSA状态
     auto varToValueBefore = varToValue;
@@ -459,12 +448,12 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     // 9. 回到 condBlock，插入 PHI，只为被赋值的变量插入
     setCurrentBlock(condBlock); // 确保在 condBlock 插入
     //用于记录每个变量名对应的 PHI 节点指针，便于后续查找和管理
-    std::unordered_map<std::string, PHINode*> phiNodes;
+    std::unordered_map<std::string, PhiInst*> phiNodes;
     for (const auto& [name, valueBefore] : varToValueBefore) {
         auto it = varToValueAfter.find(name);
         // 只为循环体内被赋值的变量插入PHI
         if (it != varToValueAfter.end() && it->second != valueBefore) {
-            PHINode* phi = createPhi(valueBefore->getType(), getNextTempName());
+            PhiInst* phi = createPhi(valueBefore->getType(), getNextTempName());
             // 循环前的输入
             phi->IncomingValues.push_back({valueBefore, condBlock->Predecessors.front()});
             // 循环体的输入
@@ -515,7 +504,7 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
     }
 }
 
-// ===== 表达式访问实现 =====  这里需要检测int和float是否越界，左值表达式需要检测数组下标是否合法(非负以及不超过范围)
+// ===== 表达式访问实现 ===== 
 Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
@@ -606,11 +595,12 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
     if (node->op == BinaryOp::And)
     {
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
+        BasicBlock *lhsBlock = currentBlock;
         //"logical.rhs"
         BasicBlock *rhsBlock = createBasicBlock();
         //"logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
-        BasicBlock *lhsBlock = currentBlock;
+        BasicBlock *mergeBlock = createBasicBlock("", {lhsBlock, rhsBlock});
+
 
         Value *lhs = visitExpression(node->left);
 
@@ -627,20 +617,23 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PHINode *phi = createPhi(BooleanType::getInstance());
-        phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
-        phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
+        PhiInst *phi = createPhi(BooleanType::getInstance());
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 0), lhsBlock); // true from lhs
+        phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
+        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 0), lhsBlock}); // false from lhs
+        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 
         return phi;
     }
     else if (node->op == BinaryOp::Or)
     {
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
+        BasicBlock *lhsBlock = currentBlock;
         //"logical.rhs"
         BasicBlock *rhsBlock = createBasicBlock();
         //"logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
-        BasicBlock *lhsBlock = currentBlock;
+        BasicBlock *mergeBlock = createBasicBlock("", {lhsBlock, rhsBlock});
+
 
         Value *lhs = visitExpression(node->left);
 
@@ -657,9 +650,11 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PHINode *phi = createPhi(BooleanType::getInstance(), getNextTempName());
-        phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 1), lhsBlock}); // true from lhs
-        phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
+        PhiInst *phi = createPhi(BooleanType::getInstance());
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(), 1), lhsBlock); // true from lhs
+        phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
+        // phi->IncomingValues.push_back({new ConstantInt(IntegerType::getInstance(), 1), lhsBlock}); // true from lhs
+        // phi->IncomingValues.push_back({rhsCond, rhsEndBlock});                                     // result from rhs
 
         return phi;
     }
@@ -1049,7 +1044,7 @@ bool IRBuilder::isConstVariable(Value *value){
 // ===== 基本块管理 =====
 BasicBlock *IRBuilder::createBasicBlock(const std::string &name,const vector<BasicBlock*> &beforeBlocks)
 {
-    std::string actualName = name.empty() ? getNextLabelName() : name;
+    std::string actualName = (name.empty()||name=="") ? getNextLabelName() : name;
     // 创建副本
     std::vector<BasicBlock*> blocks = beforeBlocks;
     // 对副本进行修改
@@ -1222,7 +1217,6 @@ void IRBuilder::createStore(Value *value, Value *ptr)
     auto storeInst = std::make_unique<StoreInst>(value, ptr);
     currentBlock->addInstruction(std::move(storeInst));
 }
-
 Value *IRBuilder::createAlloca(Type *type, const std::string &name)
 {
     auto allocaInst = std::make_unique<AllocaInst>(type, name.empty() ? getNextTempName() : name);
@@ -1267,11 +1261,11 @@ void IRBuilder::createReturn(Value *value)
     currentBlock->addInstruction(std::move(retInst));
 }
 
-PHINode *IRBuilder::createPhi(Type *type, const std::string &name)
+PhiInst *IRBuilder::createPhi(Type *type, const std::string &name)
 {
     std::string actualName = name.empty() ? getNextTempName() : name;
-    auto phiInst = std::make_unique<PHINode>(type, actualName);
-    PHINode *result = phiInst.get();
+    auto phiInst = std::make_unique<PhiInst>(type, actualName);
+    PhiInst *result = phiInst.get();
     currentBlock->addInstruction(std::move(phiInst));
     return result;
 }
