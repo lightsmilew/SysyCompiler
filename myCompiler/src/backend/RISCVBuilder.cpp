@@ -425,7 +425,9 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
         auto returnReg = make_shared<RISCVRegister>(
             inst->ReturnValue->getType()->isFloatTy() ? RISCVRegister::PhysicalReg::FA0 : RISCVRegister::PhysicalReg::A0);
 
-        auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, returnReg, valueReg);
+        // 根据类型选择正确的移动指令
+        RISCVOpcode moveOpcode = inst->ReturnValue->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
+        auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
     }
 
@@ -686,8 +688,7 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
     auto destReg = getFloatTempRegister(0); // 使用FT0进行类型转换
 
     // 生成 RISC-V 的 fcvt.s.w 指令（整数到单精度浮点）
-    auto fcvtInst = RISCVInstruction::createRType(RISCVOpcode::FCVT_S_W, destReg, srcReg,
-                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    auto fcvtInst = RISCVInstruction::createPseudo(RISCVOpcode::FCVT_S_W, destReg, srcReg);
     currentBB->addInstruction(fcvtInst);
 
     // 将结果存储到栈中
@@ -704,8 +705,7 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
 
     // 生成 RISC-V 的 fcvt.w.s 指令（单精度浮点到整数）
     // 使用RTZ（Round toward Zero）舍入模式，这是C语言标准的行为
-    auto fcvtInst = RISCVInstruction::createRType(RISCVOpcode::FCVT_W_S, destReg, srcReg,
-                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    auto fcvtInst = RISCVInstruction::createPseudo(RISCVOpcode::FCVT_W_S, destReg, srcReg);
     currentBB->addInstruction(fcvtInst);
 
     // 将结果存储到栈中
@@ -1110,8 +1110,26 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
         if (stackFrame.raStackSize > 0)
         {
             auto raReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA);
-            auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, spReg, raReg, totalSize - 4);
-            func->getBasicBlocks()[0]->addInstruction(swInst);
+            int raOffset = totalSize - 4;
+
+            if (isImmediateInRange(raOffset))
+            {
+                auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, spReg, raReg, raOffset);
+                func->getBasicBlocks()[0]->addInstruction(swInst);
+            }
+            else
+            {
+                // 偏移量太大，需要先计算地址
+                auto tempReg = getGeneralTempRegister(2); // 使用T2计算ra保存地址
+                auto liInst = RISCVInstruction::createPseudoLI(tempReg, raOffset);
+                func->getBasicBlocks()[0]->addInstruction(liInst);
+
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+                func->getBasicBlocks()[0]->addInstruction(addInst);
+
+                auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, tempReg, raReg, 0);
+                func->getBasicBlocks()[0]->addInstruction(swInst);
+            }
         }
     }
 }
@@ -1130,8 +1148,26 @@ void InstructionSelector::generateFunctionEpilogue(shared_ptr<RISCVFunction> fun
         if (stackFrame.raStackSize > 0)
         {
             auto raReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA);
-            auto lwInst = RISCVInstruction::createIType(RISCVOpcode::LW, raReg, spReg, totalSize - 4);
-            currentBB->addInstruction(lwInst);
+            int raOffset = totalSize - 4;
+
+            if (isImmediateInRange(raOffset))
+            {
+                auto lwInst = RISCVInstruction::createIType(RISCVOpcode::LW, raReg, spReg, raOffset);
+                currentBB->addInstruction(lwInst);
+            }
+            else
+            {
+                // 偏移量太大，需要先计算地址
+                auto tempReg = getGeneralTempRegister(2); // 使用T2计算ra加载地址
+                auto liInst = RISCVInstruction::createPseudoLI(tempReg, raOffset);
+                currentBB->addInstruction(liInst);
+
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+                currentBB->addInstruction(addInst);
+
+                auto lwInst = RISCVInstruction::createIType(RISCVOpcode::LW, raReg, tempReg, 0);
+                currentBB->addInstruction(lwInst);
+            }
         }
 
         // 2. 恢复栈指针：addi sp, sp, S'
@@ -1195,8 +1231,25 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 int stackOffset = stackFrame.totalAlignedSize + stackArgIndex * 4;
 
                 auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-                auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, paramReg, spReg, stackOffset);
-                func->getBasicBlocks()[0]->addInstruction(loadInst);
+
+                if (isImmediateInRange(stackOffset))
+                {
+                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, paramReg, spReg, stackOffset);
+                    func->getBasicBlocks()[0]->addInstruction(loadInst);
+                }
+                else
+                {
+                    // 偏移量太大，需要先计算地址
+                    auto tempReg = getGeneralTempRegister(3); // 使用T3计算参数地址
+                    auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
+                    func->getBasicBlocks()[0]->addInstruction(liInst);
+
+                    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+                    func->getBasicBlocks()[0]->addInstruction(addInst);
+
+                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, paramReg, tempReg, 0);
+                    func->getBasicBlocks()[0]->addInstruction(loadInst);
+                }
 
                 stackArgIndex++;
             }
@@ -1221,8 +1274,25 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 int stackOffset = stackFrame.totalAlignedSize + stackArgIndex * 4;
 
                 auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-                auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, paramReg, spReg, stackOffset);
-                func->getBasicBlocks()[0]->addInstruction(loadInst);
+
+                if (isImmediateInRange(stackOffset))
+                {
+                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, paramReg, spReg, stackOffset);
+                    func->getBasicBlocks()[0]->addInstruction(loadInst);
+                }
+                else
+                {
+                    // 偏移量太大，需要先计算地址
+                    auto tempReg = getGeneralTempRegister(3); // 使用T3计算参数地址
+                    auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
+                    func->getBasicBlocks()[0]->addInstruction(liInst);
+
+                    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+                    func->getBasicBlocks()[0]->addInstruction(addInst);
+
+                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, paramReg, tempReg, 0);
+                    func->getBasicBlocks()[0]->addInstruction(loadInst);
+                }
 
                 stackArgIndex++;
             }
