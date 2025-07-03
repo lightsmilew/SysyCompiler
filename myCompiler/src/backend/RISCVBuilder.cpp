@@ -224,6 +224,12 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitFPToSIInst(castInst);
         }
         break;
+    case Opcode::Copy:
+        if (auto copyInst = dynamic_cast<CopyInst *>(inst))
+        {
+            visitCopyInst(copyInst);
+        }
+        break;
     default:
         // 其他指令暂时忽略
         break;
@@ -706,6 +712,38 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
     storeValueToStack(inst, destReg);
 }
 
+void InstructionSelector::visitCopyInst(CopyInst *inst)
+{
+    // Copy指令用于将源值复制到目标位置
+    // 在我们的"所有变量溢出到栈上"策略中，这实际上是从源位置加载值，然后存储到目标位置
+
+    // 获取源值的寄存器
+    auto srcReg = getOrCreateVirtualReg(inst->Source);
+
+    // 创建临时寄存器进行复制操作
+    RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
+    auto destReg = getTempRegister(regType, 0);
+
+    // 生成移动指令
+    RISCVOpcode moveOpcode;
+    if (inst->getType()->isFloatTy())
+    {
+        // 浮点数使用 fmv.s 指令
+        moveOpcode = RISCVOpcode::FMV_S;
+    }
+    else
+    {
+        // 整数/指针使用 mv 伪指令（实际上是 addi rd, rs1, 0）
+        moveOpcode = RISCVOpcode::MV;
+    }
+
+    auto moveInst = RISCVInstruction::createPseudo(moveOpcode, destReg, srcReg);
+    currentBB->addInstruction(moveInst);
+
+    // 将复制的结果存储到栈中（Copy指令的结果）
+    storeValueToStack(inst, destReg);
+}
+
 shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *value)
 {
     // 处理常量
@@ -985,6 +1023,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
             case Opcode::Load:
             case Opcode::GetElementPtr:
             case Opcode::Call:
+            case Opcode::Copy:
                 hasResult = !instr->getType()->isVoidTy();
                 break;
             case Opcode::Alloca:

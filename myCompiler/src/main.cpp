@@ -61,25 +61,30 @@ int main(int argc, const char *argv[])
     int num = argc > 1 ? argc - 1 : 0;
     if (argc > 2 && strcmp(argv[2], "-ir") == 0)
     {
-        if(argc>4&&strcmp(argv[3], "-opt") == 0)
-         {
-        // 执行优化
+        if (argc > 4 && strcmp(argv[3], "-opt") == 0)
+        {
+            // 执行优化
             optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O2; // 默认O2级别
-             if (strcmp(argv[4], "O0") == 0)
-                 opt_level = optimization::OptimizationLevel::O0;
-             else if (strcmp(argv[4], "O1") == 0)
-                 opt_level = optimization::OptimizationLevel::O1;
-             else if (strcmp(argv[4], "O2") == 0)
+            if (strcmp(argv[4], "O0") == 0)
+                opt_level = optimization::OptimizationLevel::O0;
+            else if (strcmp(argv[4], "O1") == 0)
+                opt_level = optimization::OptimizationLevel::O1;
+            else if (strcmp(argv[4], "O2") == 0)
                 opt_level = optimization::OptimizationLevel::O2;
-             else opt_level = optimization::OptimizationLevel::O0; // 默认O0级别     
-             auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
-             pass_manager->runOnModule(ir_module.get());
+            else
+                opt_level = optimization::OptimizationLevel::O0; // 默认O0级别
+            auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+            pass_manager->runOnModule(ir_module.get());
         }
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {
+        // 消除phi指令
+        optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
+        auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+        pass_manager->runOnModule(ir_module.get());
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
         auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
