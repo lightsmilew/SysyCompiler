@@ -66,6 +66,7 @@ namespace RISCV
         void visitICmpInst(ICmpInst *inst);
         void visitSIToFPInst(CastInst *inst);
         void visitFPToSIInst(CastInst *inst);
+        void visitCopyInst(CopyInst *inst);
 
         // 辅助方法
         shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);

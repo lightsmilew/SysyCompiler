@@ -37,6 +37,6 @@ elif [ "$1" == "-riscv" ]; then
         filename=$(basename "$file")
         echo "Processing $filename..."
         # 执行编译器并生成RISC-V代码
-        ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.riscv"
+        ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.s"
     done
 fi

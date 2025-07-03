@@ -27,11 +27,11 @@ int main(int argc, const char *argv[])
     SysYParser parser(&tokens);
     ParseTree *tree = parser.compUnit();
 
-    //抽象语法树生成部分
+    // 抽象语法树生成部分
     ASTNodeVisitor ast_visitor;
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
-    
-    //语义分析部分
+
+    // 语义分析部分
     TypeCheckerVisitor type_checker;
     try
     {
@@ -51,14 +51,14 @@ int main(int argc, const char *argv[])
         cerr << "Semantic analysis failed: " << e.what() << endl;
         return 1; // 返回错误代码
     }
-    
-    //中间代码生成部分
+
+    // 中间代码生成部分
     IRBuilder irbuilder;
     auto ir_module = irbuilder.buildModule(ast_root);
 
-    //中间代码优化部分
+    // 中间代码优化部分
     unique_ptr<optimization::PassManager> pass_manager;
-    if(argc>4&&strcmp(argv[3], "-opt") == 0)
+    if (argc > 4 && strcmp(argv[3], "-opt") == 0)
     {
         optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O2; // 默认O2级别
         if (strcmp(argv[4], "O0") == 0)
@@ -67,7 +67,8 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O1;
         else if (strcmp(argv[4], "O2") == 0)
             opt_level = optimization::OptimizationLevel::O2;
-        else opt_level = optimization::OptimizationLevel::O0; // 默认O0级别     
+        else
+            opt_level = optimization::OptimizationLevel::O0; // 默认O0级别
         pass_manager = optimization::createOptimizationPipeline(opt_level, true);
         pass_manager->runOnModule(ir_module.get());
     }
@@ -80,6 +81,10 @@ int main(int argc, const char *argv[])
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {
+        // 消除phi指令
+        optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
+        auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+        pass_manager->runOnModule(ir_module.get());
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
         auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));

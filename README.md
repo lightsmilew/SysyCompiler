@@ -47,12 +47,19 @@ python3 test.py
 ### qemu-riscv64 模拟器运行
 
 ```bash
+# qume 启动
 qemu-system-riscv64 \
 -machine virt -nographic -m 2048 -smp 4 \
 -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
--device virtio-net-device,netdev=eth0 -netdev user,id=eth0 \
+-device virtio-net-device,netdev=eth0 \
+-netdev user,id=eth0,hostfwd=tcp::2222-:22 \
 -device virtio-rng-pci \
 -drive file=ubuntu-24.04.2-preinstalled-server-riscv64.img,format=raw,if=virtio
+
+# 传递文件
+scp -P 端口号 本地文件路径 用户名@远程主机IP:远程目录路径
+
+
 ```
 
 ---
