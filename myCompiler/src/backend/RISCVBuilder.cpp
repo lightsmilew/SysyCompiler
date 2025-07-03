@@ -238,8 +238,8 @@ void InstructionSelector::visitInstruction(Instruction *inst)
 
 void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 {
-    auto lhsReg = getOrCreateVirtualReg(inst->LHS);
-    auto rhsReg = getOrCreateVirtualReg(inst->RHS);
+    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
 
     // 创建临时寄存器存储计算结果
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
@@ -291,7 +291,7 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 
 void InstructionSelector::visitLoadInst(LoadInst *inst)
 {
-    auto ptrReg = getOrCreateVirtualReg(inst->Pointer);
+    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
     // 创建临时寄存器存储加载结果
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
@@ -309,10 +309,10 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
 {
-    auto valueReg = getOrCreateVirtualReg(inst->ValueToStore);
-    auto ptrReg = getOrCreateVirtualReg(inst->Pointer);
+    auto valueReg = getOrCreateVirtualReg(inst->getValueToStore());
+    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
-    RISCVOpcode opcode = inst->ValueToStore->getType()->isFloatTy() ? RISCVOpcode::FSW : RISCVOpcode::SW;
+    RISCVOpcode opcode = inst->getValueToStore()->getType()->isFloatTy() ? RISCVOpcode::FSW : RISCVOpcode::SW;
 
     // 生成存储指令 (假设偏移为0)
     auto riscvInst = RISCVInstruction::createSType(opcode, ptrReg, valueReg, 0);
@@ -323,7 +323,7 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
 
 void InstructionSelector::visitCallInst(CallInst *inst)
 {
-    if (!inst->CalledFunction)
+    if (!inst->getCalledFunction())
         return;
 
     // 1. 处理参数传递 - 严格按照RISC-V ABI规范
@@ -331,10 +331,10 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     // 超出的参数按顺序存放在调用者栈帧的参数区域
 
     vector<shared_ptr<RISCVRegister>> argRegs;
-    argRegs.reserve(inst->Arguments.size());
+    argRegs.reserve(inst->getArguments().size());
 
     // 首先为所有参数加载值到临时寄存器
-    for (auto arg : inst->Arguments)
+    for (auto arg : inst->getArguments())
     {
         auto argReg = getOrCreateVirtualReg(arg);
         argRegs.push_back(argReg);
@@ -345,9 +345,9 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     int stackArgIndex = 0;
 
     // 处理每个参数
-    for (size_t i = 0; i < inst->Arguments.size(); ++i)
+    for (size_t i = 0; i < inst->getArguments().size(); ++i)
     {
-        auto arg = inst->Arguments[i];
+        auto arg = inst->getArguments()[i];
         auto argReg = argRegs[i];
 
         if (arg->getType()->isFloatTy())
@@ -402,7 +402,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     // 2. 生成函数调用指令
     auto callInst = RISCVInstruction::createJType(RISCVOpcode::JAL,
                                                   make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
-                                                  inst->CalledFunction->getName());
+                                                  inst->getCalledFunction()->getName());
     currentBB->addInstruction(callInst);
 
     // 3. 处理返回值 - 从a0/fa0中获取返回值并存储到栈
@@ -418,15 +418,15 @@ void InstructionSelector::visitCallInst(CallInst *inst)
 
 void InstructionSelector::visitReturnInst(ReturnInst *inst)
 {
-    if (inst->ReturnValue)
+    if (inst->getReturnValue())
     {
         // 有返回值，将值移动到返回寄存器
-        auto valueReg = getOrCreateVirtualReg(inst->ReturnValue);
+        auto valueReg = getOrCreateVirtualReg(inst->getReturnValue());
         auto returnReg = make_shared<RISCVRegister>(
-            inst->ReturnValue->getType()->isFloatTy() ? RISCVRegister::PhysicalReg::FA0 : RISCVRegister::PhysicalReg::A0);
+            inst->getReturnValue()->getType()->isFloatTy() ? RISCVRegister::PhysicalReg::FA0 : RISCVRegister::PhysicalReg::A0);
 
         // 根据类型选择正确的移动指令
-        RISCVOpcode moveOpcode = inst->ReturnValue->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
+        RISCVOpcode moveOpcode = inst->getReturnValue()->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
     }
@@ -444,10 +444,10 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
 
 void InstructionSelector::visitBranchInst(BranchInst *inst)
 {
-    if (inst->Condition)
+    if (inst->getCondition())
     {
         // 条件分支
-        auto condReg = getOrCreateVirtualReg(inst->Condition);
+        auto condReg = getOrCreateVirtualReg(inst->getCondition());
 
         // 生成条件分支指令
         auto brInst = RISCVInstruction::createBType(RISCVOpcode::BNE, condReg,
@@ -534,13 +534,14 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
-    auto ptrReg = getOrCreateVirtualReg(inst->PointerOperand);
+    auto ptrReg = getOrCreateVirtualReg(inst->getPointerOperand());
     auto destReg = getGeneralTempRegister(0);
 
     // 简化的GEP处理，假设只有一个索引
-    if (!inst->Indices.empty())
+    auto indices = inst->getIndices();
+    if (!indices.empty())
     {
-        auto indexReg = getOrCreateVirtualReg(inst->Indices[0]);
+        auto indexReg = getOrCreateVirtualReg(indices[0]);
 
         // 计算地址：ptr + index * sizeof(element)
         // 这里简化为 ptr + index
@@ -560,8 +561,8 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
-    auto lhsReg = getOrCreateVirtualReg(inst->LHS);
-    auto rhsReg = getOrCreateVirtualReg(inst->RHS);
+    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
     auto destReg = getGeneralTempRegister(0);
 
     RISCVOpcode opcode;
@@ -632,8 +633,8 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
 
 void InstructionSelector::visitFCmpInst(FCmpInst *inst)
 {
-    auto lhsReg = getOrCreateVirtualReg(inst->LHS);
-    auto rhsReg = getOrCreateVirtualReg(inst->RHS);
+    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
     auto destReg = getGeneralTempRegister(0); // 浮点比较结果存储在通用寄存器中
 
     RISCVOpcode opcode;
@@ -682,7 +683,7 @@ void InstructionSelector::visitFCmpInst(FCmpInst *inst)
 void InstructionSelector::visitSIToFPInst(CastInst *inst)
 {
     // 处理有符号整数到浮点数的转换指令
-    auto srcReg = getOrCreateVirtualReg(inst->Operand);
+    auto srcReg = getOrCreateVirtualReg(inst->getOperand());
 
     // 创建目标浮点寄存器 - 使用临时寄存器管理
     auto destReg = getFloatTempRegister(0); // 使用FT0进行类型转换
@@ -698,7 +699,7 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
 void InstructionSelector::visitFPToSIInst(CastInst *inst)
 {
     // 处理浮点数到有符号整数的转换指令
-    auto srcReg = getOrCreateVirtualReg(inst->Operand);
+    auto srcReg = getOrCreateVirtualReg(inst->getOperand());
 
     // 创建目标整数寄存器 - 使用临时寄存器管理
     auto destReg = getGeneralTempRegister(0); // 使用T0进行类型转换
@@ -718,7 +719,7 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     // 在我们的"所有变量溢出到栈上"策略中，这实际上是从源位置加载值，然后存储到目标位置
 
     // 获取源值的寄存器
-    auto srcReg = getOrCreateVirtualReg(inst->Source);
+    auto srcReg = getOrCreateVirtualReg(inst->getSource());
 
     // 创建临时寄存器进行复制操作
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
@@ -998,7 +999,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                 hasCall = true;
                 if (auto callInst = dynamic_cast<CallInst *>(instr))
                 {
-                    int argCount = static_cast<int>(callInst->Arguments.size());
+                    int argCount = static_cast<int>(callInst->getArguments().size());
                     callArgCounts.push_back(argCount);
                 }
             }
