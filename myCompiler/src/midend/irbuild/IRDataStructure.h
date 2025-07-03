@@ -23,7 +23,7 @@ public:
         IntegerTyID,
         FloatTyID,
         BooleanTyID,
-        StringTyID, // 字符串类型，通常表示为指针
+        StringTyID, 
         PointerTyID,
         ArrayTyID,
         FunctionTyID
@@ -988,16 +988,3 @@ public:
 
     string toString() const;
 };
-
-// ===== Utility Functions =====
-namespace IRUtils
-{
-    // 从AST DataType转换为IR Type
-    Type *convertASTTypeToIRType(const DataType &astType);
-
-    // 检查两个类型是否兼容
-    bool isTypeCompatible(Type *t1, Type *t2);
-
-    // 获取二元运算的结果类型
-    Type *getBinaryOpResultType(Type *lhs, Type *rhs, BinaryOp op);
-}
