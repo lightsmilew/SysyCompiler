@@ -39,15 +39,7 @@ class DeadCodeEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "DeadCodeElimination"; }
-    ~DeadCodeEliminationPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
 private:
-    vector<Instruction *> needToDelete; // 存储需要删除的指令
     void markLiveInstructions(Function *func, std::unordered_set<Instruction *> &liveInsts);
     bool isInstructionCritical(Instruction *inst);
 };
@@ -58,15 +50,7 @@ class ConstantFoldingPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "ConstantFolding"; }
-    ~ConstantFoldingPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
 private:
-    vector<Instruction *> needToDelete; // 存储需要删除的指令
     Value *foldBinaryOperation(BinaryOperator *binOp);
     // 对比较指令进行常量折叠
     Value *foldComparison(ICmpInst *cmpInst);
@@ -151,18 +135,7 @@ private:
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
 };
-
-// 7. mem2reg（内存提升到寄存器/SSA）Pass
-class Mem2RegPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "Mem2Reg"; }
-private:
-    // 可添加辅助函数，如插入phi、重命名变量等
-};
-
-// 8. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 7. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:

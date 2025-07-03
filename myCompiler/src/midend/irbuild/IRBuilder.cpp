@@ -130,12 +130,12 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     for (size_t i = 0; i < node->params.size(); i++)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
-        // 如果是指针类型参数（如退化后的数组参数），直接用参数本身
-            Value *alloca = createAlloca(paramTypes[i]);
-            createStore(arg, alloca);
-            //转回原来类型
-            LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
-            varToValue[node->params[i]->identifier] = loadinst;
+            varToValue[node->params[i]->identifier] = arg;
+            // Value *alloca = createAlloca(paramTypes[i]);
+            // createStore(arg, alloca);
+            // //转回原来类型
+            // LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
+            // varToValue[node->params[i]->identifier] = loadinst;
     }
 
     // 访问函数体
@@ -264,50 +264,82 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     else
     {
         // 局部变量
-        //Value *alloca = createAlloca(varType, node->identifier);
-        Value *alloca = createAlloca(varType);
-        //getNextTempName
-        //转回原类型
-        LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
-        varToValue[node->identifier] = loadinst;
         if(varType->isArrayTy())
         {
+            //数组用内存模型
+            Value *alloca = createAlloca(varType);
+            //转回原类型
+            LoadInst* loadinst=new LoadInst(alloca,alloca->getName());
+            varToValue[node->identifier] = loadinst;
             for(auto it:node->type.arraySizes())
             {
                 int indice=getExpressionConstantValue(it);
                 if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero");
             }
-        }
-        if (node->initializer)
-        {   
-            if(!node->type.isConst())
+            if (node->initializer && !node->type.isConst())
             {
-                if (varType->isArrayTy()) 
-                {
-                    // 直接初始化 alloca 指向的空间
-                    visitInitExpr(node->initializer, varType, alloca);
-                } 
-                else 
-                {
-                    Value *initValue = visitInitExpr(node->initializer, varType);
-                    createStore(initValue, alloca);
-                }
+                visitInitExpr(node->initializer, varType, alloca);
+            }
+            else if (node->initializer && node->type.isConst())
+            {
+                Constant *initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+                constVarInitValues[node->identifier] = initializer;
+            }            
+        }
+        else
+        {
+            // 标量变量直接用SSA
+            Value *initValue = nullptr;
+            if (node->initializer && !node->type.isConst())
+            {
+                initValue = visitInitExpr(node->initializer, varType);
+            }
+            else if (node->type.isConst() && node->initializer)
+            {
+                Constant *initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+                initValue = initializer;
+                constVarInitValues[node->identifier] = initializer;
             }
             else
             {
-                Constant *initializer = nullptr;
-                // 如果是常量变量，记录初始值
-                if(varType->isArrayTy()) 
-                {
-                    initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
-                }
-                else 
-                {
-                    initializer = evaluateConstantExpr(node->initializer->singleInitVal);
-                }
-                    constVarInitValues[node->identifier] = initializer;
+                // 默认初值
+                if (varType->isIntegerTy())
+                    initValue = new ConstantInt(IntegerType::getInstance(), 0);
+                else if (varType->isFloatTy())
+                    initValue = new ConstantFloat(FloatType::getInstance(), 0.0f);
             }
+            varToValue[node->identifier] = initValue;
         }
+        // if (node->initializer)
+        // {   
+        //     if(!node->type.isConst())
+        //     {
+        //         if (varType->isArrayTy()) 
+        //         {
+        //             // 直接初始化 alloca 指向的空间
+        //             visitInitExpr(node->initializer, varType, alloca);
+        //         } 
+        //         else 
+        //         {
+        //             Value *initValue = visitInitExpr(node->initializer, varType);
+        //             createStore(initValue, alloca);
+        //         }
+        //     }
+        //     else
+        //     {
+        //         Constant *initializer = nullptr;
+        //         // 如果是常量变量，记录初始值
+        //         if(varType->isArrayTy()) 
+        //         {
+        //             initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
+        //         }
+        //         else 
+        //         {
+        //             initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+        //         }
+        //             constVarInitValues[node->identifier] = initializer;
+        //     }
+        // }
 
     }
 }
@@ -317,14 +349,22 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
     Value *lvalue = visitLValueExpr(node->lvalue);
     Value *rvalue = visitExpression(node->rvalue);
     
-    // 类型转换（如果需要）
-    //Type *targetType = static_cast<PointerType *>(lvalue->getType())->ElementType;
     if (rvalue->getType() != lvalue->getType())
     {
         rvalue = createCast(rvalue, lvalue->getType());
     }
     AllocaInst *allocaInst =new AllocaInst(lvalue->getType(),lvalue->getName());
-    createStore(rvalue, allocaInst);
+    if(lvalue->getType()->isPointerTy()||(node->lvalue->indices.size()>0))
+    {
+        //如果是指针类型使用store
+        createStore(rvalue, allocaInst);
+    }
+    else
+    {
+        varToValue[lvalue->getName()] = rvalue;
+        // 直接将 rvalue 存储到 varToValue 中
+    }
+    //createStore(rvalue, allocaInst);
 }
 
 void IRBuilder::visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node)
@@ -526,9 +566,17 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
             return ptr;
         }
         // 返回指针的基础类型
-        AllocaInst *allocaInst =new AllocaInst(ptr->getType(),ptr->getName());
-        auto value = createLoad(allocaInst);
-        return value;
+        // AllocaInst *allocaInst =new AllocaInst(ptr->getType(),ptr->getName());
+        // auto value = createLoad(allocaInst);
+        // 如果是数组 使用load加载
+        if(lvalueExpr->indices.size() > 0)
+        {
+            AllocaInst *allocaInst =new AllocaInst(ptr->getType(),ptr->getName());
+            auto value = createLoad(allocaInst);
+            return value;
+        }
+        // 如果是标量 返回
+        return ptr;
     }
     else if (auto callExpr = std::dynamic_pointer_cast<ast::CallExprNode>(node))
     {
@@ -1260,8 +1308,15 @@ PhiInst *IRBuilder::createPhi(Type *type, const String &name)
 {
     std::string actualName = name.empty() ? getNextTempName() : name;
     auto phiInst = std::make_unique<PhiInst>(type, actualName);
-    PhiInst *result = phiInst.get();
+    auto *result = phiInst.get();
     currentBlock->addInstruction(std::move(phiInst));
+    return result;
+}
+Value *IRBuilder::createCopy(Value *Src)
+{
+    auto copyInst = std::make_unique<CopyInst>(Src, getNextTempName());
+    Value *result=copyInst.get();
+    currentBlock->addInstruction(std::move(copyInst));
     return result;
 }
 

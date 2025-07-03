@@ -800,10 +800,20 @@ public:
     // Value *Source;
     CopyInst(Value *dest, Value *source,const string &name = "")
         : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name){}
+    CopyInst(Value *source, const string &name = "")
+        : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name) {}
     // 获取目标
-    Value *getDest() const { return getOperandByIndex(0); }
+    Value *getDest() const 
+    { 
+        if(getNumOperands() > 1)return getOperandByIndex(0);
+        else return nullptr; // 如果没有目标操作数，返回nullptr
+     }
     // 获取源
-    Value *getSource() const { return getOperandByIndex(1); }
+    Value *getSource() const 
+    { 
+        if(getNumOperands() > 1)return getOperandByIndex(1);
+        else return getOperandByIndex(0); // 如果没有目标操作数，返回第一个操作数
+     }
     string toString() const override;
 };
 
