@@ -38,6 +38,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func) {
         for (auto it = insts.begin(); it != insts.end();) {
             Instruction *inst = it->get();
             if (liveInsts.count(inst) == 0) {
+                needToDelete.push_back(it->release()); // 释放所有权，但不析构
                 it = insts.erase(it);
                 changed = true;
             } else {
@@ -94,6 +95,9 @@ bool ConstantFoldingPass::runOnFunction(Function *func) {
                     Value *folded = foldBinaryOperation(binOp);
                     if (folded) {
                         inst->replaceAllUsesWith(folded);
+                        needToDelete.push_back(it->release()); // 释放所有权，但不析构
+                        // 将折叠后的常量替换原指令
+                        //(Value*)inst = folded;
                         it = insts.erase(it);
                         changed = true;
                         if (it == insts.end()) break;
@@ -106,6 +110,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func) {
                     Value *folded = foldComparison(cmp);
                     if (folded) {
                         inst->replaceAllUsesWith(folded);
+                        needToDelete.push_back(it->release()); // 释放所有权，但不析构
+                        // 将折叠后的常量替换原指令
                         it = insts.erase(it);
                         changed = true;
                         if (it == insts.end()) break;
@@ -354,6 +360,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) {
             if (it != insts.end()) {
                 // 转移所有权到 preheader
                 std::unique_ptr<Instruction> movedInst = std::move(*it);
+                needToDelete.push_back(it->release()); // 记录需要删除的指令
                 insts.erase(it);
                 preheader->addInstruction(std::move(movedInst));
                 changed = true;
@@ -537,6 +544,7 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
             if (phi->getNumIncomingValues() == 1) {
                 Value *incomingValue = phi->getIncomingValue(0);
                 phi->replaceAllUsesWith(incomingValue);
+                needToDelete.push_back(it->release()); // 释放所有权，但不析构
                 it = insts.erase(it);
                 changed = true;
                 continue;
@@ -557,7 +565,6 @@ bool PhiEliminationPass::runOnFunction(Function *func) {
             }
             //从基本块中删除原来指令，phi对应value仍然保留
             needToDelete.push_back(it->release()); // 释放所有权，但不析构
-            //Instruction *phiPtr = it->release(); // 释放所有权，但不析构
             it = insts.erase(it);
             changed = true;
         }

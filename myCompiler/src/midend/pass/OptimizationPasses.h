@@ -39,8 +39,15 @@ class DeadCodeEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "DeadCodeElimination"; }
-
+    ~DeadCodeEliminationPass()
+    {
+        for (auto *inst : needToDelete) 
+        {
+            delete inst; // 手动析构
+        }
+    }
 private:
+    vector<Instruction *> needToDelete; // 存储需要删除的指令
     void markLiveInstructions(Function *func, std::unordered_set<Instruction *> &liveInsts);
     bool isInstructionCritical(Instruction *inst);
 };
@@ -51,8 +58,15 @@ class ConstantFoldingPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "ConstantFolding"; }
-
+    ~ConstantFoldingPass()
+    {
+        for (auto *inst : needToDelete) 
+        {
+            delete inst; // 手动析构
+        }
+    }
 private:
+    vector<Instruction *> needToDelete; // 存储需要删除的指令
     Value *foldBinaryOperation(BinaryOperator *binOp);
     // 对比较指令进行常量折叠
     Value *foldComparison(ICmpInst *cmpInst);
@@ -111,7 +125,13 @@ class LoopInvariantCodeMotionPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "LoopInvariantCodeMotion"; }
-
+    ~LoopInvariantCodeMotionPass()
+    {
+        for (auto *inst : needToDelete) 
+        {
+            delete inst; // 手动析构
+        }
+    }
 private:
     struct Loop
     {
@@ -126,7 +146,7 @@ private:
                                [&](BasicBlock *bb) { return bb->contains(inst); });
         }
     };
-
+    vector<Instruction *>needToDelete; // 存储需要删除的指令
     vector<Loop> findLoops(Function *func);
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);

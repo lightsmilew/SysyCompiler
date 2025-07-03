@@ -443,7 +443,7 @@ class Instruction : public User
 public:
     Opcode Op;
     BasicBlock *Parent;
-
+    
     // usually added to a BasicBlock after creation
     Instruction(Type *ty, Opcode op, const string &name = "")
         : User(ty, {}, name), Op(op), Parent(nullptr) {}
