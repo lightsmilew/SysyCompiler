@@ -266,10 +266,11 @@ public:
     // 获取所有操作数
     const vector<Value *> &getOperands() const { return Operands; }
     // 获取指定索引的操作数
-    Value *getOperand(unsigned index) const
+    Value *getOperandByIndex(unsigned index) const
     {
         if (index < Operands.size())
-        {            return Operands[index];
+        {            
+            return Operands[index];
         }
         throw std::out_of_range("Invalid operand index");
     }
@@ -519,22 +520,24 @@ public:
 class BinaryOperator : public Instruction
 {
 public:
-    Value *LHS;
-    Value *RHS;
+    // Value *LHS;
+    // Value *RHS;
 
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name), LHS(lhs), RHS(rhs) {}
+        : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name){}
+    Value *getLHS() const { return getOperandByIndex(0); }
+    Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 
 class UnaryOperator : public Instruction
 {
 public:
-    Value *Operand;
+    // Value *Operand;
 
     UnaryOperator(Opcode op, Value *operand, const string &name = "")
-        : Instruction(operand->getType(), op, vector<Value *>{operand}, name), Operand(operand) {}
-
+        : Instruction(operand->getType(), op, vector<Value *>{operand}, name) {}
+    Value *getOperand() const { return getOperandByIndex(0); }
     string toString() const override;
 };
 
@@ -553,14 +556,16 @@ public:
 
 public:
     Predicate Pred;
-    Value *LHS;
-    Value *RHS;
+        // Value *LHS;
+        // Value *RHS;
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
-          Pred(pred), LHS(lhs), RHS(rhs) {}
+          Pred(pred) {}
     // 获取比较操作符
     Predicate getPredicate() const { return Pred; }
+    Value *getLHS() const { return getOperandByIndex(0); }
+    Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 
@@ -579,12 +584,14 @@ public:
 
 public:
     Predicate Pred;
-    Value *LHS;
-    Value *RHS;
+    // Value *LHS;
+    // Value *RHS;
 
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
-          Pred(pred), LHS(lhs), RHS(rhs) {}
+          Pred(pred) {}
+    Value *getLHS() const { return getOperandByIndex(0); }
+    Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 
@@ -601,10 +608,11 @@ public:
 class LoadInst : public Instruction
 {
 public:
-    Value *Pointer;
+    //Value *Pointer;
 
     LoadInst(Value *ptr, const string &name = "")
-        : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name), Pointer(ptr) {}
+        : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name) {}
+    Value *getPointer() const { return getOperandByIndex(0); }
     string toString() const override;
 
 private:
@@ -628,22 +636,31 @@ private:
 class StoreInst : public Instruction
 {
 public:
-    Value *ValueToStore;
-    Value *Pointer;
+    // Value *ValueToStore;
+    // Value *Pointer;
 
     StoreInst(Value *val, Value *ptr)
-        : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}),
-          ValueToStore(val), Pointer(ptr) {}
+        : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}){}
+    Value *getValueToStore() const { return getOperandByIndex(0); }
+    Value *getPointer() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 
 class CallInst : public Instruction
 {
 public:
-    Function *CalledFunction;
-    vector<Value *> Arguments;
+    // Function *CalledFunction;
+    // vector<Value *> Arguments;
 
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
+    //这里无法给出函数实现，因为此时Function类还未定义
+    Function *getCalledFunction() const;
+    // 获取函数参数
+    vector<Value *> getArguments() const
+    {
+        vector<Value *> args(getOperands().begin() + 1, getOperands().end());
+        return args;
+    }
     string toString() const override;
 
 private:
@@ -654,13 +671,22 @@ private:
 class ReturnInst : public Instruction
 {
 public:
-    Value *ReturnValue;
+    // Value *ReturnValue;
 
     // Return without value (void return)
-    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret), ReturnValue(nullptr) {}
+    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret){}
     // Return with value
     ReturnInst(Value *retVal)
-        : Instruction(VoidType::getInstance(), Opcode::Ret, vector<Value *>{retVal}), ReturnValue(retVal) {}
+        : Instruction(VoidType::getInstance(), Opcode::Ret, vector<Value *>{retVal}) {}
+    // 获取返回值
+    Value *getReturnValue() const
+    {
+        if (getNumOperands() > 0)
+        {
+            return getOperandByIndex(0);
+        }
+        return nullptr; // 无返回值
+    }
     string toString() const override;
 };
 
@@ -669,20 +695,26 @@ class BranchInst : public Instruction
 public:
     BasicBlock *TrueBlock;
     BasicBlock *FalseBlock;
-    Value *Condition;
+    //Value *Condition;
 
     // Unconditional branch
     BranchInst(BasicBlock *target)
-        : Instruction(VoidType::getInstance(), Opcode::Br), TrueBlock(target), FalseBlock(nullptr), Condition(nullptr) {}
+        : Instruction(VoidType::getInstance(), Opcode::Br), TrueBlock(target), FalseBlock(nullptr) {}
 
     // Conditional branch
     BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock)
         : Instruction(VoidType::getInstance(), Opcode::Br, vector<Value *>{cond}),
-          TrueBlock(trueBlock), FalseBlock(falseBlock), Condition(cond) {}
+          TrueBlock(trueBlock), FalseBlock(falseBlock) {}
     // 是否为条件分支
-    bool isConditional() const { return Condition != nullptr; }
+    bool isConditional() const { return getNumOperands() > 0; }
     // 获取条件
-    Value *getCondition() const { return Condition; }
+    Value *getCondition() const {
+        if (isConditional())
+        {
+            return getOperandByIndex(0); 
+        }
+        return nullptr;
+    }
     string toString() const override;
 };
 
@@ -728,14 +760,20 @@ public:
 class GetElementPtrInst : public Instruction
 {
 public:
-    Value *PointerOperand;
-    vector<Value *> Indices;
+    // Value *PointerOperand;
+    // vector<Value *> Indices;
 
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
-                      constructOperands(ptr, indices), name),
-          PointerOperand(ptr), Indices(indices) {}
-
+                      constructOperands(ptr, indices), name){}
+    // 获取指针操作数
+    Value *getPointerOperand() const { return getOperandByIndex(0); }
+    // 获取索引操作数
+    vector<Value *> getIndices() const
+    {
+        vector<Value *> indices(getOperands().begin() + 1, getOperands().end());
+        return indices;
+    }
     string toString() const override;
 
 private:
@@ -746,23 +784,26 @@ private:
 class CastInst : public Instruction
 {
 public:
-    Value *Operand;
+    // Value *Operand;
     Type *DestType;
 
     CastInst(Opcode op, Value *operand, Type *destType, const string &name = "")
-        : Instruction(destType, op, vector<Value *>{operand}, name),
-          Operand(operand), DestType(destType) {}
-
+        : Instruction(destType, op, vector<Value *>{operand}, name),DestType(destType) {}
+    // 获取操作数
+    Value *getOperand() const { return getOperandByIndex(0); }
     string toString() const override;
 };
 class CopyInst : public Instruction
 {
 public:
-    Value *Dest;
-    Value *Source;
+    // Value *Dest;
+    // Value *Source;
     CopyInst(Value *dest, Value *source,const string &name = "")
-        : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name),
-          Dest(dest),Source(source) {}
+        : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name){}
+    // 获取目标
+    Value *getDest() const { return getOperandByIndex(0); }
+    // 获取源
+    Value *getSource() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 

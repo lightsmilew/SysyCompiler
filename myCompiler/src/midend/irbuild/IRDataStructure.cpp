@@ -111,7 +111,7 @@ std::string BinaryOperator::toString() const
     }
 
     ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-       << " " << LHS->toRef() << ", " << RHS->toRef();
+       << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
 
     return ss.str();
 }
@@ -126,12 +126,12 @@ std::string UnaryOperator::toString() const
     case Opcode::Sub:
         opStr = "sub";
         ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-           << " 0, " << Operand->toRef();
+           << " 0, " << getOperand()->toRef();
         break;
     default:
         opStr = "unknown_unary";
         ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-           << " " << Operand->toRef();
+           << " " << getOperand()->toRef();
         break;
     }
 
@@ -165,8 +165,8 @@ std::string ICmpInst::toString() const
         break;
     }
 
-    ss << "%" << getName() << " = icmp " << predStr << " " << LHS->getType()->toString()
-       << " " << LHS->toRef() << ", " << RHS->toRef();
+    ss << "%" << getName() << " = icmp " << predStr << " " << getLHS()->getType()->toString()
+       << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
 
     return ss.str();
 }
@@ -198,8 +198,8 @@ std::string FCmpInst::toString() const
         break;
     }
 
-    ss << "%" << getName() << " = fcmp " << predStr << " " << LHS->getType()->toString()
-       << " " << LHS->toRef() << ", " << RHS->toRef();
+    ss << "%" << getName() << " = fcmp " << predStr << " " << getLHS()->getType()->toString()
+       << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
 
     return ss.str();
 }
@@ -215,15 +215,15 @@ std::string LoadInst::toString() const
 {
     std::stringstream ss;
     ss << "%" << getName() << " = load " << getType()->toString()
-       << ", " << Pointer->getType()->toString() << " " << Pointer->toRef();
+       << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
 
 std::string StoreInst::toString() const
 {
     std::stringstream ss;
-    ss << "store " << ValueToStore->getType()->toString() << " " << ValueToStore->toRef()
-       << ", " << Pointer->getType()->toString() << " " << Pointer->toRef();
+    ss << "store " << getValueToStore()->getType()->toString() << " " << getValueToStore()->toRef()
+       << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
 
@@ -236,13 +236,13 @@ std::string CallInst::toString() const
         ss << "%" << getName() << " = ";
     }
 
-    ss << "call " << getType()->toString() << " @" << CalledFunction->getName() << "(";
+    ss << "call " << getType()->toString() << " @" << getCalledFunction()->getName() << "(";
 
-    for (size_t i = 0; i < Arguments.size(); ++i)
+    for (size_t i = 0; i < getArguments().size(); ++i)
     {
         if (i > 0)
             ss << ", ";
-        ss << Arguments[i]->getType()->toString() << " " << Arguments[i]->toRef();
+        ss << getArguments()[i]->getType()->toString() << " " << getArguments()[i]->toRef();
     }
 
     ss << ")";
@@ -251,8 +251,7 @@ std::string CallInst::toString() const
 
 // CallInst implementation
 CallInst::CallInst(Function *func, const vector<Value *> &args, const string &name)
-    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name),
-      CalledFunction(func), Arguments(args) {}
+    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name){}
 
 vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *> &args)
 {
@@ -261,7 +260,10 @@ vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *
     operands.insert(operands.end(), args.begin(), args.end());
     return operands;
 }
-
+Function * CallInst::getCalledFunction() const
+{
+    return dynamic_cast<Function *>(getOperandByIndex(0));
+}
 Type *CallInst::getFunctionReturnType(Value *func)
 {
     if (!func)
@@ -293,9 +295,9 @@ Type *CallInst::getFunctionReturnType(Value *func)
 std::string ReturnInst::toString() const
 {
     std::stringstream ss;
-    if (ReturnValue)
+    if (getReturnValue())
     {
-        ss << "ret " << ReturnValue->getType()->toString() << " " << ReturnValue->toRef();
+        ss << "ret " << getReturnValue()->getType()->toString() << " " << getReturnValue()->toRef();
     }
     else
     {
@@ -307,9 +309,9 @@ std::string ReturnInst::toString() const
 std::string BranchInst::toString() const
 {
     std::stringstream ss;
-    if (Condition)
+    if (isConditional())
     {
-        ss << "br " << Condition->getType()->toString() << " " << Condition->toRef()
+        ss << "br " << getCondition()->getType()->toString() << " " << getCondition()->toRef()
            << ", label %" << TrueBlock->getName() << ", label %" << FalseBlock->getName();
     }
     else
@@ -338,8 +340,8 @@ std::string PhiInst::toString() const
 std::string CopyInst::toString() const
 {
     std::stringstream ss;
-    ss << "%" << getName() << " = " << Source->getType()->toString()
-       << " " << Source->toRef();
+    ss << "%" << getName() << " = " << getSource()->getType()->toString()
+       << " " << getSource()->toRef();
     return ss.str();
 }
 
@@ -439,7 +441,7 @@ std::string GetElementPtrInst::toString() const
 
     // 获取基本类型
     Type *baseType = nullptr;
-    if (auto ptrType = dynamic_cast<PointerType *>(PointerOperand->getType()))
+    if (auto ptrType = dynamic_cast<PointerType *>(getPointerOperand()->getType()))
     {
         baseType = ptrType->ElementType;
     }
@@ -449,9 +451,9 @@ std::string GetElementPtrInst::toString() const
         ss << baseType->toString() << ", ";
     }
 
-    ss << PointerOperand->getType()->toString() << " " << PointerOperand->toRef();
+    ss << getPointerOperand()->getType()->toString() << " " << getPointerOperand()->toRef();
 
-    for (Value *index : Indices)
+    for (Value *index : getIndices())
     {
         ss << ", " << index->getType()->toString() << " " << index->toRef();
     }
@@ -479,7 +481,7 @@ std::string CastInst::toString() const
     }
 
     ss << "%" << getName() << " = " << opStr << " "
-       << Operand->getType()->toString() << " " << Operand->toRef()
+       << getOperand()->getType()->toString() << " " << getOperand()->toRef()
        << " to " << DestType->toString();
 
     return ss.str();

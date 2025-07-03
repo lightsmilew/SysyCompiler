@@ -91,7 +91,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func) {
             Instruction *inst = it->get();
             // 二元运算常量折叠
             if (auto *binOp = dynamic_cast<BinaryOperator *>(inst)) {
-                if (isConstant(binOp->getOperand(0)) && isConstant(binOp->getOperand(1))) {
+                if (isConstant(binOp->getOperandByIndex(0)) && isConstant(binOp->getOperandByIndex(1))) {
                     Value *folded = foldBinaryOperation(binOp);
                     if (folded) {
                         inst->replaceAllUsesWith(folded);
@@ -106,7 +106,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func) {
             }
             // 比较指令常量折叠
             else if (auto *cmp = dynamic_cast<ICmpInst *>(inst)) {
-                if (isConstant(cmp->getOperand(0)) && isConstant(cmp->getOperand(1))) {
+                if (isConstant(cmp->getOperandByIndex(0)) && isConstant(cmp->getOperandByIndex(1))) {
                     Value *folded = foldComparison(cmp);
                     if (folded) {
                         inst->replaceAllUsesWith(folded);
@@ -129,8 +129,8 @@ Value *ConstantFoldingPass::foldBinaryOperation(BinaryOperator *binOp) {
     if (isFloat) 
     {
         // 处理浮点数的常量折叠
-        auto *lhs = dynamic_cast<ConstantFloat *>(binOp->getOperand(0));
-        auto *rhs = dynamic_cast<ConstantFloat *>(binOp->getOperand(1));
+        auto *lhs = dynamic_cast<ConstantFloat *>(binOp->getOperandByIndex(0));
+        auto *rhs = dynamic_cast<ConstantFloat *>(binOp->getOperandByIndex(1));
         if (!lhs || !rhs) return nullptr;
         float l = lhs->Value, r = rhs->Value;
         float res = 0.0f;
@@ -147,8 +147,8 @@ Value *ConstantFoldingPass::foldBinaryOperation(BinaryOperator *binOp) {
         }
         return new ConstantFloat(FloatType::getInstance(), res);
     }
-    auto *lhs = dynamic_cast<ConstantInt *>(binOp->getOperand(0));
-    auto *rhs = dynamic_cast<ConstantInt *>(binOp->getOperand(1));
+    auto *lhs = dynamic_cast<ConstantInt *>(binOp->getOperandByIndex(0));
+    auto *rhs = dynamic_cast<ConstantInt *>(binOp->getOperandByIndex(1));
     if (!lhs || !rhs) return nullptr;
     int l = lhs->Value, r = rhs->Value;
     int res = 0;
@@ -170,8 +170,8 @@ Value *ConstantFoldingPass::foldComparison(ICmpInst *cmpInst) {
     bool isFloat = cmpInst->getType()->isFloatTy();
     if (isFloat) {
         // 处理浮点数的比较
-        auto *lhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperand(0));
-        auto *rhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperand(1));
+        auto *lhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperandByIndex(0));
+        auto *rhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperandByIndex(1));
         if (!lhs || !rhs) return nullptr;
         float l = lhs->Value, r = rhs->Value;
         bool res = false;
@@ -187,8 +187,8 @@ Value *ConstantFoldingPass::foldComparison(ICmpInst *cmpInst) {
         }
         return new ConstantInt(IntegerType::getInstance(), res ? 1 : 0);
     }
-    auto *lhs = dynamic_cast<ConstantInt *>(cmpInst->getOperand(0));
-    auto *rhs = dynamic_cast<ConstantInt *>(cmpInst->getOperand(1));
+    auto *lhs = dynamic_cast<ConstantInt *>(cmpInst->getOperandByIndex(0));
+    auto *rhs = dynamic_cast<ConstantInt *>(cmpInst->getOperandByIndex(1));
     if (!lhs || !rhs) return nullptr;
     int l = lhs->Value, r = rhs->Value;
     bool res = false;
@@ -256,7 +256,7 @@ bool CopyPropagationPass::runOnFunction(Function *func) {
         for (auto &instPtr : bb->getInstructions()) {
             Instruction *inst = instPtr.get();
             for (size_t i = 0; i < inst->getNumOperands(); ++i) {
-                Value *op = inst->getOperand(i);
+                Value *op = inst->getOperandByIndex(i);
                 Value *newOp = followCopyChain(op);
                 if (newOp != op) {
                     inst->setOperand(i, newOp);
@@ -275,7 +275,7 @@ void CopyPropagationPass::collectCopies(Function *func) {
             // 假设mov/copy指令为: %a = %b
             if (inst->isCopy()) {
                 // 记录复制关系 从第2个操作数复制到第1个操作数
-                copyMap[inst->getOperand(0)] = inst->getOperand(1);
+                copyMap[inst->getOperandByIndex(0)] = inst->getOperandByIndex(1);
             }
         }
     }
@@ -472,9 +472,9 @@ bool Mem2RegPass::runOnFunction(Function *func) {
         for (auto &bb : func->getBasicBlocks()) {
             for (auto &instPtr : bb->getInstructions()) {
                 if (auto *store = dynamic_cast<StoreInst*>(instPtr.get())) {
-                    if (store->Pointer == alloca) stores.push_back(store);
+                    if (store->getPointer() == alloca) stores.push_back(store);
                 } else if (auto *load = dynamic_cast<LoadInst*>(instPtr.get())) {
-                    if (load->Pointer == alloca) loads.push_back(load);
+                    if (load->getPointer() == alloca) loads.push_back(load);
                 }
             }
         }
@@ -482,7 +482,7 @@ bool Mem2RegPass::runOnFunction(Function *func) {
         // 3. 建立每个基本块最后一次store的SSA值
         std::unordered_map<BasicBlock*, Value*> lastStoreValue;
         for (auto *store : stores) {
-            lastStoreValue[store->getParent()] = store->ValueToStore;
+            lastStoreValue[store->getParent()] = store->getValueToStore();
         }
 
         // 4. 替换所有load为SSA值（优先用phi，否则用最近store）
@@ -519,8 +519,8 @@ bool Mem2RegPass::runOnFunction(Function *func) {
             insts.erase(std::remove_if(insts.begin(), insts.end(),
                 [&](const std::unique_ptr<Instruction>& inst) {
                     return inst.get() == alloca ||
-                           (dynamic_cast<StoreInst*>(inst.get()) && static_cast<StoreInst*>(inst.get())->Pointer == alloca) ||
-                           (dynamic_cast<LoadInst*>(inst.get()) && static_cast<LoadInst*>(inst.get())->Pointer == alloca);
+                           (dynamic_cast<StoreInst*>(inst.get()) && static_cast<StoreInst*>(inst.get())->getPointer() == alloca) ||
+                           (dynamic_cast<LoadInst*>(inst.get()) && static_cast<LoadInst*>(inst.get())->getPointer() == alloca);
                 }), insts.end());
         }
     }
