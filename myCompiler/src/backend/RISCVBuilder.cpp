@@ -429,6 +429,40 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
         RISCVOpcode moveOpcode = inst->getReturnValue()->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
+
+        // 如果是main函数，需要调用putint输出返回值
+        if (currentFunc->getName() == "main")
+        {
+            // 保存返回值到a0寄存器（如果还没有的话）
+            if (returnReg->getPhysicalReg() != RISCVRegister::PhysicalReg::A0)
+            {
+                auto a0Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0);
+                auto moveToA0 = RISCVInstruction::createPseudo(RISCVOpcode::MV, a0Reg, valueReg);
+                currentBB->addInstruction(moveToA0);
+            }
+
+            // 调用putint函数输出返回值
+            auto callPutint = RISCVInstruction::createJType(RISCVOpcode::JAL,
+                                                            make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
+                                                            "putint");
+            currentBB->addInstruction(callPutint);
+
+            // 添加程序退出代码
+            auto a7Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7);
+            auto loadExit = RISCVInstruction::createIType(RISCVOpcode::ADDI, a7Reg,
+                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                          93); // sys_exit系统调用号
+            currentBB->addInstruction(loadExit);
+
+            auto ecallInst = RISCVInstruction::createIType(RISCVOpcode::ECALL,
+                                                           make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                           make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                           0);
+            currentBB->addInstruction(ecallInst);
+
+            // main函数不需要常规的return，因为程序直接退出
+            return;
+        }
     }
 
     // 生成函数结尾（恢复栈帧）
