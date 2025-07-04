@@ -149,8 +149,8 @@ PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
       addError("Variable '" + lval->identifier + "' is not initialized before use");
     }
     visitLValueExpr(lval);
-    auto lv = analyzer.resolveVariable(lval->identifier);
-    return lv->type.baseType;
+    // 复用已经查找到的symbol，避免重复查找
+    return symbol->type.baseType;
   }
   else if (auto initExpr = dynamic_pointer_cast<InitExprNode>(expr))
   {
@@ -209,6 +209,7 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
   }
   else if (auto callexp = dynamic_pointer_cast<CallExprNode>(expr))
   {
+    visitCallExpr(callexp);
     // 函数调用不允许在常量表达式中出现
     return !isConst;
   }
@@ -221,19 +222,15 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
       return false; // 如果变量未找到，返回false
     }
 
-    if (!symbol->isInitialized && !inFunctionCall)
+    if (!symbol->isInitialized && !inFunctionCall && !symbol->type.isArray())
     {
       addError("Variable '" + lval->identifier + "' is not initialized before use");
       return false; // 如果变量未初始化，直接返回false}
     }
 
-    auto lv = analyzer.resolveVariable(lval->identifier);
-    if (!lv)
-    {
-      return false; // 如果变量未找到，返回false
-    }
+    // 复用已经查找到的symbol，避免重复查找
     // 变量不允许在常量表达式中出现
-    return lv->type.isConst() || !isConst;
+    return symbol->type.isConst() || !isConst;
   }
   else if (auto intnum = dynamic_pointer_cast<IntLiteralExprNode>(expr))
   {
@@ -591,11 +588,11 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
 void TypeCheckerVisitor::visitStmt(shared_ptr<StmtNode> node)
 {
-  // if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
-  // {
-  //   visitDeclStmt(declStmt);
-  // }
-  if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node))
+  if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
+  {
+    visitDeclStmt(declStmt);
+  }
+  else if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node))
   {
     visitExprStmt(exprStmt);
   }
@@ -639,14 +636,7 @@ void TypeCheckerVisitor::visitStmt(shared_ptr<StmtNode> node)
 }
 void TypeCheckerVisitor::visitBlockStmt(shared_ptr<StmtNode> node)
 {
-  if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
-  {
-    visitDeclStmt(declStmt);
-  }
-  else
-  {
-    visitStmt(node);
-  }
+  visitStmt(node);
 }
 void TypeCheckerVisitor::visitDeclStmt(shared_ptr<DeclStmtNode> node)
 {
@@ -752,11 +742,11 @@ void TypeCheckerVisitor::visitAssignStmt(shared_ptr<AssignStmtNode> node)
     addError("Cannot modify const variable '" + node->lvalue->identifier + "'");
   }
 
+  // 先标记变量为已初始化，避免在检查右值表达式时出现未初始化错误
+  symbol->isInitialized = true;
+
   // 检查右值表达式
   checkExprTypeCompatible(node->lvalue->identifier, node->rvalue, symbol->type, ExprContext::EXPRESSION, false);
-
-  // 标记变量为已初始化
-  symbol->isInitialized = true;
 }
 
 void TypeCheckerVisitor::visitIfElseStmt(shared_ptr<IfElseStmtNode> node)
@@ -902,11 +892,29 @@ void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
   // 检查每个参数类型
   for (size_t i = 0; i < targetParamsType.size(); i++)
   {
-    currentCallMappings.push_back(make_pair(node->callee, targetParamsType[i]->type));
-
     if (i < node->args.size())
     {
       checkExprTypeCompatible(node->callee, node->args[i], targetParamsType[i]->type, ExprContext::CALL, true);
+    }
+  }
+
+  // 函数调用后，处理形参与实参的绑定关系
+  // 当形参是数组类型时，函数可能会修改数组内容，需要将对应的实参标记为已初始化
+  for (size_t i = 0; i < node->args.size() && i < targetParamsType.size(); i++)
+  {
+    if (auto lval = dynamic_pointer_cast<LValueExprNode>(node->args[i]))
+    {
+      auto actualArg = analyzer.resolveVariable(lval->identifier); // 实参
+      auto formalParam = targetParamsType[i];                      // 形参
+
+      // 形参与实参的绑定：如果形参是数组类型，说明函数可能会修改数组
+      // 因此需要将实参标记为已初始化，建立形参与实参的初始化状态同步
+      if (actualArg && formalParam->type.isArray())
+      {
+        // 无论实参原来是否初始化，经过函数调用后都应该被视为已初始化
+        // 这是因为函数内部可能向数组写入数据
+        actualArg->isInitialized = true;
+      }
     }
   }
 
