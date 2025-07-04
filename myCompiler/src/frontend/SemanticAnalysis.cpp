@@ -318,7 +318,7 @@ bool TypeCheckerVisitor::checkExprTypeCompatible(string ident, shared_ptr<ExprNo
         return false;
       }
 
-      if (array->type.arrayDimensionCount() - lval->indices.size() != targetType.arrayDimensionCount())
+      if (array->type.arrayDimensionCount() - lval->indices.size() < targetType.arrayDimensionCount())
       {
         addError("Function '" + ident + "' expects " +
                  to_string(targetType.arrayDimensionCount()) +
