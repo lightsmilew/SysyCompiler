@@ -537,6 +537,11 @@ bool PhiEliminationPass::runOnFunction(Function *func)
         for (auto it = insts.begin(); it != insts.end();) 
         {
             Instruction *inst = it->get();
+            if (!inst) 
+            {
+                std::cerr << "inst is nullptr!" << std::endl;
+                continue;
+            }            
             auto *phi = dynamic_cast<PhiInst *>(inst);
             if (!phi) 
             {
