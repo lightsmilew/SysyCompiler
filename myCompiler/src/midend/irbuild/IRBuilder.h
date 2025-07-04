@@ -99,7 +99,7 @@ namespace ir_builder
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
         PhiInst *createPhi(Type *type, const String &name = "");
- 
+        Value *createCopy(Value *Src); // 复制指令
         // 辅助函数 用于支持嵌套和平铺赋值
         void flattenInitList(std::shared_ptr<ast::InitExprNode> node, Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
         void visitInitExprImpl(Type *targetType, Value *targetPtr,

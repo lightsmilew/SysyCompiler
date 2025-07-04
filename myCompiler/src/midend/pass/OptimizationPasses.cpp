@@ -44,7 +44,6 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (liveInsts.count(inst) == 0) 
             {
-                needToDelete.push_back(it->release()); // 释放所有权，但不析构
                 it = insts.erase(it);
                 changed = true;
             }
@@ -117,9 +116,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                     if (folded) 
                     {
                         inst->replaceAllUsesWith(folded);
-                        needToDelete.push_back(it->release()); // 释放所有权，但不析构
                         // 将折叠后的常量替换原指令
-                        //(Value*)inst = folded;
                         it = insts.erase(it);
                         changed = true;
                         if (it == insts.end()) break;
@@ -134,7 +131,6 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                     if (folded) 
                     {
                         inst->replaceAllUsesWith(folded);
-                        needToDelete.push_back(it->release()); // 释放所有权，但不析构
                         // 将折叠后的常量替换原指令
                         it = insts.erase(it);
                         changed = true;
@@ -407,7 +403,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                     if (std::find(invariants.begin(), invariants.end(), inst) == invariants.end() &&
                         !inst->mayHaveSideEffects() && !inst->isTerminator() &&
                         isLoopInvariant(inst, loop)) 
-                {
+                    {
                         invariants.push_back(inst);
                         foundNew = true;
                     }
@@ -531,105 +527,6 @@ BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop)
     return nullptr; // 如果没有找到前驱块，返回nullptr
 }
 
-// ========== mem2reg（内存提升到SSA）Pass ==========
-bool Mem2RegPass::runOnFunction(Function *func) 
-{
-    // 1. 找出所有可提升的 alloca
-    vector<AllocaInst*> promotableAllocas;
-    for (auto &bb : func->getBasicBlocks()) 
-    {
-        for (auto &instPtr : bb->getInstructions()) 
-        {
-            if (auto *alloca = dynamic_cast<AllocaInst*>(instPtr.get())) 
-            {
-                if (alloca->AllocatedType->isIntegerTy() || alloca->AllocatedType->isFloatTy()) 
-                {
-                    promotableAllocas.push_back(alloca);
-                }
-            }
-        }
-    }
-    if (promotableAllocas.empty()) return false;
-    bool changed = false;
-
-    // 2. 对每个 alloca 做提升
-    for (auto *alloca : promotableAllocas) 
-    {
-        // 记录所有 store/load
-        vector<StoreInst*> stores;
-        vector<LoadInst*> loads;
-        for (auto &bb : func->getBasicBlocks()) 
-        {
-            for (auto &instPtr : bb->getInstructions()) 
-            {
-                if (auto *store = dynamic_cast<StoreInst*>(instPtr.get())) 
-                {
-                    if (store->getPointer() == alloca) stores.push_back(store);
-                } 
-                else if (auto *load = dynamic_cast<LoadInst*>(instPtr.get())) 
-                {
-                    if (load->getPointer() == alloca) loads.push_back(load);
-                }
-            }
-        }
-
-        // 3. 建立每个基本块最后一次store的SSA值
-        std::unordered_map<BasicBlock*, Value*> lastStoreValue;
-        for (auto *store : stores) 
-        {
-            lastStoreValue[store->getParent()] = store->getValueToStore();
-        }
-
-        // 4. 替换所有load为SSA值（优先用phi，否则用最近store）
-        for (auto *load : loads) 
-        {
-            BasicBlock *bb = load->getParent();
-            Value *ssaValue = nullptr;
-            // 优先查找phi（你的IRBuilder已插入）
-            for (auto &instPtr : bb->getInstructions()) 
-            {
-                if (auto *phi = dynamic_cast<PhiInst*>(instPtr.get())) 
-                {
-                    if (phi->getType() == alloca->AllocatedType) {
-                        ssaValue = phi;
-                        break;
-                    }
-                }
-            }
-            // 没有phi就用最近store
-            if (!ssaValue && lastStoreValue.count(bb)) 
-            {
-                ssaValue = lastStoreValue[bb];
-            }
-            // fallback: 可能是未初始化变量，给个默认值
-            if (!ssaValue) 
-            {
-                if (alloca->AllocatedType->isIntegerTy())
-                    ssaValue = new ConstantInt(IntegerType::getInstance(), 0);
-                else if (alloca->AllocatedType->isFloatTy())
-                    ssaValue = new ConstantFloat(FloatType::getInstance(), 0.0f);
-            }
-            load->replaceAllUsesWith(ssaValue);
-            changed = true;
-        }
-
-        // 5. 删除所有相关的 load/store/alloca 指令
-        for (auto &bb : func->getBasicBlocks()) 
-        {
-            auto &insts = bb->getInstructions();
-            insts.erase(std::remove_if(insts.begin(), insts.end(),
-                [&](const std::unique_ptr<Instruction>& inst) 
-                {
-                    return inst.get() == alloca ||
-                           (dynamic_cast<StoreInst*>(inst.get()) && static_cast<StoreInst*>(inst.get())->getPointer() == alloca) ||
-                           (dynamic_cast<LoadInst*>(inst.get()) && static_cast<LoadInst*>(inst.get())->getPointer() == alloca);
-                }), insts.end());
-        }
-    }
-
-    return changed;
-}
-
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func) 
 {
@@ -707,7 +604,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
         pm->addPass(std::make_unique<BasicBlockMergePass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
-        pm->addPass(std::make_unique<Mem2RegPass>());
         pm->addPass(std::make_unique<PhiEliminationPass>());
     }
     return pm;
