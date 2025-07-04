@@ -340,7 +340,7 @@ std::string PhiInst::toString() const
 std::string CopyInst::toString() const
 {
     std::stringstream ss;
-    ss << "%" << getName() << " = " << getSource()->getType()->toString()
+    ss << "%" << getName() << " = copy" << getSource()->getType()->toString()
        << " " << getSource()->toRef();
     return ss.str();
 }

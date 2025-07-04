@@ -19,6 +19,7 @@ namespace ir_builder
         std::unordered_map<String, Constant*> constVarInitValues;        // 常量符号表                               
         std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
         std::vector<String>block_new_declared_vars;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
+        std::unordered_map<BasicBlock*, std::unordered_map<String, Value*>> blockVarToValue; // 基本块到变量映射 用于作用域嵌套管理
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
@@ -52,10 +53,10 @@ namespace ir_builder
         // === AST节点访问接口 ===
         void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);//✔
         void visitFunction(std::shared_ptr<ast::FuncNode> node);//✔
-        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node,bool restoreScope = true);//✔
+        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node);//✔
 
         // 语句访问
-        void visitStatement(std::shared_ptr<ast::StmtNode> node,bool restoreScope = true);
+        void visitStatement(std::shared_ptr<ast::StmtNode> node);
         void visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node);//✔
         void visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node);//✔
         void visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node);
@@ -85,7 +86,7 @@ namespace ir_builder
         Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);
 
         // 基本块管理
-        BasicBlock *createBasicBlock(const String &name = "",const Vector<BasicBlock*> &beforeblocks = {});
+        BasicBlock *createBasicBlock(const String &name = "");
         void setCurrentBlock(BasicBlock *block);
 
         // 指令生成辅助
@@ -109,9 +110,10 @@ namespace ir_builder
                                   size_t& flat_idx);
         size_t getArrayTotalElements(Type* type);
         Vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
-
+        void addPhiForVars();
+        void addPhiForVarsIncomings(BasicBlock *block);
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
-        bool isConstVariable(Value *value);                                                     // 判断一个变量是否为const修饰变量
+        bool isConstVariable(string name);                                                     // 判断一个变量是否为const修饰变量
         bool hasTerminatorInst(BasicBlock *block);   
         
         // 判断一个基本块是否有终止指令 找不到就递归查找前驱

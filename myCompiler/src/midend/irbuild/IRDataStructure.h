@@ -520,8 +520,6 @@ public:
 class BinaryOperator : public Instruction
 {
 public:
-    // Value *LHS;
-    // Value *RHS;
 
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name){}
@@ -533,7 +531,6 @@ public:
 class UnaryOperator : public Instruction
 {
 public:
-    // Value *Operand;
 
     UnaryOperator(Opcode op, Value *operand, const string &name = "")
         : Instruction(operand->getType(), op, vector<Value *>{operand}, name) {}
@@ -556,8 +553,6 @@ public:
 
 public:
     Predicate Pred;
-        // Value *LHS;
-        // Value *RHS;
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
@@ -584,8 +579,6 @@ public:
 
 public:
     Predicate Pred;
-    // Value *LHS;
-    // Value *RHS;
 
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(BooleanType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
@@ -608,7 +601,6 @@ public:
 class LoadInst : public Instruction
 {
 public:
-    //Value *Pointer;
 
     LoadInst(Value *ptr, const string &name = "")
         : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name) {}
@@ -636,9 +628,6 @@ private:
 class StoreInst : public Instruction
 {
 public:
-    // Value *ValueToStore;
-    // Value *Pointer;
-
     StoreInst(Value *val, Value *ptr)
         : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}){}
     Value *getValueToStore() const { return getOperandByIndex(0); }
@@ -649,8 +638,6 @@ public:
 class CallInst : public Instruction
 {
 public:
-    // Function *CalledFunction;
-    // vector<Value *> Arguments;
 
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
     //这里无法给出函数实现，因为此时Function类还未定义
@@ -671,7 +658,6 @@ private:
 class ReturnInst : public Instruction
 {
 public:
-    // Value *ReturnValue;
 
     // Return without value (void return)
     ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret){}
@@ -695,7 +681,6 @@ class BranchInst : public Instruction
 public:
     BasicBlock *TrueBlock;
     BasicBlock *FalseBlock;
-    //Value *Condition;
 
     // Unconditional branch
     BranchInst(BasicBlock *target)
@@ -760,9 +745,6 @@ public:
 class GetElementPtrInst : public Instruction
 {
 public:
-    // Value *PointerOperand;
-    // vector<Value *> Indices;
-
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
                       constructOperands(ptr, indices), name){}
@@ -784,7 +766,6 @@ private:
 class CastInst : public Instruction
 {
 public:
-    // Value *Operand;
     Type *DestType;
 
     CastInst(Opcode op, Value *operand, Type *destType, const string &name = "")
@@ -796,12 +777,8 @@ public:
 class CopyInst : public Instruction
 {
 public:
-    // Value *Dest;
-    // Value *Source;
     CopyInst(Value *dest, Value *source,const string &name = "")
         : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name){}
-    CopyInst(Value *source, const string &name = "")
-        : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name) {}
     // 获取目标
     Value *getDest() const 
     { 
@@ -937,19 +914,10 @@ public:
         : Value(funcTy, name), Parent(parent) {}
 
     // 添加基本块
-    BasicBlock *addBasicBlock(const string &name = "",const vector<BasicBlock *> beforeblocks = {})
+    BasicBlock *addBasicBlock(const string &name = "")
     {
         auto bb = make_unique<BasicBlock>(name, this);
         BasicBlock *ptr = bb.get();
-        // 如果有前驱块则插入前驱后继关系
-        if (!beforeblocks.empty())
-        {
-            for(auto it:beforeblocks)
-            {
-                 it->addSuccessor(ptr);
-                 ptr->addPredecessor(it);
-            }
-        }
         BasicBlocks.push_back(std::move(bb));
         return ptr;
     }
@@ -1036,6 +1004,23 @@ public:
         }
         return nullptr;
     }
-
+    void printBasic()
+    {
+        for(int i=13;i<Functions.size();i++)
+        {
+            std::cout<<Functions[i]->getName()<<":"<<std::endl;
+            int j=0;
+           for(const auto& it:Functions[i]->BasicBlocks)
+           {        
+              std::cout<<"BasicBlockSuccs "<<j<<":";
+              for(auto suc:it->getSuccessors())
+              {
+                 std::cout<<suc->getName()<<" ";
+              }
+              std::cout<<std::endl;
+              j++;
+           }
+        }
+    }
     string toString() const;
 };
