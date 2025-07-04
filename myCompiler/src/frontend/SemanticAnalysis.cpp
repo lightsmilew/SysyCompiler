@@ -221,7 +221,7 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
       return false; // 如果变量未找到，返回false
     }
 
-    if (!symbol->isInitialized)
+    if (!symbol->isInitialized && !inFunctionCall)
     {
       addError("Variable '" + lval->identifier + "' is not initialized before use");
       return false; // 如果变量未初始化，直接返回false}
@@ -591,60 +591,60 @@ void TypeCheckerVisitor::visitFuncNode(shared_ptr<FuncNode> node)
 
 void TypeCheckerVisitor::visitStmt(shared_ptr<StmtNode> node)
 {
-    // if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
-    // {
-    //   visitDeclStmt(declStmt);
-    // }
-     if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node))
+  // if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
+  // {
+  //   visitDeclStmt(declStmt);
+  // }
+  if (auto exprStmt = dynamic_pointer_cast<ExprStmtNode>(node))
+  {
+    visitExprStmt(exprStmt);
+  }
+  else if (auto assignStmt = dynamic_pointer_cast<AssignStmtNode>(node))
+  {
+    visitAssignStmt(assignStmt);
+  }
+  else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(node))
+  {
+    analyzer.enterScope(); // 进入if语句作用域
+    visitIfElseStmt(ifStmt);
+    analyzer.exitScope(); // 退出if语句作用域
+  }
+  else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(node))
+  {
+    analyzer.enterScope(); // 进入while语句作用域
+    visitWhileStmt(whileStmt);
+    analyzer.exitScope(); // 退出while语句作用域
+  }
+  else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(node))
+  {
+    visitBreakStmt(breakStmt);
+  }
+  else if (auto continueStmt = dynamic_pointer_cast<ContinueStmtNode>(node))
+  {
+    visitContinueStmt(continueStmt);
+  }
+  else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node))
+  {
+    visitReturnStmt(returnStmt);
+  }
+  else if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(node))
+  {
+    analyzer.enterScope(); // 进入嵌套块作用域
+    for (auto &stmt : blockStmt->stmts)
     {
-      visitExprStmt(exprStmt);
+      visitBlockStmt(stmt);
     }
-    else if (auto assignStmt = dynamic_pointer_cast<AssignStmtNode>(node))
-    {
-      visitAssignStmt(assignStmt);
-    }
-    else if (auto ifStmt = dynamic_pointer_cast<IfElseStmtNode>(node))
-    {
-      analyzer.enterScope(); // 进入if语句作用域
-      visitIfElseStmt(ifStmt);
-      analyzer.exitScope(); // 退出if语句作用域
-    }
-    else if (auto whileStmt = dynamic_pointer_cast<WhileStmtNode>(node))
-    {
-      analyzer.enterScope(); // 进入while语句作用域
-      visitWhileStmt(whileStmt);
-      analyzer.exitScope(); // 退出while语句作用域
-    }
-    else if (auto breakStmt = dynamic_pointer_cast<BreakStmtNode>(node))  
-    {
-      visitBreakStmt(breakStmt);
-    }
-    else if (auto continueStmt = dynamic_pointer_cast<ContinueStmtNode>(node))
-    {
-      visitContinueStmt(continueStmt);
-    }
-    else if (auto returnStmt = dynamic_pointer_cast<ReturnStmtNode>(node))
-    {
-      visitReturnStmt(returnStmt);
-    }
-    else if (auto blockStmt = dynamic_pointer_cast<BlockStmtNode>(node))
-    {
-      analyzer.enterScope(); // 进入嵌套块作用域
-      for(auto &stmt : blockStmt->stmts)
-      {
-        visitBlockStmt(stmt);
-      }
-      analyzer.exitScope(); // 退出嵌套块作用域
-    }
-  
+    analyzer.exitScope(); // 退出嵌套块作用域
+  }
 }
 void TypeCheckerVisitor::visitBlockStmt(shared_ptr<StmtNode> node)
 {
-  if(auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
+  if (auto declStmt = dynamic_pointer_cast<DeclStmtNode>(node))
   {
     visitDeclStmt(declStmt);
   }
-  else{
+  else
+  {
     visitStmt(node);
   }
 }
@@ -902,6 +902,8 @@ void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
   // 检查每个参数类型
   for (size_t i = 0; i < targetParamsType.size(); i++)
   {
+    currentCallMappings.push_back(make_pair(node->callee, targetParamsType[i]->type));
+
     if (i < node->args.size())
     {
       checkExprTypeCompatible(node->callee, node->args[i], targetParamsType[i]->type, ExprContext::CALL, true);
