@@ -42,6 +42,8 @@ python3 test.py
 ./run.sh -ir -opt O0/O1/O2
 # 运行并输出汇编代码
 ./run.sh -riscv
+# gdb调试
+gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -riscv
 ```
 
 ### qemu-riscv64 模拟器运行
