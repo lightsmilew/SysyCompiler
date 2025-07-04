@@ -165,28 +165,42 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     currentFunction = nullptr;
 }
 
-void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node)
+void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool restoreScope)
 {
-    // 进入新的作用域
-    varToValueStack.push(varToValue);
+    // 1. 记录外层变量名
+    std::unordered_set<String> outerVars;
+    for (auto& [name, _] : varToValue) outerVars.insert(name);
 
-    for (auto &stmt : node->stmts)
+    // 2. 进入新作用域
+    if (restoreScope) varToValueStack.push(varToValue);
+
+    // 3. 访问 block 内所有语句
+    for (auto &stmt : node->stmts) 
     {
         visitStatement(stmt);
-        // 如果当前块已经有终结指令，跳过后续语句
-        if (currentBlock->hasTerminator())
-        {
-            break;
-        }
+        if (currentBlock->hasTerminator()) break;
     }
 
-    // 退出作用域
-    varToValue = varToValueStack.top();
-    varToValueStack.pop();
+    // 4. 恢复作用域，只恢复新声明变量
+    if (restoreScope) 
+    {
+        auto innerVarToValue = varToValue;
+        varToValue = varToValueStack.top();
+        varToValueStack.pop();
+        // 只把外层变量的最新 SSA 值写回(内部没有定义同名变量)
+        for (const auto& name : outerVars) 
+        {
+            if (innerVarToValue.count(name)&&!isBlockNewDeclaredVar(name)) 
+            {
+                varToValue[name] = innerVarToValue[name];
+            }
+        }
+        block_new_declared_vars.clear(); // 清空当前块新声明的变量列表
+    }
 }
 //写一个获取expnode值的函数
 
-void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
+void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node,bool restoreScope)
 {
     if (auto declStmt = std::dynamic_pointer_cast<ast::DeclStmtNode>(node))
     {
@@ -222,13 +236,18 @@ void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
     }
     else if (auto blockStmt = std::dynamic_pointer_cast<ast::BlockStmtNode>(node))
     {
-        visitBlock(blockStmt);
+        visitBlock(blockStmt,restoreScope);
     }
 }
 
 void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 {
     Type *varType = convertASTTypeToIRType(node->type,false);
+    //如果当前已经定义了同名变量，则记录，退出作用域时不将该变量的ssa值写出
+    if(varToValue.find(node->identifier) != varToValue.end())
+    {
+        block_new_declared_vars.push_back(node->identifier);
+    }
     if (currentFunction == nullptr)
     {
         // 全局变量
@@ -307,7 +326,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
                     initValue = new ConstantInt(IntegerType::getInstance(), 0);
                 else if (varType->isFloatTy())
                     initValue = new ConstantFloat(FloatType::getInstance(), 0.0f);
-            }
+            }       
+            // 将初始值存储到 varToValue 中
             varToValue[node->identifier] = initValue;
         }
         // if (node->initializer)
@@ -361,7 +381,7 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
     }
     else
     {
-        varToValue[lvalue->getName()] = rvalue;
+        varToValue[node->lvalue->identifier] = rvalue;
         // 直接将 rvalue 存储到 varToValue 中
     }
     //createStore(rvalue, allocaInst);
@@ -374,6 +394,7 @@ void IRBuilder::visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node)
 
 void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 {
+    //ifelse不会引入新作用域，因此手动管理嵌套作用域
     Value *condition = visitExpression(node->condition);
     
     //if.then
@@ -396,7 +417,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 
     // then 分支
     setCurrentBlock(thenBlock);
-    visitStatement(node->then_body);
+    visitStatement(node->then_body,false);
     auto varToValueThen = varToValue; // then分支后的变量状态
     if (!currentBlock->hasTerminator())
     {
@@ -409,14 +430,15 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     {
         setCurrentBlock(elseBlock);
         varToValue = varToValueBefore; // else分支变量初始状态与if前一致
-        visitStatement(node->else_body);
+        visitStatement(node->else_body,false);
         varToValueElse = varToValue; // else分支后的变量状态
         if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
     }
-
+    varToValue = varToValueBefore; // 恢复到 if 前的变量状态
+    block_new_declared_vars.clear(); // 清空当前块新声明的变量列表
     // 合流块
     setCurrentBlock(mergeBlock);
 
@@ -473,19 +495,21 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
     auto varToValueBodyEntry = varToValue; // 进入循环体前的变量状态
-    visitStatement(node->body);
+    visitStatement(node->body,false);
     loopStack.pop();
 
     // 7. 记录循环体后变量状态
     auto varToValueAfter = varToValue;
-
-    // 8. 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
+    // 8. 手动恢复符号表
+    varToValue = varToValueBodyEntry;
+    block_new_declared_vars.clear(); // 清空当前块新声明的变量列表 
+    // 9. 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
     {
         createBranch(condBlock);
     }
 
-    // 9. 回到 condBlock，插入 PHI，只为被赋值的变量插入
+    // 10. 回到 condBlock，插入 PHI，只为被赋值的变量插入
     setCurrentBlock(condBlock); // 确保在 condBlock 插入
     //用于记录每个变量名对应的 PHI 节点指针，便于后续查找和管理
     std::unordered_map<String, PhiInst*> phiNodes;
@@ -894,24 +918,29 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
                                   std::shared_ptr<ast::InitExprNode> initNode,
                                   const Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
                                   size_t& flat_idx) {
-    if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) {
+    if (auto arrayType = dynamic_cast<ArrayType *>(targetType)) 
+    {
         int dim = arrayType->getNumElements();
         Type *elemType = arrayType->ElementType;
 
         auto children = getChildrenAtCurrentLevel(initNode);
 
+        // 取消每层的检查
         // 检查当前层级初始化项数量是否超过维度
-        if (children.size() > static_cast<size_t>(dim)) {
-            throw std::runtime_error("Too many initializers for array dimension");
-        }
+        // if (children.size() > static_cast<size_t>(dim)) {
+        //     throw std::runtime_error("Too many initializers for array dimension");
+        // }
 
-        for (int i = 0; i < dim; ++i) {
+        for (int i = 0; i < dim; ++i) 
+        {
             indices.push_back(i);
             auto childNode = (i < children.size()) ? children[i] : nullptr;
             visitInitExprImpl(elemType, targetPtr, indices, childNode, flat_inits, flat_idx);
             indices.pop_back();
         }
-    } else {
+    } 
+    else 
+    {
         // 到达最底层元素
         Vector<Value *> gep_indices;
         gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
@@ -1312,14 +1341,6 @@ PhiInst *IRBuilder::createPhi(Type *type, const String &name)
     currentBlock->addInstruction(std::move(phiInst));
     return result;
 }
-Value *IRBuilder::createCopy(Value *Src)
-{
-    auto copyInst = std::make_unique<CopyInst>(Src, getNextTempName());
-    Value *result=copyInst.get();
-    currentBlock->addInstruction(std::move(copyInst));
-    return result;
-}
-
 // ===== 类型转换 ===== 修改该函数以支持int a[][10]这种情况，第一维度默认-1,此时退化为指针
 Type *IRBuilder::convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam)
 {

@@ -18,6 +18,7 @@ namespace ir_builder
         // === 符号表管理 ===
         std::unordered_map<String, Constant*> constVarInitValues;        // 常量符号表                               
         std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
+        std::vector<String>block_new_declared_vars;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
@@ -51,10 +52,10 @@ namespace ir_builder
         // === AST节点访问接口 ===
         void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);//✔
         void visitFunction(std::shared_ptr<ast::FuncNode> node);//✔
-        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node);
+        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node,bool restoreScope = true);//✔
 
         // 语句访问
-        void visitStatement(std::shared_ptr<ast::StmtNode> node);
+        void visitStatement(std::shared_ptr<ast::StmtNode> node,bool restoreScope = true);
         void visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node);//✔
         void visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node);//✔
         void visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node);
@@ -99,7 +100,6 @@ namespace ir_builder
         void createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock); // 条件跳转
         void createReturn(Value *value = nullptr);                                              // 返回指令
         PhiInst *createPhi(Type *type, const String &name = "");
-        Value *createCopy(Value *Src); // 复制指令
         // 辅助函数 用于支持嵌套和平铺赋值
         void flattenInitList(std::shared_ptr<ast::InitExprNode> node, Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);
         void visitInitExprImpl(Type *targetType, Value *targetPtr,
@@ -128,6 +128,10 @@ namespace ir_builder
         String getNextLabelName()
         {
             return "label" + std::to_string(labelCounter++);
+        }
+        bool isBlockNewDeclaredVar(const String &varName) const
+        {
+            return std::find(block_new_declared_vars.begin(), block_new_declared_vars.end(), varName) != block_new_declared_vars.end();
         }
         // === 获取结果 ===
         Module *getModule() { return module.get(); }
