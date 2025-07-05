@@ -18,8 +18,8 @@ namespace ir_builder
         // === 符号表管理 ===
         std::unordered_map<String, Constant*> constVarInitValues;        // 常量符号表                               
         std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
-        std::vector<String>block_new_declared_vars;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
-        std::unordered_map<BasicBlock*, std::unordered_map<String, Value*>> blockVarToValue; // 基本块到变量映射 用于作用域嵌套管理
+        std::vector<String>blockNewDeclaredVars;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
+        std::unordered_map<BasicBlock*, std::unordered_map<String, Value*>> basicBlockVarToValue; // 基本块到变量映射 用于作用域嵌套管理
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
@@ -53,10 +53,10 @@ namespace ir_builder
         // === AST节点访问接口 ===
         void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);//✔
         void visitFunction(std::shared_ptr<ast::FuncNode> node);//✔
-        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node);//✔
+        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node,bool isRestore=true);//✔
 
         // 语句访问
-        void visitStatement(std::shared_ptr<ast::StmtNode> node);
+        void visitStatement(std::shared_ptr<ast::StmtNode> node,bool isRestore=true);
         void visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node);//✔
         void visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node);//✔
         void visitExprStmt(std::shared_ptr<ast::ExprStmtNode> node);
@@ -133,10 +133,21 @@ namespace ir_builder
         }
         bool isBlockNewDeclaredVar(const String &varName) const
         {
-            return std::find(block_new_declared_vars.begin(), block_new_declared_vars.end(), varName) != block_new_declared_vars.end();
+            return std::find(blockNewDeclaredVars.begin(), blockNewDeclaredVars.end(), varName) != blockNewDeclaredVars.end();
         }
         // === 获取结果 ===
         Module *getModule() { return module.get(); }
         String getModuleString() { return module->toString(); }
+        void printBlockValue()
+        {
+            for(auto &it : basicBlockVarToValue)
+            {
+                std::cout << "BasicBlock: " << it.first->getName() << std::endl;
+                for(const auto &var : it.second)
+                {
+                    std::cout << "  Variable: " << var.first << " -> " << var.second->toRef() << std::endl;
+                }   
+            }
+        }
     };
 }

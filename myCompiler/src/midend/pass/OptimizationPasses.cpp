@@ -588,6 +588,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose) 
 {
     auto pm = std::make_unique<PassManager>(verbose);
+
     if (level == OptimizationLevel::O0) 
     {
         // 消除phi
@@ -595,21 +596,22 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     } 
     else if (level == OptimizationLevel::O1) 
     {
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>());        
         pm->addPass(std::make_unique<ConstantFoldingPass>());
         pm->addPass(std::make_unique<CopyPropagationPass>());
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
-        // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>());
     } 
     else if (level == OptimizationLevel::O2) 
     {
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>());        
         pm->addPass(std::make_unique<ConstantFoldingPass>());
         pm->addPass(std::make_unique<CopyPropagationPass>());
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
         pm->addPass(std::make_unique<BasicBlockMergePass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
-        pm->addPass(std::make_unique<PhiEliminationPass>());
     }
     return pm;
 }

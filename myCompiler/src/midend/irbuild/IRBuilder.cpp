@@ -130,7 +130,8 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     for (size_t i = 0; i < node->params.size(); i++)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
-            varToValue[node->params[i]->identifier] = arg;
+        varToValue[node->params[i]->identifier] = arg;
+        basicBlockVarToValue[currentBlock][node->params[i]->identifier] = arg;
     }
 
     // 访问函数体
@@ -159,8 +160,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     varToValueStack.pop();
     currentFunction = nullptr;
 }
-
-void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node)
+void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRestore)
 {
     // 1. 记录外层变量名
     std::unordered_set<String> outerVars;
@@ -175,22 +175,25 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node)
         visitStatement(stmt);
         if (currentBlock->hasTerminator()) break;
     }
-    // 恢复作用域，只恢复新声明变量
+    // 恢复作用域
     auto innerVarToValue = varToValue;
     varToValue = varToValueStack.top();
     varToValueStack.pop();
-    // 只把外层变量的最新 SSA 值写回(内部没有定义同名变量)
-    for (const auto& name : outerVars) 
-    {
-        if (innerVarToValue.count(name)&&!isBlockNewDeclaredVar(name)) 
+    // 只在 isRestore 为真时写回外层变量
+    if (isRestore) {
+        for (const auto& name : outerVars) 
         {
-            varToValue[name] = innerVarToValue[name];
+            if (innerVarToValue.count(name) && !isBlockNewDeclaredVar(name)) 
+            {
+                varToValue[name] = innerVarToValue[name];
+                //basicBlockVarToValue[currentBlock][name] = innerVarToValue[name];
+            }
         }
     }
-    block_new_declared_vars.clear(); // 清空当前块新声明的变量列表
+    blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
 }
 
-void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
+void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node,bool isRestore)
 {
     if (auto declStmt = std::dynamic_pointer_cast<ast::DeclStmtNode>(node))
     {
@@ -226,7 +229,7 @@ void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node)
     }
     else if (auto blockStmt = std::dynamic_pointer_cast<ast::BlockStmtNode>(node))
     {
-        visitBlock(blockStmt);
+        visitBlock(blockStmt,isRestore);
     }
 }
 
@@ -236,7 +239,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     //如果当前已经定义了同名变量，则记录，退出作用域时不将该变量的ssa值写出
     if(varToValue.find(node->identifier) != varToValue.end())
     {
-        block_new_declared_vars.push_back(node->identifier);
+        blockNewDeclaredVars.push_back(node->identifier);
     }
     if (currentFunction == nullptr)
     {
@@ -341,6 +344,8 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
     else
     {
         varToValue[node->lvalue->identifier] = rvalue;
+        basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
+        //std::cout<<currentBlock->getName()<<":"<<node->lvalue->identifier<<" assign "<<rvalue->getName()<<std::endl;
         // 如果是标量变量，直接更新SSA值
     }
 }
@@ -363,29 +368,28 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     auto tmp_block=currentBlock;
     // 生成phi占位
     setCurrentBlock(mergeBlock);
-    addPhiForVars();
+    addPhiForVars(); 
     setCurrentBlock(tmp_block);
     // 条件跳转
     createCondBranch(condition, thenBlock, elseBlock ? elseBlock : mergeBlock);
     // then 分支
     setCurrentBlock(thenBlock);
-    visitStatement(node->then_body);
-    block_new_declared_vars.clear(); // 清空当前块新声明的变量列表
+    visitStatement(node->then_body,false);
+    blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
     if (!currentBlock->hasTerminator())
     {
         createBranch(mergeBlock);
     }
-    // blockVarToValue[thenBlock] = varToValue;
     if (elseBlock)
     {
         setCurrentBlock(elseBlock);
-        visitStatement(node->else_body);
+        visitStatement(node->else_body,false);
         if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
     }
-    block_new_declared_vars.clear(); // 清空当前块新声明的变量列表
+    blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
     // 合流块
     setCurrentBlock(mergeBlock);
     //  插入phi输入
@@ -394,19 +398,22 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 
 void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
 {
-    // 1. 创建基本块
     //while.cond
     BasicBlock *condBlock = createBasicBlock();
+    //生成phi占位
+    auto tmpblock=currentBlock;
+    setCurrentBlock(condBlock); 
+    //更新当前块的变量映射,原因为condblock是第一块
+    addPhiForVars();
+    setCurrentBlock(tmpblock);
     //while.body
     BasicBlock *bodyBlock = createBasicBlock();
     //while.end
     BasicBlock *exitBlock = createBasicBlock(); 
-    //  跳转到条件判断块
+    // 跳转到条件判断块
     createBranch(condBlock);
-    //  设置当前块为条件判断块
+    // 设置当前块为条件判断块
     setCurrentBlock(condBlock); 
-    // 生成phi占位
-    addPhiForVars();
     // 生成条件表达式的 IR
     Value *condition = visitExpression(node->condition);
     createCondBranch(condition, bodyBlock, exitBlock);
@@ -414,7 +421,7 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     // 进入循环体
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
-    visitStatement(node->body);
+    visitStatement(node->body,false);
     loopStack.pop(); 
     //  如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
@@ -1003,7 +1010,7 @@ BasicBlock *IRBuilder::createBasicBlock(const String &name)
     String actualName = (name.empty()||name=="") ? getNextLabelName() : name;
     auto basicblock=currentFunction->addBasicBlock(actualName);
     // 复制符号表
-    blockVarToValue[basicblock]=varToValue;
+    basicBlockVarToValue[basicblock]=varToValue;
     return basicblock;
 }
 
@@ -1188,7 +1195,7 @@ Value *IRBuilder::createCall(Function *func, const Vector<Value *> &args)
 void IRBuilder::createBranch(BasicBlock *target)
 {
     // 先记录当前块结束时的变量SSA
-    blockVarToValue[currentBlock] = varToValue;
+    //basicBlockVarToValue[currentBlock] = varToValue;
     auto brInst = std::make_unique<BranchInst>(target);
     currentBlock->addInstruction(std::move(brInst));
 
@@ -1200,7 +1207,7 @@ void IRBuilder::createBranch(BasicBlock *target)
 void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock)
 {
     // 先记录当前块结束时的变量SSA
-    blockVarToValue[currentBlock] = varToValue;
+    //basicBlockVarToValue[currentBlock] = varToValue;
     auto brInst = std::make_unique<BranchInst>(condition, trueBlock, falseBlock);
     currentBlock->addInstruction(std::move(brInst));
 
@@ -1214,7 +1221,7 @@ void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicB
 void IRBuilder::createReturn(Value *value)
 {
     // 记录当前块结束时的变量SSA
-    blockVarToValue[currentBlock] = varToValue;
+    //basicBlockVarToValue[currentBlock] = varToValue;
 
     auto retInst = value ? std::make_unique<ReturnInst>(value) : std::make_unique<ReturnInst>();
     currentBlock->addInstruction(std::move(retInst));
@@ -1380,24 +1387,25 @@ void IRBuilder::addPhiForVars()
         {
             PhiInst* phi = createPhi(value->getType());
             varToValue[name] = phi; // 更新 SSA 值为 PHI 节点
+            basicBlockVarToValue[currentBlock][name] = phi; // 更新当前块的变量映射
         }
     }   
 }
 void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
 {
-    for(auto pred:block->getPredecessors())
-    {
-        for (const auto& [name, valueBefore] : blockVarToValue[pred]) 
-        {
-            if (valueBefore->getType()->isPointerTy()||valueBefore->getType()->isArrayTy()||isConstVariable(name))continue;
-            auto it = blockVarToValue[block].find(name);
-            if (it != blockVarToValue[block].end() && it->second != valueBefore) 
-            {
-                if(auto phi=dynamic_cast<PhiInst*>(it->second))
-                {
-                    phi->IncomingValues.push_back({valueBefore, pred});
-                }
+    // 遍历合流块所有变量
+    for (const auto& [name, value] : basicBlockVarToValue[block]) {
+        // 只处理 phi
+        auto phi = dynamic_cast<PhiInst*>(value);
+        if (!phi) continue;
+        // 遍历所有前驱块
+        for (auto pred : block->getPredecessors()) {
+            // 如果前驱块有该变量的 SSA 值
+            auto it = basicBlockVarToValue[pred].find(name);
+            if (it != basicBlockVarToValue[pred].end()&&it->second != value) {
+                phi->IncomingValues.push_back({it->second, pred});
             }
+            // 如果没有，说明该变量在该前驱块未定义，可以补默认值或报错（视 SSA 设计而定）
         }
     }
 }
