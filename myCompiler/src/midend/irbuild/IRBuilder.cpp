@@ -474,6 +474,10 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
 // ===== 表达式访问实现 ===== 
 Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
 {
+    if(node== nullptr)
+    {
+        return nullptr; // 如果节点为空，直接返回 nullptr
+    }
     if (auto binaryExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
     {   
         auto value = visitBinaryExpr(binaryExpr);

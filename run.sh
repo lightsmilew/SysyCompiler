@@ -3,6 +3,8 @@
 #OUTPUT_DIR="test_cases/official_output"
 INPUT_DIR="test_cases/semantic_cases"
 OUTPUT_DIR="test_cases/output"
+#INPUT_DIR="case/final_performance"
+#OUTPUT_DIR="case/final_performance/output"
 
 if [ "$1" == "-rebuild" ]; then
     rm -rf myCompiler/build

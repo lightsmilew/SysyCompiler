@@ -73,14 +73,6 @@ int main(int argc, const char *argv[])
         pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
     }
-    //默认只删除phi指令
-    else
-    {
-        // 默认不开启优化
-        pass_manager = optimization::createOptimizationPipeline(optimization::OptimizationLevel::O0, false);
-        pass_manager->runOnModule(ir_module.get());
-    }
-
     // 输出结果
     if (argc > 2 && strcmp(argv[2], "-ir") == 0)
     {
