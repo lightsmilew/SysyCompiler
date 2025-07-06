@@ -320,24 +320,17 @@ public:
     float Value;
 
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
-    // string toString() const override { return to_string(Value); }
-    string toString() const override
-    {
-        // uint32_t bits;
-        // // 将 float 的内存表示复制到 uint32_t 中
-        // std::memcpy(&bits, &Value, sizeof(float));
+    string toString() const override { return to_string(Value); }
+    // string toString() const override
+    // {
+    //     // uint32_t bits;
+    //     // // 将 float 的内存表示复制到 uint32_t 中
+    //     // std::memcpy(&bits, &Value, sizeof(float));
 
-        // std::ostringstream oss;
-        // oss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << bits;
-        // return oss.str();
-        //转成double输出
-        uint64_t bits;
-        // 将 float 的内存表示复制到 uint64_t 中
-        std::memcpy(&bits, &Value, sizeof(float));
-        std::ostringstream oss;
-        oss << "0x" << std::hex << std::uppercase << std::setw(16) << std::setfill('0') << bits;
-        return oss.str();
-    }
+    //     // std::ostringstream oss;
+    //     // oss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << bits;
+    //     // return oss.str();
+    // }
 };
 class ConstantBool : public Constant
 {
