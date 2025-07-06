@@ -532,6 +532,10 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
         {
             allocatedSize = 4;
         }
+        else if (allocatedType->isPointerTy())
+        {
+            allocatedSize = 8; // 64位系统中指针为8字节
+        }
 
         stackFrame.allocateSpace(inst, allocatedSize);
     }
