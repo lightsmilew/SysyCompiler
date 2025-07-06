@@ -69,7 +69,7 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O2;
         else
             opt_level = optimization::OptimizationLevel::O0; // 默认O0级别
-            //不开启优化日志
+        // 不开启优化日志
         pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
     }
@@ -78,9 +78,9 @@ int main(int argc, const char *argv[])
     {
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
-        //调试
-        //ir_module->printBasic();
-        //irbuilder.printBlockValue();
+        // 调试
+        // ir_module->printBasic();
+        // irbuilder.printBlockValue();
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {
