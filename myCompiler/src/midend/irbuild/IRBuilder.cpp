@@ -73,13 +73,16 @@ void IRBuilder::initializeLibraryFunctions()
     }
     // void starttime();
     {
-        FunctionType* funcType = new FunctionType(VoidType::getInstance(), {});
-        module->addFunction(funcType, "starttime");
+        //传入行号
+        Vector<Type*> params = { IntegerType::getInstance() };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "_sysy_starttime");
     }
     // void stoptime();
     {
-        FunctionType* funcType = new FunctionType(VoidType::getInstance(), {});
-        module->addFunction(funcType, "stoptime");
+        Vector<Type*> params = { IntegerType::getInstance() };
+        FunctionType* funcType = new FunctionType(VoidType::getInstance(), params);
+        module->addFunction(funcType, "_sysy_stoptime");
     }
 }
 // ===== 主入口：构建整个模块 =====
@@ -697,6 +700,14 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
         throw std::runtime_error("Undefined function: " + node->callee+",line:"+ std::to_string(node->line));
     }
     Vector<Value *> args;
+    // _sysy_starttime 和 _sysy_stoptime 函数单独处理
+    if(func->getName()=="_sysy_starttime" || func->getName()=="_sysy_stoptime")
+    {
+        //传入行号
+        args.push_back(new ConstantInt(IntegerType::getInstance(), node->line));
+        return createCall(func, args);
+    }
+    // 其他函数的处理
     for (size_t i = 0; i < node->args.size(); i++)
     {
         Value *arg = visitExpression(node->args[i]);

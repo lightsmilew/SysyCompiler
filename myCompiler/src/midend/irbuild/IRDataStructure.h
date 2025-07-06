@@ -975,9 +975,10 @@ public:
     // 根据名称查找函数
     Function *getFunction(const string &name)
     {
+        string tmp_name=(name=="starttime" || name=="stoptime")? "_sysy_" + name : name; // 添加前缀_sysy_以匹配SysY标准库函数
         for (auto &func : Functions)
         {
-            if (func->getName() == name)
+            if (func->getName() == tmp_name)
             {
                 return func.get();
             }
