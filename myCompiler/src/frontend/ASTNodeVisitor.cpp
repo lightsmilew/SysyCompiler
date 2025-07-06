@@ -110,6 +110,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
             initExprPtr = AS(initVal, Ptr<ast::InitExprNode>);
         }
         auto declptr = makePtr<ast::DeclStmtNode>(type, identifier, initExprPtr);
+        declptr->line= defctx->getStart()->getLine(); // 设置行号
         decls.emplace_back(declptr);
     }
     return decls;
@@ -120,6 +121,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstInitExpr(SysYParser::ConstInitExprContex
     auto constExpPtr = AS(ctx->constExp()->accept(this), Ptr<ast::ExprNode>);
     // 返回一个 InitExprNode，表示单一的初始化表达式
     auto initExpr = makePtr<ast::InitExprNode>(constExpPtr);
+    initExpr->line = ctx->getStart()->getLine(); // 设置行号
     return initExpr;
 }
 // 多维数组初始化列表
@@ -189,6 +191,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
+        decl->line = varDefs->getStart()->getLine(); // 设置行号
         decls.emplace_back(decl);
     }
     return decls; // 返回所有变量声明的向量
@@ -198,6 +201,7 @@ antlrcpp::Any ASTNodeVisitor::visitInitExpr(SysYParser::InitExprContext *ctx)
     auto initVal = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
     // 创建InitExprNode并设置常量标志
     auto initExpr = makePtr<ast::InitExprNode>(initVal);
+    initExpr->line = ctx->getStart()->getLine(); // 设置行号
     return initExpr;
 }
 antlrcpp::Any ASTNodeVisitor::visitInitList(SysYParser::InitListContext *ctx)
@@ -281,6 +285,7 @@ antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *c
     DataType dataType(type);
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    paramNode->line = ctx->getStart()->getLine(); // 设置行号
     return paramNode; // 返回函数参数节点
 }
 // 处理函数参数(数组 省略第一维度)
@@ -301,6 +306,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
     DataType dataType(type, arrayIndices); // 创建包含数组信息的DataType
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    paramNode->line = ctx->getStart()->getLine(); // 设置行号
     return paramNode; // 返回函数参数节点
 }
 // 处理函数参数(数组 有第一维度)
@@ -321,6 +327,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
 
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
+    paramNode->line = ctx->getStart()->getLine(); // 设置行号
     return paramNode; // 返回函数参数节点
 }
 // 语句块
@@ -332,7 +339,9 @@ antlrcpp::Any ASTNodeVisitor::visitBlock(SysYParser::BlockContext *ctx)
         auto item = AS(itemCtx->accept(this), Vector<Ptr<ast::StmtNode>>);
         blockItems.insert(blockItems.end(), item.begin(), item.end());
     }
-    return makePtr<ast::BlockStmtNode>(Move(blockItems)); // 返回一个 BlockStmtNode
+    auto block = makePtr<ast::BlockStmtNode>(Move(blockItems));
+    block->line = ctx->getStart()->getLine(); // 设置行号
+    return block;// 返回一个 BlockStmtNode
 }
 // 变量声明
 antlrcpp::Any ASTNodeVisitor::visitItemDecl(SysYParser::ItemDeclContext *ctx)
@@ -362,6 +371,7 @@ antlrcpp::Any ASTNodeVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx
     // 访问表达式
     auto exp = AS(ctx->exp()->accept(this), Ptr<ast::ExprNode>);
     auto ret = makePtr<ast::AssignStmtNode>(Move(lval), Move(exp));
+    ret->line = ctx->getStart()->getLine(); // 设置行号
     // 创建赋值语句节点
     return Scast<Ptr<ast::StmtNode>>(Move(ret)); // 统一返回基类stmtNode
 }
@@ -404,6 +414,7 @@ antlrcpp::Any ASTNodeVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx)
         elseBlock = AS(ctx->stmt(1)->accept(this), Ptr<ast::StmtNode>);
     }
     Ptr<ast::IfElseStmtNode> ifStmtNode = makePtr<ast::IfElseStmtNode>(Move(cond), Move(thenBlock), Move(elseBlock));
+    ifStmtNode->line = ctx->getStart()->getLine();      // 设置行号
     return Scast<Ptr<ast::StmtNode>>(Move(ifStmtNode)); // 返回 if 语句节点
 }
 antlrcpp::Any ASTNodeVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx)
@@ -413,6 +424,7 @@ antlrcpp::Any ASTNodeVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx)
     // 访问 while 语句块
     auto body = AS(ctx->stmt()->accept(this), Ptr<ast::StmtNode>);
     auto whileStmtNode = makePtr<ast::WhileStmtNode>(Move(cond), Move(body));
+    whileStmtNode->line = ctx->getStart()->getLine();      // 设置行号
     return Scast<Ptr<ast::StmtNode>>(Move(whileStmtNode)); // 返回 while 语句节点
 }
 antlrcpp::Any ASTNodeVisitor::visitBreakStmt(SysYParser::BreakStmtContext *ctx)
@@ -465,8 +477,9 @@ antlrcpp::Any ASTNodeVisitor::visitLVal(SysYParser::LValContext *ctx)
         auto result = visit(idx);
         exps.push_back(std::any_cast<shared_ptr<ExprNode>>(result));
     }
-
-    return make_shared<LValueExprNode>(identifier, exps);
+    auto lvalNode = make_shared<LValueExprNode>(identifier, exps);
+    lvalNode->line = ctx->getStart()->getLine(); // 设置行号
+    return lvalNode; // 返回 LValueExprNode
 }
 // primaryExp
 antlrcpp::Any ASTNodeVisitor::visitParenExp(SysYParser::ParenExpContext *ctx)
@@ -491,6 +504,7 @@ antlrcpp::Any ASTNodeVisitor::visitStringLiteralExp(SysYParser::StringLiteralExp
     // 去掉引号
     strValue = strValue.substr(1, strValue.size() - 2);
     auto strLiteral = make_shared<StringLiteralExprNode>(strValue);
+    strLiteral->line = ctx->getStart()->getLine(); // 设置行号
     // 返回字符串字面量表达式节点
     return static_cast<shared_ptr<ExprNode>>(strLiteral);
 }
@@ -518,6 +532,7 @@ antlrcpp::Any ASTNodeVisitor::visitIntNum(SysYParser::IntNumContext *ctx)
     }
 
     auto intLiteral = make_shared<IntLiteralExprNode>(intValue);
+    intLiteral->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<NumberLiteralExprNode>>(intLiteral);
 }
 
@@ -526,6 +541,7 @@ antlrcpp::Any ASTNodeVisitor::visitFloatNum(SysYParser::FloatNumContext *ctx)
     std::string text = ctx->FloatConst()->getText();
     float floatValue = std::stof(text);
     auto floatLiteral = make_shared<FloatLiteralExprNode>(floatValue);
+    floatLiteral->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<NumberLiteralExprNode>>(floatLiteral);
 }
 // unaryExp
@@ -543,6 +559,7 @@ antlrcpp::Any ASTNodeVisitor::visitCallExp(SysYParser::CallExpContext *ctx)
         args.insert(args.end(), params.begin(), params.end());
     }
     auto callexpnode = make_shared<CallExprNode>(callee, args);
+    callexpnode->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<ExprNode>>(callexpnode);
 }
 antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx)
@@ -570,6 +587,7 @@ antlrcpp::Any ASTNodeVisitor::visitOpUnaryExp(SysYParser::OpUnaryExpContext *ctx
 
     auto exp = std::any_cast<shared_ptr<ExprNode>>(visit(ctx->unaryExp()));
     auto unaryExprNode = make_shared<UnaryExprNode>(exp, unaryOp);
+    unaryExprNode->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<ExprNode>>(unaryExprNode);
 }
 // unaryOp
@@ -613,6 +631,7 @@ antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext 
         throw std::invalid_argument("Unknown binary operator: " + op);
     }
     auto binaryExprNode = make_shared<BinaryExprNode>(mulExp, unaryExp, binaryOp);
+    binaryExprNode->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<ExprNode>>(binaryExprNode);
 }
 // addExp
@@ -639,6 +658,7 @@ antlrcpp::Any ASTNodeVisitor::visitAddSubExp(SysYParser::AddSubExpContext *ctx)
         throw std::invalid_argument("Unknown binary operator: " + op);
     }
     auto binaryExprNode = make_shared<BinaryExprNode>(addExp, mulExp, binaryOp);
+    binaryExprNode->line = ctx->getStart()->getLine(); // 设置行号
     return static_cast<shared_ptr<ExprNode>>(binaryExprNode);
 }
 // relExp
@@ -672,7 +692,9 @@ antlrcpp::Any ASTNodeVisitor::visitRelOpExp(SysYParser::RelOpExpContext *ctx)
     {
         throw std::invalid_argument("Unknown relational operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(relExp, addExp, binaryOp));
+    auto binaryExprNode = make_shared<BinaryExprNode>(relExp, addExp, binaryOp);
+    binaryExprNode->line = ctx->getStart()->getLine(); // 设置行号
+    return static_cast<shared_ptr<ExprNode>>(binaryExprNode);
 }
 // eqExp
 antlrcpp::Any ASTNodeVisitor::visitToRelExp_eq(SysYParser::ToRelExp_eqContext *ctx)
@@ -697,7 +719,10 @@ antlrcpp::Any ASTNodeVisitor::visitEqOpExp(SysYParser::EqOpExpContext *ctx)
     {
         throw std::invalid_argument("Unknown equality operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(eqExp, relExp, binaryOp));
+    auto eqExpNode = make_shared<BinaryExprNode>(eqExp, relExp, binaryOp);
+    eqExpNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 返回等式表达式节点
+    return static_cast<shared_ptr<ExprNode>>(eqExpNode);
 }
 // lAndExp
 antlrcpp::Any ASTNodeVisitor::visitToLAndExp_lor(SysYParser::ToLAndExp_lorContext *ctx)
@@ -713,7 +738,10 @@ antlrcpp::Any ASTNodeVisitor::visitLandOpExp(SysYParser::LandOpExpContext *ctx)
     {
         throw std::invalid_argument("Unknown logical operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lAndExp, eqExp, BinaryOp::And));
+    auto lAndExpNode = make_shared<BinaryExprNode>(lAndExp, eqExp, BinaryOp::And);
+    lAndExpNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 返回逻辑与表达式节点
+    return static_cast<shared_ptr<ExprNode>>(lAndExpNode);
 }
 // lOrExp
 antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
@@ -725,7 +753,10 @@ antlrcpp::Any ASTNodeVisitor::visitLorOpExp(SysYParser::LorOpExpContext *ctx)
     {
         throw std::invalid_argument("Unknown logical operator: " + op);
     }
-    return static_cast<shared_ptr<ExprNode>>(make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or));
+    auto lOrExpNode = make_shared<BinaryExprNode>(lOrExp, lAndExp, BinaryOp::Or);
+    lOrExpNode->line = ctx->getStart()->getLine(); // 设置行号
+    // 返回逻辑或表达式节点
+    return static_cast<shared_ptr<ExprNode>>(lOrExpNode);
 }
 
 antlrcpp::Any ASTNodeVisitor::visitConstExp(SysYParser::ConstExpContext *ctx)
