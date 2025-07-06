@@ -86,7 +86,7 @@ int main(int argc, const char *argv[])
     {
         // 消除phi指令
         optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
-        auto pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+        auto pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
