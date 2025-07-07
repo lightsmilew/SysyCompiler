@@ -36,6 +36,7 @@ void Value::replaceAllUsesWith(Value *newValue)
     Users.clear();
 }
 
+
 // GlobalVariable implementation
 std::string GlobalVariable::toString() const
 {
@@ -330,10 +331,9 @@ std::string PhiInst::toString() const
     {
         if (i > 0)
             ss << ",";
-        ss << " [ " << IncomingValues[i].first->toRef()
-           << ", %" << IncomingValues[i].second->getName() << " ]";
+        ss << " [ " << getOperandByIndex(i)->toRef()
+           << ", %" << IncomingValues[i]->getName() << " ]";
     }
-
     return ss.str();
 }
 // ===== CopyInst Implementation =====

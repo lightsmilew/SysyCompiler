@@ -44,19 +44,6 @@ private:
     bool isInstructionCritical(Instruction *inst);
 };
 
-// 2. 常量折叠Pass
-class ConstantFoldingPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "ConstantFolding"; }
-private:
-    Value *foldBinaryOperation(BinaryOperator *binOp);
-    // 对比较指令进行常量折叠
-    Value *foldComparison(ICmpInst *cmpInst);
-    bool isConstant(Value *val);
-
-};
 
 // 3. 公共子表达式消除Pass
 class CommonSubexpressionEliminationPass : public Pass
@@ -78,18 +65,6 @@ private:
     bool canBeCommonSubexpression(Instruction *inst);
 };
 
-// 4. 复制传播Pass
-class CopyPropagationPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "CopyPropagation"; }
-
-private:
-    std::unordered_map<Value *, Value *> copyMap;
-    void collectCopies(Function *func);
-    Value *followCopyChain(Value *val);
-};
 
 // 5. 基本块合并Pass
 class BasicBlockMergePass : public Pass
@@ -141,13 +116,6 @@ class PhiEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
-    ~PhiEliminationPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
 private:
     vector<Instruction *>needToDelete; // 存储需要删除的phi指令
 

@@ -22,7 +22,6 @@ public:
         VoidTyID,
         IntegerTyID,
         FloatTyID,
-        BooleanTyID,
         StringTyID, 
         PointerTyID,
         ArrayTyID,
@@ -43,7 +42,6 @@ public:
     bool isPointerTy() const { return ID == PointerTyID; }
     bool isArrayTy() const { return ID == ArrayTyID; }
     bool isFunctionTy() const { return ID == FunctionTyID; }
-    bool isBooleanTy() const { return ID == BooleanTyID; }
     bool isStringTy() const { return ID == StringTyID; }
     bool isTypeEqual(Type *a, Type *b);
 
@@ -75,18 +73,6 @@ public:
         return &instance;
     }
     string toString() const override { return "float"; }
-};
-
-class BooleanType : public Type
-{
-public:
-    BooleanType() : Type(BooleanTyID) {}
-    static BooleanType *getInstance()
-    {
-        static BooleanType instance;
-        return &instance;
-    }
-    string toString() const override { return "i1"; } // 使用 i1 表示布尔类型
 };
 
 class StringType : public Type
@@ -321,25 +307,8 @@ public:
 
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
     string toString() const override { return to_string(Value); }
-    // string toString() const override
-    // {
-    //     // uint32_t bits;
-    //     // // 将 float 的内存表示复制到 uint32_t 中
-    //     // std::memcpy(&bits, &Value, sizeof(float));
-
-    //     // std::ostringstream oss;
-    //     // oss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << bits;
-    //     // return oss.str();
-    // }
 };
-class ConstantBool : public Constant
-{
-public:
-    bool Value;
 
-    ConstantBool(BooleanType *ty, bool val) : Constant(ty), Value(val) {}
-    string toString() const override { return to_string(Value ? 1 : 0); }
-};
 
 class ConstantString : public Constant
 {
@@ -548,7 +517,7 @@ public:
     Predicate Pred;
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(BooleanType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
+        : Instruction(IntegerType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
     // 获取比较操作符
     Predicate getPredicate() const { return Pred; }
@@ -574,7 +543,7 @@ public:
     Predicate Pred;
 
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(BooleanType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
+        : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
     Value *getLHS() const { return getOperandByIndex(0); }
     Value *getRHS() const { return getOperandByIndex(1); }
@@ -699,14 +668,14 @@ public:
 class PhiInst : public Instruction
 {
 public:
-    vector<pair<Value *, BasicBlock *>> IncomingValues;
+    vector< BasicBlock *> IncomingValues;
 
     PhiInst(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
     // 添加前驱基本块和对应的值
     void addIncoming(Value *value, BasicBlock *block)
     {
-        IncomingValues.emplace_back(value, block);
+        IncomingValues.emplace_back(block);
         addOperand(value); // 添加到操作数列表中
     }
     // 获取前驱基本块和对应的值长度
@@ -717,9 +686,9 @@ public:
     // 获取前驱value
     Value *getIncomingValue(unsigned index) const
     {
-        if (index < IncomingValues.size())
+        if (index < getNumOperands())
         {
-            return IncomingValues[index].first;
+            return getOperandByIndex(index);
         }
         throw std::out_of_range("Invalid incoming value index");
     }
@@ -728,7 +697,7 @@ public:
     {
         if (index < IncomingValues.size())
         {
-            return IncomingValues[index].second;
+            return IncomingValues[index];
         }
         throw std::out_of_range("Invalid incoming block index");
     }
@@ -770,19 +739,17 @@ public:
 class CopyInst : public Instruction
 {
 public:
-    CopyInst(Value *dest, Value *source,const string &name = "")
-        : Instruction(dest->getType(), Opcode::Copy, vector<Value *>{dest,source}, name){}
+    CopyInst(Value *source,const string &name)
+        : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name){}
     // 获取目标
     Value *getDest() const 
     { 
-        if(getNumOperands() > 1)return getOperandByIndex(0);
-        else return nullptr; // 如果没有目标操作数，返回nullptr
+        return const_cast<CopyInst*>(this); // CopyInst的目标就是自身，类型转换为Value*
      }
     // 获取源
     Value *getSource() const 
     { 
-        if(getNumOperands() > 1)return getOperandByIndex(1);
-        else return getOperandByIndex(0); // 如果没有目标操作数，返回第一个操作数
+        return getOperandByIndex(0);
      }
     string toString() const override;
 };

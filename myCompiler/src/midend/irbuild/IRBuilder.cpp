@@ -598,8 +598,8 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PhiInst *phi = createPhi(BooleanType::getInstance());
-        phi->addIncoming(new ConstantBool(BooleanType::getInstance(),false), lhsBlock); // true from lhs
+        PhiInst *phi = createPhi(IntegerType::getInstance());
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(),0), lhsBlock); // true from lhs
         phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
 
         return phi;
@@ -629,8 +629,8 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 
         // 合并块
         setCurrentBlock(mergeBlock);
-        PhiInst *phi = createPhi(BooleanType::getInstance());
-        phi->addIncoming(new ConstantBool(BooleanType::getInstance(),true), lhsBlock); // true from lhs
+        PhiInst *phi = createPhi(IntegerType::getInstance());
+        phi->addIncoming(new ConstantInt(IntegerType::getInstance(),1), lhsBlock); // true from lhs
         phi->addIncoming(rhsCond, rhsEndBlock);                                     // result from rhs
         return phi;
     }
@@ -668,11 +668,26 @@ Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
                     }
                     return new ConstantFloat(FloatType::getInstance(), -static_cast<ConstantFloat*>(operand)->Value);
                 }
-                throw std::runtime_error("Invalid type for unary minus, line: " + std::to_string(node->line));
             case UnaryOp::Not:
-                if (operand->getType()->isBooleanTy())
+                if(operand->getType()->isIntegerTy())
                 {
-                    return new ConstantBool(BooleanType::getInstance(), !static_cast<ConstantBool*>(operand)->Value);
+                    if(auto it=dynamic_cast<GlobalVariable*>(operand))
+                    {
+                        //如果是全局变量，直接返回
+                        return new ConstantInt(IntegerType::getInstance(), static_cast<ConstantInt*>(it->Initializer)->Value==0);
+                    }
+                    // 对整数类型取反
+                    return new ConstantInt(IntegerType::getInstance(), static_cast<ConstantInt*>(operand)->Value==0);
+                }
+                else if(operand->getType()->isFloatTy())
+                {
+                    if(auto it=dynamic_cast<GlobalVariable*>(operand))
+                    {
+                        //如果是全局变量，直接返回
+                        return new ConstantFloat(FloatType::getInstance(), static_cast<ConstantFloat*>(it->Initializer)->Value==0);
+                    }
+                    // 对浮点数取反 为0时候取反返回true
+                    return new ConstantFloat(FloatType::getInstance(), static_cast<ConstantFloat*>(operand)->Value==0);
                 }
         }
     }
@@ -1204,7 +1219,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
                 r=static_cast<ConstantFloat*>(it->Initializer)->Value;
             }
             else  r = static_cast<ConstantFloat*>(rhs)->Value;
-            bool res = false;
+            float res = 0.0f;
             switch (op)
             {
             case BinaryOp::Lt: res = l < r; break;
@@ -1215,7 +1230,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
             case BinaryOp::Ne: res = l != r; break;
             default: throw std::runtime_error("Unsupported op in const float expr");
             }
-            return new ConstantBool(BooleanType::getInstance(),res);
+            return new ConstantFloat(FloatType::getInstance(),res);
         }
         auto fcmp = std::make_unique<FCmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = fcmp.get();
@@ -1262,7 +1277,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
                 r=static_cast<ConstantInt*>(it->Initializer)->Value;
             }
             else  r = static_cast<ConstantInt*>(rhs)->Value;
-            bool res = false;
+            int res = 0;
             switch (op)
             {
             case BinaryOp::Lt: res = l < r; break;
@@ -1273,7 +1288,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
             case BinaryOp::Ne: res = l != r; break;
             default: throw std::runtime_error("Unsupported op in const int expr");
             }
-            return new ConstantBool(BooleanType::getInstance(),res);
+            return new ConstantInt(IntegerType::getInstance(),res);
         }
         auto icmp = std::make_unique<ICmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = icmp.get();
@@ -1352,8 +1367,6 @@ Value *IRBuilder::createCall(Function *func, const Vector<Value *> &args)
 
 void IRBuilder::createBranch(BasicBlock *target)
 {
-    // 先记录当前块结束时的变量SSA
-    //basicBlockVarToValue[currentBlock] = varToValue;
     auto brInst = std::make_unique<BranchInst>(target);
     currentBlock->addInstruction(std::move(brInst));
 
@@ -1364,8 +1377,6 @@ void IRBuilder::createBranch(BasicBlock *target)
 
 void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock)
 {
-    // 先记录当前块结束时的变量SSA
-    //basicBlockVarToValue[currentBlock] = varToValue;
     auto brInst = std::make_unique<BranchInst>(condition, trueBlock, falseBlock);
     currentBlock->addInstruction(std::move(brInst));
 
@@ -1378,9 +1389,6 @@ void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicB
 
 void IRBuilder::createReturn(Value *value)
 {
-    // 记录当前块结束时的变量SSA
-    //basicBlockVarToValue[currentBlock] = varToValue;
-
     auto retInst = value ? std::make_unique<ReturnInst>(value) : std::make_unique<ReturnInst>();
     currentBlock->addInstruction(std::move(retInst));
 }
@@ -1495,10 +1503,6 @@ Value *IRBuilder::convertToBool(Value *value)
     {
         zero = new ConstantInt(IntegerType::getInstance(), 0);
     }
-    else if (value->getType()->isBooleanTy())
-    {
-        return value; // 已经是布尔值
-    }
     else
     {
         throw std::runtime_error("Cannot convert to bool");
@@ -1561,7 +1565,8 @@ void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
             // 如果前驱块有该变量的 SSA 值
             auto it = basicBlockVarToValue[pred].find(name);
             if (it != basicBlockVarToValue[pred].end()&&it->second != value) {
-                phi->IncomingValues.push_back({it->second, pred});
+                // phi->IncomingValues.push_back({it->second, pred});
+                phi->addIncoming(it->second, pred); // 添加前驱块的值
             }
             // 如果没有，说明该变量在该前驱块未定义，可以补默认值或报错（视 SSA 设计而定）
         }
@@ -1570,7 +1575,7 @@ void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
 bool IRBuilder::isConstantValue(Value *value)
 {
     //只处理bool int float常量
-    if (dynamic_cast<ConstantInt*>(value) || dynamic_cast<ConstantFloat*>(value) || dynamic_cast<ConstantBool*>(value)) 
+    if (dynamic_cast<ConstantInt*>(value) || dynamic_cast<ConstantFloat*>(value)) 
     {
         return true;
     }
