@@ -152,7 +152,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
             // 非 void 函数必须有返回值
             if(!hasTerminatorInst(currentBlock))
             {
-                throw std::runtime_error("Non-void function must return a value");    
+                throw std::runtime_error("Non-void function must return a value,line: " + std::to_string(node->body->line));    
             }
 
         }
@@ -254,7 +254,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             for(auto it:node->type.arraySizes())
             {
                 int indice=getExpressionConstantValue(it);
-                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero");
+                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero,line: "+ std::to_string(node->line) );
             }
         }
         if (node->initializer)
@@ -289,7 +289,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             for(auto it:node->type.arraySizes())
             {
                 int indice=getExpressionConstantValue(it);
-                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero");
+                if(indice<=0)throw std::runtime_error("Array indices is not allowed to be less than zero,line: "+ std::to_string(node->line) );
             }
             if (node->initializer && !node->type.isConst())
             {
@@ -642,6 +642,7 @@ Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
     //如果操作数是常数,返回常数
     if(isConstantValue(operand))
     {
+
         switch(node->op)
         {
             case UnaryOp::Plus:
@@ -649,10 +650,20 @@ Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
             case UnaryOp::Minus:
                 if (operand->getType()->isIntegerTy())
                 {
+                    if(auto it=dynamic_cast<GlobalVariable*>(operand))
+                    {
+                        //如果是全局变量，直接返回
+                        return new ConstantInt(IntegerType::getInstance(), -static_cast<ConstantInt*>(it->Initializer)->Value);
+                    }
                     return new ConstantInt(IntegerType::getInstance(), -static_cast<ConstantInt*>(operand)->Value);
                 }
                 else if (operand->getType()->isFloatTy())
                 {
+                    if(auto it=dynamic_cast<GlobalVariable*>(operand))
+                    {
+                        //如果是全局变量，直接返回
+                        return new ConstantFloat(FloatType::getInstance(), -static_cast<ConstantFloat*>(it->Initializer)->Value);
+                    }
                     return new ConstantFloat(FloatType::getInstance(), -static_cast<ConstantFloat*>(operand)->Value);
                 }
                 throw std::runtime_error("Invalid type for unary minus, line: " + std::to_string(node->line));
@@ -832,7 +843,7 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
     // 计算数组总元素个数（支持多维）
     size_t totalElements = getArrayTotalElements(targetType);
     if (flat_inits.size() > totalElements) {
-        throw std::runtime_error("Initializer list has more elements than array dimension");
+        throw std::runtime_error("Initializer list has more elements than array dimension,line: " + std::to_string(node->line));
     }
 
     // 递归处理初始化并检查每一维的初始化项数量
@@ -928,7 +939,7 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
     if (!node) 
-        throw std::runtime_error("Null expression in constant evaluation");
+        throw std::runtime_error("Null expression in constant evaluation,line: "+ std::to_string(node->line));
 
     // 整型字面量
     if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(node))
@@ -953,7 +964,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
                 case ast::BinaryOp::Mul: res = l * r; break;
                 case ast::BinaryOp::Div: res = l / r; break;
                 case ast::BinaryOp::Mod: res = l % r; break;
-                default: throw std::runtime_error("Unsupported op in const int expr");
+                default: throw std::runtime_error("Unsupported op in const int expr,line: "+ std::to_string(node->line));
             }
             return new ConstantInt(IntegerType::getInstance(), res);
         } else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy()) {
@@ -965,7 +976,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
                 case ast::BinaryOp::Sub: res = l - r; break;
                 case ast::BinaryOp::Mul: res = l * r; break;
                 case ast::BinaryOp::Div: res = l / r; break;
-                default: throw std::runtime_error("Unsupported op in const float expr");
+                default: throw std::runtime_error("Unsupported op in const float expr,line: "+ std::to_string(node->line));
             }
             return new ConstantFloat(FloatType::getInstance(), res);
         }
@@ -981,7 +992,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             {
                 case ast::UnaryOp::Plus:res=v;break;
                 case ast::UnaryOp::Minus:res=0-v;break;
-                default:throw std::runtime_error("Unsupported op in const int expr");
+                default:throw std::runtime_error("Unsupported op in const int expr,line: "+ std::to_string(node->line));
             }
             return  new ConstantInt(IntegerType::getInstance(), res);
         }else if(operand->getType()->isFloatTy())
@@ -992,7 +1003,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             {
                 case ast::UnaryOp::Plus:res=v;break;
                 case ast::UnaryOp::Minus:res=0-v;break;
-                default:throw std::runtime_error("Unsupported op in const float expr");
+                default:throw std::runtime_error("Unsupported op in const float expr,line: "+ std::to_string(node->line));
             }
             return new ConstantFloat(FloatType::getInstance(), res);
         }
@@ -1001,7 +1012,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     else if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
         auto it = constVarInitValues.find(lval->identifier);
         if (it == constVarInitValues.end())
-            throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier);
+            throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier+",line: "+ std::to_string(node->line));
         if(auto constInt= dynamic_cast<ConstantInt*>(it->second)) {
             return constInt;
         } else if(auto constFloat = dynamic_cast<ConstantFloat*>(it->second)) {
@@ -1017,7 +1028,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
                 //转换失败:常量计算不允许指针操作
                 if(tmp_array==nullptr)
                 {
-                    throw std::runtime_error("Point is not allowed to appear in constant expression");
+                    throw std::runtime_error("Point is not allowed to appear in constant expression,line: " + std::to_string(node->line));
                 }
             }
             // 最后一维
@@ -1036,7 +1047,7 @@ int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
         return (int)float_value->Value;
     }
     else{
-        throw std::runtime_error("Unsupported constant expression type in getExpressionConstantValue");
+        throw std::runtime_error("Unsupported constant expression type in getExpressionConstantValue,line: "+ std::to_string(node->line));
     }
 }
 bool IRBuilder::isConstVariable(string name){
@@ -1081,7 +1092,7 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
         break;
     case BinaryOp::Mod:
         if (isFloat)
-            throw std::runtime_error("Modulo not supported for float");
+            throw std::runtime_error("Modulo not supported for float" );
         opcode = Opcode::SRem;
         break;
     default:
@@ -1090,10 +1101,19 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
     // 如果是常量表达式，直接计算结果
     if(isConstantValue(lhs) && isConstantValue(rhs))
     {
-        if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy())
+        if (lhs->getType()->isIntegerTy())
         {
-            int l = static_cast<ConstantInt*>(lhs)->Value;
-            int r = static_cast<ConstantInt*>(rhs)->Value;
+            int l,r;
+            if(auto it=dynamic_cast<GlobalVariable*>(lhs))
+            {
+                l=static_cast<ConstantInt*>(it->Initializer)->Value;
+            }
+            else  l = static_cast<ConstantInt*>(lhs)->Value;
+            if (auto it=dynamic_cast<GlobalVariable*>(rhs))
+            {
+                r=static_cast<ConstantInt*>(it->Initializer)->Value;
+            }
+            else  r = static_cast<ConstantInt*>(rhs)->Value;
             int res = 0;
             switch (op)
             {
@@ -1106,10 +1126,19 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
             }
             return new ConstantInt(IntegerType::getInstance(), res);
         }
-        else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy())
+        else if (isFloat)
         {
-            float l = lhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(lhs)->Value : static_cast<ConstantInt*>(lhs)->Value;
-            float r = rhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(rhs)->Value : static_cast<ConstantInt*>(rhs)->Value;
+            float l,r;
+            if(auto it=dynamic_cast<GlobalVariable*>(lhs))
+            {
+                l=static_cast<ConstantFloat*>(it->Initializer)->Value;
+            }
+            else  l = static_cast<ConstantFloat*>(lhs)->Value;
+            if (auto it=dynamic_cast<GlobalVariable*>(rhs))
+            {
+                r=static_cast<ConstantFloat*>(it->Initializer)->Value;
+            }
+            else  r = static_cast<ConstantFloat*>(rhs)->Value;
             float res = 0.0f;
             switch (op)
             {
@@ -1162,8 +1191,17 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
         // 如果是常量表达式，直接计算结果
         if(isConstantValue(lhs)&&isConstantValue(rhs))
         {
-            float l = static_cast<ConstantFloat*>(lhs)->Value;
-            float r = static_cast<ConstantFloat*>(rhs)->Value;
+            float l,r;
+            if(auto it=dynamic_cast<GlobalVariable*>(lhs))
+            {
+                l=static_cast<ConstantFloat*>(it->Initializer)->Value;
+            }
+            else  l = static_cast<ConstantFloat*>(lhs)->Value;
+            if (auto it=dynamic_cast<GlobalVariable*>(rhs))
+            {
+                r=static_cast<ConstantFloat*>(it->Initializer)->Value;
+            }
+            else  r = static_cast<ConstantFloat*>(rhs)->Value;
             bool res = false;
             switch (op)
             {
@@ -1211,8 +1249,17 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
         //常量表达式直接赋值返回
         if(isConstantValue(lhs)&&isConstantValue(rhs))
         {
-            int l = static_cast<ConstantInt*>(lhs)->Value;
-            int r = static_cast<ConstantInt*>(rhs)->Value;
+            int l,r;
+            if(auto it=dynamic_cast<GlobalVariable*>(lhs))
+            {
+                l=static_cast<ConstantInt*>(it->Initializer)->Value;
+            }
+            else  l = static_cast<ConstantInt*>(lhs)->Value;
+            if (auto it=dynamic_cast<GlobalVariable*>(rhs))
+            {
+                r=static_cast<ConstantInt*>(it->Initializer)->Value;
+            }
+            else  r = static_cast<ConstantInt*>(rhs)->Value;
             bool res = false;
             switch (op)
             {
@@ -1524,6 +1571,10 @@ bool IRBuilder::isConstantValue(Value *value)
     if (dynamic_cast<ConstantInt*>(value) || dynamic_cast<ConstantFloat*>(value) || dynamic_cast<ConstantBool*>(value)) 
     {
         return true;
+    }
+    else if(auto it=dynamic_cast<GlobalVariable*>(value))
+    {
+        return it->IsConstant&&isConstantValue(it->Initializer);
     }
     return false;
 
