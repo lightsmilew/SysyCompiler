@@ -233,6 +233,7 @@ Value *ConstantFoldingPass::foldComparison(ICmpInst *cmpInst)
 
 bool ConstantFoldingPass::isConstant(Value *val) 
 {
+    //这里可以优化，增加查找常量符号表，const变量也算是常量
     return dynamic_cast<ConstantInt *>(val) != nullptr||
            dynamic_cast<ConstantFloat *>(val) != nullptr||
            dynamic_cast<ConstantBool *>(val) != nullptr;

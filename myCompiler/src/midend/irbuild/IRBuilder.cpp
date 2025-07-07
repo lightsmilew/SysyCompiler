@@ -639,6 +639,31 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
 Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
 {
     Value *operand = visitExpression(node->operand);
+    //如果操作数是常数,返回常数
+    if(isConstantValue(operand))
+    {
+        switch(node->op)
+        {
+            case UnaryOp::Plus:
+                return operand; // 正号操作不改变值
+            case UnaryOp::Minus:
+                if (operand->getType()->isIntegerTy())
+                {
+                    return new ConstantInt(IntegerType::getInstance(), -static_cast<ConstantInt*>(operand)->Value);
+                }
+                else if (operand->getType()->isFloatTy())
+                {
+                    return new ConstantFloat(FloatType::getInstance(), -static_cast<ConstantFloat*>(operand)->Value);
+                }
+                throw std::runtime_error("Invalid type for unary minus, line: " + std::to_string(node->line));
+            case UnaryOp::Not:
+                if (operand->getType()->isBooleanTy())
+                {
+                    return new ConstantBool(BooleanType::getInstance(), !static_cast<ConstantBool*>(operand)->Value);
+                }
+        }
+    }
+    // 如果操作数不是常数，直接创建一元操作指令
     return createUnaryOp(node->op, operand);
 }
 
@@ -1062,7 +1087,42 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
     default:
         throw std::runtime_error("Invalid binary operator");
     }
-
+    // 如果是常量表达式，直接计算结果
+    if(isConstantValue(lhs) && isConstantValue(rhs))
+    {
+        if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy())
+        {
+            int l = static_cast<ConstantInt*>(lhs)->Value;
+            int r = static_cast<ConstantInt*>(rhs)->Value;
+            int res = 0;
+            switch (op)
+            {
+            case BinaryOp::Add: res = l + r; break;
+            case BinaryOp::Sub: res = l - r; break;
+            case BinaryOp::Mul: res = l * r; break;
+            case BinaryOp::Div: res = l / r; break;
+            case BinaryOp::Mod: res = l % r; break;
+            default: throw std::runtime_error("Unsupported op in const int expr");
+            }
+            return new ConstantInt(IntegerType::getInstance(), res);
+        }
+        else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy())
+        {
+            float l = lhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(lhs)->Value : static_cast<ConstantInt*>(lhs)->Value;
+            float r = rhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(rhs)->Value : static_cast<ConstantInt*>(rhs)->Value;
+            float res = 0.0f;
+            switch (op)
+            {
+            case BinaryOp::Add: res = l + r; break;
+            case BinaryOp::Sub: res = l - r; break;
+            case BinaryOp::Mul: res = l * r; break;
+            case BinaryOp::Div: res = l / r; break;
+            default: throw std::runtime_error("Unsupported op in const float expr");
+            }
+            return new ConstantFloat(FloatType::getInstance(), res);
+        }
+    }
+    //  否则返回一个新的二元操作指令
     auto binOp = std::make_unique<BinaryOperator>(opcode, lhs, rhs, getNextTempName());
     Value *result = binOp.get();
     currentBlock->addInstruction(std::move(binOp));
@@ -1099,7 +1159,24 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-
+        // 如果是常量表达式，直接计算结果
+        if(isConstantValue(lhs)&&isConstantValue(rhs))
+        {
+            float l = static_cast<ConstantFloat*>(lhs)->Value;
+            float r = static_cast<ConstantFloat*>(rhs)->Value;
+            bool res = false;
+            switch (op)
+            {
+            case BinaryOp::Lt: res = l < r; break;
+            case BinaryOp::Gt: res = l > r; break;
+            case BinaryOp::Le: res = l <= r; break;
+            case BinaryOp::Ge: res = l >= r; break;
+            case BinaryOp::Eq: res = l == r; break;
+            case BinaryOp::Ne: res = l != r; break;
+            default: throw std::runtime_error("Unsupported op in const float expr");
+            }
+            return new ConstantBool(BooleanType::getInstance(),res);
+        }
         auto fcmp = std::make_unique<FCmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = fcmp.get();
         currentBlock->addInstruction(std::move(fcmp));
@@ -1131,7 +1208,24 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-
+        //常量表达式直接赋值返回
+        if(isConstantValue(lhs)&&isConstantValue(rhs))
+        {
+            int l = static_cast<ConstantInt*>(lhs)->Value;
+            int r = static_cast<ConstantInt*>(rhs)->Value;
+            bool res = false;
+            switch (op)
+            {
+            case BinaryOp::Lt: res = l < r; break;
+            case BinaryOp::Gt: res = l > r; break;
+            case BinaryOp::Le: res = l <= r; break;
+            case BinaryOp::Ge: res = l >= r; break;
+            case BinaryOp::Eq: res = l == r; break;
+            case BinaryOp::Ne: res = l != r; break;
+            default: throw std::runtime_error("Unsupported op in const int expr");
+            }
+            return new ConstantBool(BooleanType::getInstance(),res);
+        }
         auto icmp = std::make_unique<ICmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = icmp.get();
         currentBlock->addInstruction(std::move(icmp));
@@ -1423,4 +1517,14 @@ void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
             // 如果没有，说明该变量在该前驱块未定义，可以补默认值或报错（视 SSA 设计而定）
         }
     }
+}
+bool IRBuilder::isConstantValue(Value *value)
+{
+    //只处理bool int float常量
+    if (dynamic_cast<ConstantInt*>(value) || dynamic_cast<ConstantFloat*>(value) || dynamic_cast<ConstantBool*>(value)) 
+    {
+        return true;
+    }
+    return false;
+
 }
