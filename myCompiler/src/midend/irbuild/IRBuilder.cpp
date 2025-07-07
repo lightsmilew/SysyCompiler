@@ -1565,7 +1565,6 @@ void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
             // 如果前驱块有该变量的 SSA 值
             auto it = basicBlockVarToValue[pred].find(name);
             if (it != basicBlockVarToValue[pred].end()&&it->second != value) {
-                // phi->IncomingValues.push_back({it->second, pred});
                 phi->addIncoming(it->second, pred); // 添加前驱块的值
             }
             // 如果没有，说明该变量在该前驱块未定义，可以补默认值或报错（视 SSA 设计而定）
