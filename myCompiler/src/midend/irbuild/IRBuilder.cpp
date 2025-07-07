@@ -325,6 +325,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             }       
             // 将初始值存储到 varToValue 中
             varToValue[node->identifier] = initValue;
+            // 在当前基本块中记录变量的 SSA 值
+            basicBlockVarToValue[currentBlock][node->identifier] = initValue;
         }
     }
 }
