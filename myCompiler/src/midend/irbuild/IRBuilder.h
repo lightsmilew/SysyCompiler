@@ -116,9 +116,11 @@ namespace ir_builder
         bool isConstVariable(string name);                                                      // 判断一个变量是否为const修饰变量
         bool isConstantValue(Value *value);                                                     
         bool hasTerminatorInst(BasicBlock *block);   
+        int getArrayDims(string varName);                                                     // 获取数组维度数量
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
-        Value *createCast(Value *value, Type *targetType);
+        //statement调试用，用于定位
+        Value *createCast(Value *value, Type *targetType,string statement); // 类型转换
         Value *convertToBool(Value *value);                                                     // 转换为布尔值
         // 临时变量名生成
         String getNextTempName()

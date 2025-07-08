@@ -355,11 +355,20 @@ public:
 class GlobalVariable : public Value
 {
 public:
+    Type* basicType;
     Constant *Initializer;
     bool IsConstant;
-
+    //如果是数组则存入退化后的指针
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
-        : Value(ty, name), Initializer(init), IsConstant(isConst) {}
+        : Value(ty, name), Initializer(init), IsConstant(isConst), basicType(ty) 
+        {
+            // 如果是数组类型，退化成指针类型
+            if (ty->isArrayTy())
+            {
+                auto arrayType = static_cast<ArrayType *>(ty);
+                setType(PointerType::getInstance(arrayType->getElementType()));
+            }
+        }
     string toString() const override;
 };
 
@@ -553,10 +562,11 @@ public:
 class AllocaInst : public Instruction
 {
 public:
+    // 传入数组类型，返回退化后的指针
     Type *AllocatedType;
-
+    
     AllocaInst(Type *ty, const string &name = "")
-        : Instruction(PointerType::getInstance(ty), Opcode::Alloca, name), AllocatedType(ty) {}
+        : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType), Opcode::Alloca, name), AllocatedType(ty) {}
     string toString() const override;
 };
 
@@ -705,6 +715,7 @@ public:
 
 class GetElementPtrInst : public Instruction
 {
+    //只能传入指针
 public:
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
