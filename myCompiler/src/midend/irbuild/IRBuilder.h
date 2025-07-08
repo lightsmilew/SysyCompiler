@@ -116,8 +116,6 @@ namespace ir_builder
         bool isConstVariable(string name);                                                      // 判断一个变量是否为const修饰变量
         bool isConstantValue(Value *value);                                                     
         bool hasTerminatorInst(BasicBlock *block);   
-        
-        // 判断一个基本块是否有终止指令 找不到就递归查找前驱
         // 类型转换
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);
         Value *createCast(Value *value, Type *targetType);

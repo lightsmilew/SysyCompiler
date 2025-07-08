@@ -581,9 +581,8 @@ private:
         {
             return ptrTy->ElementType;
         }
-
-        // 如果传入的不是指针，这是一个错误，但为了健壮性返回默认类型
-        return IntegerType::getInstance();
+        // 传入不是指针报错
+        throw std::runtime_error("LoadInst: operand must be a pointer type");
     }
 };
 

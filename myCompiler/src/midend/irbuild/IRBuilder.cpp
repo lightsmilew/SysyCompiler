@@ -372,9 +372,9 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // 记录分支前变量状态
     auto tmp_block=currentBlock;
     // 生成phi占位
-    setCurrentBlock(mergeBlock);
-    addPhiForVars(); 
-    setCurrentBlock(tmp_block);
+    // setCurrentBlock(mergeBlock);
+    // addPhiForVars(); 
+    // setCurrentBlock(tmp_block);
     // 条件跳转
     createCondBranch(condition, thenBlock, elseBlock ? elseBlock : mergeBlock);
     // then 分支
@@ -397,6 +397,8 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
     // 合流块
     setCurrentBlock(mergeBlock);
+    // 生成phi占位    
+    addPhiForVars(); 
     //  插入phi输入
     addPhiForVarsIncomings(currentBlock);
 }
