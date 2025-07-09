@@ -1378,9 +1378,61 @@ void IRBuilder::createBranch(BasicBlock *target)
 
 void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock)
 {
+    //如果condition已知，直接产生无条件跳转
+    // if (isConstantValue(condition))
+    // {
+    //     if(auto IntValue=dynamic_cast<ConstantInt*>(condition))
+    //     {
+    //         if(IntValue->Value!=0)
+    //         {
+    //             createBranch(trueBlock);
+    //         }
+    //         else
+    //         {
+    //             createBranch(falseBlock);
+    //         }
+    //     }
+    //     else if(auto FloatValue=dynamic_cast<ConstantFloat*>(condition))
+    //     {
+    //         if(FloatValue->Value!=0.0f)
+    //         {
+    //             createBranch(trueBlock);
+    //         }
+    //         else
+    //         {
+    //             createBranch(falseBlock);
+    //         }
+    //     }
+    //     else if(auto GlobalValue=dynamic_cast<GlobalVariable*>(condition))
+    //     {
+    //         if(auto IntValue=dynamic_cast<ConstantInt*>(GlobalValue->Initializer))
+    //         {
+    //             if(IntValue->Value!=0)
+    //             {
+    //                 createBranch(trueBlock);
+    //             }
+    //             else
+    //             {
+    //                 createBranch(falseBlock);
+    //             }
+    //         }
+    //         else if(auto FloatValue=dynamic_cast<ConstantFloat*>(GlobalValue->Initializer))
+    //         {
+    //             if(FloatValue->Value!=0.0f)
+    //             {
+    //                 createBranch(trueBlock);
+    //             }
+    //             else
+    //             {
+    //                 createBranch(falseBlock);
+    //             }
+    //         }
+    //     }
+    //     return; // 已处理常量情况，直接返回
+    // }
+    //否则走正常的条件分支逻辑
     auto brInst = std::make_unique<BranchInst>(condition, trueBlock, falseBlock);
     currentBlock->addInstruction(std::move(brInst));
-
     // 更新 CFG
     currentBlock->addSuccessor(trueBlock);
     currentBlock->addSuccessor(falseBlock);
