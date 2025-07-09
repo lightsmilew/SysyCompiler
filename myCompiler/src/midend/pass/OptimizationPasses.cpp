@@ -386,13 +386,13 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 auto copy = std::make_unique<CopyInst>(val, phi->getName()); // CopyInst: %phi = val
                 pred->insert(std::move(copy), termIt - predInsts.begin());
             }
-            //从基本块中删除原来指令，phi对应value仍然保留
+            // 从基本块中删除原来指令，phi对应value仍然保留
             needToDelete.push_back(it->release()); // 释放所有权，但不析构
             it = insts.erase(it);
             changed = true;
         }
     }
-    //遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
+    // 遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
     for (auto &bb : func->getBasicBlocks()) 
     {
         auto &insts = bb->getInstructions();

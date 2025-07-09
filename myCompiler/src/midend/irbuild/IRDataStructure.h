@@ -358,7 +358,7 @@ public:
     Type* basicType;
     Constant *Initializer;
     bool IsConstant;
-    //如果是数组则存入退化后的指针
+    // 如果是数组则存入退化后的指针
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
         : Value(ty, name), Initializer(init), IsConstant(isConst), basicType(ty) 
         {
@@ -374,11 +374,11 @@ public:
 
 enum class Opcode
 {
-    // Terminator instructions
+    // 终结指令
     Ret,
     Br,
 
-    // Binary operations
+    // 二元运算符
     Add,
     Sub,
     Mul,
@@ -389,25 +389,24 @@ enum class Opcode
     FMul,
     FDiv,
 
-    // Comparison operations
+    // 比较运算符
     ICmp,
     FCmp,
 
-    // Memory operations
+    // 内存操作符
     Alloca,
     Load,
     Store,
     GetElementPtr,
 
-    // Conversion operations
+    // 类型转换符
     SIToFP, // signed int (i32) to float
     FPToSI, // float to signed int (i32)
 
-    // Other operations
+    // 其他操作
     Call,
-    // when there are multiple predecessors, we use PHI node to select the value
     Phi,
-    Copy // 用于复制值的指令
+    Copy 
 };
 
 class Instruction : public User
@@ -416,7 +415,7 @@ public:
     Opcode Op;
     BasicBlock *Parent;
     
-    // usually added to a BasicBlock after creation
+    // 无操作数的构造函数
     Instruction(Type *ty, Opcode op, const string &name = "")
         : User(ty, {}, name), Op(op), Parent(nullptr) {}
 
@@ -611,7 +610,7 @@ class CallInst : public Instruction
 public:
 
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
-    //这里无法给出函数实现，因为此时Function类还未定义
+    // 这里无法给出函数实现，因为此时Function类还未定义
     Function *getCalledFunction() const;
     // 获取函数参数
     vector<Value *> getArguments() const
@@ -653,11 +652,11 @@ public:
     BasicBlock *TrueBlock;
     BasicBlock *FalseBlock;
 
-    // Unconditional branch
+    // 无条件跳转
     BranchInst(BasicBlock *target)
         : Instruction(VoidType::getInstance(), Opcode::Br), TrueBlock(target), FalseBlock(nullptr) {}
 
-    // Conditional branch
+    // 有条件跳转
     BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock)
         : Instruction(VoidType::getInstance(), Opcode::Br, vector<Value *>{cond}),
           TrueBlock(trueBlock), FalseBlock(falseBlock) {}
@@ -782,7 +781,7 @@ public:
         inst->Parent = this;
         Instructions.push_back(std::move(inst));
     }
-    //插入指令
+    // 插入指令
     void insert(unique_ptr<Instruction> inst, unsigned index)
     {
         if (index > Instructions.size())
@@ -975,6 +974,7 @@ public:
         }
         return nullptr;
     }
+    // 输出基本块后继信息
     void printBasic()
     {
         for(int i=13;i<Functions.size();i++)

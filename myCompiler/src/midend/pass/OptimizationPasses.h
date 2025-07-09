@@ -45,7 +45,7 @@ private:
 };
 
 
-// 3. 公共子表达式消除Pass
+// 2. 公共子表达式消除Pass
 class CommonSubexpressionEliminationPass : public Pass
 {
 private:
@@ -66,7 +66,7 @@ private:
 };
 
 
-// 5. 基本块合并Pass
+// 3. 基本块合并Pass
 class BasicBlockMergePass : public Pass
 {
 public:
@@ -78,7 +78,7 @@ private:
     void mergeBlocks(BasicBlock *bb1, BasicBlock *bb2);
 };
 
-// 6. 循环不变代码外提Pass
+// 4. 循环不变代码外提Pass
 class LoopInvariantCodeMotionPass : public Pass
 {
 public:
@@ -110,7 +110,7 @@ private:
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
 };
-// 7. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 5. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:
@@ -139,4 +139,4 @@ enum class OptimizationLevel
 // 创建优化Pass管道的工厂函数
 std::unique_ptr<PassManager> createOptimizationPipeline(OptimizationLevel level, bool verbose = false);
 
-} // namespace optimization
+}
