@@ -100,33 +100,53 @@ bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func) 
 {
-    exprMap.clear();
     bool changed = false;
-    for (auto &bb : func->getBasicBlocks()) 
-    {
-        for (auto &instPtr : bb->getInstructions()) 
+    bool localChanged;
+    // 递归消除
+    do {
+        exprMap.clear();
+        localChanged = false;
+        for (auto &bb : func->getBasicBlocks()) 
         {
-            Instruction *inst = instPtr.get();
-            if (!canBeCommonSubexpression(inst)) continue;
-            auto key = getExpressionKey(inst);
-            auto it = exprMap.find(key);
-            if (it != exprMap.end()) 
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end(); ) 
             {
-                inst->replaceAllUsesWith(it->second);
-                changed = true;
-            } 
-            else 
-            {
-                exprMap[key] = inst;
+                Instruction *inst = it->get();
+                if (!canBeCommonSubexpression(inst)) { ++it; continue; }
+                auto key = getExpressionKey(inst);
+                auto found = exprMap.find(key);
+                if (found != exprMap.end()) 
+                {
+                    inst->replaceAllUsesWith(found->second);
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    localChanged = true;
+                    changed = true;
+                } 
+                else 
+                {
+                    exprMap[key] = inst;
+                    ++it;
+                }
             }
         }
-    }
+    } while (localChanged);
     return changed;
 }
 // 为每个指令生成唯一的表达式键
-std::pair<string, vector<Value *>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst) 
+// 假设 Value 有 isConstantInt/isConstantFloat/getInt/getFloat 等接口
+std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst) 
 {
-    vector<Value *> ops = inst->getOperands();
+    std::vector<std::string> ops;
+    for (auto *v : inst->getOperands()) {
+        if (auto *ci = dynamic_cast<ConstantInt*>(v)) {
+            ops.push_back("int:" + std::to_string(ci->Value));
+        } else if (auto *cf = dynamic_cast<ConstantFloat*>(v)) {
+            ops.push_back("float:" + std::to_string(cf->Value));
+        } else {
+            ops.push_back("var:" + v->getName());
+        }
+    }
     return {inst->getOpcodeName(), ops};
 }
 // 判断指令是否可以作为公共子表达式
@@ -136,10 +156,11 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     return inst->isBinaryOp() && !inst->mayHaveSideEffects();
 }
 // 哈希函数，用于表达式键的哈希表
-std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<string, vector<Value *>> &expr) const 
+std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<std::string, std::vector<std::string>> &expr) const
 {
-    std::size_t h = std::hash<string>()(expr.first);
-    for (auto *v : expr.second) h ^= std::hash<void *>()(v);
+    std::size_t h = std::hash<std::string>()(expr.first);
+    for (const auto &s : expr.second)
+        h ^= std::hash<std::string>()(s) + 0x9e3779b9 + (h << 6) + (h >> 2);
     return h;
 }
 
@@ -449,6 +470,18 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if(level==OptimizationLevel::O10)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+    }
+    else if(level==OptimizationLevel::O11)
+    {
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
+    }
+    else if(level==OptimizationLevel::O12)
+    {
+        pm->addPass(std::make_unique<BasicBlockMergePass>());
+    }
+    else if(level==OptimizationLevel::O13)
+    {
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
     }
     return pm;
 }

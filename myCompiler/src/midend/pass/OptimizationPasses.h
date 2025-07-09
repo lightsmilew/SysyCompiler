@@ -51,17 +51,17 @@ class CommonSubexpressionEliminationPass : public Pass
 private:
     struct ExpressionHash
     {
-        std::size_t operator()(const std::pair<string, vector<Value *>> &expr) const;
+        std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
     };
-
-    std::unordered_map<std::pair<string, vector<Value *>>, Value *, ExpressionHash> exprMap;
+    std::vector<Value *> needToDelete;
+    std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value*, ExpressionHash> exprMap;
 
 public:
     bool runOnFunction(Function *func) override;
-    string getName() const override { return "CommonSubexpressionElimination"; }
+    std::string getName() const override { return "CommonSubexpressionElimination"; }
 
 private:
-    std::pair<string, vector<Value *>> getExpressionKey(Instruction *inst);
+    std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
     bool canBeCommonSubexpression(Instruction *inst);
 };
 
