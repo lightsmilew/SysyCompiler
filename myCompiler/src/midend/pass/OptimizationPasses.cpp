@@ -392,6 +392,32 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             changed = true;
         }
     }
+    //遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
+    for (auto &bb : func->getBasicBlocks()) 
+    {
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();) 
+        {
+            Instruction *inst = it->get();
+            if (!inst) 
+            {
+                std::cerr << "inst is nullptr!" << std::endl;
+                continue;
+            }
+            if (auto *copy = dynamic_cast<CopyInst *>(inst)) 
+            {
+                if (copy->getSource()->getName() == copy->getDest()->getName()) 
+                {
+                    // 删除无效的copy指令
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    changed = true;
+                    continue;
+                }
+            }
+            ++it;
+        }
+    }
     return changed;
 }
 // ========== 优化管道工厂 ==========
@@ -418,6 +444,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
         pm->addPass(std::make_unique<BasicBlockMergePass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+    }
+    //以下为调试内容
+    else if(level==OptimizationLevel::O10)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
     }
     return pm;
 }
