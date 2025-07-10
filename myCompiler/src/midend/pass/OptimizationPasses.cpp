@@ -219,8 +219,8 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
         BasicBlock *preheader = findPreheader(loop);
         if (!preheader) continue;
 
-        // 3. 收集所有循环不变指令
-        vector<Instruction*> invariants;
+        // 3. 收集所有循环不变指令（记录指令和所在基本块）
+        std::vector<std::pair<Instruction*, BasicBlock*>> invariants;
         bool foundNew;
         do 
         {
@@ -231,11 +231,12 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                 {
                     Instruction *inst = instPtr.get();
                     // 只处理未被移动过的、无副作用、非终结指令
-                    if (std::find(invariants.begin(), invariants.end(), inst) == invariants.end() &&
+                    if (std::find_if(invariants.begin(), invariants.end(),
+                                     [inst](const auto& p){ return p.first == inst; }) == invariants.end() &&
                         !inst->mayHaveSideEffects() && !inst->isTerminator() &&
                         isLoopInvariant(inst, loop)) 
                     {
-                        invariants.push_back(inst);
+                        invariants.emplace_back(inst, bb);
                         foundNew = true;
                     }
                 }
@@ -243,18 +244,16 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
         } while (foundNew); // 递增收集直到收敛
 
         // 4. 将循环不变指令移动到 preheader
-        for (auto *inst : invariants) 
+        for (auto &[inst, fromBB] : invariants) 
         {
-            // 从原基本块移除
-            auto &insts = inst->getParent()->getInstructions();
+            auto &insts = fromBB->getInstructions();
             auto it = std::find_if(insts.begin(), insts.end(),
                                    [&](const std::unique_ptr<Instruction>& ptr) { return ptr.get() == inst; });
             if (it != insts.end()) 
             {
                 // 转移所有权到 preheader
                 std::unique_ptr<Instruction> movedInst = std::move(*it);
-                needToDelete.push_back(it->release()); // 记录需要删除的指令
-                insts.erase(it);
+                it = insts.erase(it);
                 preheader->addInstruction(std::move(movedInst));
                 changed = true;
             }
@@ -357,7 +356,78 @@ BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop)
     }
     return nullptr; // 如果没有找到前驱块，返回nullptr
 }
+// 函数内联
+bool FunctionInliningPass::runOnModule(Module *module) {
+    bool changed = false;
+    for (auto &caller : module->Functions) {
+        for (auto &bb : caller->getBasicBlocks()) {
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end(); ) {
+                if (auto *call = dynamic_cast<CallInst*>(it->get())) {
+                    Function *callee = call->getCalledFunction();
+                    if (shouldInline(callee)) {
+                        inlineAt(call, caller.get(), bb.get(), it);
+                        it = insts.erase(it); // 删除call指令
+                        changed = true;
+                        continue;
+                    }
+                }
+                ++it;
+            }
+        }
+    }
+    return changed;
+}
 
+// 判断是否适合内联
+bool FunctionInliningPass::shouldInline(Function *callee) {
+    // 不内联递归/库函数/过大函数
+    if (callee->isLibraryFunction() || callee->isRecursive() || callee->getInstructionCount()>20)
+        return false;
+    return true;
+}
+
+// 内联实现(目前还有问题)
+void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it) {
+    Function *callee = call->getCalledFunction();
+    // 1. 参数映射
+    std::unordered_map<Value*, Value*> valueMap;
+    auto &params = callee->getArguments();
+    const auto &args = call->getArguments();
+    for (size_t i = 0; i < params.size(); ++i) {
+        valueMap[params[i].get()] = args[i];
+    }
+    // 2. 复制被调函数的所有指令，重命名变量
+    std::vector<std::unique_ptr<Instruction>> newInsts;
+    for (auto &bbCallee : callee->getBasicBlocks()) {
+        for (auto &instCallee : bbCallee->getInstructions()) {
+            Instruction *newInst = instCallee->cloneWithRename(valueMap); // 你需要实现cloneWithRename
+            // 替换操作数为映射后的
+            for (size_t i = 0; i < newInst->getOperands().size(); ++i) {
+                if (valueMap.count(newInst->getOperands()[i]))
+                    newInst->setOperand(i, valueMap[newInst->getOperands()[i]]);
+            }
+            valueMap[instCallee.get()] = newInst;
+            newInsts.push_back(std::unique_ptr<Instruction>(newInst));
+        }
+    }
+    // 3. 处理返回值
+    for (auto &inst : newInsts) {
+        if (auto *ret = dynamic_cast<ReturnInst*>(inst.get())) {
+            if (call->hasReturnValue()) {
+                // 将ret的返回值赋给call的目标
+                auto assign = std::make_unique<CopyInst>(ret->getReturnValue(), call->getName());
+                bb->insert(std::move(assign), it - bb->getInstructions().begin());
+            }
+            // 移除ret指令本身
+            inst.reset();
+        }
+    }
+    // 4. 插入新指令到调用点
+    for (auto &inst : newInsts) {
+        if (inst) bb->insert(std::move(inst), it - bb->getInstructions().begin());
+    }
+}
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func) 
 {
@@ -463,7 +533,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
         pm->addPass(std::make_unique<PhiEliminationPass>());        
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
-        pm->addPass(std::make_unique<BasicBlockMergePass>());
+        //pm->addPass(std::make_unique<BasicBlockMergePass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
     }
     //以下为调试内容
@@ -476,10 +546,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
     }
     else if(level==OptimizationLevel::O12)
-    {
-        pm->addPass(std::make_unique<BasicBlockMergePass>());
-    }
-    else if(level==OptimizationLevel::O13)
     {
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
     }

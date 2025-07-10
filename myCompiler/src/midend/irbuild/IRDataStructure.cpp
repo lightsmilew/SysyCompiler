@@ -138,7 +138,98 @@ std::string UnaryOperator::toString() const
 
     return ss.str();
 }
+Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap) const
+{
+    // 1. 复制操作数，若在映射表中则替换
+    std::vector<Value*> newOperands;
+    for (auto *op : this->getOperands()) {
+        auto it = valueMap.find(op);
+        if (it != valueMap.end())
+            newOperands.push_back(it->second);
+        else
+            newOperands.push_back(op);
+    }
 
+    // 2. 创建新指令（假设有 createXXX 工厂函数或构造函数）
+    Instruction* newInst = this->clone(); // 通常 clone() 会复制类型和操作码
+    newInst->setOperands(newOperands);
+
+    // 3. 变量重命名（如有必要，为 SSA 名字加后缀或生成新名字）
+    // 这里假设你有 setName/getName 接口
+    static int inline_cnt = 0;
+    newInst->setName(this->getName() + "_inl" + std::to_string(++inline_cnt));
+
+    return newInst;
+}
+// 通用 Clone 实现
+Instruction* Instruction::clone() const {
+    switch (Op) {
+    case Opcode::Add:
+    case Opcode::Sub:
+    case Opcode::Mul:
+    case Opcode::SDiv:
+    case Opcode::SRem:
+    case Opcode::FAdd:
+    case Opcode::FSub:
+    case Opcode::FMul:
+    case Opcode::FDiv:
+        return new BinaryOperator(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::ICmp:
+        return new ICmpInst(static_cast<const ICmpInst*>(this)->getPredicate(),
+                            getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::FCmp:
+        return new FCmpInst(static_cast<const FCmpInst*>(this)->getPredicate(),
+                            getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::Alloca:
+        return new AllocaInst(static_cast<const AllocaInst*>(this)->AllocatedType, getName());
+    case Opcode::Load:
+        return new LoadInst(getOperandByIndex(0),getName());
+    case Opcode::Store:
+        return new StoreInst(getOperandByIndex(0), getOperandByIndex(1));
+    case Opcode::Call:
+        {
+            auto *call = static_cast<const CallInst*>(this);
+            std::vector<Value*> args = call->getArguments();
+            return new CallInst(call->getCalledFunction(), args, getName());
+        }
+    case Opcode::Ret:
+        if (getNumOperands() > 0)
+            return new ReturnInst(getOperandByIndex(0));
+        else
+            return new ReturnInst();
+    case Opcode::Br:
+        {
+            auto *br = static_cast<const BranchInst*>(this);
+            if (br->isConditional())
+                return new BranchInst(br->getCondition(), br->TrueBlock, br->FalseBlock);
+            else
+                return new BranchInst(br->TrueBlock);
+        }
+    case Opcode::Phi:
+        {
+            auto *phi = static_cast<const PhiInst*>(this);
+            auto *newPhi = new PhiInst(getType(), getName());
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+                newPhi->addIncoming(phi->getIncomingValue(i), phi->getIncomingBlock(i));
+            return newPhi;
+        }
+    case Opcode::GetElementPtr:
+        {
+            auto *gep = static_cast<const GetElementPtrInst*>(this);
+            return new GetElementPtrInst(gep->getPointerOperand(), gep->getIndices(), getName());
+        }
+    case Opcode::SIToFP:
+    case Opcode::FPToSI:
+        {
+            auto *cast = static_cast<const CastInst*>(this);
+            return new CastInst(Op, getOperandByIndex(0), cast->DestType, getName());
+        }
+    case Opcode::Copy:
+        return new CopyInst(getOperandByIndex(0), getName());
+    default:
+        throw std::runtime_error("Clone not implemented for this opcode");
+    }
+}
 std::string ICmpInst::toString() const
 {
     std::stringstream ss;

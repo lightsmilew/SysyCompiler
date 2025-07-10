@@ -89,6 +89,7 @@ namespace ir_builder
         Value *createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs);
         Value *createComparison(ast::BinaryOp op, Value *lhs, Value *rhs);
         Value *createUnaryOp(ast::UnaryOp op, Value *operand);
+        Value *createGetElementPtr(Value *ptr, const Vector<Value *> &indices);                  // 获取指针的元素地址
         Value *createLoad(Value *ptr);
         void createStore(Value *value, Value *ptr);
         Value *createAlloca(Type *type, const String &name = "");

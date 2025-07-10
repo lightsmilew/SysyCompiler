@@ -65,7 +65,7 @@ private:
     bool canBeCommonSubexpression(Instruction *inst);
 };
 
-
+// 无效果可删除
 // 3. 基本块合并Pass
 class BasicBlockMergePass : public Pass
 {
@@ -110,7 +110,16 @@ private:
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
 };
-// 5. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 5. 函数内联 Pass（将函数调用替换为函数体）
+class FunctionInliningPass : public Pass {
+public:
+    bool runOnModule(Module *module);
+    std::string getName() const override { return "FunctionInlining"; }
+private:
+    bool shouldInline(Function *callee);
+    void inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it);
+};
+// 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:

@@ -226,7 +226,23 @@ public:
             operand->addUser(this);
         }
     }
-
+    void setOperands(const vector<Value *> &operands)
+    {
+        // 替换当前操作数并更新Users列表
+        for (Value *op : Operands)
+        {
+            if (op)
+            {
+                Operands.erase(std::remove(Operands.begin(), Operands.end(), op), Operands.end());
+                op->removeUser(this);
+            }
+        }
+        Operands = operands;
+        for (Value *op : Operands)
+        {
+            addOperand(op); // 更新Users列表
+        }
+    }
     // 替换操作数
     void replaceOperand(Value *oldValue, Value *newValue)
     {
@@ -413,17 +429,19 @@ class Instruction : public User
 {
 public:
     Opcode Op;
-    BasicBlock *Parent;
+    //BasicBlock *Parent;
     
     // 无操作数的构造函数
     Instruction(Type *ty, Opcode op, const string &name = "")
-        : User(ty, {}, name), Op(op), Parent(nullptr) {}
-
+        : User(ty, {}, name), Op(op) {}
     // 带操作数的构造函数
     Instruction(Type *ty, Opcode op, const vector<Value *> &operands, const string &name = "")
-        : User(ty, operands, name), Op(op), Parent(nullptr) {}
+        : User(ty, operands, name), Op(op){}
+    Instruction * clone() const;
     // 获取操作符
     Opcode getOpcode() const { return Op; }
+    // 复制指令并重命名操作数
+    Instruction *cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap) const;
     // 获取操作符名称
     string getOpcodeName() const
     {
@@ -482,8 +500,6 @@ public:
         return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
                Op == Opcode::Ret || Op == Opcode::Alloca;
     }
-    // 获取基本块
-    BasicBlock *getParent() const { return Parent; }
     virtual string toString() const = 0;
 };
 
@@ -553,6 +569,7 @@ public:
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
+    Predicate getPredicate() const { return Pred; }
     Value *getLHS() const { return getOperandByIndex(0); }
     Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
@@ -563,7 +580,7 @@ class AllocaInst : public Instruction
 public:
     // 传入数组类型，返回退化后的指针
     Type *AllocatedType;
-    
+
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType), Opcode::Alloca, name), AllocatedType(ty) {}
     string toString() const override;
@@ -617,6 +634,11 @@ public:
     {
         vector<Value *> args(getOperands().begin() + 1, getOperands().end());
         return args;
+    }
+    // 是否有返回值
+    bool hasReturnValue() const
+    {
+        return getFunctionReturnType(getOperandByIndex(0)) != VoidType::getInstance();
     }
     string toString() const override;
 
@@ -748,12 +770,12 @@ public:
 class CopyInst : public Instruction
 {
 public:
-    CopyInst(Value *source,const string &name)
-        : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name){}
+    CopyInst(Value *source, const string &name = "")
+        : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name) {}
     // 获取目标
-    Value *getDest() const 
-    { 
-        return const_cast<CopyInst*>(this); // CopyInst的目标就是自身，类型转换为Value*
+    Value *getDest() const
+    {
+        return const_cast<CopyInst *>(this); // CopyInst的目标就是自身，类型转换为Value*
      }
     // 获取源
     Value *getSource() const 
@@ -778,7 +800,6 @@ public:
     // 添加指令到基本块
     void addInstruction(unique_ptr<Instruction> inst)
     {
-        inst->Parent = this;
         Instructions.push_back(std::move(inst));
     }
     // 插入指令
@@ -788,7 +809,6 @@ public:
         {
             throw std::out_of_range("Index out of range for inserting instruction");
         }
-        inst->Parent = this;
         Instructions.insert(Instructions.begin() + index, std::move(inst));
     }
 
@@ -899,7 +919,11 @@ public:
         Arguments.push_back(std::move(arg));
         return ptr;
     }
-
+    // 获取函数参数
+    const vector<unique_ptr<Argument>> &getArguments() const
+    {
+        return Arguments;
+    }
     // 获取入口基本块
     BasicBlock *getEntryBlock()
     {
@@ -915,6 +939,43 @@ public:
     const vector<unique_ptr<BasicBlock>> &getBasicBlocks() const
     {
         return BasicBlocks;
+    }
+    // 获取指令数量
+    unsigned getInstructionCount() const
+    {
+        unsigned count = 0;
+        for (const auto &bb : BasicBlocks)
+        {
+            count += bb->getInstructions().size();
+        }
+        return count;
+    }
+    bool isLibraryFunction() const
+    {
+        // 判断是否为标准库函数
+        return getName() == "getint" || getName() == "getch" ||
+               getName() == "getfloat" || getName() == "getarray" ||
+               getName() == "getfarray" || getName() == "putint" ||
+               getName() == "putch" || getName() == "putfloat"||
+               getName() == "putarray" || getName() == "putfarray" ||
+               getName() == "putf" ||
+               getName() == "_sysy_starttime" || getName() == "_sysy_stoptime";
+    }
+    // 是否为递归函数
+    bool isRecursive() const
+    {
+        for (const auto &bb : BasicBlocks)
+        {
+            for (const auto &instPtr : bb->getInstructions())
+            {
+                if (auto *call = dynamic_cast<CallInst*>(instPtr.get()))
+                {
+                    if (call->getCalledFunction() == this)
+                        return true;
+                }
+            }
+        }
+        return false;
     }
     string toString() const override;
 };

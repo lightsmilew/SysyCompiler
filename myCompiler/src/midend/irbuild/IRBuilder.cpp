@@ -728,10 +728,10 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
             }
             indices.push_back(index);
         }       
-        auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
-        Value *result = gepInst.get();
-        currentBlock->addInstruction(std::move(gepInst));
-        return result;
+        // auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices,currentBlock,getNextTempName());
+        // Value *result = gepInst.get();
+        // currentBlock->addInstruction(std::move(gepInst));
+        return createGetElementPtr(ptr, indices);
     }
     // 无下标且是指针则直接返回指针，不做处理   
     return ptr;
@@ -765,10 +765,10 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
                 // 退化一维
                 Vector<Value*> indices;
                 indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-                auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
-                Value *result = gepInst.get();
-                currentBlock->addInstruction(std::move(gepInst));
-                arg = result;
+                // auto gepInst = std::make_unique<GetElementPtrInst>(arg, indices, getNextTempName());
+                // Value *result = gepInst.get();
+                // currentBlock->addInstruction(std::move(gepInst));
+                arg = createGetElementPtr(arg, indices);
             }
             else
             {
@@ -824,9 +824,10 @@ Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *t
             Value *elemValue = visitInitExpr(node->multiInitVal[i], arrayType->ElementType);
 
             // 生成 GEP 指令
-            auto gepInst = std::make_unique<GetElementPtrInst>(arrayAlloca, indices, getNextTempName());
-            Value *elemPtr = gepInst.get();
-            currentBlock->addInstruction(std::move(gepInst));
+            // auto gepInst = std::make_unique<GetElementPtrInst>(arrayAlloca, indices, getNextTempName());
+            // Value *elemPtr = gepInst.get();
+            // currentBlock->addInstruction(std::move(gepInst));
+            auto elemPtr = createGetElementPtr(arrayAlloca, indices);
 
             // 存储元素值
             createStore(elemValue, elemPtr);
@@ -900,9 +901,10 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
             gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
         }
 
-        auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, gep_indices, getNextTempName());
-        Value *elemPtr = gepInst.get();
-        currentBlock->addInstruction(std::move(gepInst));
+        // auto gepInst = std::make_unique<GetElementPtrInst>(targetPtr, gep_indices, getNextTempName());
+        // Value *elemPtr = gepInst.get();
+        // currentBlock->addInstruction(std::move(gepInst));
+        auto elemPtr = createGetElementPtr(targetPtr, gep_indices);
 
         Value *val;
         if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) {
@@ -1327,7 +1329,13 @@ Value *IRBuilder::createUnaryOp(ast::UnaryOp op, Value *operand)
         throw std::runtime_error("Invalid unary operator");
     }
 }
-
+Value *IRBuilder::createGetElementPtr(Value *ptr, const Vector<Value *> &indices)
+{
+    auto gepInst = std::make_unique<GetElementPtrInst>(ptr, indices, getNextTempName());
+    Value *result = gepInst.get();
+    currentBlock->addInstruction(std::move(gepInst));
+    return result;
+}
 Value *IRBuilder::createLoad(Value *ptr)
 {
     auto loadInst = std::make_unique<LoadInst>(ptr, getNextTempName());
