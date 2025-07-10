@@ -361,13 +361,14 @@ vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops
         }
     }
     // 调试输出
-    for(auto &loop : loops) 
-    {
-        cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
-        for (auto *bb : loop.blocks)
-            cout << bb->getName() << " ";
-        cout << endl;
-    }
+
+    // for(auto &loop : loops) 
+    // {
+    //     cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
+    //     for (auto *bb : loop.blocks)
+    //         cout << bb->getName() << " ";
+    //     cout << endl;
+    // }
     return loops;
 }
 

@@ -1050,12 +1050,13 @@ public:
            for(const auto& it:Functions[i]->BasicBlocks)
            {        
               std::cout<<"BasicBlockSuccs "<<j<<":"<<std::endl;
-              std::cout<<"Successors: ";
+              std::cout<<"                   Successors: ";
               for(auto suc:it->getSuccessors())
               {
                  std::cout<<suc->getName()<<" ";
               }
-              std::cout<<std::endl<<"Predecessors: ";
+              std::cout<<std::endl;
+              std::cout<<"                   Predecessors: ";
               for(auto pre:it->getPredecessors())
               {
                  std::cout<<pre->getName()<<" ";
