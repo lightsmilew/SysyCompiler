@@ -802,6 +802,7 @@ public:
     {
         Instructions.push_back(std::move(inst));
     }
+    void insertBeforeTerminator(std::unique_ptr<Instruction> inst);
     // 插入指令
     void insert(unique_ptr<Instruction> inst, unsigned index)
     {
@@ -870,10 +871,14 @@ public:
         Instruction *term = getTerminator();
         return term && (term->Op == Opcode::Ret || term->Op == Opcode::Br);
     }
+    // 判断是否包含特定指令(通过名称)
     bool contains(Instruction *inst) const
     {
+        const std::string &name = inst->getName();
         return std::any_of(Instructions.begin(), Instructions.end(),
-                           [inst](const unique_ptr<Instruction> &i) { return i.get() == inst; });
+        [&](const unique_ptr<Instruction> &i) {
+            return i->getName() == name;
+        });
     }
     string toString() const override;
 };
@@ -1044,14 +1049,19 @@ public:
             int j=0;
            for(const auto& it:Functions[i]->BasicBlocks)
            {        
-              std::cout<<"BasicBlockSuccs "<<j<<":";
+              std::cout<<"BasicBlockSuccs "<<j<<":"<<std::endl;
+              std::cout<<"Successors: ";
               for(auto suc:it->getSuccessors())
               {
                  std::cout<<suc->getName()<<" ";
               }
+              std::cout<<std::endl<<"Predecessors: ";
+              for(auto pre:it->getPredecessors())
+              {
+                 std::cout<<pre->getName()<<" ";
+              }
               std::cout<<std::endl;
-              j++;
-              
+              j++;          
            }
         }
     }

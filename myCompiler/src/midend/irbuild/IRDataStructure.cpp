@@ -552,6 +552,15 @@ std::string CastInst::toString() const
 }
 
 // ===== BasicBlock Implementation =====
+void BasicBlock::insertBeforeTerminator(std::unique_ptr<Instruction> inst)
+{
+    auto &insts = getInstructions();
+    auto termIt = std::find_if(
+        insts.begin(), insts.end(),
+        [](const std::unique_ptr<Instruction>& i) { return i->isTerminator(); }
+    );
+    this->insert(std::move(inst), termIt - insts.begin());
+}
 std::string BasicBlock::toString() const
 {
     std::stringstream ss;

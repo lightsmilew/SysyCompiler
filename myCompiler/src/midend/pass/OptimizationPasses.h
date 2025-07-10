@@ -13,6 +13,7 @@ namespace optimization
 class Pass
 {
 public:
+    vector<Instruction*> needToDelete; // 存储需要删除的值
     virtual ~Pass() = default;
     virtual bool runOnFunction(Function *func) = 0;
     virtual string getName() const = 0;
@@ -53,7 +54,7 @@ private:
     {
         std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
     };
-    std::vector<Value *> needToDelete;
+    //std::vector<Value *> needToDelete;
     std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value*, ExpressionHash> exprMap;
 
 public:
@@ -84,13 +85,6 @@ class LoopInvariantCodeMotionPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "LoopInvariantCodeMotion"; }
-    ~LoopInvariantCodeMotionPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
 private:
     struct Loop
     {
@@ -105,7 +99,7 @@ private:
                                [&](BasicBlock *bb) { return bb->contains(inst); });
         }
     };
-    vector<Instruction *>needToDelete; // 存储需要删除的指令
+    //vector<Instruction *>needToDelete; // 存储需要删除的指令
     vector<Loop> findLoops(Function *func);
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
@@ -113,7 +107,7 @@ private:
 // 5. 函数内联 Pass（将函数调用替换为函数体）
 class FunctionInliningPass : public Pass {
 public:
-    bool runOnModule(Module *module);
+    bool runOnFunction(Function *func) override;
     std::string getName() const override { return "FunctionInlining"; }
 private:
     bool shouldInline(Function *callee);
@@ -125,8 +119,8 @@ class PhiEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
-private:
-    vector<Instruction *>needToDelete; // 存储需要删除的phi指令
+// private:
+//     vector<Instruction *>needToDelete; // 存储需要删除的phi指令
 
 };
 
