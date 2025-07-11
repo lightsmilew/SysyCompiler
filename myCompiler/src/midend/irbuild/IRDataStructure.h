@@ -162,7 +162,7 @@ public:
     void setType(Type *ty) { Ty = ty; }
     const string &getName() const { return Name; }
     void setName(const string &name) { Name = name; }
-
+    bool isGlobal() const;
     // User管理方法
     void addUser(User *user) { Users.push_back(user); }
     void removeUser(User *user)
@@ -342,6 +342,7 @@ class ConstantString : public Constant
 {
 public:
     std::string Value;
+    //string常量需要存在一个变量里面
     ConstantString(StringType *ty, const std::string &val)
         : Constant(ty), Value(val) {}
     string toString() const override

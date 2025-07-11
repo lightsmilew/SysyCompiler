@@ -533,7 +533,11 @@ Value *IRBuilder::visitExpression(std::shared_ptr<ast::ExprNode> node)
     }
     else if (auto stringLiteral = std::dynamic_pointer_cast<ast::StringLiteralExprNode>(node))
     {
-        return visitStringLiteralExpr(stringLiteral);
+        auto stringValue = visitStringLiteralExpr(stringLiteral);
+        return module->addGlobalVariable(StringType::getInstance(),
+                                                getNextStringName(),
+                                                dynamic_cast<ConstantString *>(stringValue),
+                                                true);
     }
 
     throw std::runtime_error("Unknown expression type ,line: " + std::to_string(node->line));
