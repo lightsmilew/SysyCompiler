@@ -356,8 +356,13 @@ namespace RISCV
 
         ss << "    " << opcodeToString(opcode);
 
+        // 特殊处理系统指令（不需要操作数）
+        if (opcode == RISCVOpcode::ECALL || opcode == RISCVOpcode::EBREAK)
+        {
+            // 系统指令不需要操作数
+        }
         // 特殊处理内存访问指令的操作数格式
-        if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
+        else if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
         {
             // S-Type: sw rs2, offset(rs1)
             // operands[0] = rs1 (基址), operands[1] = rs2 (源值), operands[2] = offset
@@ -394,7 +399,7 @@ namespace RISCV
     // StackFrame 实现
     int StackFrame::getTotalSize() const
     {
-        return valueStackSize;
+        return valueStackSize + raStackSize + argStackSize;
     }
 
     int StackFrame::allocateSpace(Value *value, int size)

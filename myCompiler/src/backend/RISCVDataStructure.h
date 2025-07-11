@@ -326,26 +326,11 @@ namespace RISCV
         string toString() const;
     };
 
-    // 栈帧布局 (从高地址到低地址)
-    // +------------------+ <- 函数调用前的 sp
-    // |   调用者栈帧     |
-    // +------------------+ <- 函数入口时的 sp
-    // |   返回地址 (ra)  | <- savedRegSize区域
-    // +------------------+
-    // |   保存的寄存器   |
-    // +------------------+
-    // |   所有Value      | <- valueStackSize区域
-    // | (局部变量、临时  |    (包括alloca、IR结果、
-    // |  值、参数等)     |     函数参数等所有值)
-    // +------------------+
-    // |   对齐填充       |
-    // +------------------+ <- 新的 sp (16字节对齐)
     struct StackFrame
     {
-        int valueStackSize;   // 所有Value（局部变量、临时值、参数等）的栈空间
-        int raStackSize;      // ra寄存器需要的栈空间（ABI规范）
-        int argStackSize;     // 传参预留的栈空间（ABI规范）
-        int totalAlignedSize; // 16字节对齐后的总大小（ABI规范）
+        int valueStackSize; // 所有Value（局部变量、临时值、参数等）的栈空间
+        int raStackSize;    // ra寄存器需要的栈空间（ABI规范）
+        int argStackSize;   // 传参预留的栈空间（ABI规范）
 
         // Value到栈帧偏移的映射（相对于函数入口时的sp）
         unordered_map<Value *, int> valueToOffset;
@@ -353,7 +338,7 @@ namespace RISCV
         // 已分配的栈空间偏移（从0开始分配）
         int currentOffset;
 
-        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), totalAlignedSize(0), currentOffset(0) {}
+        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), currentOffset(0) {}
 
         int getTotalSize() const;
 

@@ -60,12 +60,18 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         auto riscvFunc = make_shared<RISCVFunction>(func->getName(), riscvModule);
         riscvModule->addFunction(riscvFunc);
 
+        // 为函数添加prologue基本块
+        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("prologue", riscvFunc));
+
         // 为每个IR基本块创建对应的RISC-V基本块
         for (const auto &bb : func->BasicBlocks)
         {
             auto riscvBB = make_shared<RISCVBasicBlock>(bb->getName(), riscvFunc);
             riscvFunc->addBasicBlock(riscvBB);
         }
+
+        // 为函数添加epilogue基本块
+        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("epilogue", riscvFunc));
     }
 }
 
@@ -114,6 +120,7 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
 
     // 创建虚拟寄存器映射表
     registerMap.clear();
+    stackArguments.clear();
 
     // 预扫描函数，分配栈空间
     prescanFunction(func, irFunc);
@@ -137,6 +144,9 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
             visitInstruction(irInstr.get());
         }
     }
+
+    // 生成函数尾声
+    generateFunctionEpilogue(func);
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
@@ -454,10 +464,11 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
                                                           93); // sys_exit系统调用号
             currentBB->addInstruction(loadExit);
 
-            auto ecallInst = RISCVInstruction::createIType(RISCVOpcode::ECALL,
-                                                           make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                           make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                           0);
+            // 在退出前恢复栈帧
+            generateFunctionEpilogue(currentFunc);
+
+            // 标准的ecall指令
+            auto ecallInst = make_shared<RISCVInstruction>(RISCVOpcode::ECALL, InstructionType::I_TYPE);
             currentBB->addInstruction(ecallInst);
 
             // main函数不需要常规的return，因为程序直接退出
@@ -483,7 +494,7 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
         // 条件分支
         auto condReg = getOrCreateVirtualReg(inst->getCondition());
 
-        // 生成条件分支指令
+        // 生成条件分支指令 - 条件应该在通用寄存器中
         auto brInst = RISCVInstruction::createBType(RISCVOpcode::BNE, condReg,
                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
                                                     inst->TrueBlock->getName());
@@ -809,6 +820,52 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         return it->second;
     }
 
+    // 检查是否是栈参数
+    auto stackIt = stackArguments.find(value);
+    if (stackIt != stackArguments.end())
+    {
+        // 这是一个栈参数，需要从调用者栈帧中加载
+        // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
+        auto loadReg = getGeneralTempRegister(0);
+
+        // 计算栈参数的实际偏移量：
+        // argOffset = 被调用者栈帧大小 + 参数在调用者栈帧中的偏移
+        StackFrame &stackFrame = currentFunc->getStackFrame();
+        int argOffset = stackFrame.totalAlignedSize + stackIt->second;
+
+        // 生成从栈加载指令
+        auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+        if (isImmediateInRange(argOffset))
+        {
+            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, spReg, argOffset);
+            currentBB->addInstruction(loadInst);
+        }
+        else
+        {
+            // 偏移量太大，先计算地址
+            auto addrReg = getGeneralTempRegister(3);
+            auto liInst = RISCVInstruction::createPseudoLI(addrReg, argOffset);
+            currentBB->addInstruction(liInst);
+
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, addrReg);
+            currentBB->addInstruction(addInst);
+
+            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, addrReg, 0);
+            currentBB->addInstruction(loadInst);
+        }
+
+        // 如果目标是浮点类型，需要转移到浮点寄存器
+        if (value->getType()->isFloatTy())
+        {
+            auto floatReg = getFloatTempRegister(0);
+            auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, loadReg);
+            currentBB->addInstruction(moveInst);
+            return floatReg;
+        }
+
+        return loadReg;
+    }
+
     // 对于需要从栈加载的值（如指令的结果）
     StackFrame &stackFrame = currentFunc->getStackFrame();
     if (stackFrame.hasAllocation(value))
@@ -1022,7 +1079,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
     int A = 0; // 传参预留的栈空间
 
     bool hasCall = false;
-    vector<int> callArgCounts; // 记录每个call指令的参数个数
+    vector<int> callArgSizes; // 记录每个call指令的参数个数
 
     // 扫描所有基本块和指令
     for (const auto &bb : irFunc->BasicBlocks)
@@ -1037,8 +1094,11 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                 hasCall = true;
                 if (auto callInst = dynamic_cast<CallInst *>(instr))
                 {
-                    int argCount = static_cast<int>(callInst->getArguments().size());
-                    callArgCounts.push_back(argCount);
+                    int extraIntArgs = callInst->getIntArguments().size() - 8;
+                    int extraFloatArgs = callInst->getFloatArguments().size() - 8;
+                    int extraPtrArgs = callInst->getPtrArguments().size();
+
+                    callArgSizes.push_back(std::max(extraIntArgs, 0) * 4 + std::max(extraFloatArgs, 0) * 4 + extraPtrArgs * 8);
                 }
             }
 
@@ -1060,7 +1120,6 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
             case Opcode::ICmp:
             case Opcode::FCmp:
             case Opcode::Load:
-            case Opcode::GetElementPtr:
             case Opcode::Call:
             case Opcode::Copy:
                 hasResult = !instr->getType()->isVoidTy();
@@ -1081,6 +1140,10 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                     hasResult = true;
                 }
                 break;
+            case Opcode::GetElementPtr:
+                hasResult = !instr->getType()->isVoidTy();
+                allocSize = 8; // GEP通常返回指针，64位系统为8字节
+                break;
             default:
                 hasResult = false;
                 break;
@@ -1099,30 +1162,22 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
 
     // 计算A：传参需要的栈空间
     // A = max{max(len_i - 8, 0)} * 4，其中len_i是第i个call的参数个数
-    int maxExtraArgs = 0;
-    for (int argCount : callArgCounts)
-    {
-        int extraArgs = std::max(argCount - 8, 0);
-        maxExtraArgs = std::max(maxExtraArgs, extraArgs);
-    }
-    A = maxExtraArgs * 4;
+    A = std::max(0, *std::max_element(callArgSizes.begin(), callArgSizes.end()));
 
     // 计算总栈空间，向上取整到16字节对齐
     int totalSize = S + R + A;
-    int alignedSize = (totalSize + 15) & ~15; // 向上取整到16的倍数
 
     // 更新栈帧信息
     stackFrame.valueStackSize = S;
     stackFrame.raStackSize = R;
     stackFrame.argStackSize = A;
-    stackFrame.totalAlignedSize = alignedSize;
 }
 
 // 按ABI规范生成函数序言
 void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> func)
 {
     StackFrame &stackFrame = func->getStackFrame();
-    int totalSize = stackFrame.totalAlignedSize; // 使用ABI计算的对齐大小
+    int totalSize = stackFrame.getAlignedSize(); // 使用ABI计算的对齐大小
 
     if (totalSize > 0)
     {
@@ -1137,7 +1192,7 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
         else
         {
             // 需要用li + add
-            auto tempReg = getGeneralTempRegister(1); // 使用T1用于栈指针计算
+            auto tempReg = getGeneralTempRegister(0);
             auto liInst = RISCVInstruction::createPseudoLI(tempReg, -totalSize);
             func->getBasicBlocks()[0]->addInstruction(liInst);
 
@@ -1159,12 +1214,9 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
             else
             {
                 // 偏移量太大，需要先计算地址
-                auto tempReg = getGeneralTempRegister(2); // 使用T2计算ra保存地址
+                auto tempReg = getGeneralTempRegister(0);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, raOffset);
                 func->getBasicBlocks()[0]->addInstruction(liInst);
-
-                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
-                func->getBasicBlocks()[0]->addInstruction(addInst);
 
                 auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, tempReg, raReg, 0);
                 func->getBasicBlocks()[0]->addInstruction(swInst);
@@ -1177,7 +1229,7 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
 void InstructionSelector::generateFunctionEpilogue(shared_ptr<RISCVFunction> func)
 {
     StackFrame &stackFrame = func->getStackFrame();
-    int totalSize = stackFrame.totalAlignedSize;
+    int totalSize = stackFrame.getAlignedSize(); // 使用ABI计算的对齐大小
 
     if (totalSize > 0)
     {
@@ -1242,103 +1294,67 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
 
     int intArgIndex = 0;
     int floatArgIndex = 0;
-    int stackArgIndex = 0;
+    int ptrArgIndex = 0;
 
-    for (size_t i = 0; i < irFunc->Arguments.size(); ++i)
+    auto args = irFunc->getArguments();
+
+    for (const auto &arg : args)
     {
-        auto param = irFunc->Arguments[i].get();
-        shared_ptr<RISCVRegister> paramReg;
-
-        if (param->getType()->isFloatTy())
+        // 根据参数类型分类
+        if (arg->getType()->isIntegerTy())
         {
-            if (floatArgIndex < 8)
-            {
-                // 浮点参数使用fa0-fa7
-                paramReg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
-                    static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex));
-                floatArgIndex++;
-            }
-            else
-            {
-                // 超出fa0-fa7的浮点参数从栈获取
-                // 创建虚拟寄存器来表示从栈加载的值
-                paramReg = make_shared<RISCVRegister>(RegisterType::FLOAT);
-
-                // 生成从栈加载的指令
-                // 参数在调用者栈帧中的偏移
-                StackFrame &stackFrame = func->getStackFrame();
-                int stackOffset = stackFrame.totalAlignedSize + stackArgIndex * 4;
-
-                auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-
-                if (isImmediateInRange(stackOffset))
-                {
-                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, paramReg, spReg, stackOffset);
-                    func->getBasicBlocks()[0]->addInstruction(loadInst);
-                }
-                else
-                {
-                    // 偏移量太大，需要先计算地址
-                    auto tempReg = getGeneralTempRegister(3); // 使用T3计算参数地址
-                    auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
-                    func->getBasicBlocks()[0]->addInstruction(liInst);
-
-                    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
-                    func->getBasicBlocks()[0]->addInstruction(addInst);
-
-                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, paramReg, tempReg, 0);
-                    func->getBasicBlocks()[0]->addInstruction(loadInst);
-                }
-
-                stackArgIndex++;
-            }
-        }
-        else
-        {
-            // 整数/指针参数
+            // 整数参数
             if (intArgIndex < 8)
             {
-                // 整数参数使用a0-a7
-                paramReg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
+                // 使用a0-a7寄存器
+                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
+                registerMap[arg] = reg;
                 intArgIndex++;
             }
             else
             {
-                // 超出a0-a7的整数参数从栈获取
-                paramReg = make_shared<RISCVRegister>(RegisterType::GENERAL);
-
-                // 生成从栈加载的指令
-                StackFrame &stackFrame = func->getStackFrame();
-                int stackOffset = stackFrame.totalAlignedSize + stackArgIndex * 4;
-
-                auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-
-                if (isImmediateInRange(stackOffset))
-                {
-                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, paramReg, spReg, stackOffset);
-                    func->getBasicBlocks()[0]->addInstruction(loadInst);
-                }
-                else
-                {
-                    // 偏移量太大，需要先计算地址
-                    auto tempReg = getGeneralTempRegister(3); // 使用T3计算参数地址
-                    auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
-                    func->getBasicBlocks()[0]->addInstruction(liInst);
-
-                    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
-                    func->getBasicBlocks()[0]->addInstruction(addInst);
-
-                    auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, paramReg, tempReg, 0);
-                    func->getBasicBlocks()[0]->addInstruction(loadInst);
-                }
-
-                stackArgIndex++;
+                // 超出范围的整数参数从栈获取
+                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                intArgIndex++;
             }
         }
-
-        // 建立参数到寄存器的映射
-        registerMap[param] = paramReg;
+        else if (arg->getType()->isFloatTy())
+        {
+            // 浮点参数
+            if (floatArgIndex < 8)
+            {
+                // 使用fa0-fa7寄存器
+                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex));
+                registerMap[arg] = reg;
+                floatArgIndex++;
+            }
+            else
+            {
+                // 超出范围的浮点参数从栈获取
+                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                floatArgIndex++;
+            }
+        }
+        else if (arg->getType()->isPointerTy())
+        {
+            // 指针参数（假设指针也使用a0-a7）
+            if (intArgIndex + ptrArgIndex < 8)
+            {
+                // 使用a0-a7寄存器
+                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
+                registerMap[arg] = reg;
+                intArgIndex++;
+            }
+            else
+            {
+                // 超出范围的指针参数从栈获取
+                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                ptrArgIndex++;
+            }
+        }
     }
 }
 
@@ -1436,6 +1452,9 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
 
     // 函数标签
     ss << ".text\n";
+    ss << ".align 2\n"; // 对齐到4字节
+
+    ss << "\n";
     ss << ".globl " << func->getName() << "\n";
 
     ss << func->getName() << ":\n";
@@ -1477,7 +1496,7 @@ bool AssemblyEmitter::isLibraryFunction(const string &funcName)
         // SysY运行时库函数
         "getint", "getch", "getfloat", "getarray", "getfarray",
         "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
-        "starttime", "stoptime"};
+        "starttime", "stoptime", "_sysy_starttime", "_sysy_stoptime"};
     return libFuncs.count(funcName) > 0;
 }
 
