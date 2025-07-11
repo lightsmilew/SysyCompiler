@@ -122,6 +122,14 @@ public:
     ArrayType(Type *elemTy, unsigned numElements)
         : Type(ArrayTyID), ElementType(elemTy), NumElements(numElements) {}
     unsigned getNumElements() const { return NumElements; }
+    size_t getArrayLength() const
+    {
+        if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
+        {
+            return NumElements * arrayType->getArrayLength();
+        }
+        return NumElements; // 基础类型的数组长度为元素数量
+    }
     Type *getElementType() const { return ElementType; }
     static ArrayType* getInstance(Type *elemTy, unsigned numElements)
     {
@@ -601,6 +609,35 @@ public:
 
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType), Opcode::Alloca, name), AllocatedType(ty) {}
+    // 获取数组的元素总长度
+    size_t getAllocatedSize() const
+    {
+        if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+        {
+            return arrayType->getArrayLength();
+        }
+        return 1; // 非数组类型的分配大小为1
+    }
+    // 从左到右获取数组每一维的长度
+    // 例如：int a[2][3][4] -> 返回 {2, 3, 4}
+    // 如果是指针类型则返回空数组
+    // 如果是基本类型则返回空数组
+    // 如果是数组类型则返回每一维的长度
+    vector<int> getArrayEveryDimensionLength() const
+    {
+        vector<int> dimensions;
+        if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+        {
+            dimensions.push_back(arrayType->getNumElements());
+            Type *elemType = arrayType->getElementType();
+            while (auto nestedArray = dynamic_cast<ArrayType *>(elemType))
+            {
+                dimensions.push_back(nestedArray->getNumElements());
+                elemType = nestedArray->getElementType();
+            }
+        }
+        return dimensions;
+    }
     Value *getDest() const { return const_cast<AllocaInst *>(this); }
     string toString() const override;
 };
