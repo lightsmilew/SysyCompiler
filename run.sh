@@ -1,10 +1,13 @@
 #!/bin/bash
-INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#INPUT_DIR="test_cases/semantic_cases"
-#OUTPUT_DIR="test_cases/output"
+#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+INPUT_DIR="test_cases/semantic_cases"
+OUTPUT_DIR="test_cases/output"
+#INPUT_DIR="test_cases/official_cases"
+#OUTPUT_DIR="test_cases/official_output"
 #INPUT_DIR="case/final_performance"
 #OUTPUT_DIR="case/final_performance/output"
+
 
 if [ "$1" == "-rebuild" ]; then
     rm -rf myCompiler/build
@@ -21,9 +24,12 @@ elif [ "$1" == "-ir" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
         echo "Processing $filename..."
-        # 执行编译器并生成IR代码
-        #./myCompiler/build/my_compiler "$file" -ast > "$OUTPUT_DIR/${filename%.sy}.ir"
-        ./myCompiler/build/my_compiler "$file" -ir > "$OUTPUT_DIR/${filename%.sy}.ir"
+        # 支持带调试参数
+        if [ "$2" == "-debug" ]; then
+            ./myCompiler/build/my_compiler "$file" -ir -debug > "$OUTPUT_DIR/${filename%.sy}.ir"
+        else
+            ./myCompiler/build/my_compiler "$file" -ir > "$OUTPUT_DIR/${filename%.sy}.ir"
+        fi
     done
     #优化
 elif [ "$1" == "-ir_opt" ]; then
