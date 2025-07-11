@@ -22,7 +22,7 @@ public:
         VoidTyID,
         IntegerTyID,
         FloatTyID,
-        StringTyID,
+        StringTyID, 
         PointerTyID,
         ArrayTyID,
         FunctionTyID
@@ -123,7 +123,7 @@ public:
         : Type(ArrayTyID), ElementType(elemTy), NumElements(numElements) {}
     unsigned getNumElements() const { return NumElements; }
     Type *getElementType() const { return ElementType; }
-    static ArrayType *getInstance(Type *elemTy, unsigned numElements)
+    static ArrayType* getInstance(Type *elemTy, unsigned numElements)
     {
         // 为每种元素类型和元素数量创建不同的数组类型实例
         return new ArrayType(elemTy, numElements);
@@ -283,7 +283,7 @@ public:
     Value *getOperandByIndex(unsigned index) const
     {
         if (index < Operands.size())
-        {
+        {            
             return Operands[index];
         }
         throw std::out_of_range("Invalid operand index");
@@ -292,14 +292,14 @@ public:
     void setOperand(unsigned index, Value *value)
     {
         if (index < Operands.size())
-        {
+        {            
             if (Operands[index])
-            {
+            {                
                 Operands[index]->removeUser(this);
             }
-            Operands[index] = value;
+                Operands[index] = value;
             if (value)
-            {
+            {                
                 value->addUser(this);
             }
         }
@@ -336,6 +336,7 @@ public:
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
     string toString() const override { return to_string(Value); }
 };
+
 
 class ConstantString : public Constant
 {
@@ -383,20 +384,20 @@ public:
 class GlobalVariable : public Value
 {
 public:
-    Type *basicType;
+    Type* basicType;
     Constant *Initializer;
     bool IsConstant;
     // 如果是数组则存入退化后的指针
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
-        : Value(ty, name), Initializer(init), IsConstant(isConst), basicType(ty)
-    {
-        // 如果是数组类型，退化成指针类型
-        if (ty->isArrayTy())
+        : Value(ty, name), Initializer(init), IsConstant(isConst), basicType(ty) 
         {
-            auto arrayType = static_cast<ArrayType *>(ty);
-            setType(PointerType::getInstance(arrayType->getElementType()));
+            // 如果是数组类型，退化成指针类型
+            if (ty->isArrayTy())
+            {
+                auto arrayType = static_cast<ArrayType *>(ty);
+                setType(PointerType::getInstance(arrayType->getElementType()));
+            }
         }
-    }
     string toString() const override;
 };
 
@@ -421,7 +422,7 @@ enum class Opcode
     ICmp,
     FCmp,
 
-    // 内存操作符(数组)
+    // 内存操作符
     Alloca,
     Load,
     Store,
@@ -434,77 +435,54 @@ enum class Opcode
     // 其他操作
     Call,
     Phi,
-    Copy
+    Copy 
 };
 
 class Instruction : public User
 {
 public:
     Opcode Op;
-    // BasicBlock *Parent;
-
+    //BasicBlock *Parent;
+    
     // 无操作数的构造函数
     Instruction(Type *ty, Opcode op, const string &name = "")
         : User(ty, {}, name), Op(op) {}
     // 带操作数的构造函数
     Instruction(Type *ty, Opcode op, const vector<Value *> &operands, const string &name = "")
-        : User(ty, operands, name), Op(op) {}
-    Instruction *clone() const;
+        : User(ty, operands, name), Op(op){}
+    Instruction * clone() const;
     // 获取操作符
     Opcode getOpcode() const { return Op; }
     // 复制指令并重命名操作数
-    Instruction *cloneWithRename(const std::unordered_map<Value *, Value *> &valueMap) const;
+    Instruction *cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap) const;
     // 获取操作符名称
     string getOpcodeName() const
     {
         switch (Op)
         {
-        case Opcode::Ret:
-            return "ret";
-        case Opcode::Br:
-            return "br";
-        case Opcode::Add:
-            return "add";
-        case Opcode::Sub:
-            return "sub";
-        case Opcode::Mul:
-            return "mul";
-        case Opcode::SDiv:
-            return "sdiv";
-        case Opcode::SRem:
-            return "srem";
-        case Opcode::FAdd:
-            return "fadd";
-        case Opcode::FSub:
-            return "fsub";
-        case Opcode::FMul:
-            return "fmul";
-        case Opcode::FDiv:
-            return "fdiv";
-        case Opcode::ICmp:
-            return "icmp";
-        case Opcode::FCmp:
-            return "fcmp";
-        case Opcode::Alloca:
-            return "alloca";
-        case Opcode::Load:
-            return "load";
-        case Opcode::Store:
-            return "store";
-        case Opcode::GetElementPtr:
-            return "getelementptr";
-        case Opcode::SIToFP:
-            return "sitofp";
-        case Opcode::FPToSI:
-            return "fptosi";
-        case Opcode::Call:
-            return "call";
-        case Opcode::Phi:
-            return "phi";
-        case Opcode::Copy:
-            return "copy";
-        default:
-            throw std::runtime_error("Unknown opcode");
+        case Opcode::Ret: return "ret";
+        case Opcode::Br: return "br";
+        case Opcode::Add: return "add";
+        case Opcode::Sub: return "sub";
+        case Opcode::Mul: return "mul";
+        case Opcode::SDiv: return "sdiv";
+        case Opcode::SRem: return "srem";
+        case Opcode::FAdd: return "fadd";
+        case Opcode::FSub: return "fsub";
+        case Opcode::FMul: return "fmul";
+        case Opcode::FDiv: return "fdiv";
+        case Opcode::ICmp: return "icmp";
+        case Opcode::FCmp: return "fcmp";
+        case Opcode::Alloca: return "alloca";
+        case Opcode::Load: return "load";
+        case Opcode::Store: return "store";
+        case Opcode::GetElementPtr: return "getelementptr";
+        case Opcode::SIToFP: return "sitofp";
+        case Opcode::FPToSI: return "fptosi";
+        case Opcode::Call: return "call";
+        case Opcode::Phi: return "phi";
+        case Opcode::Copy: return "copy";
+        default: throw std::runtime_error("Unknown opcode");
         }
     }
     // 是否为二元操作
@@ -541,6 +519,7 @@ public:
 class BinaryOperator : public Instruction
 {
 public:
+
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name){}
     //返回Dest，即自身(转为value类型)
@@ -553,6 +532,7 @@ public:
 class UnaryOperator : public Instruction
 {
 public:
+
     UnaryOperator(Opcode op, Value *operand, const string &name = "")
         : Instruction(operand->getType(), op, vector<Value *>{operand}, name) {}
     Value *getDest() const { return const_cast<UnaryOperator *>(this); }
@@ -628,6 +608,7 @@ public:
 class LoadInst : public Instruction
 {
 public:
+
     LoadInst(Value *ptr, const string &name = "")
         : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name) {}
     Value *getDest() const { return const_cast<LoadInst *>(this); }
@@ -655,7 +636,7 @@ class StoreInst : public Instruction
 {
 public:
     StoreInst(Value *val, Value *ptr)
-        : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}) {}
+        : Instruction(VoidType::getInstance(), Opcode::Store, vector<Value *>{val, ptr}){}
     Value *getValueToStore() const { return getOperandByIndex(0); }
     Value *getPointer() const { return getOperandByIndex(1); }
     string toString() const override;
@@ -664,6 +645,7 @@ public:
 class CallInst : public Instruction
 {
 public:
+
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
     // 这里无法给出函数实现，因为此时Function类还未定义
     Function *getCalledFunction() const;
@@ -723,11 +705,10 @@ public:
     // 是否为条件分支
     bool isConditional() const { return getNumOperands() > 0; }
     // 获取条件
-    Value *getCondition() const
-    {
+    Value *getCondition() const {
         if (isConditional())
         {
-            return getOperandByIndex(0);
+            return getOperandByIndex(0); 
         }
         return nullptr;
     }
@@ -737,7 +718,7 @@ public:
 class PhiInst : public Instruction
 {
 public:
-    vector<BasicBlock *> IncomingValues;
+    vector< BasicBlock *> IncomingValues;
 
     PhiInst(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
@@ -776,11 +757,11 @@ public:
 
 class GetElementPtrInst : public Instruction
 {
-    // 只能传入指针
+    //只能传入指针
 public:
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
-                      constructOperands(ptr, indices), name) {}
+                      constructOperands(ptr, indices), name){}
     // 获取指针操作数
     Value *getPointerOperand() const { return getOperandByIndex(0); }
     // 获取索引操作数
@@ -884,7 +865,7 @@ public:
         return Instructions.empty() ? nullptr : Instructions.back().get();
     }
     // 获取所有指令
-    vector<unique_ptr<Instruction>> &getInstructions()
+    vector<unique_ptr<Instruction>> &getInstructions() 
     {
         return Instructions;
     }
@@ -909,10 +890,9 @@ public:
     {
         const std::string &name = inst->getName();
         return std::any_of(Instructions.begin(), Instructions.end(),
-                           [&](const unique_ptr<Instruction> &i)
-                           {
-                               return i->getName() == name;
-                           });
+        [&](const unique_ptr<Instruction> &i) {
+            return i->getName() == name;
+        });
     }
     string toString() const override;
 };
@@ -995,7 +975,7 @@ public:
         return getName() == "getint" || getName() == "getch" ||
                getName() == "getfloat" || getName() == "getarray" ||
                getName() == "getfarray" || getName() == "putint" ||
-               getName() == "putch" || getName() == "putfloat" ||
+               getName() == "putch" || getName() == "putfloat"||
                getName() == "putarray" || getName() == "putfarray" ||
                getName() == "putf" ||
                getName() == "_sysy_starttime" || getName() == "_sysy_stoptime";
@@ -1007,7 +987,7 @@ public:
         {
             for (const auto &instPtr : bb->getInstructions())
             {
-                if (auto *call = dynamic_cast<CallInst *>(instPtr.get()))
+                if (auto *call = dynamic_cast<CallInst*>(instPtr.get()))
                 {
                     if (call->getCalledFunction() == this)
                         return true;
@@ -1051,7 +1031,7 @@ public:
     // 根据名称查找函数
     Function *getFunction(const string &name)
     {
-        string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name; // 添加前缀_sysy_以匹配SysY标准库函数
+        string tmp_name=(name=="starttime" || name=="stoptime")? "_sysy_" + name : name; // 添加前缀_sysy_以匹配SysY标准库函数
         for (auto &func : Functions)
         {
             if (func->getName() == tmp_name)
@@ -1077,27 +1057,27 @@ public:
     // 输出基本块后继信息
     void printBasic()
     {
-        for (int i = 13; i < Functions.size(); i++)
+        for(int i=13;i<Functions.size();i++)
         {
-            std::cout << Functions[i]->getName() << ":" << std::endl;
-            int j = 0;
-            for (const auto &it : Functions[i]->BasicBlocks)
-            {
-                std::cout << "BasicBlockSuccs " << j << ":" << std::endl;
-                std::cout << "                   Successors: ";
-                for (auto suc : it->getSuccessors())
-                {
-                    std::cout << suc->getName() << " ";
-                }
-                std::cout << std::endl;
-                std::cout << "                   Predecessors: ";
-                for (auto pre : it->getPredecessors())
-                {
-                    std::cout << pre->getName() << " ";
-                }
-                std::cout << std::endl;
-                j++;
-            }
+            std::cout<<Functions[i]->getName()<<":"<<std::endl;
+            int j=0;
+           for(const auto& it:Functions[i]->BasicBlocks)
+           {        
+              std::cout<<"BasicBlockSuccs "<<j<<":"<<std::endl;
+              std::cout<<"                   Successors: ";
+              for(auto suc:it->getSuccessors())
+              {
+                 std::cout<<suc->getName()<<" ";
+              }
+              std::cout<<std::endl;
+              std::cout<<"                   Predecessors: ";
+              for(auto pre:it->getPredecessors())
+              {
+                 std::cout<<pre->getName()<<" ";
+              }
+              std::cout<<std::endl;
+              j++;          
+           }
         }
     }
     string toString() const;
