@@ -159,7 +159,6 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::FSub:
     case Opcode::FMul:
     case Opcode::FDiv:
-    case Opcode::FRem:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
         {
             visitBinaryOp(binOp);
@@ -417,6 +416,17 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
 {
     if (inst->getReturnValue())
     {
+
+        // 如果是main函数，需要调用putint输出返回值
+        if (currentFunc->getName() == "main")
+        {
+            // 调用putint函数输出返回值
+            auto callPutint = RISCVInstruction::createJType(RISCVOpcode::JAL,
+                                                            make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
+                                                            "putint");
+            currentBB->addInstruction(callPutint);
+        }
+
         // 有返回值，将值移动到返回寄存器
         auto valueReg = getOrCreateVirtualReg(inst->getReturnValue());
         auto returnReg = make_shared<RISCVRegister>(
@@ -426,51 +436,13 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
         RISCVOpcode moveOpcode = inst->getReturnValue()->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
-
-        // 如果是main函数，需要调用putint输出返回值
-        if (currentFunc->getName() == "main")
-        {
-            // 保存返回值到a0寄存器（如果还没有的话）
-            if (returnReg->getPhysicalReg() != RISCVRegister::PhysicalReg::A0)
-            {
-                auto a0Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0);
-                auto moveToA0 = RISCVInstruction::createPseudo(RISCVOpcode::MV, a0Reg, valueReg);
-                currentBB->addInstruction(moveToA0);
-            }
-
-            // 调用putint函数输出返回值
-            auto callPutint = RISCVInstruction::createJType(RISCVOpcode::JAL,
-                                                            make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
-                                                            "putint");
-            currentBB->addInstruction(callPutint);
-
-            // 添加程序退出代码
-            auto a7Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7);
-            auto loadExit = RISCVInstruction::createIType(RISCVOpcode::ADDI, a7Reg,
-                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                          93); // sys_exit系统调用号
-            currentBB->addInstruction(loadExit);
-
-            // 在退出前恢复栈帧
-            generateFunctionEpilogue(currentFunc);
-
-            // 标准的ecall指令
-            auto ecallInst = make_shared<RISCVInstruction>(RISCVOpcode::ECALL, InstructionType::I_TYPE);
-            currentBB->addInstruction(ecallInst);
-
-            // main函数不需要常规的return，因为程序直接退出
-            return;
-        }
     }
 
     // 生成函数结尾（恢复栈帧）
     generateFunctionEpilogue(currentFunc);
 
     // 生成返回指令
-    auto retInst = RISCVInstruction::createIType(RISCVOpcode::JALR,
-                                                 make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                 make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
-                                                 0);
+    auto retInst = RISCVInstruction::createPseudoRET();
     currentBB->addInstruction(retInst);
 }
 
@@ -981,6 +953,18 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         return virtualReg;
     }
 
+    // 如果是全局变量
+    if (value->isGlobal())
+    {
+        // 全局变量需要从全局内存加载
+        auto globalReg = getGeneralTempRegister(0);
+
+        auto laInst = RISCVInstruction::createPseudoLA(globalReg, value->getName());
+        currentBB->addInstruction(laInst);
+
+        return globalReg;
+    }
+
     // 错误情况：未能找到Value的寄存器或栈位置
     // 这种情况不应该发生，表示编译器内部错误
     std::cerr << "Error: Unable to find register or stack allocation for Value: "
@@ -1358,6 +1342,28 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
         uint32_t bits;
         std::memcpy(&bits, &constFloat->Value, sizeof(float));
         globalBlock->addData(std::to_string(bits));
+    }
+    else if (auto constStr = dynamic_cast<ConstantString *>(initializer))
+    {
+        // 字符串需要特殊处理：使用.string指令而不是.word
+        // 移除引号，因为RISCVGlobalBlock会处理字符串格式
+        globalBlock->addStringData(constStr->Value);
+    }
+    else if (auto constArray = dynamic_cast<ConstantArray *>(initializer))
+    {
+        // 处理数组初始化器：递归处理每个元素
+        for (Constant *element : constArray->Elements)
+        {
+            if (element)
+            {
+                processGlobalInitializer(globalBlock, element);
+            }
+            else
+            {
+                // 未定义的元素用零初始化
+                globalBlock->addData("0");
+            }
+        }
     }
     else
     {

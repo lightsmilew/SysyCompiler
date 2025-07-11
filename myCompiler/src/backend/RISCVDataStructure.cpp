@@ -481,7 +481,8 @@ namespace RISCV
     void RISCVGlobalBlock::addData(const string &dataStr)
     {
         data.push_back(dataStr);
-        size += 4; // 假设每个数据项4字节
+        isStringData.push_back(false); // 默认不是字符串数据
+        size += 4;                     // 假设每个数据项4字节
     }
 
     void RISCVGlobalBlock::addData(const vector<string> &dataList)
@@ -490,6 +491,13 @@ namespace RISCV
         {
             addData(item);
         }
+    }
+
+    void RISCVGlobalBlock::addStringData(const string &strData)
+    {
+        data.push_back(strData);
+        isStringData.push_back(true); // 标记为字符串数据
+        size += strData.length() + 1; // 字符串长度加上空字符
     }
 
     bool RISCVGlobalBlock::isZeroValue(const string &value) const
@@ -523,12 +531,18 @@ namespace RISCV
         size_t i = 0;
         while (i < data.size())
         {
-            if (isZeroValue(data[i]))
+            if (isStringData[i])
+            {
+                // 处理字符串数据
+                ss << "    .string \"" << data[i] << "\"\n";
+                i++;
+            }
+            else if (isZeroValue(data[i]))
             {
                 // 计算连续零的数量
                 size_t zeroCount = 0;
                 size_t j = i;
-                while (j < data.size() && isZeroValue(data[j]))
+                while (j < data.size() && !isStringData[j] && isZeroValue(data[j]))
                 {
                     zeroCount++;
                     j++;
@@ -724,6 +738,28 @@ namespace RISCV
         auto instr = make_shared<RISCVInstruction>(RISCVOpcode::LI, InstructionType::PSEUDO);
         instr->operands = {make_shared<RISCVOperand>(rd),
                            make_shared<RISCVOperand>(imm)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoLA(shared_ptr<RISCVRegister> rd, const string &label)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::LA, InstructionType::PSEUDO);
+        instr->operands = {make_shared<RISCVOperand>(rd),
+                           make_shared<RISCVOperand>(label)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoCALL(const string &label)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::CALL, InstructionType::PSEUDO);
+        instr->operands = {make_shared<RISCVOperand>(label)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoRET()
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::RET, InstructionType::PSEUDO);
+        instr->operands = {}; // RET 不需要操作数
         return instr;
     }
 }
