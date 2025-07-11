@@ -67,8 +67,18 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O1;
         else if (strcmp(argv[4], "O2") == 0)
             opt_level = optimization::OptimizationLevel::O2;
+        else if (strcmp(argv[4], "O10") == 0)
+            opt_level = optimization::OptimizationLevel::O10; // 调试级别O10
+        else if (strcmp(argv[4], "O11") == 0)
+            opt_level = optimization::OptimizationLevel::O11; // 调试级别O11
+        else if (strcmp(argv[4], "O12") == 0)   
+            opt_level = optimization::OptimizationLevel::O12; // 调试级别O12
+        else if (strcmp(argv[4], "O13") == 0)
+            opt_level = optimization::OptimizationLevel::O13; // 调试级别O13
+        else if (strcmp(argv[4], "O14") == 0)
+            opt_level = optimization::OptimizationLevel::O14; // 调试级别O14
         else
-            opt_level = optimization::OptimizationLevel::O0; // 默认O0级别
+            throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
         // 不开启优化日志
         pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
@@ -79,8 +89,12 @@ int main(int argc, const char *argv[])
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
         // 调试
-        // ir_module->printBasic();
-        // irbuilder.printBlockValue();
+        if(argc > 3 && strcmp(argv[3], "-debug") == 0)
+         {
+            cout << "Debugging IR Module:" << endl;
+            ir_module->printBasic();
+            irbuilder.printBlockValue();
+         }
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {

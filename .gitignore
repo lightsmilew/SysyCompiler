@@ -1,4 +1,4 @@
 myCompiler/build/
 .vscode/
-test_cases/
-case/
+test_cases/**/*
+case/**/*

@@ -13,6 +13,7 @@ namespace optimization
 class Pass
 {
 public:
+    vector<Instruction*> needToDelete; // 存储需要删除的值
     virtual ~Pass() = default;
     virtual bool runOnFunction(Function *func) = 0;
     virtual string getName() const = 0;
@@ -44,54 +45,29 @@ private:
     bool isInstructionCritical(Instruction *inst);
 };
 
-// 2. 常量折叠Pass
-class ConstantFoldingPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "ConstantFolding"; }
-private:
-    Value *foldBinaryOperation(BinaryOperator *binOp);
-    // 对比较指令进行常量折叠
-    Value *foldComparison(ICmpInst *cmpInst);
-    bool isConstant(Value *val);
 
-};
-
-// 3. 公共子表达式消除Pass
+// 2. 公共子表达式消除Pass
 class CommonSubexpressionEliminationPass : public Pass
 {
 private:
     struct ExpressionHash
     {
-        std::size_t operator()(const std::pair<string, vector<Value *>> &expr) const;
+        std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
     };
-
-    std::unordered_map<std::pair<string, vector<Value *>>, Value *, ExpressionHash> exprMap;
+    //std::vector<Value *> needToDelete;
+    std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value*, ExpressionHash> exprMap;
 
 public:
     bool runOnFunction(Function *func) override;
-    string getName() const override { return "CommonSubexpressionElimination"; }
+    std::string getName() const override { return "CommonSubexpressionElimination"; }
 
 private:
-    std::pair<string, vector<Value *>> getExpressionKey(Instruction *inst);
+    std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
     bool canBeCommonSubexpression(Instruction *inst);
 };
 
-// 4. 复制传播Pass
-class CopyPropagationPass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "CopyPropagation"; }
-
-private:
-    std::unordered_map<Value *, Value *> copyMap;
-    void collectCopies(Function *func);
-    Value *followCopyChain(Value *val);
-};
-
-// 5. 基本块合并Pass
+// 无效果可删除
+// 3. 基本块合并Pass
 class BasicBlockMergePass : public Pass
 {
 public:
@@ -103,19 +79,12 @@ private:
     void mergeBlocks(BasicBlock *bb1, BasicBlock *bb2);
 };
 
-// 6. 循环不变代码外提Pass
+// 4. 循环不变代码外提Pass
 class LoopInvariantCodeMotionPass : public Pass
 {
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "LoopInvariantCodeMotion"; }
-    ~LoopInvariantCodeMotionPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
 private:
     struct Loop
     {
@@ -130,26 +99,28 @@ private:
                                [&](BasicBlock *bb) { return bb->contains(inst); });
         }
     };
-    vector<Instruction *>needToDelete; // 存储需要删除的指令
+    //vector<Instruction *>needToDelete; // 存储需要删除的指令
     vector<Loop> findLoops(Function *func);
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
 };
-// 7. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 5. 函数内联 Pass（将函数调用替换为函数体）
+class FunctionInliningPass : public Pass {
+public:
+    bool runOnFunction(Function *func) override;
+    std::string getName() const override { return "FunctionInlining"; }
+private:
+    bool shouldInline(Function *callee);
+    void inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it);
+};
+// 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
-    ~PhiEliminationPass()
-    {
-        for (auto *inst : needToDelete) 
-        {
-            delete inst; // 手动析构
-        }
-    }
-private:
-    vector<Instruction *>needToDelete; // 存储需要删除的phi指令
+// private:
+//     vector<Instruction *>needToDelete; // 存储需要删除的phi指令
 
 };
 
@@ -158,10 +129,17 @@ enum class OptimizationLevel
 {
     O0, // 无优化
     O1, // 基本优化
-    O2  // 更多优化
+    O2,  // 更多优化
+
+    //以下是调试内容
+    O10,
+    O11,
+    O12,
+    O13,
+    O14
 };
 
 // 创建优化Pass管道的工厂函数
 std::unique_ptr<PassManager> createOptimizationPipeline(OptimizationLevel level, bool verbose = false);
 
-} // namespace optimization
+}

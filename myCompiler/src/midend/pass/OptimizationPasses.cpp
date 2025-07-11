@@ -1,7 +1,7 @@
 #include "OptimizationPasses.h"
 #include <iostream>
 #include <stack>
-
+#include <set>
 using namespace std;
 using namespace optimization;
 
@@ -97,156 +97,58 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
 // 判断指令是否为关键指令
 bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 {
-    return inst->isTerminator() || inst->mayHaveSideEffects();
+    return inst->mayHaveSideEffects();
 }
-
-// ========== 常量折叠 ==========
-bool ConstantFoldingPass::runOnFunction(Function *func)
+// ========== 公共子表达式消除 ==========
+bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
     bool changed = false;
-    for (auto &bb : func->getBasicBlocks())
+    bool localChanged;
+    // 递归消除
+    do
     {
-        auto &insts = bb->getInstructions();
-        for (auto it = insts.begin(); it != insts.end(); ++it)
+        exprMap.clear();
+        localChanged = false;
+        for (auto &bb : func->getBasicBlocks())
         {
-            Instruction *inst = it->get();
-            // 二元运算常量折叠
-            if (auto *binOp = dynamic_cast<BinaryOperator *>(inst))
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end();)
             {
-                if (isConstant(binOp->getOperandByIndex(0)) && isConstant(binOp->getOperandByIndex(1)))
+                Instruction *inst = it->get();
+                if (!canBeCommonSubexpression(inst))
                 {
-                    Value *folded = foldBinaryOperation(binOp);
-                    if (folded)
-                    {
-                        inst->replaceAllUsesWith(folded);
-                        // 将折叠后的常量替换原指令
-                        it = insts.erase(it);
-                        changed = true;
-                        if (it == insts.end())
-                            break;
-                    }
+                    ++it;
+                    continue;
                 }
-            }
-            // 比较指令常量折叠
-            else if (auto *cmp = dynamic_cast<ICmpInst *>(inst))
-            {
-                if (isConstant(cmp->getOperandByIndex(0)) && isConstant(cmp->getOperandByIndex(1)))
+                auto key = getExpressionKey(inst);
+                auto found = exprMap.find(key);
+                if (found != exprMap.end())
                 {
-                    Value *folded = foldComparison(cmp);
-                    if (folded)
-                    {
-                        inst->replaceAllUsesWith(folded);
-                        // 将折叠后的常量替换原指令
-                        it = insts.erase(it);
-                        changed = true;
-                        if (it == insts.end())
-                            break;
-                    }
+                    inst->replaceAllUsesWith(found->second);
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    localChanged = true;
+                    changed = true;
+                }
+                else
+                {
+                    exprMap[key] = inst;
+                    ++it;
                 }
             }
         }
-    }
+    } while (localChanged);
     return changed;
 }
-
-// 二元运算常量折叠
-Value *ConstantFoldingPass::foldBinaryOperation(BinaryOperator *binOp)
+// 为每个指令生成唯一的表达式键
+std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst)
 {
-    bool isFloat = binOp->getType()->isFloatTy();
-    if (isFloat)
+    std::vector<std::string> ops;
+    for (auto *v : inst->getOperands())
     {
-        // 处理浮点数的常量折叠
-        auto *lhs = dynamic_cast<ConstantFloat *>(binOp->getOperandByIndex(0));
-        auto *rhs = dynamic_cast<ConstantFloat *>(binOp->getOperandByIndex(1));
-        if (!lhs || !rhs)
-            return nullptr;
-        float l = lhs->Value, r = rhs->Value;
-        float res = 0.0f;
-        switch (binOp->getOpcode())
+        if (auto *ci = dynamic_cast<ConstantInt *>(v))
         {
-        case Opcode::FAdd:
-            res = l + r;
-            break;
-        case Opcode::FSub:
-            res = l - r;
-            break;
-        case Opcode::FMul:
-            res = l * r;
-            break;
-        case Opcode::FDiv:
-            if (r == 0.0f)
-                return nullptr; // 避免除以零
-            res = l / r;
-            break;
-        // 处理其他浮点操作
-        default:
-            return nullptr; // 不支持的操作
-        }
-        return new ConstantFloat(FloatType::getInstance(), res);
-    }
-    auto *lhs = dynamic_cast<ConstantInt *>(binOp->getOperandByIndex(0));
-    auto *rhs = dynamic_cast<ConstantInt *>(binOp->getOperandByIndex(1));
-    if (!lhs || !rhs)
-        return nullptr;
-    int l = lhs->Value, r = rhs->Value;
-    int res = 0;
-    switch (binOp->getOpcode())
-    {
-    case Opcode::Add:
-        res = l + r;
-        break;
-    case Opcode::Sub:
-        res = l - r;
-        break;
-    case Opcode::Mul:
-        res = l * r;
-        break;
-    case Opcode::SDiv:
-        if (r == 0)
-            return nullptr; // 避免除以零
-        res = l / r;
-        break;
-    default:
-        return nullptr; // 不支持的操作
-    }
-    return new ConstantInt(IntegerType::getInstance(), res);
-}
-
-// 比较指令常量折叠
-Value *ConstantFoldingPass::foldComparison(ICmpInst *cmpInst)
-{
-    bool isFloat = cmpInst->getType()->isFloatTy();
-    if (isFloat)
-    {
-        // 处理浮点数的比较
-        auto *lhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperandByIndex(0));
-        auto *rhs = dynamic_cast<ConstantFloat *>(cmpInst->getOperandByIndex(1));
-        if (!lhs || !rhs)
-            return nullptr;
-        float l = lhs->Value, r = rhs->Value;
-        bool res = false;
-        switch (cmpInst->getPredicate())
-        {
-        case ICmpInst::Predicate::ICMP_EQ:
-            res = (l == r);
-            break;
-        case ICmpInst::Predicate::ICMP_NE:
-            res = (l != r);
-            break;
-        case ICmpInst::Predicate::ICMP_SLT:
-            res = (l < r);
-            break;
-        case ICmpInst::Predicate::ICMP_SLE:
-            res = (l <= r);
-            break;
-        case ICmpInst::Predicate::ICMP_SGT:
-            res = (l > r);
-            break;
-        case ICmpInst::Predicate::ICMP_SGE:
-            res = (l >= r);
-            break;
-        default:
-            return nullptr;
+            ops.push_back("int:" + std::to_string(ci->Value));
         }
         return new ConstantInt(IntegerType::getInstance(), res ? 1 : 0);
     }
@@ -292,34 +194,63 @@ bool ConstantFoldingPass::isConstant(Value *val)
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
-    exprMap.clear();
     bool changed = false;
-    for (auto &bb : func->getBasicBlocks())
+    bool localChanged;
+    // 递归消除
+    do
     {
-        for (auto &instPtr : bb->getInstructions())
+        exprMap.clear();
+        localChanged = false;
+        for (auto &bb : func->getBasicBlocks())
         {
-            Instruction *inst = instPtr.get();
-            if (!canBeCommonSubexpression(inst))
-                continue;
-            auto key = getExpressionKey(inst);
-            auto it = exprMap.find(key);
-            if (it != exprMap.end())
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end();)
             {
-                inst->replaceAllUsesWith(it->second);
-                changed = true;
-            }
-            else
-            {
-                exprMap[key] = inst;
+                Instruction *inst = it->get();
+                if (!canBeCommonSubexpression(inst))
+                {
+                    ++it;
+                    continue;
+                }
+                auto key = getExpressionKey(inst);
+                auto found = exprMap.find(key);
+                if (found != exprMap.end())
+                {
+                    inst->replaceAllUsesWith(found->second);
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    localChanged = true;
+                    changed = true;
+                }
+                else
+                {
+                    exprMap[key] = inst;
+                    ++it;
+                }
             }
         }
-    }
+    } while (localChanged);
     return changed;
 }
 // 为每个指令生成唯一的表达式键
-std::pair<string, vector<Value *>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst)
+std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst)
 {
-    vector<Value *> ops = inst->getOperands();
+    std::vector<std::string> ops;
+    for (auto *v : inst->getOperands())
+    {
+        if (auto *ci = dynamic_cast<ConstantInt *>(v))
+        {
+            ops.push_back("int:" + std::to_string(ci->Value));
+        }
+        else if (auto *cf = dynamic_cast<ConstantFloat *>(v))
+        {
+            ops.push_back("float:" + std::to_string(cf->Value));
+        }
+        else
+        {
+            ops.push_back("var:" + v->getName());
+        }
+    }
     return {inst->getOpcodeName(), ops};
 }
 // 判断指令是否可以作为公共子表达式
@@ -329,62 +260,12 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     return inst->isBinaryOp() && !inst->mayHaveSideEffects();
 }
 // 哈希函数，用于表达式键的哈希表
-std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<string, vector<Value *>> &expr) const
+std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const std::pair<std::string, std::vector<std::string>> &expr) const
 {
-    std::size_t h = std::hash<string>()(expr.first);
-    for (auto *v : expr.second)
-        h ^= std::hash<void *>()(v);
+    std::size_t h = std::hash<std::string>()(expr.first);
+    for (const auto &s : expr.second)
+        h ^= std::hash<std::string>()(s) + 0x9e3779b9 + (h << 6) + (h >> 2);
     return h;
-}
-
-// ========== 复制传播 ==========
-bool CopyPropagationPass::runOnFunction(Function *func)
-{
-    copyMap.clear();
-    collectCopies(func);
-    bool changed = false;
-    for (auto &bb : func->getBasicBlocks())
-    {
-        for (auto &instPtr : bb->getInstructions())
-        {
-            Instruction *inst = instPtr.get();
-            for (size_t i = 0; i < inst->getNumOperands(); ++i)
-            {
-                Value *op = inst->getOperandByIndex(i);
-                Value *newOp = followCopyChain(op);
-                if (newOp != op)
-                {
-                    inst->setOperand(i, newOp);
-                    changed = true;
-                }
-            }
-        }
-    }
-    return changed;
-}
-// 收集所有的mov/copy指令
-void CopyPropagationPass::collectCopies(Function *func)
-{
-    for (auto &bb : func->getBasicBlocks())
-    {
-        for (auto &instPtr : bb->getInstructions())
-        {
-            Instruction *inst = instPtr.get();
-            // 假设mov/copy指令为: %a = %b
-            if (inst->isCopy())
-            {
-                // 记录复制关系 从第2个操作数复制到第1个操作数
-                copyMap[inst->getOperandByIndex(0)] = inst->getOperandByIndex(1);
-            }
-        }
-    }
-}
-// 跟踪复制链，直到找到最终的值
-Value *CopyPropagationPass::followCopyChain(Value *val)
-{
-    while (copyMap.count(val))
-        val = copyMap[val];
-    return val;
 }
 
 // ========== 基本块合并 ==========
@@ -434,72 +315,88 @@ void BasicBlockMergePass::mergeBlocks(BasicBlock *bb1, BasicBlock *bb2)
 bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 {
     bool changed = false;
-    // 1. 查找所有循环
-    auto loops = findLoops(func);
-    for (auto &loop : loops)
+    // 记录每一轮pass后是否有外提变量，有则继续运行直到所有能外提变量全部外提
+    bool localChanged;
+    do
     {
-        // 2. 找到循环的前置块（preheader）
-        BasicBlock *preheader = findPreheader(loop);
-        if (!preheader)
-            continue;
-
-        // 3. 收集所有循环不变指令
-        vector<Instruction *> invariants;
-        bool foundNew;
-        do
+        int count = 0;
+        localChanged = false;
+        // 1. 查找所有循环
+        auto loops = findLoops(func);
+        for (auto &loop : loops)
         {
-            foundNew = false;
-            for (auto *bb : loop.blocks)
+            // 2. 找到循环的前置块（preheader）
+            BasicBlock *preheader = findPreheader(loop);
+            if (!preheader)
+                continue;
+
+            // 3. 收集所有循环不变指令（记录指令和所在基本块）
+            std::vector<std::pair<Instruction *, BasicBlock *>> invariants;
+            bool foundNew;
+            do
             {
-                for (auto &instPtr : bb->getInstructions())
+                foundNew = false;
+                for (auto *bb : loop.blocks)
                 {
-                    Instruction *inst = instPtr.get();
-                    // 只处理未被移动过的、无副作用、非终结指令
-                    if (std::find(invariants.begin(), invariants.end(), inst) == invariants.end() &&
-                        !inst->mayHaveSideEffects() && !inst->isTerminator() &&
-                        isLoopInvariant(inst, loop))
+                    for (auto &instPtr : bb->getInstructions())
                     {
-                        invariants.push_back(inst);
-                        foundNew = true;
+                        Instruction *inst = instPtr.get();
+                        if (std::find_if(invariants.begin(), invariants.end(),
+                                         [inst](const auto &p)
+                                         { return p.first == inst; }) == invariants.end() &&
+                            !inst->mayHaveSideEffects() && !inst->isTerminator() &&
+                            isLoopInvariant(inst, loop))
+                        {
+                            invariants.emplace_back(inst, bb);
+                            foundNew = true;
+                        }
                     }
                 }
-            }
-        } while (foundNew); // 递增收集直到收敛
+            } while (foundNew); // 递增收集直到收敛
 
-        // 4. 将循环不变指令移动到 preheader
-        for (auto *inst : invariants)
-        {
-            // 从原基本块移除
-            auto &insts = inst->getParent()->getInstructions();
-            auto it = std::find_if(insts.begin(), insts.end(),
-                                   [&](const std::unique_ptr<Instruction> &ptr)
-                                   { return ptr.get() == inst; });
-            if (it != insts.end())
+            // 4. 将循环不变指令移动到 preheader
+            for (auto &[inst, fromBB] : invariants)
             {
-                // 转移所有权到 preheader
-                std::unique_ptr<Instruction> movedInst = std::move(*it);
-                needToDelete.push_back(it->release()); // 记录需要删除的指令
-                insts.erase(it);
-                preheader->addInstruction(std::move(movedInst));
-                changed = true;
+                auto &insts = fromBB->getInstructions();
+                auto it = std::find_if(insts.begin(), insts.end(),
+                                       [&](const std::unique_ptr<Instruction> &ptr)
+                                       { return ptr.get() == inst; });
+                if (it != insts.end())
+                {
+                    std::unique_ptr<Instruction> movedInst = std::move(*it);
+                    it = insts.erase(it);
+                    // 将指令插入到 preheader 的末尾(终结指令之前)
+                    preheader->insertBeforeTerminator(std::move(movedInst));
+                    localChanged = true;
+                    changed = true;
+                    count++;
+                }
             }
         }
-    }
+        cout << "Removed Instructions: " << count << endl;
+    } while (localChanged);
     return changed;
 }
 
 // 辅助：DFS遍历，记录访问顺序和父节点
-void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx)
+void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx,
+         std::unordered_map<BasicBlock *, int> &inStack, std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges)
 {
     dfn[bb] = idx++;
+    inStack[bb] = 1;
     order.push_back(bb);
     for (auto *succ : bb->getSuccessors())
     {
         if (!dfn.count(succ))
         {
-            dfs(succ, dfn, order, idx);
+            dfs(succ, dfn, order, idx, inStack, backedges);
+        }
+        else if (inStack[succ]) // succ在递归栈上，说明是回边
+        {
+            backedges.push_back({bb, succ});
         }
     }
+    inStack[bb] = 0;
 }
 
 // 查找所有自然循环（基于回边）
@@ -510,47 +407,86 @@ vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops
     if (bbs.empty())
         return loops;
 
-    // 1. DFS遍历，记录访问顺序
-    std::unordered_map<BasicBlock *, int> dfn;
+    // 1. DFS遍历，记录访问顺序和回边
+    std::unordered_map<BasicBlock *, int> dfn, inStack;
     vector<BasicBlock *> order;
     int idx = 0;
-    dfs(bbs[0].get(), dfn, order, idx);
+    std::vector<std::pair<BasicBlock *, BasicBlock *>> backedges;
+    dfs(bbs[0].get(), dfn, order, idx, inStack, backedges);
 
-    // 2. 查找回边（from->to, 且 dfn[to] <= dfn[from]）
-    for (auto &bbPtr : bbs)
+    // 2. 按循环头分组所有回边
+    std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> headerToBackedges;
+    for (auto &[from, to] : backedges)
     {
-        BasicBlock *bb = bbPtr.get();
-        for (auto *succ : bb->getSuccessors())
+        headerToBackedges[to].push_back(from);
+    }
+
+    // 3. 对每个循环头，合并所有回边，收集完整循环体
+    for (auto &[header, backedges] : headerToBackedges)
+    {
+        std::unordered_set<BasicBlock *> loopBlocks;
+        std::stack<BasicBlock *> stk;
+        loopBlocks.insert(header);
+        for (auto *from : backedges)
         {
-            if (dfn.count(succ) && dfn[succ] <= dfn[bb])
+            if (loopBlocks.insert(from).second)
+                stk.push(from);
+        }
+        while (!stk.empty())
+        {
+            BasicBlock *cur = stk.top();
+            stk.pop();
+            for (auto *pred : cur->getPredecessors())
             {
-                // 发现回边，定义循环头为succ
-                Loop loop;
-                loop.header = succ;
-                // 3. 收集循环体（所有能从bb逆向走到succ的块）
-                std::unordered_set<BasicBlock *> loopBlocks;
-                std::stack<BasicBlock *> stk;
-                loopBlocks.insert(bb);
-                stk.push(bb);
-                while (!stk.empty())
+                if (!loopBlocks.count(pred))
                 {
-                    BasicBlock *cur = stk.top();
-                    stk.pop();
-                    for (auto *pred : cur->getPredecessors())
-                    {
-                        if (!loopBlocks.count(pred) && pred != succ)
-                        {
-                            loopBlocks.insert(pred);
-                            stk.push(pred);
-                        }
-                    }
+                    loopBlocks.insert(pred);
+                    stk.push(pred);
                 }
-                loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
-                loop.blocks.push_back(succ); // 加入循环头
-                loops.push_back(loop);
             }
         }
+        // 关键：循环头必须有前驱在循环体外，才是真正的循环头
+        bool hasOutsidePred = false;
+        for (auto *pred : header->getPredecessors())
+        {
+            if (loopBlocks.find(pred) == loopBlocks.end())
+            {
+                hasOutsidePred = true;
+                break;
+            }
+        }
+        if (!hasOutsidePred)
+            continue; // 跳过伪循环头
+
+        // 去重
+        bool duplicate = false;
+        for (auto &l : loops)
+        {
+            std::set<BasicBlock *> s1(loopBlocks.begin(), loopBlocks.end());
+            std::set<BasicBlock *> s2(l.blocks.begin(), l.blocks.end());
+            if (l.header == header && s1 == s2)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate)
+        {
+            Loop loop;
+            loop.header = header;
+            loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
+            loops.push_back(loop);
+        }
     }
+    // 调试输出
+
+    // for(auto &loop : loops)
+    // {
+    //     cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
+    //     for (auto *bb : loop.blocks)
+    //         cout << bb->getName() << " ";
+    //     cout << endl;
+    // }
     return loops;
 }
 
@@ -574,17 +510,107 @@ bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop 
 // 查找循环头的前驱块
 BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop)
 {
-    // 查找循环头的前驱块，通常是循环的入口块
-    for (auto *bb : loop.blocks)
+    BasicBlock *header = loop.header;
+    BasicBlock *preheader = nullptr;
+    int count = 0;
+    for (auto *pred : header->getPredecessors())
     {
-        if (bb->getPredecessors().size() == 1)
+        // preheader 必须不在循环体内
+        if (std::find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
         {
-            return bb->getPredecessors()[0];
+            preheader = pred;
+            ++count;
         }
     }
-    return nullptr; // 如果没有找到前驱块，返回nullptr
+    // 必须只有一个循环外前驱才安全
+    if (count == 1)
+        return preheader;
+    return nullptr;
 }
-
+// 函数内联
+bool FunctionInliningPass::runOnFunction(Function *caller)
+{
+    bool changed = false;
+    for (auto &bb : caller->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            if (auto *call = dynamic_cast<CallInst *>(it->get()))
+            {
+                Function *callee = call->getCalledFunction();
+                if (shouldInline(callee))
+                {
+                    inlineAt(call, caller, bb.get(), it);
+                    it = insts.erase(it); // 删除call指令
+                    changed = true;
+                    continue;
+                }
+            }
+            ++it;
+        }
+    }
+    return changed;
+}
+// 判断是否适合内联
+bool FunctionInliningPass::shouldInline(Function *callee)
+{
+    // 不内联递归/库函数/过大函数
+    if (callee->isLibraryFunction() || callee->isRecursive() || callee->getInstructionCount() > 20)
+        return false;
+    return true;
+}
+// 内联实现(目前还有问题)
+void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it)
+{
+    Function *callee = call->getCalledFunction();
+    // 1. 参数映射
+    std::unordered_map<Value *, Value *> valueMap;
+    auto &params = callee->getArguments();
+    const auto &args = call->getArguments();
+    for (size_t i = 0; i < params.size(); ++i)
+    {
+        valueMap[params[i].get()] = args[i];
+    }
+    // 2. 复制被调函数的所有指令，重命名变量
+    std::vector<std::unique_ptr<Instruction>> newInsts;
+    for (auto &bbCallee : callee->getBasicBlocks())
+    {
+        for (auto &instCallee : bbCallee->getInstructions())
+        {
+            Instruction *newInst = instCallee->cloneWithRename(valueMap); // 你需要实现cloneWithRename
+            // 替换操作数为映射后的
+            for (size_t i = 0; i < newInst->getOperands().size(); ++i)
+            {
+                if (valueMap.count(newInst->getOperands()[i]))
+                    newInst->setOperand(i, valueMap[newInst->getOperands()[i]]);
+            }
+            valueMap[instCallee.get()] = newInst;
+            newInsts.push_back(std::unique_ptr<Instruction>(newInst));
+        }
+    }
+    // 3. 处理返回值
+    for (auto &inst : newInsts)
+    {
+        if (auto *ret = dynamic_cast<ReturnInst *>(inst.get()))
+        {
+            if (call->hasReturnValue())
+            {
+                // 将ret的返回值赋给call的目标
+                auto assign = std::make_unique<CopyInst>(ret->getReturnValue(), call->getName());
+                bb->insert(std::move(assign), it - bb->getInstructions().begin());
+            }
+            // 移除ret指令本身
+            inst.reset();
+        }
+    }
+    // 4. 插入新指令到调用点
+    for (auto &inst : newInsts)
+    {
+        if (inst)
+            bb->insert(std::move(inst), it - bb->getInstructions().begin());
+    }
+}
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func)
 {
@@ -611,33 +637,50 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             {
                 Value *incomingValue = phi->getIncomingValue(0);
                 phi->replaceAllUsesWith(incomingValue);
-                needToDelete.push_back(it->release()); // 释放所有权，但不析构
+                needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
                 continue;
             }
+            vector<Value *> operands;
             // 2. 多输入phi，插入move/copy到前驱块末尾
             for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
             {
                 BasicBlock *pred = phi->getIncomingBlock(i);
                 Value *val = phi->getIncomingValue(i);
-                // 找到终结指令（如br/ret），插入到它前面
-                auto &predInsts = pred->getInstructions();
-                auto termIt = std::find_if(
-                    predInsts.begin(), predInsts.end(),
-                    [](const std::unique_ptr<Instruction> &inst)
-                    {
-                        return inst->isTerminator();
-                    });
-                // 在前驱块末尾插入: %phi = val
-                // 这里假设有 createCopy/Move 指令工厂
-                auto copy = std::make_unique<CopyInst>(phi, val, phi->getName()); // CopyInst: %phi = val
-                pred->insert(std::move(copy), termIt - predInsts.begin());
+                // 在终结指令前插入
+                pred->insertBeforeTerminator(std::make_unique<CopyInst>(val, phi->getName()));
             }
             // 从基本块中删除原来指令，phi对应value仍然保留
-            needToDelete.push_back(it->release()); // 释放所有权，但不析构
+            needToDelete.push_back(it->release());
             it = insts.erase(it);
             changed = true;
+        }
+    }
+    // 遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (!inst)
+            {
+                std::cerr << "inst is nullptr!" << std::endl;
+                continue;
+            }
+            if (auto *copy = dynamic_cast<CopyInst *>(inst))
+            {
+                if (copy->getSource()->getName() == copy->getDest()->getName())
+                {
+                    // 删除无效的copy指令
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    changed = true;
+                    continue;
+                }
+            }
+            ++it;
         }
     }
     return changed;
@@ -654,22 +697,36 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O1)
     {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>());
-        pm->addPass(std::make_unique<ConstantFoldingPass>());
-        pm->addPass(std::make_unique<CopyPropagationPass>());
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
     }
     else if (level == OptimizationLevel::O2)
     {
-        // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>());
-        pm->addPass(std::make_unique<ConstantFoldingPass>());
-        pm->addPass(std::make_unique<CopyPropagationPass>());
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
-        pm->addPass(std::make_unique<BasicBlockMergePass>());
+        pm->addPass(std::make_unique<PhiEliminationPass>());
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+    }
+    // 以下为调试内容
+    else if (level == OptimizationLevel::O10)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+    }
+    else if (level == OptimizationLevel::O11)
+    {
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
+    }
+    else if (level == OptimizationLevel::O12)
+    {
+        // 必须要先消除phi才能进行循环不变量外提
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+        pm->addPass(std::make_unique<PhiEliminationPass>());
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+    }
+    else if (level == OptimizationLevel::O13)
+    {
+        pm->addPass(std::make_unique<FunctionInliningPass>());
     }
     return pm;
 }
