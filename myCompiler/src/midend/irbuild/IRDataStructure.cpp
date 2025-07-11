@@ -323,7 +323,7 @@ std::string CallInst::toString() const
 {
     std::stringstream ss;
 
-    if (!getType()->isVoidTy())
+    if (hasReturnValue())
     {
         ss << "%" << getName() << " = ";
     }

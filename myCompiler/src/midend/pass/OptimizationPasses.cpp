@@ -44,6 +44,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (liveInsts.count(inst) == 0) 
             {
+                inst->removeThisFromOperands(); // 移除指令的操作数引用
                 it = insts.erase(it);
                 changed = true;
             }
@@ -362,13 +363,13 @@ vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops
     }
     // 调试输出
 
-    // for(auto &loop : loops) 
-    // {
-    //     cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
-    //     for (auto *bb : loop.blocks)
-    //         cout << bb->getName() << " ";
-    //     cout << endl;
-    // }
+    for(auto &loop : loops) 
+    {
+        cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
+        for (auto *bb : loop.blocks)
+            cout << bb->getName() << " ";
+        cout << endl;
+    }
     return loops;
 }
 
@@ -417,6 +418,7 @@ bool FunctionInliningPass::runOnFunction(Function *caller) {
                 Function *callee = call->getCalledFunction();
                 if (shouldInline(callee)) {
                     inlineAt(call, caller, bb.get(), it);
+                    call->removeThisFromOperands(); // 移除call指令的操作数
                     it = insts.erase(it); // 删除call指令
                     changed = true;
                     continue;

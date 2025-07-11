@@ -207,7 +207,18 @@ public:
 
     virtual ~User()
     {
-        // 析构时从所有操作数的Users列表中移除自己
+        // // 析构时从所有操作数的Users列表中移除自己
+        // for (Value *operand : Operands)
+        // {
+        //     if (operand)
+        //     {
+        //         operand->removeUser(this);
+        //     }
+        // }
+    }
+    void removeThisFromOperands()
+    {
+        // 从所有操作数的Users列表中移除自己
         for (Value *operand : Operands)
         {
             if (operand)
@@ -215,6 +226,7 @@ public:
                 operand->removeUser(this);
             }
         }
+        Operands.clear(); // 清空操作数列表
     }
 
     // 添加操作数
@@ -509,6 +521,8 @@ public:
 
     BinaryOperator(Opcode op, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name){}
+    //返回Dest，即自身(转为value类型)
+    Value *getDest() const { return const_cast<BinaryOperator *>(this); }
     Value *getLHS() const { return getOperandByIndex(0); }
     Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
@@ -520,6 +534,7 @@ public:
 
     UnaryOperator(Opcode op, Value *operand, const string &name = "")
         : Instruction(operand->getType(), op, vector<Value *>{operand}, name) {}
+    Value *getDest() const { return const_cast<UnaryOperator *>(this); }
     Value *getOperand() const { return getOperandByIndex(0); }
     string toString() const override;
 };
@@ -545,6 +560,7 @@ public:
           Pred(pred) {}
     // 获取比较操作符
     Predicate getPredicate() const { return Pred; }
+    Value *getDest() const { return const_cast<ICmpInst *>(this); }
     Value *getLHS() const { return getOperandByIndex(0); }
     Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
@@ -570,6 +586,7 @@ public:
         : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
     Predicate getPredicate() const { return Pred; }
+    Value *getDest() const { return const_cast<FCmpInst *>(this); }
     Value *getLHS() const { return getOperandByIndex(0); }
     Value *getRHS() const { return getOperandByIndex(1); }
     string toString() const override;
@@ -583,6 +600,7 @@ public:
 
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType), Opcode::Alloca, name), AllocatedType(ty) {}
+    Value *getDest() const { return const_cast<AllocaInst *>(this); }
     string toString() const override;
 };
 
@@ -592,6 +610,7 @@ public:
 
     LoadInst(Value *ptr, const string &name = "")
         : Instruction(getElementType(ptr), Opcode::Load, vector<Value *>{ptr}, name) {}
+    Value *getDest() const { return const_cast<LoadInst *>(this); }
     Value *getPointer() const { return getOperandByIndex(0); }
     string toString() const override;
 
@@ -599,9 +618,9 @@ private:
     // 获取指针指向的元素类型
     static Type *getElementType(Value *ptr)
     {
+        // load操作数为空，报错
         if (!ptr)
-            return IntegerType::getInstance(); // 默认类型
-
+            throw std::runtime_error("LoadInst: pointer operand is null");
         // 如果是指针类型，返回指向的元素类型
         if (auto ptrTy = dynamic_cast<PointerType *>(ptr->getType()))
         {
@@ -638,10 +657,10 @@ public:
     // 是否有返回值
     bool hasReturnValue() const
     {
-        return getFunctionReturnType(getOperandByIndex(0)) != VoidType::getInstance();
+        return !getType()->isVoidTy();
     }
+    Value *getDest() const { return const_cast<CallInst *>(this); }
     string toString() const override;
-
 private:
     static vector<Value *> constructOperands(Function *func, const vector<Value *> &args);
     static Type *getFunctionReturnType(Value *func);
@@ -651,9 +670,9 @@ class ReturnInst : public Instruction
 {
 public:
 
-    // Return without value (void return)
+    // 无返回值
     ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret){}
-    // Return with value
+    // 有返回值
     ReturnInst(Value *retVal)
         : Instruction(VoidType::getInstance(), Opcode::Ret, vector<Value *>{retVal}) {}
     // 获取返回值
@@ -731,6 +750,7 @@ public:
         }
         throw std::out_of_range("Invalid incoming block index");
     }
+    Value *getDest() const { return const_cast<PhiInst *>(this); }
     string toString() const override;
 };
 
@@ -749,6 +769,7 @@ public:
         vector<Value *> indices(getOperands().begin() + 1, getOperands().end());
         return indices;
     }
+    Value *getDest() const { return const_cast<GetElementPtrInst *>(this); }
     string toString() const override;
 
 private:
@@ -760,10 +781,9 @@ class CastInst : public Instruction
 {
 public:
     Type *DestType;
-
     CastInst(Opcode op, Value *operand, Type *destType, const string &name = "")
         : Instruction(destType, op, vector<Value *>{operand}, name),DestType(destType) {}
-    // 获取操作数
+    Value *getDest() const { return const_cast<CastInst *>(this); }
     Value *getOperand() const { return getOperandByIndex(0); }
     string toString() const override;
 };
@@ -772,16 +792,9 @@ class CopyInst : public Instruction
 public:
     CopyInst(Value *source, const string &name = "")
         : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name) {}
-    // 获取目标
-    Value *getDest() const
-    {
-        return const_cast<CopyInst *>(this); // CopyInst的目标就是自身，类型转换为Value*
-     }
-    // 获取源
-    Value *getSource() const 
-    { 
-        return getOperandByIndex(0);
-     }
+    // CopyInst的目标就是自身，类型隐式转换为Value*
+    Value *getDest() const{return const_cast<CopyInst *>(this);} 
+    Value *getSource() const { return getOperandByIndex(0);}
     string toString() const override;
 };
 
