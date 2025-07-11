@@ -61,7 +61,12 @@ std::string GlobalVariable::toString() const
 
     return ss.str();
 }
+// 判断是否是全局变量
+bool Value::isGlobal() const
+{
 
+    return dynamic_cast<GlobalVariable *>(const_cast<Value *>(this)) != nullptr;
+}
 // User implementation
 std::string User::toString() const
 {
@@ -323,7 +328,7 @@ std::string CallInst::toString() const
 {
     std::stringstream ss;
 
-    if (!getType()->isVoidTy())
+    if (hasReturnValue())
     {
         ss << "%" << getName() << " = ";
     }
@@ -600,7 +605,7 @@ std::string Function::toString() const
     {
         if (i > 0)
             ss << ", ";
-        ss << Arguments[i]->getType()->toString() << " %" << Arguments[i]->getName();
+        ss << Arguments[i]->getType()->toString() << " %" << Arguments[i]->getName();     
     }
 
     ss << ") {\n";

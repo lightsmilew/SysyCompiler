@@ -34,12 +34,13 @@ namespace ir_builder
         // === 计数器 ===
         unsigned tempVarCounter;           // 临时变量计数器
         unsigned labelCounter;             // 标签计数器
+        unsigned stringCounter;            // 字符串常量计数器
 
     public:
         // 构造与初始化 
         IRBuilder( const String &moduleName = "main_module")
             : currentFunction(nullptr), currentBlock(nullptr),
-              tempVarCounter(0), labelCounter(0)
+              tempVarCounter(0), labelCounter(0), stringCounter(0)
         {
             module = std::make_unique<Module>(moduleName);
             initializeLibraryFunctions(); 
@@ -130,7 +131,11 @@ namespace ir_builder
         String getNextLabelName()
         {
             return "label" + std::to_string(labelCounter++);
-        }      
+        }  
+        String getNextStringName()
+        {
+            return "s" + std::to_string(stringCounter++);
+        }    
         // 调试函数
         void printBlockValue();
         // 获取结果 
