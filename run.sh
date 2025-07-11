@@ -39,7 +39,6 @@ elif [ "$1" == "-ir_opt" ]; then
         # 执行编译器并生成优化后的IR代码
         ./myCompiler/build/my_compiler "$file" -ir -opt "$2"> "$OUTPUT_DIR/${filename%.sy}.ir.opt"
     done
-
 elif [ "$1" == "-riscv" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
@@ -65,4 +64,6 @@ elif [ "$1" == "-gdb" ]; then
             echo -e "\033[1;32m✅ Successfully processed: $filename\033[0m"
         fi
     done
+elif [ "$1" == "-transfer" ]; then
+        scp -P 2222 $INPUT_DIR/*.s $INPUT_DIR/*.in $INPUT_DIR/*.out $INPUT_DIR/*.ir.opt ubuntu@localhost:/home/ubuntu/riscv
 fi
