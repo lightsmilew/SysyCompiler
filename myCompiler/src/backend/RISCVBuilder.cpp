@@ -69,9 +69,6 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
             auto riscvBB = make_shared<RISCVBasicBlock>(bb->getName(), riscvFunc);
             riscvFunc->addBasicBlock(riscvBB);
         }
-
-        // 为函数添加epilogue基本块
-        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("epilogue", riscvFunc));
     }
 }
 
@@ -145,8 +142,7 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
         }
     }
 
-    // 生成函数尾声
-    generateFunctionEpilogue(func);
+    // 不需要生成函数尾声
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
@@ -163,6 +159,7 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::FSub:
     case Opcode::FMul:
     case Opcode::FDiv:
+    case Opcode::FRem:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
         {
             visitBinaryOp(binOp);
@@ -256,21 +253,20 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     auto tempReg = getTempRegister(regType, 0);
 
     RISCVOpcode opcode;
-    bool isFloat = inst->getType()->isFloatTy();
 
     switch (inst->Op)
     {
     case Opcode::Add:
-        opcode = isFloat ? RISCVOpcode::FADD_S : RISCVOpcode::ADD;
+        opcode = RISCVOpcode::ADD;
         break;
     case Opcode::Sub:
-        opcode = isFloat ? RISCVOpcode::FSUB_S : RISCVOpcode::SUB;
+        opcode = RISCVOpcode::SUB;
         break;
     case Opcode::Mul:
-        opcode = isFloat ? RISCVOpcode::FMUL_S : RISCVOpcode::MUL;
+        opcode = RISCVOpcode::MUL;
         break;
     case Opcode::SDiv:
-        opcode = isFloat ? RISCVOpcode::FDIV_S : RISCVOpcode::DIV;
+        opcode = RISCVOpcode::DIV;
         break;
     case Opcode::SRem:
         opcode = RISCVOpcode::REM;
@@ -296,7 +292,7 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     currentBB->addInstruction(riscvInst);
 
     // 将结果存储到栈中
-    storeValueToStack(inst, tempReg);
+    storeValueToStack(inst, tempReg, 4);
 }
 
 void InstructionSelector::visitLoadInst(LoadInst *inst)
@@ -340,25 +336,16 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     // 前8个整数/指针参数使用a0-a7，前8个浮点参数使用fa0-fa7
     // 超出的参数按顺序存放在调用者栈帧的参数区域
 
-    vector<shared_ptr<RISCVRegister>> argRegs;
-    argRegs.reserve(inst->getArguments().size());
-
-    // 首先为所有参数加载值到临时寄存器
-    for (auto arg : inst->getArguments())
-    {
-        auto argReg = getOrCreateVirtualReg(arg);
-        argRegs.push_back(argReg);
-    }
-
     int intArgIndex = 0;
     int floatArgIndex = 0;
     int stackArgIndex = 0;
 
-    // 处理每个参数
+    // 逐个处理每个参数，避免同时占用过多临时寄存器
     for (size_t i = 0; i < inst->getArguments().size(); ++i)
     {
         auto arg = inst->getArguments()[i];
-        auto argReg = argRegs[i];
+        // 为当前参数获取寄存器（每次只处理一个参数）
+        auto argReg = getOrCreateVirtualReg(arg);
 
         if (arg->getType()->isFloatTy())
         {
@@ -794,180 +781,9 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     storeValueToStack(inst, destReg);
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *value)
-{
-    // 处理常量
-    if (auto constInt = dynamic_cast<ConstantInt *>(value))
-    {
-        // 根据常量大小优化加载指令
-        auto tempReg = getGeneralTempRegister(0);
-        generateConstantLoad(tempReg, constInt->Value);
-        return tempReg;
-    }
-
-    if (auto constFloat = dynamic_cast<ConstantFloat *>(value))
-    {
-        // 对于浮点常量，需要更复杂的处理
-        auto tempReg = getFloatTempRegister(0);
-        generateFloatConstantLoad(tempReg, constFloat->Value);
-        return tempReg;
-    }
-
-    // 查找已存在的映射（函数参数）
-    auto it = registerMap.find(value);
-    if (it != registerMap.end())
-    {
-        return it->second;
-    }
-
-    // 检查是否是栈参数
-    auto stackIt = stackArguments.find(value);
-    if (stackIt != stackArguments.end())
-    {
-        // 这是一个栈参数，需要从调用者栈帧中加载
-        // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
-        auto loadReg = getGeneralTempRegister(0);
-
-        // 计算栈参数的实际偏移量：
-        // argOffset = 被调用者栈帧大小 + 参数在调用者栈帧中的偏移
-        StackFrame &stackFrame = currentFunc->getStackFrame();
-        int argOffset = stackFrame.totalAlignedSize + stackIt->second;
-
-        // 生成从栈加载指令
-        auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-        if (isImmediateInRange(argOffset))
-        {
-            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, spReg, argOffset);
-            currentBB->addInstruction(loadInst);
-        }
-        else
-        {
-            // 偏移量太大，先计算地址
-            auto addrReg = getGeneralTempRegister(3);
-            auto liInst = RISCVInstruction::createPseudoLI(addrReg, argOffset);
-            currentBB->addInstruction(liInst);
-
-            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, addrReg);
-            currentBB->addInstruction(addInst);
-
-            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, addrReg, 0);
-            currentBB->addInstruction(loadInst);
-        }
-
-        // 如果目标是浮点类型，需要转移到浮点寄存器
-        if (value->getType()->isFloatTy())
-        {
-            auto floatReg = getFloatTempRegister(0);
-            auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, loadReg);
-            currentBB->addInstruction(moveInst);
-            return floatReg;
-        }
-
-        return loadReg;
-    }
-
-    // 对于需要从栈加载的值（如指令的结果）
-    StackFrame &stackFrame = currentFunc->getStackFrame();
-    if (stackFrame.hasAllocation(value))
-    {
-        // 检查是否已经有加载过的寄存器
-        auto existing = registerMap.find(value);
-        if (existing != registerMap.end())
-        {
-            return existing->second;
-        }
-
-        // 从栈中加载值到新的虚拟寄存器
-        RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-        auto virtualReg = getTempRegister(regType, 0);
-
-        // 先保存映射，避免递归调用
-        registerMap[value] = virtualReg;
-
-        // 生成从栈加载的指令
-        int offset = stackFrame.getOffset(value);
-        generateStackAccess(offset, virtualReg, false); // false表示load
-
-        return virtualReg;
-    }
-
-    // 默认情况：创建新的虚拟寄存器
-    RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto newReg = getTempRegister(regType, 0);
-
-    // 保存映射
-    registerMap[value] = newReg;
-
-    return newReg;
-}
-
-void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg)
-{
-    StackFrame &stackFrame = currentFunc->getStackFrame();
-
-    if (!stackFrame.hasAllocation(value))
-    {
-        // 如果还没有分配空间，现在分配
-        stackFrame.allocateSpace(value, 4);
-    }
-
-    int offset = stackFrame.getOffset(value);
-    generateStackAccess(offset, reg, true); // true表示store
-}
-
-void InstructionSelector::generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore)
-{
-    auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-
-    if (isImmediateInRange(offset))
-    {
-        // 直接使用偏移量
-        if (isStore)
-        {
-            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? RISCVOpcode::FSW : RISCVOpcode::SW;
-            auto inst = RISCVInstruction::createSType(opcode, spReg, reg, offset);
-            currentBB->addInstruction(inst);
-        }
-        else
-        {
-            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? RISCVOpcode::FLW : RISCVOpcode::LW;
-            auto inst = RISCVInstruction::createIType(opcode, reg, spReg, offset);
-            currentBB->addInstruction(inst);
-        }
-    }
-    else
-    {
-        // 偏移量超出范围，需要计算地址
-        auto tempReg = getGeneralTempRegister(1); // 使用T1用于地址计算
-
-        // li temp, offset
-        auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
-        currentBB->addInstruction(liInst);
-
-        // add temp, sp, temp
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
-        currentBB->addInstruction(addInst);
-
-        // lw/sw reg, 0(temp)
-        if (isStore)
-        {
-            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? RISCVOpcode::FSW : RISCVOpcode::SW;
-            auto memInst = RISCVInstruction::createSType(opcode, tempReg, reg, 0);
-            currentBB->addInstruction(memInst);
-        }
-        else
-        {
-            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? RISCVOpcode::FLW : RISCVOpcode::LW;
-            auto memInst = RISCVInstruction::createIType(opcode, reg, tempReg, 0);
-            currentBB->addInstruction(memInst);
-        }
-    }
-}
-
 void InstructionSelector::generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value)
 {
     // 优化常量加载：根据常量大小选择最高效的指令序列
-
     if (value == 0)
     {
         // 常量0：直接使用zero寄存器
@@ -1069,6 +885,173 @@ void InstructionSelector::generateFloatConstantLoad(shared_ptr<RISCVRegister> re
     currentBB->addInstruction(fmvInst);
 }
 
+shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *value)
+{
+    // 处理常量
+    if (auto constInt = dynamic_cast<ConstantInt *>(value))
+    {
+        // 根据常量大小优化加载指令
+        auto tempReg = getGeneralTempRegister(0);
+        generateConstantLoad(tempReg, constInt->Value);
+        return tempReg;
+    }
+    else if (auto constFloat = dynamic_cast<ConstantFloat *>(value))
+    {
+        // 对于浮点常量，需要更复杂的处理
+        auto tempReg = getFloatTempRegister(0);
+        generateFloatConstantLoad(tempReg, constFloat->Value);
+        return tempReg;
+    }
+
+    // 查找已存在的映射（函数参数）
+    auto it = registerMap.find(value);
+    if (it != registerMap.end())
+    {
+        return it->second;
+    }
+
+    // 检查是否是栈参数
+    auto stackIt = stackArguments.find(value);
+    if (stackIt != stackArguments.end())
+    {
+        // 这是一个栈参数，需要从调用者栈帧中加载
+        // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
+        auto loadReg = getGeneralTempRegister(0);
+
+        // 计算栈参数的实际偏移量：
+        // argOffset = 被调用者栈帧大小 + 参数在调用者栈帧中的偏移
+        StackFrame &stackFrame = currentFunc->getStackFrame();
+        int argOffset = stackFrame.getAlignedSize() + stackIt->second;
+
+        // 生成从栈加载指令
+        auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+        if (isImmediateInRange(argOffset))
+        {
+            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, spReg, argOffset);
+            currentBB->addInstruction(loadInst);
+        }
+        else
+        {
+            // 偏移量太大，先计算地址
+            auto addrReg = getGeneralTempRegister(3);
+            auto liInst = RISCVInstruction::createPseudoLI(addrReg, argOffset);
+            currentBB->addInstruction(liInst);
+
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, addrReg);
+            currentBB->addInstruction(addInst);
+
+            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, addrReg, 0);
+            currentBB->addInstruction(loadInst);
+        }
+
+        // 如果目标是浮点类型，需要转移到浮点寄存器
+        if (value->getType()->isFloatTy())
+        {
+            auto floatReg = getFloatTempRegister(0);
+            auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, loadReg);
+            currentBB->addInstruction(moveInst);
+            return floatReg;
+        }
+
+        return loadReg;
+    }
+
+    // 对于需要从栈加载的值（如指令的结果）
+    StackFrame &stackFrame = currentFunc->getStackFrame();
+    if (stackFrame.hasAllocation(value))
+    {
+        // 检查是否已经有加载过的寄存器
+        auto existing = registerMap.find(value);
+        if (existing != registerMap.end())
+        {
+            return existing->second;
+        }
+
+        // 从栈中加载值到新的虚拟寄存器
+        RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
+        auto virtualReg = getTempRegister(regType, 0);
+
+        // 先保存映射，避免递归调用
+        registerMap[value] = virtualReg;
+
+        // 生成从栈加载的指令
+        int offset = stackFrame.getOffset(value);
+        generateStackAccess(offset, virtualReg, false); // false表示load
+
+        return virtualReg;
+    }
+
+    // 错误情况：未能找到Value的寄存器或栈位置
+    // 这种情况不应该发生，表示编译器内部错误
+    std::cerr << "Error: Unable to find register or stack allocation for Value: "
+              << value->getName() << " (type: " << value->getType()->toString() << ")" << std::endl;
+
+    return nullptr; // 返回空指针表示错误
+}
+
+void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size)
+{
+    StackFrame &stackFrame = currentFunc->getStackFrame();
+
+    if (!stackFrame.hasAllocation(value))
+    {
+        // 如果还没有分配空间，现在分配
+        stackFrame.allocateSpace(value, size);
+    }
+
+    int offset = stackFrame.getOffset(value);
+    generateStackAccess(offset, reg, true, size == 8); // true表示store
+}
+
+void InstructionSelector::generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore, bool isDouble)
+{
+    auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+
+    if (isImmediateInRange(offset))
+    {
+        // 直接使用偏移量
+        if (isStore)
+        {
+            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? (isDouble ? RISCVOpcode::FSD : RISCVOpcode::FSW) : (isDouble ? RISCVOpcode::SD : RISCVOpcode::SW);
+            auto inst = RISCVInstruction::createSType(opcode, spReg, reg, offset);
+            currentBB->addInstruction(inst);
+        }
+        else
+        {
+            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? (isDouble ? RISCVOpcode::FLD : RISCVOpcode::FLW) : (isDouble ? RISCVOpcode::LD : RISCVOpcode::LW);
+            auto inst = RISCVInstruction::createIType(opcode, reg, spReg, offset);
+            currentBB->addInstruction(inst);
+        }
+    }
+    else
+    {
+        // 偏移量超出范围，需要计算地址
+        auto tempReg = getGeneralTempRegister(1); // 使用T1用于地址计算
+
+        // li temp, offset
+        auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
+        currentBB->addInstruction(liInst);
+
+        // add temp, sp, temp
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+        currentBB->addInstruction(addInst);
+
+        // lw/sw reg, 0(temp)
+        if (isStore)
+        {
+            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? (isDouble ? RISCVOpcode::FSD : RISCVOpcode::FSW) : (isDouble ? RISCVOpcode::SD : RISCVOpcode::SW);
+            auto memInst = RISCVInstruction::createSType(opcode, tempReg, reg, 0);
+            currentBB->addInstruction(memInst);
+        }
+        else
+        {
+            RISCVOpcode opcode = (reg->getType() == RegisterType::FLOAT) ? (isDouble ? RISCVOpcode::FLD : RISCVOpcode::FLW) : (isDouble ? RISCVOpcode::LD : RISCVOpcode::LW);
+            auto memInst = RISCVInstruction::createIType(opcode, reg, tempReg, 0);
+            currentBB->addInstruction(memInst);
+        }
+    }
+}
+
 // 按ABI规范预扫描函数，计算S、R、A三个值
 void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Function *irFunc)
 {
@@ -1159,6 +1142,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
 
     // 计算R：如果有call指令则需要保存ra
     R = hasCall ? 4 : 0;
+    stackFrame.currentOffset += 4; // ra寄存器的栈空间
 
     // 计算A：传参需要的栈空间
     // A = max{max(len_i - 8, 0)} * 4，其中len_i是第i个call的参数个数
@@ -1217,6 +1201,9 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
                 auto tempReg = getGeneralTempRegister(0);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, raOffset);
                 func->getBasicBlocks()[0]->addInstruction(liInst);
+
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
+                func->getBasicBlocks()[0]->addInstruction(addInst);
 
                 auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, tempReg, raReg, 0);
                 func->getBasicBlocks()[0]->addInstruction(swInst);
@@ -1309,13 +1296,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用a0-a7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
-                registerMap[arg] = reg;
+                registerMap[arg.get()] = reg;
                 intArgIndex++;
             }
             else
             {
                 // 超出范围的整数参数从栈获取
-                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 intArgIndex++;
             }
         }
@@ -1327,13 +1314,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用fa0-fa7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex));
-                registerMap[arg] = reg;
+                registerMap[arg.get()] = reg;
                 floatArgIndex++;
             }
             else
             {
                 // 超出范围的浮点参数从栈获取
-                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 floatArgIndex++;
             }
         }
@@ -1345,13 +1332,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用a0-a7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
-                registerMap[arg] = reg;
+                registerMap[arg.get()] = reg;
                 intArgIndex++;
             }
             else
             {
                 // 超出范围的指针参数从栈获取
-                stackArguments[arg] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 ptrArgIndex++;
             }
         }

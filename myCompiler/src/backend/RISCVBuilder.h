@@ -37,7 +37,7 @@ namespace RISCV
         shared_ptr<RISCVFunction> currentFunc;
         shared_ptr<RISCVBasicBlock> currentBB;
         unordered_map<Value *, shared_ptr<RISCVRegister>> registerMap; // IR值到寄存器的映射
-        unordered_map<Argument *, int> stackArguments;                 // 栈参数到偏移量的映射
+        unordered_map<Value *, int> stackArguments;                    // 栈参数到偏移量的映射
 
         // 临时寄存器轮换计数器，避免寄存器冲突
         mutable int generalTempCounter = 0;
@@ -77,14 +77,11 @@ namespace RISCV
         void prescanFunction(shared_ptr<RISCVFunction> func, Function *irFunc);
         void generateFunctionPrologue(shared_ptr<RISCVFunction> func);
         void generateFunctionEpilogue(shared_ptr<RISCVFunction> func);
-        void storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg);
-        shared_ptr<RISCVRegister> loadValueFromStack(Value *value);
 
         // 栈偏移计算辅助方法
-        void generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore);
+        void storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size = 4);
+        void generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore, bool isDouble = false);
         bool isImmediateInRange(int immediate, int bits = 12);
-
-        // 常量加载优化方法
         void generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value);
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
 

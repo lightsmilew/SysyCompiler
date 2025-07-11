@@ -77,11 +77,13 @@ namespace RISCV
         JALR,
 
         // 内存访问指令
+        LD,
         LB,
         LH,
         LW,
         LBU,
         LHU,
+        SD,
         SB,
         SH,
         SW,
@@ -102,7 +104,9 @@ namespace RISCV
         FCVT_S_W,
 
         // 浮点内存访问
+        FLD,
         FLW,
+        FSD,
         FSW,
 
         // 立即数加载

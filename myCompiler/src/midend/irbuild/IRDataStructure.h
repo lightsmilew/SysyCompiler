@@ -408,7 +408,7 @@ enum class Opcode
     ICmp,
     FCmp,
 
-    // 内存操作符
+    // 内存操作符(数组)
     Alloca,
     Load,
     Store,
