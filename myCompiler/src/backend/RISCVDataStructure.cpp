@@ -534,7 +534,7 @@ namespace RISCV
             if (isStringData[i])
             {
                 // 处理字符串数据
-                ss << "    .string \"" << data[i] << "\"\n";
+                ss << "    .asciz \"" << data[i] << "\"\n";
                 i++;
             }
             else if (isZeroValue(data[i]))
