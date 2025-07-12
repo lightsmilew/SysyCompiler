@@ -460,7 +460,7 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
             // 替换操作数为映射后的
             for (size_t i = 0; i < newInst->getOperands().size(); ++i) {
                 if (valueMap.count(newInst->getOperands()[i]))
-                    newInst->setOperand(i, valueMap[newInst->getOperands()[i]]);
+                    newInst->setOperandByIndex(i, valueMap[newInst->getOperands()[i]]);
             }
             valueMap[instCallee.get()] = newInst;
             newInsts.push_back(std::unique_ptr<Instruction>(newInst));
@@ -675,14 +675,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if(level==OptimizationLevel::O12)
     {
+        pm->addPass(std::make_unique<FunctionInliningPass>());
+    }
+    else if(level==OptimizationLevel::O13)
+    {
         //必须要先消除phi才能进行循环不变量外提
         pm->addPass(std::make_unique<DeadCodeEliminationPass>());
         pm->addPass(std::make_unique<PhiEliminationPass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
-    }
-    else if(level==OptimizationLevel::O13)
-    {
-        pm->addPass(std::make_unique<FunctionInliningPass>());
     }
     else if(level==OptimizationLevel::O14)
     {

@@ -23,6 +23,10 @@ vector<size_t>ArrayType::getArrayIndices() const
 
     return dimensions;
 }
+string ArrayType::toString() const
+{
+    return "[" + to_string(NumElements) + " x " + ElementType->toString() + "]";
+}
 std::string FunctionType::toString() const
 {
     std::stringstream ss;
@@ -38,8 +42,6 @@ std::string FunctionType::toString() const
 }
 
 // ===== Value System Implementation =====
-
-// 实现 replaceAllUsesWith 方法
 void Value::replaceAllUsesWith(Value *newValue)
 {
     if (this == newValue)
@@ -56,7 +58,16 @@ void Value::replaceAllUsesWith(Value *newValue)
     // 此时Users应该已经被清空了（通过replaceOperand调用removeUser）
     Users.clear();
 }
+void Value:: addUser(User *user) 
+{ 
+    Users.push_back(user); 
+}
+void Value:: removeUser(User *user)
+{
+    Users.erase(std::remove(Users.begin(), Users.end(), user), Users.end());
+}
 
+// ==== User System Implementation =====
 void User::removeThisFromOperands()
 {
         // 从所有操作数的Users列表中移除自己
@@ -68,8 +79,6 @@ void User::removeThisFromOperands()
         }
     }
 }
-
-// 添加操作数
 void User:: addOperand(Value *operand)
 {
     if (operand)
@@ -98,7 +107,6 @@ void User:: setOperands(const vector<Value *> &operands)
         }
     }
 }
-    // 替换操作数
 void User:: replaceOperand(Value *oldValue, Value *newValue)
 {
     for (size_t i = 0; i < Operands.size(); i++)
@@ -118,9 +126,7 @@ void User:: replaceOperand(Value *oldValue, Value *newValue)
     }
 }
 
-// 获取操作数数量
 unsigned User:: getNumOperands() const { return Operands.size(); }
-// 获取所有操作数
 const vector<Value *> & User::getOperands() const { return Operands; }
 // 获取指定索引的操作数
 Value * User::getOperandByIndex(unsigned index) const
@@ -132,7 +138,7 @@ Value * User::getOperandByIndex(unsigned index) const
     throw std::out_of_range("Invalid operand index");
 }
     // 设置指定索引的操作数
-void User:: setOperand(unsigned index, Value *value)
+void User:: setOperandByIndex(unsigned index, Value *value)
 {
     if (index < Operands.size())
     {
@@ -146,6 +152,31 @@ void User:: setOperand(unsigned index, Value *value)
             value->addUser(this);
         }
     }
+}
+string ConstantString::toString() const 
+{
+    // 输出为 LLVM IR 字符串常量格式
+    std::string s = "c\"";
+    for (char c : Value)
+    {
+        if (c == '\\' || c == '\"')
+            s += '\\'; // 转义
+        s += c;
+    }
+    s += "\"";
+    return s;
+}
+string ConstantArray::toString() const
+{
+    std::string s = "[";
+    for (size_t i = 0; i < Elements.size(); ++i)
+    {
+        if (i > 0)
+            s += ", ";
+        s += Elements[i] ? Elements[i]->getType()->toString() + " " + Elements[i]->toString() : "undef";
+    }
+    s += "]";
+    return s;
 }
 // GlobalVariable implementation
 std::string GlobalVariable::toString() const
@@ -187,6 +218,81 @@ std::string User::toString() const
 }
 
 // ===== Instruction System Implementation =====
+string Instruction::getOpcodeName() const
+{
+    switch (Op)
+    {
+    case Opcode::Ret:
+        return "ret";
+    case Opcode::Br:
+        return "br";
+    case Opcode::Add:
+        return "add";
+    case Opcode::Sub:
+        return "sub";
+    case Opcode::Mul:
+        return "mul";
+    case Opcode::SDiv:
+        return "sdiv";
+    case Opcode::SRem:
+        return "srem";
+    case Opcode::FAdd:
+        return "fadd";
+    case Opcode::FSub:
+        return "fsub";
+    case Opcode::FMul:
+        return "fmul";
+    case Opcode::FDiv:
+        return "fdiv";
+    case Opcode::ICmp:
+        return "icmp";
+    case Opcode::FCmp:
+        return "fcmp";
+    case Opcode::Alloca:
+        return "alloca";
+    case Opcode::Load:
+        return "load";
+    case Opcode::Store:
+        return "store";
+    case Opcode::GetElementPtr:
+        return "getelementptr";
+    case Opcode::SIToFP:
+        return "sitofp";
+    case Opcode::FPToSI:
+        return "fptosi";
+    case Opcode::Call:
+        return "call";
+    case Opcode::Phi:
+        return "phi";
+    case Opcode::Copy:
+        return "copy";
+    default:
+        throw std::runtime_error("Unknown opcode");
+    }
+}
+bool Instruction::isBinaryOp() const
+{
+    return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
+           Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
+           Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv;
+}
+bool Instruction::isComparisonOp() const
+{
+    return Op == Opcode::ICmp || Op == Opcode::FCmp;
+}
+bool Instruction::isTerminator() const
+{
+    return Op == Opcode::Ret || Op == Opcode::Br;
+}
+bool Instruction::isCopy() const
+{
+    return Op == Opcode::Copy;
+}
+bool Instruction::mayHaveSideEffects() const
+{
+    return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
+           Op == Opcode::Ret || Op == Opcode::Alloca;
+}
 std::string BinaryOperator::toString() const
 {
     std::stringstream ss;
@@ -410,7 +516,35 @@ std::string FCmpInst::toString() const
 
     return ss.str();
 }
-
+// 获取数组的元素总长度
+size_t AllocaInst::getAllocatedSize() const
+{
+    if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+    {
+        return arrayType->getArrayLength();
+    }
+    return 1; // 非数组类型的分配大小为1
+}
+// 从左到右获取数组每一维的长度
+// 例如：int a[2][3][4] -> 返回 {2, 3, 4}
+// 如果是指针类型则返回空数组
+// 如果是基本类型则返回空数组
+// 如果是数组类型则返回每一维的长度
+vector<size_t> AllocaInst::getArrayEveryDimensionLength() const
+{
+    vector<size_t> dimensions;
+    if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+    {
+        dimensions.push_back(arrayType->getNumElements());
+        Type *elemType = arrayType->getElementType();
+        while (auto nestedArray = dynamic_cast<ArrayType *>(elemType))
+        {
+            dimensions.push_back(nestedArray->getNumElements());
+            elemType = nestedArray->getElementType();
+        }
+    }
+    return dimensions;
+}
 std::string AllocaInst::toString() const
 {
     std::stringstream ss;
@@ -418,6 +552,19 @@ std::string AllocaInst::toString() const
     return ss.str();
 }
 
+Type *LoadInst::getElementType(Value *ptr)
+{
+    // load操作数为空，报错
+    if (!ptr)
+        throw std::runtime_error("LoadInst: pointer operand is null");
+    // 如果是指针类型，返回指向的元素类型
+    if (auto ptrTy = dynamic_cast<PointerType *>(ptr->getType()))
+    {
+        return ptrTy->ElementType;
+    }
+        // 传入不是指针报错
+    throw std::runtime_error("LoadInst: operand must be a pointer type");
+}
 std::string LoadInst::toString() const
 {
     std::stringstream ss;
@@ -433,7 +580,48 @@ std::string StoreInst::toString() const
        << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
-
+// 获取函数参数
+vector<Value *> CallInst::getArguments() const
+{
+    vector<Value *> args(getOperands().begin() + 1, getOperands().end());
+    return args;
+}
+vector<Value *> CallInst::getIntArguments() const
+{
+    vector<Value *> args;
+    for (size_t i = 1; i < getNumOperands(); ++i)
+    {
+        if (getOperandByIndex(i)->getType()->isIntegerTy())
+        {
+            args.push_back(getOperandByIndex(i));
+        }
+    }
+    return args;
+}
+vector<Value *> CallInst::getFloatArguments() const
+{
+    vector<Value *> args;
+    for (size_t i = 1; i < getNumOperands(); ++i)
+    {
+        if (getOperandByIndex(i)->getType()->isFloatTy())
+        {
+            args.push_back(getOperandByIndex(i));
+        }
+    }
+    return args;
+}
+vector<Value *> CallInst::getPtrArguments() const
+{
+    vector<Value *> args;
+    for (size_t i = 1; i < getNumOperands(); ++i)
+    {
+        if (getOperandByIndex(i)->getType()->isPointerTy())
+        {
+            args.push_back(getOperandByIndex(i));
+        }
+    }
+    return args;
+}
 std::string CallInst::toString() const
 {
     std::stringstream ss;
@@ -527,7 +715,35 @@ std::string BranchInst::toString() const
     }
     return ss.str();
 }
-
+// 添加前驱基本块和对应的值
+void PhiInst::addIncoming(Value *value, BasicBlock *block)
+{
+    IncomingValues.emplace_back(block);
+    addOperand(value); // 添加到操作数列表中
+}
+// 获取前驱基本块和对应的值长度
+unsigned PhiInst::getNumIncomingValues() const
+{
+    return IncomingValues.size();
+}
+// 获取前驱value
+Value *PhiInst::getIncomingValue(unsigned index) const
+{
+    if (index < getNumOperands())
+    {
+        return getOperandByIndex(index);
+    }
+    throw std::out_of_range("Invalid incoming value index");
+}
+// 获取前驱基本块
+BasicBlock *PhiInst::getIncomingBlock(unsigned index) const
+{
+    if (index < IncomingValues.size())
+    {
+        return IncomingValues[index];
+    }
+    throw std::out_of_range("Invalid incoming block index");
+}
 std::string PhiInst::toString() const
 {
     std::stringstream ss;
@@ -552,6 +768,28 @@ std::string CopyInst::toString() const
 }
 
 // ===== GetElementPtrInst Implementation =====
+Value *GetElementPtrInst::getPointerOperand() const
+{ 
+    return getOperandByIndex(0); 
+}
+vector<Value *> GetElementPtrInst::getIndices() const
+{
+    vector<Value *> indices(getOperands().begin() + 1, getOperands().end());
+    return indices;
+}
+Value *GetElementPtrInst::getDest() const 
+{ 
+    return const_cast<GetElementPtrInst *>(this); 
+}
+vector<size_t> *GetElementPtrInst::getArrayStride() const
+{
+    auto stride = getPointerOperand()->getType();
+    if (auto arrayType = dynamic_cast<ArrayType *>(stride))
+    {
+        return new vector<size_t>(arrayType->getArrayIndices());
+    }
+    return nullptr; // 如果不是数组类型，返回空指针
+}
 vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Value *> &indices)
 {
     vector<Value *> operands;
@@ -667,6 +905,10 @@ std::string CastInst::toString() const
 }
 
 // ===== BasicBlock Implementation =====
+void BasicBlock::addInstruction(unique_ptr<Instruction> inst)
+{
+    Instructions.push_back(std::move(inst));
+}
 void BasicBlock::insertBeforeTerminator(std::unique_ptr<Instruction> inst)
 {
     auto &insts = getInstructions();
@@ -675,6 +917,68 @@ void BasicBlock::insertBeforeTerminator(std::unique_ptr<Instruction> inst)
         [](const std::unique_ptr<Instruction>& i) { return i->isTerminator(); }
     );
     this->insert(std::move(inst), termIt - insts.begin());
+}
+void BasicBlock::insert(unique_ptr<Instruction> inst, unsigned index)
+{
+    if (index > Instructions.size())
+    {
+        throw std::out_of_range("Index out of range for inserting instruction");
+    }
+    Instructions.insert(Instructions.begin() + index, std::move(inst));
+}
+void BasicBlock::addPredecessor(BasicBlock *pred)
+{
+    if (std::find(Predecessors.begin(), Predecessors.end(), pred) == Predecessors.end())
+    {
+        Predecessors.push_back(pred);
+    }
+}
+void BasicBlock::addSuccessor(BasicBlock *succ)
+{
+    if (std::find(Successors.begin(), Successors.end(), succ) == Successors.end())
+    {
+        Successors.push_back(succ);
+    }
+}
+void BasicBlock::removePredecessor(BasicBlock *pred)
+{
+    Predecessors.erase(std::remove(Predecessors.begin(), Predecessors.end(), pred),
+                           Predecessors.end());
+}
+void BasicBlock::removeSuccessor(BasicBlock *succ)
+{
+    Successors.erase(std::remove(Successors.begin(), Successors.end(), succ),
+                         Successors.end());
+}
+Instruction *BasicBlock::getTerminator()
+{
+    return Instructions.empty() ? nullptr : Instructions.back().get();
+}
+vector<unique_ptr<Instruction>> &BasicBlock::getInstructions()
+{
+    return Instructions;
+}
+const vector<BasicBlock *> &BasicBlock::getPredecessors() const
+{
+    return Predecessors;
+}
+const vector<BasicBlock *> &BasicBlock::getSuccessors() const
+{
+    return Successors;
+}
+bool BasicBlock::hasTerminator()
+{
+    Instruction *term = getTerminator();
+    return term && (term->Op == Opcode::Ret || term->Op == Opcode::Br);
+}
+bool BasicBlock::containsByName(Instruction *inst) const
+{
+    const std::string &name = inst->getName();
+    return std::any_of(Instructions.begin(), Instructions.end(),
+                        [&](const unique_ptr<Instruction> &i)
+                        {
+                            return i->getName() == name;
+                        });
 }
 std::string BasicBlock::toString() const
 {
@@ -702,6 +1006,70 @@ std::string Argument::toString() const
 }
 
 // ===== Function Implementation =====
+BasicBlock *Function::addBasicBlock(const string &name)
+{
+    auto bb = make_unique<BasicBlock>(name, this);
+    BasicBlock *ptr = bb.get();
+    BasicBlocks.push_back(std::move(bb));
+    return ptr;
+}
+Argument *Function::addArgument(Type *type, const string &name)
+{
+    auto arg = make_unique<Argument>(type, Arguments.size(), name, this);
+    Argument *ptr = arg.get();
+    Arguments.push_back(std::move(arg));
+    return ptr;
+}
+const vector<unique_ptr<Argument>> &Function::getArguments() const
+{
+    return Arguments;
+}
+BasicBlock *Function::getEntryBlock()
+{
+        return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();
+}
+FunctionType *Function::getFunctionType()
+{
+    return static_cast<FunctionType *>(getType());
+}
+const vector<unique_ptr<BasicBlock>> &Function::getBasicBlocks() const
+{
+    return BasicBlocks;
+}
+unsigned Function::getInstructionCount() const
+{
+    unsigned count = 0;
+    for (const auto &bb : BasicBlocks)
+    {
+        count += bb->getInstructions().size();
+    }
+    return count;
+}
+bool Function::isLibraryFunction() const
+{
+    return getName() == "getint" || getName() == "getch" ||
+            getName() == "getfloat" || getName() == "getarray" ||
+            getName() == "getfarray" || getName() == "putint" ||
+            getName() == "putch" || getName() == "putfloat" ||
+            getName() == "putarray" || getName() == "putfarray" ||
+            getName() == "putf" ||
+            getName() == "_sysy_starttime" || getName() == "_sysy_stoptime";
+}
+bool Function::isRecursive() const
+{
+    for (const auto &bb : BasicBlocks)
+    {
+        for (const auto &instPtr : bb->getInstructions())
+        {
+            if (auto *call = dynamic_cast<CallInst *>(instPtr.get()))
+            {
+                if (call->getCalledFunction() == this)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
 std::string Function::toString() const
 {
     std::stringstream ss;
@@ -732,6 +1100,70 @@ std::string Function::toString() const
 }
 
 // ===== Module Implementation =====
+Function *Module::addFunction(FunctionType *funcType, const string &name)
+{
+    auto func = make_unique<Function>(funcType, name, this);
+    Function *ptr = func.get();
+    Functions.push_back(std::move(func));
+    return ptr;
+}
+GlobalVariable *Module::addGlobalVariable(Type *type, const string &name,
+                                      Constant *initializer , bool isConstant)
+{
+    auto global = make_unique<GlobalVariable>(type, name, initializer, isConstant);
+    GlobalVariable *ptr = global.get();
+    GlobalVariables.push_back(std::move(global));
+    return ptr;
+}
+Function *Module::getFunction(const string &name)
+{
+    string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name; // 添加前缀_sysy_以匹配SysY标准库函数
+    for (auto &func : Functions)
+    {
+        if (func->getName() == tmp_name)
+        {
+            return func.get();
+        }
+    }
+    return nullptr;
+}
+GlobalVariable *Module::getGlobalVariable(const string &name)
+{
+    for (auto &global : GlobalVariables)
+    {
+        if (global->getName() == name)
+        {
+            return global.get();
+        }
+    }
+    return nullptr;
+}
+// Debug
+void Module::printBasic()
+{
+    for (int i = 13; i < Functions.size(); i++)
+    {
+        std::cout << Functions[i]->getName() << ":" << std::endl;
+        int j = 0;
+        for (const auto &it : Functions[i]->BasicBlocks)
+        {
+            std::cout << "BasicBlockSuccs " << j << ":" << std::endl;
+            std::cout << "                   Successors: ";
+            for (auto suc : it->getSuccessors())
+            {
+                std::cout << suc->getName() << " ";
+            }
+            std::cout << std::endl;
+            std::cout << "                   Predecessors: ";
+            for (auto pre : it->getPredecessors())
+            {
+                std::cout << pre->getName() << " ";
+            }
+            std::cout << std::endl;
+            j++;
+        }
+    }
+}
 std::string Module::toString() const
 {
     std::stringstream ss;

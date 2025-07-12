@@ -54,7 +54,6 @@ private:
     {
         std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
     };
-    //std::vector<Value *> needToDelete;
     std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value*, ExpressionHash> exprMap;
 
 public:
@@ -96,10 +95,9 @@ private:
         bool contains(Instruction *inst) const
         {
             return std::any_of(blocks.begin(), blocks.end(),
-                               [&](BasicBlock *bb) { return bb->contains(inst); });
+                               [&](BasicBlock *bb) { return bb->containsByName(inst); });
         }
     };
-    //vector<Instruction *>needToDelete; // 存储需要删除的指令
     vector<Loop> findLoops(Function *func);
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
@@ -127,9 +125,6 @@ class PhiEliminationPass : public Pass
 public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
-// private:
-//     vector<Instruction *>needToDelete; // 存储需要删除的phi指令
-
 };
 
 // 优化级别枚举
