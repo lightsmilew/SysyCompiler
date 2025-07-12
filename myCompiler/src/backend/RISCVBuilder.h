@@ -39,9 +39,6 @@ namespace RISCV
         unordered_map<Value *, shared_ptr<RISCVRegister>> registerMap; // IR值到寄存器的映射
         unordered_map<Value *, int> stackArguments;                    // 栈参数到偏移量的映射
 
-        // 保存局部数组的indecs
-        unordered_map<Value *, vector<int>> localArrayIndices; // 用于存储局部数组的索引
-
         // 临时寄存器轮换计数器，避免寄存器冲突
         mutable int generalTempCounter = 0;
         mutable int floatTempCounter = 0;

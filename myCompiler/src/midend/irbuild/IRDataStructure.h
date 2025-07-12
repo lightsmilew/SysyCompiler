@@ -130,6 +130,20 @@ public:
         }
         return NumElements; // 基础类型的数组长度为元素数量
     }
+    vector<int> getArrayIndices() const
+    {
+        vector<int> dimensions;
+
+        dimensions.push_back(NumElements);
+        Type *elemType = ElementType;
+        while (auto nestedArray = dynamic_cast<ArrayType *>(elemType))
+        {
+            dimensions.push_back(nestedArray->getNumElements());
+            elemType = nestedArray->getElementType();
+        }
+
+        return dimensions;
+    }
     Type *getElementType() const { return ElementType; }
     static ArrayType *getInstance(Type *elemTy, unsigned numElements)
     {
@@ -863,6 +877,16 @@ public:
         return indices;
     }
     Value *getDest() const { return const_cast<GetElementPtrInst *>(this); }
+    // 获取数组的步长
+    vector<int> *getArrayStride() const
+    {
+        auto stride = getPointerOperand()->getType();
+        if (auto arrayType = dynamic_cast<ArrayType *>(stride))
+        {
+            return new vector<int>(arrayType->getArrayIndices());
+        }
+        return nullptr; // 如果不是数组类型，返回空指针
+    }
     string toString() const override;
 
 private:

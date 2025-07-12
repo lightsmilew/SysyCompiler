@@ -126,9 +126,7 @@ namespace RISCV
 
         // 函数调用指令
         CALL, // 伪指令，用于函数调用
-        RET,  // 伪指令，用于函数返回
-
-        LA // 用于加载全局变量
+        RET   // 伪指令，用于函数返回
     };
 
     // 寄存器类型枚举
@@ -420,8 +418,7 @@ namespace RISCV
 
         void addData(const string &dataStr);
         void addData(const vector<string> &dataList);
-        void addStringData(const string &strData);          // 添加字符串数据
-        void addArrayData(const vector<string> &arrayData); // 添加数组数据
+        void addStringData(const string &strData); // 添加字符串数据
 
         const string &getLabel() const { return label; }
         const vector<string> &getData() const { return data; }
