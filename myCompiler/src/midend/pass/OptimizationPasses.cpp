@@ -530,8 +530,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                 case Opcode::SRem: result = ci2->Value != 0 ? ci1->Value % ci2->Value : 0; break;
                                 default: throw std::runtime_error("Unsupported opcode for constant folding");
                             }
-                            auto constVal = std::make_unique<ConstantInt>(IntegerType::getInstance(), result);
-                            inst->replaceAllUsesWith(constVal.get());
+                            auto constVal = new ConstantInt(IntegerType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal);
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;
@@ -552,8 +552,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                 case Opcode::FDiv: result = cf2->Value != 0.0f ? cf1->Value / cf2->Value : 0.0f; break;
                                 default: throw std::runtime_error("Unsupported opcode for constant folding");
                             }
-                            auto constVal = std::make_unique<ConstantFloat>(FloatType::getInstance(), result);
-                            inst->replaceAllUsesWith(constVal.get());
+                            auto constVal = new ConstantFloat(FloatType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal);
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;

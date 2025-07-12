@@ -255,8 +255,15 @@ public:
                 Operands.erase(std::remove(Operands.begin(), Operands.end(), op), Operands.end());
                 op->removeUser(this);
             }
-        }
+        }      
         Operands = operands;
+        for(Value *op : Operands)
+        {
+            if (op)
+            {
+                op->addUser(this);
+            }
+        }
     }
     // 替换操作数
     void replaceOperand(Value *oldValue, Value *newValue)
