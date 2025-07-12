@@ -108,12 +108,20 @@ private:
 class FunctionInliningPass : public Pass {
 public:
     bool runOnFunction(Function *func) override;
+    string getsuffix() { return "_inl"+to_string(inlineCount++); }
     std::string getName() const override { return "FunctionInlining"; }
 private:
+    int inlineCount=0;
     bool shouldInline(Function *callee);
-    void inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it);
+    int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
 };
-// 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 6. 常量折叠 Pass（将常量表达式计算为常量值）函数内联时会产生常量二元表达式
+class ConstantFoldingPass : public Pass {
+public:
+    std::string getName() const override { return "ConstantFoldingPass"; }
+    bool runOnFunction(Function *func) override;
+};
+// 7. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:

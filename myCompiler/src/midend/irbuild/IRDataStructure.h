@@ -234,7 +234,6 @@ public:
                 operand->removeUser(this);
             }
         }
-        Operands.clear(); // 清空操作数列表
     }
 
     // 添加操作数
@@ -258,10 +257,6 @@ public:
             }
         }
         Operands = operands;
-        for (Value *op : Operands)
-        {
-            addOperand(op); // 更新Users列表
-        }
     }
     // 替换操作数
     void replaceOperand(Value *oldValue, Value *newValue)
@@ -462,7 +457,7 @@ public:
     // 获取操作符
     Opcode getOpcode() const { return Op; }
     // 复制指令并重命名操作数
-    Instruction *cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap) const;
+    Instruction *cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap,string suffix) const;
     // 获取操作符名称
     string getOpcodeName() const
     {

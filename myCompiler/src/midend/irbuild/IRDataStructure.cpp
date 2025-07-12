@@ -143,7 +143,8 @@ std::string UnaryOperator::toString() const
 
     return ss.str();
 }
-Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap) const
+// 增加名字后缀参数
+Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap,string suffix) const
 {
     // 1. 复制操作数，若在映射表中则替换
     std::vector<Value*> newOperands;
@@ -160,9 +161,8 @@ Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value
     newInst->setOperands(newOperands);
 
     // 3. 变量重命名（如有必要，为 SSA 名字加后缀或生成新名字）
-    // 这里假设你有 setName/getName 接口
     static int inline_cnt = 0;
-    newInst->setName(this->getName() + "_inl" + std::to_string(++inline_cnt));
+    newInst->setName(this->getName() + suffix);
 
     return newInst;
 }

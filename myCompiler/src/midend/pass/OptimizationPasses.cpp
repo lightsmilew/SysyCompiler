@@ -16,13 +16,8 @@ bool PassManager::runOnModule(Module *module) {
     for(size_t i = 13; i < module->Functions.size(); ++i) 
     {
         auto &func = module->Functions[i];
-        if (verbose)
-            std::cout << "[Optimization] Running passes on function " << func->getName() << std::endl;
         for (auto &pass : passes) 
         {
-            if (verbose)
-                std::cout << "[Optimization] Running " << pass->getName()
-                          << " on function " << func->getName() << std::endl;
             changed |= pass->runOnFunction(func.get());
         }
     }
@@ -416,9 +411,13 @@ bool FunctionInliningPass::runOnFunction(Function *caller) {
             if (auto *call = dynamic_cast<CallInst*>(it->get())) {
                 Function *callee = call->getCalledFunction();
                 if (shouldInline(callee)) {
-                    inlineAt(call, caller, bb.get(), it);
-                    // 把该条指令从操作数的users中移除
-                    call->removeThisFromOperands(); 
+                    // 记录插入位置
+                    auto insertPos = it - insts.begin(); 
+                    int num=inlineAt(call, caller, bb.get(), insertPos);
+                    //更新迭代器
+                    it=insts.begin() + insertPos + num;          
+                    call->removeThisFromOperands();
+                    needToDelete.push_back(it->release()); // 记录需要删除的指令 
                     it = insts.erase(it); // 删除call指令
                     changed = true;
                     continue;
@@ -436,11 +435,11 @@ bool FunctionInliningPass::shouldInline(Function *callee) {
         return false;
     return true;
 }
-// 内联实现(目前还有问题)
-void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it) {
+// 内联实现
+int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos) {
     // 获取被调函数
     Function *callee = call->getCalledFunction();
-    // 1. 参数映射
+    // 参数映射
     std::unordered_map<Value*, Value*> valueMap;
     // 获取被调函数形式参数
     auto &params = callee->getArguments();
@@ -449,11 +448,14 @@ void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock
     for (size_t i = 0; i < params.size(); ++i) {
         valueMap[params[i].get()] = args[i];
     }
-    // 2. 复制被调函数的所有指令，重命名变量
+    int num=0;
+    // 获取后缀
+    string suffix=getsuffix(); 
+    // 复制被调函数的所有指令，重命名变量
     std::vector<std::unique_ptr<Instruction>> newInsts;
     for (auto &bbCallee : callee->getBasicBlocks()) {
         for (auto &instCallee : bbCallee->getInstructions()) {
-            Instruction *newInst = instCallee->cloneWithRename(valueMap); // 你需要实现cloneWithRename
+            Instruction *newInst = instCallee->cloneWithRename(valueMap,suffix); // 你需要实现cloneWithRename
             // 替换操作数为映射后的
             for (size_t i = 0; i < newInst->getOperands().size(); ++i) {
                 if (valueMap.count(newInst->getOperands()[i]))
@@ -461,24 +463,109 @@ void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock
             }
             valueMap[instCallee.get()] = newInst;
             newInsts.push_back(std::unique_ptr<Instruction>(newInst));
+            num++;
         }
     }
-    // 3. 处理返回值
-    for (auto &inst : newInsts) {
-        if (auto *ret = dynamic_cast<ReturnInst*>(inst.get())) {
-            if (call->hasReturnValue()) {
-                // 将ret的返回值赋给call的目标
-                auto assign = std::make_unique<CopyInst>(ret->getReturnValue(), call->getName());
-                bb->insert(std::move(assign), it - bb->getInstructions().begin());
+    bool hasReturnValue = call->hasReturnValue();
+    // 处理返回值
+    for (auto it = newInsts.begin(); it != newInsts.end(); ) 
+    {
+        if (auto *ret = dynamic_cast<ReturnInst*>(it->get())) 
+        {
+            if (hasReturnValue) 
+            {
+                call->replaceAllUsesWith(ret->getReturnValue());
             }
-            // 移除ret指令本身
-            inst.reset();
+            it = newInsts.erase(it); // 删除ReturnInst并移动迭代器
+            num--;
+        } 
+        else 
+        {
+            ++it;
         }
-    }
-    // 4. 插入新指令到调用点
+    }  
+    // 插入新指令到调用点
     for (auto &inst : newInsts) {
-        if (inst) bb->insert(std::move(inst), it - bb->getInstructions().begin());
+        if (inst) bb->insert(std::move(inst), insertPos++); // 插入到指定位置
     }
+    return num; // 返回内联的指令数量
+}
+// 常量折叠实现
+bool ConstantFoldingPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    bool localChanged;
+    do {
+        localChanged = false;
+        for (auto &bb : func->getBasicBlocks())
+        {
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end(); )
+            {
+                Instruction *inst = it->get();
+                // 只处理二元运算且无副作用
+                if (inst && inst->isBinaryOp() && !inst->mayHaveSideEffects())
+                {
+                    auto binaryOperator = dynamic_cast<BinaryOperator *>(inst);
+                    if (!binaryOperator) 
+                    {
+                        ++it;
+                        continue;
+                    }
+                    Value *lhs = binaryOperator->getLHS();
+                    Value *rhs = binaryOperator->getRHS();
+
+                    // int常量折叠
+                    if (auto *ci1 = dynamic_cast<ConstantInt*>(lhs))
+                    {
+                        if (auto *ci2 = dynamic_cast<ConstantInt*>(rhs))
+                        {
+                            int result = 0;
+                            switch (inst->getOpcode())
+                            {
+                                case Opcode::Add: result = ci1->Value + ci2->Value; break;
+                                case Opcode::Sub: result = ci1->Value - ci2->Value; break;
+                                case Opcode::Mul: result = ci1->Value * ci2->Value; break;
+                                case Opcode::SDiv: result = ci2->Value != 0 ? ci1->Value / ci2->Value : 0; break;
+                                case Opcode::SRem: result = ci2->Value != 0 ? ci1->Value % ci2->Value : 0; break;
+                                default: throw std::runtime_error("Unsupported opcode for constant folding");
+                            }
+                            auto constVal = std::make_unique<ConstantInt>(IntegerType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal.get());
+                            it = insts.erase(it);
+                            localChanged = true;
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    // float常量折叠
+                    if (auto *cf1 = dynamic_cast<ConstantFloat*>(lhs))
+                    {
+                        if (auto *cf2 = dynamic_cast<ConstantFloat*>(rhs))
+                        {
+                            float result = 0;
+                            switch (inst->getOpcode())
+                            {
+                                case Opcode::FAdd: result = cf1->Value + cf2->Value; break;
+                                case Opcode::FSub: result = cf1->Value - cf2->Value; break;
+                                case Opcode::FMul: result = cf1->Value * cf2->Value; break;
+                                case Opcode::FDiv: result = cf2->Value != 0.0f ? cf1->Value / cf2->Value : 0.0f; break;
+                                default: throw std::runtime_error("Unsupported opcode for constant folding");
+                            }
+                            auto constVal = std::make_unique<ConstantFloat>(FloatType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal.get());
+                            it = insts.erase(it);
+                            localChanged = true;
+                            changed = true;
+                            continue;
+                        }
+                    }
+                }
+                ++it;
+            }
+        }
+    } while (localChanged);
+    return changed;
 }
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func) 
@@ -489,12 +576,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
         auto &insts = bb->getInstructions();
         for (auto it = insts.begin(); it != insts.end();) 
         {
-            Instruction *inst = it->get();
-            if (!inst) 
-            {
-                std::cerr << "inst is nullptr!" << std::endl;
-                continue;
-            }            
+            Instruction *inst = it->get();         
             auto *phi = dynamic_cast<PhiInst *>(inst);
             if (!phi) 
             {
@@ -597,6 +679,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if(level==OptimizationLevel::O13)
     {
         pm->addPass(std::make_unique<FunctionInliningPass>());
+    }
+    else if(level==OptimizationLevel::O14)
+    {
+        pm->addPass(std::make_unique<FunctionInliningPass>());
+        pm->addPass(std::make_unique<ConstantFoldingPass>());
     }
     return pm;
 }
