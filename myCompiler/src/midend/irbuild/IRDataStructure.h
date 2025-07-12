@@ -122,28 +122,8 @@ public:
     ArrayType(Type *elemTy, unsigned numElements)
         : Type(ArrayTyID), ElementType(elemTy), NumElements(numElements) {}
     unsigned getNumElements() const { return NumElements; }
-    size_t getArrayLength() const
-    {
-        if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
-        {
-            return NumElements * arrayType->getArrayLength();
-        }
-        return NumElements; // 基础类型的数组长度为元素数量
-    }
-    vector<int> getArrayIndices() const
-    {
-        vector<int> dimensions;
-
-        dimensions.push_back(NumElements);
-        Type *elemType = ElementType;
-        while (auto nestedArray = dynamic_cast<ArrayType *>(elemType))
-        {
-            dimensions.push_back(nestedArray->getNumElements());
-            elemType = nestedArray->getElementType();
-        }
-
-        return dimensions;
-    }
+    size_t getArrayLength() const;
+    vector<size_t> getArrayIndices() const;
     Type *getElementType() const { return ElementType; }
     static ArrayType *getInstance(Type *elemTy, unsigned numElements)
     {
@@ -226,108 +206,24 @@ public:
             }
         }
     }
-
     virtual ~User()
     {
-        // // 析构时从所有操作数的Users列表中移除自己
-        // for (Value *operand : Operands)
-        // {
-        //     if (operand)
-        //     {
-        //         operand->removeUser(this);
-        //     }
-        // }
+        //removeThisFromOperands(); // 从所有操作数的Users列表中移除自己
     }
-    void removeThisFromOperands()
-    {
-        // 从所有操作数的Users列表中移除自己
-        for (Value *operand : Operands)
-        {
-            if (operand)
-            {
-                operand->removeUser(this);
-            }
-        }
-    }
-
+    void removeThisFromOperands();
     // 添加操作数
-    void addOperand(Value *operand)
-    {
-        if (operand)
-        {
-            Operands.push_back(operand);
-            operand->addUser(this);
-        }
-    }
-    void setOperands(const vector<Value *> &operands)
-    {
-        // 替换当前操作数并更新Users列表
-        for (Value *op : Operands)
-        {
-            if (op)
-            {
-                Operands.erase(std::remove(Operands.begin(), Operands.end(), op), Operands.end());
-                op->removeUser(this);
-            }
-        }      
-        Operands = operands;
-        for(Value *op : Operands)
-        {
-            if (op)
-            {
-                op->addUser(this);
-            }
-        }
-    }
+    void addOperand(Value *operand);
+    void setOperands(const vector<Value *> &operands);
     // 替换操作数
-    void replaceOperand(Value *oldValue, Value *newValue)
-    {
-        for (size_t i = 0; i < Operands.size(); i++)
-        {
-            if (Operands[i] == oldValue)
-            {
-                if (oldValue)
-                {
-                    oldValue->removeUser(this);
-                }
-                Operands[i] = newValue;
-                if (newValue)
-                {
-                    newValue->addUser(this);
-                }
-            }
-        }
-    }
-
+    void replaceOperand(Value *oldValue, Value *newValue);
     // 获取操作数数量
-    unsigned getNumOperands() const { return Operands.size(); }
+    unsigned getNumOperands() const;
     // 获取所有操作数
-    const vector<Value *> &getOperands() const { return Operands; }
+    const vector<Value *> &getOperands() const;
     // 获取指定索引的操作数
-    Value *getOperandByIndex(unsigned index) const
-    {
-        if (index < Operands.size())
-        {
-            return Operands[index];
-        }
-        throw std::out_of_range("Invalid operand index");
-    }
+    Value *getOperandByIndex(unsigned index) const;
     // 设置指定索引的操作数
-    void setOperand(unsigned index, Value *value)
-    {
-        if (index < Operands.size())
-        {
-            if (Operands[index])
-            {
-                Operands[index]->removeUser(this);
-            }
-            Operands[index] = value;
-            if (value)
-            {
-                value->addUser(this);
-            }
-        }
-    }
+    void setOperand(unsigned index, Value *value);
     string toString() const override;
 };
 
@@ -335,7 +231,6 @@ class Constant : public Value
 {
 public:
     Constant(Type *ty, const string &name = "") : Value(ty, name) {}
-
     // 常量输出值本身，不是引用
     string toRef() const override
     {
@@ -880,12 +775,12 @@ public:
     }
     Value *getDest() const { return const_cast<GetElementPtrInst *>(this); }
     // 获取数组的步长
-    vector<int> *getArrayStride() const
+    vector<size_t> *getArrayStride() const
     {
         auto stride = getPointerOperand()->getType();
         if (auto arrayType = dynamic_cast<ArrayType *>(stride))
         {
-            return new vector<int>(arrayType->getArrayIndices());
+            return new vector<size_t>(arrayType->getArrayIndices());
         }
         return nullptr; // 如果不是数组类型，返回空指针
     }

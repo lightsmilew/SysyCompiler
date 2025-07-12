@@ -855,7 +855,8 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
     flattenInitList(node, flat_inits);
 
     // 计算数组总元素个数（支持多维）
-    size_t totalElements = getArrayTotalElements(targetType);
+    auto arrayType = dynamic_cast<ArrayType *>(targetType);
+    size_t totalElements=arrayType?arrayType->getNumElements() : 1;
     if (flat_inits.size() > totalElements) {
         throw std::runtime_error("Initializer list has more elements than array dimension,line: " + std::to_string(node->line));
     }
@@ -1567,13 +1568,7 @@ Value *IRBuilder::convertToBool(Value *value)
 
     return createComparison(BinaryOp::Ne, value, zero);
 }
-size_t IRBuilder::getArrayTotalElements(Type* type) {
-    if (auto arrayType = dynamic_cast<ArrayType*>(type)) {
-        return arrayType->getNumElements() * getArrayTotalElements(arrayType->ElementType);
-    } else {
-        return 1;
-    }
-}
+
 Vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
     shared_ptr<ast::InitExprNode> node) {
     if (!node) return {};

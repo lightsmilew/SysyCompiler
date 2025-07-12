@@ -1,7 +1,28 @@
 #include "IRDataStructure.h"
 #include <sstream>
 #include <algorithm>
+size_t ArrayType::getArrayLength() const
+{
+    if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
+    {
+        return NumElements * arrayType->getArrayLength();
+    }
+    return NumElements; // 基础类型的数组长度为元素数量
+}
+vector<size_t>ArrayType::getArrayIndices() const
+{
+    vector<size_t> dimensions;
 
+    dimensions.push_back(NumElements);
+    Type *elemType = ElementType;
+    while (auto nestedArray = dynamic_cast<ArrayType *>(elemType))
+    {
+        dimensions.push_back(nestedArray->getNumElements());
+        elemType = nestedArray->getElementType();
+    }
+
+    return dimensions;
+}
 std::string FunctionType::toString() const
 {
     std::stringstream ss;
@@ -36,7 +57,96 @@ void Value::replaceAllUsesWith(Value *newValue)
     Users.clear();
 }
 
+void User::removeThisFromOperands()
+{
+        // 从所有操作数的Users列表中移除自己
+    for (Value *operand : Operands)
+    {
+        if (operand)
+        {
+            operand->removeUser(this);
+        }
+    }
+}
 
+// 添加操作数
+void User:: addOperand(Value *operand)
+{
+    if (operand)
+    {
+        Operands.push_back(operand);
+        operand->addUser(this);
+    }
+}
+void User:: setOperands(const vector<Value *> &operands)
+{
+    // 替换当前操作数并更新Users列表
+    for (Value *op : Operands)
+    {
+        if (op)
+        {
+            Operands.erase(std::remove(Operands.begin(), Operands.end(), op), Operands.end());
+            op->removeUser(this);
+        }
+    }      
+    Operands = operands;
+    for(Value *op : Operands)
+    {
+        if (op)
+        {
+            op->addUser(this);
+        }
+    }
+}
+    // 替换操作数
+void User:: replaceOperand(Value *oldValue, Value *newValue)
+{
+    for (size_t i = 0; i < Operands.size(); i++)
+    {
+        if (Operands[i] == oldValue)
+        {
+            if (oldValue)
+            {
+                oldValue->removeUser(this);
+            }
+            Operands[i] = newValue;
+            if (newValue)
+            {
+                newValue->addUser(this);
+            }
+        }
+    }
+}
+
+// 获取操作数数量
+unsigned User:: getNumOperands() const { return Operands.size(); }
+// 获取所有操作数
+const vector<Value *> & User::getOperands() const { return Operands; }
+// 获取指定索引的操作数
+Value * User::getOperandByIndex(unsigned index) const
+{
+    if (index < Operands.size())
+    {
+        return Operands[index];
+    }
+    throw std::out_of_range("Invalid operand index");
+}
+    // 设置指定索引的操作数
+void User:: setOperand(unsigned index, Value *value)
+{
+    if (index < Operands.size())
+    {
+        if (Operands[index])
+        {
+            Operands[index]->removeUser(this);
+        }
+        Operands[index] = value;
+        if (value)
+        {
+            value->addUser(this);
+        }
+    }
+}
 // GlobalVariable implementation
 std::string GlobalVariable::toString() const
 {

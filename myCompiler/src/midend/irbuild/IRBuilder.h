@@ -17,7 +17,7 @@ namespace ir_builder
         // === 符号表管理 ===
         std::unordered_map<String, Constant*> constVarInitValues;        // 常量符号表                               
         std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
-        std::vector<String> blockNewDeclaredVars;                         // 当前基本块内新声明的变量列表 用于作用域嵌套管理
+        std::vector<String> blockNewDeclaredVars;                        // 当前基本块内新声明的变量列表 用于作用域嵌套管理
         std::unordered_map<BasicBlock*,std::unordered_map<String, Value*>> basicBlockVarToValue; // 基本块到变量映射 用于作用域嵌套管理
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
@@ -108,11 +108,10 @@ namespace ir_builder
                                   std::shared_ptr<ast::InitExprNode> initNode,
                                   const Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
                                   size_t& flat_idx);                                            //用于支持嵌套和平铺赋值
-        size_t getArrayTotalElements(Type* type);
         Vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
         void addPhiForVars();
         void addPhiForVarsIncomings(BasicBlock *block);
-        int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                    // 获取表达式的常量值
+        int  getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node);                   // 获取表达式的常量值
         bool isConstVariable(string name);                                                      // 判断一个变量是否为const修饰变量
         bool isConstantValue(Value *value);                                                     
         bool hasTerminatorInst(BasicBlock *block);
