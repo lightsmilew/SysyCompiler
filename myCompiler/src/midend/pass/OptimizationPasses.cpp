@@ -39,6 +39,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (liveInsts.count(inst) == 0) 
             {
+                needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
             }
@@ -659,6 +660,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<PhiEliminationPass>());        
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+
+        pm->addPass(std::make_unique<FunctionInliningPass>());
+        pm->addPass(std::make_unique<ConstantFoldingPass>());
     }
     //以下为调试内容
     else if(level==OptimizationLevel::O10)
