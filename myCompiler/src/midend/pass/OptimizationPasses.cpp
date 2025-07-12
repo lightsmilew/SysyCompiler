@@ -417,6 +417,8 @@ bool FunctionInliningPass::runOnFunction(Function *caller) {
                 Function *callee = call->getCalledFunction();
                 if (shouldInline(callee)) {
                     inlineAt(call, caller, bb.get(), it);
+                    // 把该条指令从操作数的users中移除
+                    call->removeThisFromOperands(); 
                     it = insts.erase(it); // 删除call指令
                     changed = true;
                     continue;
@@ -436,10 +438,13 @@ bool FunctionInliningPass::shouldInline(Function *callee) {
 }
 // 内联实现(目前还有问题)
 void FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, std::vector<std::unique_ptr<Instruction>>::iterator it) {
+    // 获取被调函数
     Function *callee = call->getCalledFunction();
     // 1. 参数映射
     std::unordered_map<Value*, Value*> valueMap;
+    // 获取被调函数形式参数
     auto &params = callee->getArguments();
+    // 获取被调函数实际参数
     const auto &args = call->getArguments();
     for (size_t i = 0; i < params.size(); ++i) {
         valueMap[params[i].get()] = args[i];
