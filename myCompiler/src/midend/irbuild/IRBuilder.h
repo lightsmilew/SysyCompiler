@@ -118,7 +118,8 @@ namespace ir_builder
         bool hasTerminatorInst(BasicBlock *block);
         bool isBlockNewDeclaredVar(const String &varName)const; 
         int getArrayDims(string varName);                                                       // 获取数组维度数量
-                                                            
+                      
+        //size_t getArrayTotalElements(Type* type);
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);        // 类型转换
         Value *createCast(Value *value, Type *targetType,string statement);                     // 类型转换 statement用于调试定位
         Value *convertToBool(Value *value);                                                     // 转换为布尔值

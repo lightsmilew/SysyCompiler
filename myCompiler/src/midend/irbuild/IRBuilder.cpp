@@ -856,7 +856,8 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
 
     // 计算数组总元素个数（支持多维）
     auto arrayType = dynamic_cast<ArrayType *>(targetType);
-    size_t totalElements=arrayType?arrayType->getNumElements() : 1;
+    size_t totalElements=arrayType?arrayType->getArrayLength() : 1;
+    //size_t totalElements=getArrayTotalElements(targetType);
     if (flat_inits.size() > totalElements) {
         throw std::runtime_error("Initializer list has more elements than array dimension,line: " + std::to_string(node->line));
     }
@@ -1623,6 +1624,13 @@ void IRBuilder::addPhiForVarsIncomings(BasicBlock *block)
         }
     }
 }
+// size_t IRBuilder::getArrayTotalElements(Type* type) {
+//     if (auto arrayType = dynamic_cast<ArrayType*>(type)) {
+//         return arrayType->getNumElements() * getArrayTotalElements(arrayType->ElementType);
+//     } else {
+//         return 1;
+//     }
+// }
 bool IRBuilder::isConstantValue(Value *value)
 {
     // 只处理int float常量
