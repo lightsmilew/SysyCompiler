@@ -291,39 +291,75 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     currentBB->addInstruction(riscvInst);
 
     // 将结果存储到栈中
-    storeValueToStack(inst, tempReg, 4);
+    storeValueToStack(inst->getDest(), tempReg, 4);
 }
 
 void InstructionSelector::visitLoadInst(LoadInst *inst)
 {
+    // Load指令从内存地址加载数据
+    // 对于数组元素访问：从GEP计算得到的元素地址加载数据
+    // 对于标量变量：从变量地址加载数据
+
     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
-    // 创建临时寄存器存储加载结果
+    // 创建临时寄存器存储加载的数据
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto tempReg = getTempRegister(regType, 0);
+    auto valueReg = getTempRegister(regType, 0);
 
-    RISCVOpcode opcode = inst->getType()->isFloatTy() ? RISCVOpcode::FLW : RISCVOpcode::LW;
+    // 根据数据类型选择合适的加载指令
+    RISCVOpcode loadOpcode;
+    if (inst->getType()->isFloatTy())
+    {
+        loadOpcode = RISCVOpcode::FLW; // 浮点数加载
+    }
+    else if (inst->getType()->isIntegerTy())
+    {
+        loadOpcode = RISCVOpcode::LW; // 整数加载
+    }
+    else
+    {
+        loadOpcode = RISCVOpcode::LW; // 默认使用字加载
+    }
 
-    // 生成加载指令 (假设偏移为0)
-    auto riscvInst = RISCVInstruction::createIType(opcode, tempReg, ptrReg, 0);
-    currentBB->addInstruction(riscvInst);
+    // 生成加载指令：lw/flw rd, 0(addr)
+    // 这里偏移量为0，因为ptrReg已经是确切的目标地址
+    auto loadInst = RISCVInstruction::createIType(loadOpcode, valueReg, ptrReg, 0);
+    currentBB->addInstruction(loadInst);
 
-    // 将加载的结果存储到栈中
-    storeValueToStack(inst, tempReg);
+    // 将加载的数据存储到栈中供后续指令使用
+    storeValueToStack(inst->getDest(), valueReg);
 }
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
 {
+    // Store指令将数据存储到内存地址
+    // 对于数组元素赋值：将数据存储到GEP计算得到的元素地址
+    // 对于标量变量赋值：将数据存储到变量地址
+
     auto valueReg = getOrCreateVirtualReg(inst->getValueToStore());
     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
-    RISCVOpcode opcode = inst->getValueToStore()->getType()->isFloatTy() ? RISCVOpcode::FSW : RISCVOpcode::SW;
+    // 根据要存储的数据类型选择合适的存储指令
+    RISCVOpcode storeOpcode;
+    if (inst->getValueToStore()->getType()->isFloatTy())
+    {
+        storeOpcode = RISCVOpcode::FSW; // 浮点数存储
+    }
+    else if (inst->getValueToStore()->getType()->isIntegerTy())
+    {
+        storeOpcode = RISCVOpcode::SW; // 整数存储
+    }
+    else
+    {
+        storeOpcode = RISCVOpcode::SW; // 默认使用字存储
+    }
 
-    // 生成存储指令 (假设偏移为0)
-    auto riscvInst = RISCVInstruction::createSType(opcode, ptrReg, valueReg, 0);
-    currentBB->addInstruction(riscvInst);
+    // 生成存储指令：sw/fsw rs2, 0(addr)
+    // 这里偏移量为0，因为ptrReg已经是确切的目标地址
+    auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
+    currentBB->addInstruction(storeInst);
 
-    // Store指令本身没有返回值，所以不需要存储到栈
+    // Store指令没有返回值，不需要存储结果到栈
 }
 
 void InstructionSelector::visitCallInst(CallInst *inst)
@@ -408,7 +444,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             inst->getType()->isFloatTy() ? RISCVRegister::PhysicalReg::FA0 : RISCVRegister::PhysicalReg::A0);
 
         // 将返回值存储到栈中
-        storeValueToStack(inst, returnPhysReg);
+        storeValueToStack(inst->getDest(), returnPhysReg);
     }
 }
 
@@ -480,91 +516,133 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
-    // Alloca指令在RISC-V中通常对应栈空间分配
-    // 在预扫描阶段已经分配了实际的栈空间，这里需要计算地址
+    // Alloca指令用于在栈上分配数组或变量的内存空间
+    // 返回分配内存的首地址（对于数组，即第一个元素的地址）
 
     StackFrame &stackFrame = currentFunc->getStackFrame();
 
     // 检查是否已经为该alloca分配了栈空间
     if (!stackFrame.hasAllocation(inst))
     {
-        // 如果没有分配（虽然预扫描应该已经分配），现在分配
+        // 计算需要分配的内存大小
         Type *allocatedType = inst->AllocatedType;
-        int allocatedSize = 4; // 默认值
+        // 数组类型：大小 = 元素数量 × 元素大小
+        auto arrayType = static_cast<ArrayType *>(allocatedType);
+        int elementSize = 4; // 假设int/float都是4字节
 
-        if (allocatedType->isArrayTy())
-        {
-            auto arrayType = static_cast<ArrayType *>(allocatedType);
-            int elementSize = arrayType->getElementType()->isFloatTy() ? 4 : 4;
-            allocatedSize = arrayType->getNumElements() * elementSize;
-        }
-        else if (allocatedType->isIntegerTy() || allocatedType->isFloatTy())
-        {
-            allocatedSize = 4;
-        }
-        else if (allocatedType->isPointerTy())
-        {
-            allocatedSize = 8; // 64位系统中指针为8字节
-        }
+        int allocatedSize = arrayType->getArrayLength() * elementSize;
 
-        stackFrame.allocateSpace(inst, allocatedSize);
+        stackFrame.allocateSpace(inst->getDest(), allocatedSize);
     }
 
-    // 获取alloca的栈偏移
-    int varOffset = stackFrame.getOffset(inst);
+    // 获取alloca分配的内存在栈帧中的偏移
+    int varOffset = stackFrame.getOffset(inst->getDest());
 
-    // 创建临时寄存器保存地址
-    auto tempReg = getGeneralTempRegister(0);
+    // 创建临时寄存器保存数组/变量的首地址
+    auto addressReg = getGeneralTempRegister(0);
 
-    // 计算地址：sp + offset
+    // 计算首地址：sp + offset
     if (isImmediateInRange(varOffset))
     {
-        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, tempReg,
+        // 直接使用addi计算地址
+        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addressReg,
                                                       make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
                                                       varOffset);
         currentBB->addInstruction(addiInst);
     }
     else
     {
-        // 使用li + add组合
-        auto liInst = RISCVInstruction::createPseudoLI(tempReg, varOffset);
+        // 偏移量太大，使用li + add组合
+        auto liInst = RISCVInstruction::createPseudoLI(addressReg, varOffset);
         currentBB->addInstruction(liInst);
 
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg,
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addressReg,
                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
-                                                     tempReg);
+                                                     addressReg);
         currentBB->addInstruction(addInst);
     }
 
-    // 将地址存储到栈中（alloca的结果是指针）
-    storeValueToStack(inst, tempReg);
+    // 将数组/变量的首地址存储到栈中供后续使用stridegetNumElements
+    // alloca指令的结果是一个指针，指向分配的内存区域
+    storeValueToStack(inst->getDest(), addressReg);
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
-    auto ptrReg = getOrCreateVirtualReg(inst->getPointerOperand());
-    auto destReg = getGeneralTempRegister(0);
+    // GetElementPtr指令用于计算数组元素的地址
+    // 支持多维数组的地址计算
+    // 输入：数组首地址（由alloca返回）+ 多个索引
+    // 输出：指定元素的地址
 
-    // 简化的GEP处理，假设只有一个索引
+    auto baseAddressReg = getOrCreateVirtualReg(inst->getPointerOperand());
+    auto elementAddressReg = getGeneralTempRegister(0);
+
     auto indices = inst->getIndices();
+    auto stridePtr = inst->getArrayStride(); // 这是 vector<int>* 类型
+
     if (!indices.empty())
     {
-        auto indexReg = getOrCreateVirtualReg(indices[0]);
+        if (stridePtr != nullptr && !stridePtr->empty())
+        {
+            // 多维数组：计算元素地址：base + sum(index[i] * stride[i] * 4)
+            auto totalOffsetReg = getGeneralTempRegister(1);
 
-        // 计算地址：ptr + index * sizeof(element)
-        // 这里简化为 ptr + index
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, ptrReg, indexReg);
-        currentBB->addInstruction(addInst);
+            // 初始化偏移量为0
+            auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+            auto initInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, totalOffsetReg, zeroReg);
+            currentBB->addInstruction(initInst);
+
+            // 处理每个维度的索引
+            for (size_t i = 0; i < indices.size() && i < stridePtr->size(); ++i)
+            {
+                auto indexReg = getOrCreateVirtualReg(indices[i]);
+                auto strideReg = getGeneralTempRegister(2);
+                auto offsetReg = getGeneralTempRegister(3);
+
+                // 获取当前维度的步长（已经是元素个数，需要乘以4得到字节数）
+                int stride = (*stridePtr)[i]; // 解引用指针并访问元素
+
+                // 加载步长到寄存器：stride * 4（字节步长）
+                auto liInst = RISCVInstruction::createPseudoLI(strideReg, stride * 4);
+                currentBB->addInstruction(liInst);
+
+                // 计算当前维度的偏移：index * stride * 4
+                auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, indexReg, strideReg);
+                currentBB->addInstruction(mulInst);
+
+                // 累加到总偏移量
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, offsetReg);
+                currentBB->addInstruction(addInst);
+            }
+
+            // 基地址加上总偏移量得到最终地址
+            auto finalAddInst = RISCVInstruction::createRType(RISCVOpcode::ADD, elementAddressReg, baseAddressReg, totalOffsetReg);
+            currentBB->addInstruction(finalAddInst);
+        }
+        else
+        {
+            // 一维数组或简单情况：base + index * 4
+            auto indexReg = getOrCreateVirtualReg(indices[0]);
+            auto shiftReg = getGeneralTempRegister(1);
+
+            // 将索引左移2位（相当于乘以4）
+            auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, shiftReg, indexReg, 2);
+            currentBB->addInstruction(shiftInst);
+
+            // 基地址加上偏移量
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, elementAddressReg, baseAddressReg, shiftReg);
+            currentBB->addInstruction(addInst);
+        }
     }
     else
     {
-        // 没有索引，直接复制指针
-        auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, ptrReg);
+        // 没有索引，直接复制基地址
+        auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, elementAddressReg, baseAddressReg);
         currentBB->addInstruction(moveInst);
     }
 
-    // 将结果存储到栈中
-    storeValueToStack(inst, destReg);
+    // 将计算出的元素地址存储到栈中供load/store指令使用
+    storeValueToStack(inst->getDest(), elementAddressReg);
 }
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
@@ -636,7 +714,7 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     }
 
     // 将结果存储到栈中
-    storeValueToStack(inst, destReg);
+    storeValueToStack(inst->getDest(), destReg);
 }
 
 void InstructionSelector::visitFCmpInst(FCmpInst *inst)
@@ -685,7 +763,7 @@ void InstructionSelector::visitFCmpInst(FCmpInst *inst)
     }
 
     // 将结果存储到栈中
-    storeValueToStack(inst, destReg);
+    storeValueToStack(inst->getDest(), destReg);
 }
 
 void InstructionSelector::visitSIToFPInst(CastInst *inst)
@@ -701,7 +779,7 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
     currentBB->addInstruction(fcvtInst);
 
     // 将结果存储到栈中
-    storeValueToStack(inst, destReg);
+    storeValueToStack(inst->getDest(), destReg);
 }
 
 void InstructionSelector::visitFPToSIInst(CastInst *inst)
@@ -718,7 +796,7 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
     currentBB->addInstruction(fcvtInst);
 
     // 将结果存储到栈中
-    storeValueToStack(inst, destReg);
+    storeValueToStack(inst->getDest(), destReg);
 }
 
 void InstructionSelector::visitCopyInst(CopyInst *inst)
@@ -750,7 +828,7 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     currentBB->addInstruction(moveInst);
 
     // 将复制的结果存储到栈中（Copy指令的结果）
-    storeValueToStack(inst, destReg);
+    storeValueToStack(inst->getDest(), destReg);
 }
 
 void InstructionSelector::generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value)
@@ -1098,7 +1176,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                     if (allocatedType->isArrayTy())
                     {
                         auto arrayType = static_cast<ArrayType *>(allocatedType);
-                        allocSize = arrayType->getNumElements() * 4;
+                        allocSize = arrayType->getArrayLength() * 4 + 8; // 数组元素大小 + 指针大小
                     }
                     else
                     {
@@ -1118,8 +1196,61 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
 
             if (hasResult)
             {
-                stackFrame.allocateSpace(instr, allocSize);
-                S += allocSize;
+                Value *destValue = nullptr;
+
+                // 根据指令类型获取目标值
+                switch (instr->Op)
+                {
+                case Opcode::Add:
+                case Opcode::Sub:
+                case Opcode::Mul:
+                case Opcode::SDiv:
+                case Opcode::SRem:
+                case Opcode::FAdd:
+                case Opcode::FSub:
+                case Opcode::FMul:
+                case Opcode::FDiv:
+                    if (auto binOp = dynamic_cast<BinaryOperator *>(instr))
+                        destValue = binOp->getDest();
+                    break;
+                case Opcode::ICmp:
+                    if (auto icmpInst = dynamic_cast<ICmpInst *>(instr))
+                        destValue = icmpInst->getDest();
+                    break;
+                case Opcode::FCmp:
+                    if (auto fcmpInst = dynamic_cast<FCmpInst *>(instr))
+                        destValue = fcmpInst->getDest();
+                    break;
+                case Opcode::Load:
+                    if (auto loadInst = dynamic_cast<LoadInst *>(instr))
+                        destValue = loadInst->getDest();
+                    break;
+                case Opcode::Call:
+                    if (auto callInst = dynamic_cast<CallInst *>(instr))
+                        destValue = callInst->getDest();
+                    break;
+                case Opcode::Copy:
+                    if (auto copyInst = dynamic_cast<CopyInst *>(instr))
+                        destValue = copyInst->getDest();
+                    break;
+                case Opcode::Alloca:
+                    if (auto allocaInst = dynamic_cast<AllocaInst *>(instr))
+                        destValue = allocaInst->getDest();
+                    break;
+                case Opcode::GetElementPtr:
+                    if (auto gepInst = dynamic_cast<GetElementPtrInst *>(instr))
+                        destValue = gepInst->getDest();
+                    break;
+                default:
+                    destValue = instr; // 回退到原来的行为
+                    break;
+                }
+
+                if (destValue)
+                {
+                    stackFrame.allocateSpace(destValue, allocSize);
+                    S += allocSize;
+                }
             }
         }
     }
@@ -1267,9 +1398,7 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
     int floatArgIndex = 0;
     int ptrArgIndex = 0;
 
-    auto args = irFunc->getArguments();
-
-    for (const auto &arg : args)
+    for (const auto &arg : irFunc->getArguments())
     {
         // 根据参数类型分类
         if (arg->getType()->isIntegerTy())
@@ -1331,61 +1460,80 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
 
 void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer)
 {
-    // 处理全局变量初始化器 - 只添加数值，不添加.word前缀
+    // 处理全局变量初始化器 - 根据数据类型选择合适的输出方式
     if (auto constInt = dynamic_cast<ConstantInt *>(initializer))
     {
+        // 整数常量：直接添加数值
         globalBlock->addData(std::to_string(constInt->Value));
     }
     else if (auto constFloat = dynamic_cast<ConstantFloat *>(initializer))
     {
-        // 将浮点数转换为32位整数表示
+        // 浮点常量：转换为32位整数表示
         uint32_t bits;
         std::memcpy(&bits, &constFloat->Value, sizeof(float));
         globalBlock->addData(std::to_string(bits));
     }
     else if (auto constStr = dynamic_cast<ConstantString *>(initializer))
     {
-        // 字符串需要特殊处理：使用.string指令而不是.word
-        // 移除引号，因为RISCVGlobalBlock会处理字符串格式
+        // 字符串常量：使用专门的字符串处理方法
         globalBlock->addStringData(constStr->Value);
     }
     else if (auto constArray = dynamic_cast<ConstantArray *>(initializer))
     {
-        // 处理数组初始化器：递归处理每个元素
+        // 数组常量：收集所有元素，然后作为数组添加
+        vector<string> arrayElements;
         for (Constant *element : constArray->Elements)
         {
             if (element)
             {
-                processGlobalInitializer(globalBlock, element);
+                if (auto elemInt = dynamic_cast<ConstantInt *>(element))
+                {
+                    arrayElements.push_back(std::to_string(elemInt->Value));
+                }
+                else if (auto elemFloat = dynamic_cast<ConstantFloat *>(element))
+                {
+                    uint32_t bits;
+                    std::memcpy(&bits, &elemFloat->Value, sizeof(float));
+                    arrayElements.push_back(std::to_string(bits));
+                }
+                else
+                {
+                    // 未定义的元素用零初始化
+                    arrayElements.push_back("0");
+                }
             }
             else
             {
-                // 未定义的元素用零初始化
-                globalBlock->addData("0");
+                // 空元素用零初始化
+                arrayElements.push_back("0");
             }
         }
+
+        // 使用数组专用方法添加数据
+        globalBlock->addData(arrayElements);
     }
     else
     {
-        // 默认零初始化
+        // 其他情况：默认零初始化
         globalBlock->addData("0");
     }
 }
 
 void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type)
 {
-    // 处理零初始化 - 只添加数值，不添加.word前缀
+    // 处理零初始化
     if (type->isArrayTy())
     {
         auto arrayType = static_cast<ArrayType *>(type);
-        int numElements = arrayType->getNumElements();
-        for (int i = 0; i < numElements; ++i)
-        {
-            globalBlock->addData("0");
-        }
+        int numElements = arrayType->getArrayLength();
+
+        // 创建零初始化的数组
+        vector<string> zeroArray(numElements, "0");
+        globalBlock->addData(zeroArray);
     }
     else
     {
+        // 标量类型的零初始化
         globalBlock->addData("0");
     }
 }
@@ -1445,7 +1593,6 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
 
     // 函数标签
     ss << ".text\n";
-    ss << ".align 2\n"; // 对齐到4字节
 
     ss << "\n";
     ss << ".globl " << func->getName() << "\n";
