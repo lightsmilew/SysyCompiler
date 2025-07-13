@@ -452,17 +452,6 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
 {
     if (inst->getReturnValue())
     {
-
-        // 如果是main函数，需要调用putint输出返回值
-        if (currentFunc->getName() == "main")
-        {
-            // 调用putint函数输出返回值
-            auto callPutint = RISCVInstruction::createJType(RISCVOpcode::JAL,
-                                                            make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
-                                                            "putint");
-            currentBB->addInstruction(callPutint);
-        }
-
         // 有返回值，将值移动到返回寄存器
         auto valueReg = getOrCreateVirtualReg(inst->getReturnValue());
         auto returnReg = make_shared<RISCVRegister>(
@@ -472,6 +461,14 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
         RISCVOpcode moveOpcode = inst->getReturnValue()->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
+
+        // 如果是main函数，需要调用putint输出返回值
+        if (currentFunc->getName() == "main")
+        {
+            // 返回值已经在a0中，直接调用putint
+            auto callPutint = RISCVInstruction::createPseudoCALL("putint");
+            currentBB->addInstruction(callPutint);
+        }
     }
 
     // 生成函数结尾（恢复栈帧）
@@ -522,7 +519,8 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     StackFrame &stackFrame = currentFunc->getStackFrame();
 
     // 检查是否已经为该alloca分配了栈空间
-    if (!stackFrame.hasAllocation(inst))
+    string allocaName = inst->getName();
+    if (!stackFrame.hasAllocation(allocaName))
     {
         // 计算需要分配的内存大小
         Type *allocatedType = inst->AllocatedType;
@@ -532,11 +530,11 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 
         int allocatedSize = arrayType->getArrayLength() * elementSize;
 
-        stackFrame.allocateSpace(inst->getDest(), allocatedSize);
+        stackFrame.allocateSpace(inst->getDest()->getName(), allocatedSize);
     }
 
     // 获取alloca分配的内存在栈帧中的偏移
-    int varOffset = stackFrame.getOffset(inst->getDest());
+    int varOffset = stackFrame.getOffset(inst->getDest()->getName());
 
     // 创建临时寄存器保存数组/变量的首地址
     auto addressReg = getGeneralTempRegister(0);
@@ -953,15 +951,23 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         return tempReg;
     }
 
+    // 获取Value的名字作为映射的key
+    string valueName = value->getName();
+    if (valueName.empty())
+    {
+        // 如果没有名字，抛出错误，因为我们需要名字来建立映射
+        throw std::runtime_error("Unable to find register or stack allocation for Value: " + value->getName() + " (type: " + value->getType()->toString() + ")");
+    }
+
     // 查找已存在的映射（函数参数）
-    auto it = registerMap.find(value);
+    auto it = registerMap.find(valueName);
     if (it != registerMap.end())
     {
         return it->second;
     }
 
     // 检查是否是栈参数
-    auto stackIt = stackArguments.find(value);
+    auto stackIt = stackArguments.find(valueName);
     if (stackIt != stackArguments.end())
     {
         // 这是一个栈参数，需要从调用者栈帧中加载
@@ -1008,10 +1014,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
 
     // 对于需要从栈加载的值（如指令的结果）
     StackFrame &stackFrame = currentFunc->getStackFrame();
-    if (stackFrame.hasAllocation(value))
+    if (stackFrame.hasAllocation(valueName))
     {
         // 检查是否已经有加载过的寄存器
-        auto existing = registerMap.find(value);
+        auto existing = registerMap.find(valueName);
         if (existing != registerMap.end())
         {
             return existing->second;
@@ -1022,10 +1028,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         auto virtualReg = getTempRegister(regType, 0);
 
         // 先保存映射，避免递归调用
-        registerMap[value] = virtualReg;
+        registerMap[valueName] = virtualReg;
 
         // 生成从栈加载的指令
-        int offset = stackFrame.getOffset(value);
+        int offset = stackFrame.getOffset(valueName);
         generateStackAccess(offset, virtualReg, false); // false表示load
 
         return virtualReg;
@@ -1044,24 +1050,22 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     }
 
     // 错误情况：未能找到Value的寄存器或栈位置
-    // 这种情况不应该发生，表示编译器内部错误
-    std::cerr << "Error: Unable to find register or stack allocation for Value: "
-              << value->getName() << " (type: " << value->getType()->toString() << ")" << std::endl;
-
-    return nullptr; // 返回空指针表示错误
+    // 返回0
+    return 0;
 }
 
 void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size)
 {
     StackFrame &stackFrame = currentFunc->getStackFrame();
+    string valueName = value->getName();
 
-    if (!stackFrame.hasAllocation(value))
+    if (!stackFrame.hasAllocation(valueName))
     {
         // 如果还没有分配空间，现在分配
-        stackFrame.allocateSpace(value, size);
+        stackFrame.allocateSpace(valueName, size);
     }
 
-    int offset = stackFrame.getOffset(value);
+    int offset = stackFrame.getOffset(valueName);
     generateStackAccess(offset, reg, true, size == 8); // true表示store
 }
 
@@ -1134,6 +1138,8 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
             Instruction *instr = inst.get();
 
             // 统计call指令和参数数量
+            // 指针参数需要8字节，整数和浮点参数需要4字节
+            // 指针和整数共用八个参数寄存器，浮点数用八个参数寄存器
             if (instr->Op == Opcode::Call)
             {
                 hasCall = true;
@@ -1141,9 +1147,9 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                 {
                     int extraIntArgs = callInst->getIntArguments().size() - 8;
                     int extraFloatArgs = callInst->getFloatArguments().size() - 8;
-                    int extraPtrArgs = callInst->getPtrArguments().size();
+                    int extraPtrArgs = extraIntArgs < 0 ? callInst->getPtrArguments().size() + extraIntArgs : callInst->getPtrArguments().size();
 
-                    callArgSizes.push_back(std::max(extraIntArgs, 0) * 4 + std::max(extraFloatArgs, 0) * 4 + extraPtrArgs * 8);
+                    callArgSizes.push_back(std::max(extraIntArgs, 0) * 4 + std::max(extraFloatArgs, 0) * 4 + std::max(extraPtrArgs, 0) * 8);
                 }
             }
 
@@ -1161,12 +1167,14 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
             case Opcode::FAdd:
             case Opcode::FSub:
             case Opcode::FMul:
+            case Opcode::FCmp:
             case Opcode::FDiv:
             case Opcode::ICmp:
-            case Opcode::FCmp:
             case Opcode::Load:
             case Opcode::Call:
             case Opcode::Copy:
+            case Opcode::SIToFP:
+            case Opcode::FPToSI:
                 hasResult = !instr->getType()->isVoidTy();
                 break;
             case Opcode::Alloca:
@@ -1190,7 +1198,8 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                 allocSize = 8; // GEP通常返回指针，64位系统为8字节
                 break;
             default:
-                hasResult = false;
+                // 对于其他指令类型，检查是否有返回值
+                hasResult = !instr->getType()->isVoidTy();
                 break;
             }
 
@@ -1241,6 +1250,11 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                     if (auto gepInst = dynamic_cast<GetElementPtrInst *>(instr))
                         destValue = gepInst->getDest();
                     break;
+                case Opcode::SIToFP:
+                case Opcode::FPToSI:
+                    if (auto castInst = dynamic_cast<CastInst *>(instr))
+                        destValue = castInst->getDest();
+                    break;
                 default:
                     destValue = instr; // 回退到原来的行为
                     break;
@@ -1248,7 +1262,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
 
                 if (destValue)
                 {
-                    stackFrame.allocateSpace(destValue, allocSize);
+                    stackFrame.allocateSpace(destValue->getName(), allocSize);
                     S += allocSize;
                 }
             }
@@ -1261,7 +1275,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
 
     // 计算A：传参需要的栈空间
     // A = max{max(len_i - 8, 0)} * 4，其中len_i是第i个call的参数个数
-    A = std::max(0, *std::max_element(callArgSizes.begin(), callArgSizes.end()));
+    A = callArgSizes.empty() ? 0 : *std::max_element(callArgSizes.begin(), callArgSizes.end());
 
     // 计算总栈空间，向上取整到16字节对齐
     int totalSize = S + R + A;
@@ -1409,13 +1423,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用a0-a7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
-                registerMap[arg.get()] = reg;
+                registerMap[arg->getName()] = reg;
                 intArgIndex++;
             }
             else
             {
                 // 超出范围的整数参数从栈获取
-                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg->getName()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 intArgIndex++;
             }
         }
@@ -1427,13 +1441,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用fa0-fa7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex));
-                registerMap[arg.get()] = reg;
+                registerMap[arg->getName()] = reg;
                 floatArgIndex++;
             }
             else
             {
                 // 超出范围的浮点参数从栈获取
-                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg->getName()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 floatArgIndex++;
             }
         }
@@ -1445,13 +1459,13 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
                 // 使用a0-a7寄存器
                 auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
                     static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
-                registerMap[arg.get()] = reg;
+                registerMap[arg->getName()] = reg;
                 intArgIndex++;
             }
             else
             {
                 // 超出范围的指针参数从栈获取
-                stackArguments[arg.get()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
+                stackArguments[arg->getName()] = (intArgIndex + floatArgIndex) * 4 + ptrArgIndex * 8;
                 ptrArgIndex++;
             }
         }

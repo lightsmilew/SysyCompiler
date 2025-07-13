@@ -36,8 +36,8 @@ namespace RISCV
     private:
         shared_ptr<RISCVFunction> currentFunc;
         shared_ptr<RISCVBasicBlock> currentBB;
-        unordered_map<Value *, shared_ptr<RISCVRegister>> registerMap; // IR值到寄存器的映射
-        unordered_map<Value *, int> stackArguments;                    // 栈参数到偏移量的映射
+        unordered_map<string, shared_ptr<RISCVRegister>> registerMap; // IR值名字到寄存器的映射
+        unordered_map<string, int> stackArguments;                    // 栈参数名字到偏移量的映射
 
         // 临时寄存器轮换计数器，避免寄存器冲突
         mutable int generalTempCounter = 0;

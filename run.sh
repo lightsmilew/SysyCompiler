@@ -1,8 +1,8 @@
 #!/bin/bash
-#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-INPUT_DIR="test_cases/semantic_cases"
-OUTPUT_DIR="test_cases/output"
+INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+# INPUT_DIR="test_cases/semantic_cases"
+# OUTPUT_DIR="test_cases/output"
 #INPUT_DIR="test_cases/official_cases"
 #OUTPUT_DIR="test_cases/official_output"
 #INPUT_DIR="case/final_performance"

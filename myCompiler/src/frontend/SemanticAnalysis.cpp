@@ -876,6 +876,45 @@ void TypeCheckerVisitor::visitCallExpr(shared_ptr<CallExprNode> node)
     return;
   }
 
+  // putf函数特殊处理
+  if (node->callee == "putf")
+  {
+    // 检查第一个参数类型是否为字符串
+    auto strArg = dynamic_pointer_cast<StringLiteralExprNode>(node->args[0]);
+    if (strArg)
+    {
+      visitStringLiteralExpr(strArg);
+    }
+    else
+    {
+      addError("Function 'putf' expects a string argument");
+      return;
+    }
+
+    // 检查后面的参数类型是否是int或float
+    for (size_t i = 1; i < node->args.size(); i++)
+    {
+      auto arg = node->args[i];
+      PrimaryDataType argType = getExpressionType(arg);
+      if (argType != PrimaryDataType::INT && argType != PrimaryDataType::FLOAT)
+      {
+        addError("Function 'putf' expects int or float arguments after the format string");
+        return;
+      }
+    }
+
+    string strValue = strArg->value;
+
+    // 根据putf第一个参数中%的数量，检查后续参数是否匹配
+    int percentCount = std::count(strValue.begin(), strValue.end(), '%');
+    if (percentCount != node->args.size() - 1)
+    {
+      addError("Function 'putf' expects " + to_string(percentCount) +
+               " arguments, but got " + to_string(node->args.size() - 1));
+      return;
+    }
+  }
+
   // 检查函数调用参数数量是否一致
   inFunctionCall = true;
   auto targetParamsType = func->functionNode->params;
