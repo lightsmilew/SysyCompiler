@@ -1627,7 +1627,7 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     stringstream ss;
 
     // 基本块标签（如果不是入口块）
-    if (bb->getLabel() != bb->getParentFunc()->getName())
+    if (bb->getLabel() != bb->getParentFunc()->getName() && !bb->getInstructions().empty())
     {
         ss << bb->getLabel() << ":\n";
     }
