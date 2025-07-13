@@ -675,7 +675,7 @@ public:
 
     BasicBlock *addBasicBlock(const string &name = "");             // 添加基本块
     BasicBlock *getEntryBlock();                                    // 获取入口基本块
-    const vector<unique_ptr<BasicBlock>> &getBasicBlocks() const;   // 获取所有基本块
+    vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块
 
     Argument *addArgument(Type *type, const string &name = "");     // 添加参数
     const vector<unique_ptr<Argument>> &getArguments() const;       // 获取函数参数
