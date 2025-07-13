@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <string>
 #include <memory>
+#include <set>
 
 namespace optimization
 {
@@ -32,6 +33,9 @@ public:
     void addPass(std::unique_ptr<Pass> pass);
     bool runOnModule(Module *module);
     void setVerbose(bool v) { verbose = v; }
+
+    // 新增：获取寄存器分配结果接口
+    const std::unordered_map<Value*, int>* getRegisterAssignment() const;
 };
 
 // 1. 死代码消除Pass
@@ -126,20 +130,34 @@ public:
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
 };
-
+// 8. 寄存器分配 Pass（基于图的寄存器分配）
+class RegisterAllocationPass : public Pass {
+public:
+    // 活跃变量分析结果
+    std::unordered_map<BasicBlock*, std::set<Value*>> liveIn, liveOut;
+    // 冲突图
+    std::unordered_map<Value*, std::set<Value*>> interferenceGraph;
+    // 分配结果
+    std::unordered_map<Value*, int> regAssignment;
+    bool runOnFunction(Function *func) override;
+    // 获取寄存器分配结果
+    string getName() const override{ return "RegisterAllocationPass"; }
+};
 // 优化级别枚举
 enum class OptimizationLevel
 {
     O0, // 无优化
     O1, // 基本优化
-    O2,  // 更多优化
+    O2, // 更多优化
 
     //以下是调试内容
     O10,
     O11,
     O12,
     O13,
-    O14
+    O14,
+    O15,
+    O16
 };
 
 // 创建优化Pass管道的工厂函数

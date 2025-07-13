@@ -192,7 +192,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
             }
         }
     }
-    blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
+    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
 }
 
 void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node,bool isRestore)
@@ -241,7 +241,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     // 如果当前已经定义了同名变量，则记录，退出作用域时不将该变量的ssa值写出
     if(varToValue.count(node->identifier))
     {
-        blockNewDeclaredVars.push_back(node->identifier);
+        NewDeclaredVarsInBlock.push_back(node->identifier);
     }
     // 检查数组维度是否合法
     if(varType->isArrayTy())
@@ -373,8 +373,11 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // then 分支
     setCurrentBlock(thenBlock);
     visitStatement(node->then_body,false);
-    blockNewDeclaredVars.clear(); // 清空当前块新声明的变量列表
-    if (!currentBlock->hasTerminator())
+    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
+    bool then_hasTerminator = currentBlock->hasTerminator();
+    // 如果没有else分支，则该变量为true，符合逻辑
+    bool else_hasTerminator=true;
+    if (!then_hasTerminator)
     {
         createBranch(mergeBlock);
     }
@@ -382,15 +385,21 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     {
         setCurrentBlock(elseBlock);
         visitStatement(node->else_body,false);
-        if (!currentBlock->hasTerminator())
+        else_hasTerminator = currentBlock->hasTerminator();
+        if (!else_hasTerminator)
         {
             createBranch(mergeBlock);
         }
     }
     // 清空当前块新声明的变量列表
-    blockNewDeclaredVars.clear(); 
+    NewDeclaredVarsInBlock.clear();
     // 合流块
     setCurrentBlock(mergeBlock);
+    // 如果两个分支都有终结指令则不插入phi
+    if (then_hasTerminator && else_hasTerminator)
+    {
+        return;
+    }
     // 生成phi占位    
     addPhiForVars(); 
     // 插入phi输入
@@ -1667,7 +1676,7 @@ int IRBuilder::getArrayDims(string varName)
 }
 bool IRBuilder::isBlockNewDeclaredVar(const String &varName) const
 {
-    return std::find(blockNewDeclaredVars.begin(), blockNewDeclaredVars.end(), varName) != blockNewDeclaredVars.end();
+    return std::find(NewDeclaredVarsInBlock.begin(), NewDeclaredVarsInBlock.end(), varName) != NewDeclaredVarsInBlock.end();
 }
 
 void IRBuilder::printBlockValue()

@@ -1,7 +1,6 @@
 #include "OptimizationPasses.h"
 #include <iostream>
 #include <stack>
-#include <set>
 using namespace std;
 using namespace optimization;
 
@@ -23,7 +22,16 @@ bool PassManager::runOnModule(Module *module) {
     }
     return changed;
 }
-
+const std::unordered_map<Value*, int>* PassManager::getRegisterAssignment() const
+{
+    for (const auto& pass : passes) {
+        auto regPass = dynamic_cast<RegisterAllocationPass*>(pass.get());
+        if (regPass) {
+            return &(regPass->regAssignment);
+        }
+    }
+    return nullptr;
+}
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func) 
 {
@@ -637,6 +645,119 @@ bool PhiEliminationPass::runOnFunction(Function *func)
     }
     return changed;
 }
+
+
+bool RegisterAllocationPass::runOnFunction(Function *func)
+{
+    liveIn.clear();
+    liveOut.clear();
+    interferenceGraph.clear();
+    regAssignment.clear();
+
+    // ===== 活跃变量分析 =====
+    auto &bbs = func->getBasicBlocks();
+    for (auto &bbPtr : bbs) {
+        liveIn[bbPtr.get()] = {};
+        liveOut[bbPtr.get()] = {};
+    }
+    bool changed;
+    do {
+        changed = false;
+        for (auto &bbPtr : bbs) {
+            BasicBlock *bb = bbPtr.get();
+            std::set<Value*> newIn, newOut;
+            // liveOut = 所有后继的liveIn之并集
+            for (auto *succ : bb->getSuccessors()) {
+                auto &succIn = liveIn[succ];
+                newOut.insert(succIn.begin(), succIn.end());
+            }
+            // use/def分析
+            std::set<Value*> use, def;
+            for (auto &instPtr : bb->getInstructions()) {
+                Instruction *inst = instPtr.get();
+                def.insert(inst);
+                // 特殊处理call指令
+                if (auto *call = dynamic_cast<CallInst*>(inst)) {
+                    // 跳过第一个操作数（函数名），只统计参数
+                    for (size_t i = 1; i < call->getNumOperands(); ++i) {
+                        Value *op = call->getOperandByIndex(i);
+                        if (!def.count(op)) use.insert(op);
+                    }
+                } else {
+                    for (auto *op : inst->getOperands()) {
+                        if (!def.count(op)) use.insert(op);
+                    }
+                }
+            }
+            newIn = use;
+            for (auto *v : newOut) {
+                if (!def.count(v)) newIn.insert(v);
+            }
+            if (newIn != liveIn[bb] || newOut != liveOut[bb]) {
+                liveIn[bb] = newIn;
+                liveOut[bb] = newOut;
+                changed = true;
+            }
+        }
+    } while (changed);
+
+    // ===== 冲突图构建 =====
+    for (auto &bbPtr : bbs) {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        auto live = liveOut[bb];
+        for (auto it = insts.rbegin(); it != insts.rend(); ++it) {
+            Instruction *inst = it->get();
+            for (auto *v : live) {
+                if (v != inst) {
+                    interferenceGraph[inst].insert(v);
+                    interferenceGraph[v].insert(inst);
+                }
+            }
+            // 特殊处理call指令
+            if (auto *call = dynamic_cast<CallInst*>(inst)) {
+                for (size_t i = 1; i < call->getNumOperands(); ++i) {
+                    live.insert(call->getOperandByIndex(i));
+                }
+            } else {
+                for (auto *op : inst->getOperands()) {
+                    live.insert(op);
+                }
+            }
+            live.erase(inst);
+        }
+    }
+
+    // ===== 图着色分配 =====
+    int K = 8; // 假设有8个物理寄存器
+    std::vector<Value*> nodes;
+    for (auto &p : interferenceGraph) nodes.push_back(p.first);
+    std::sort(nodes.begin(), nodes.end(), [&](Value* a, Value* b) {
+        return interferenceGraph[a].size() > interferenceGraph[b].size();
+    });
+    for (auto *v : nodes) {
+        std::set<int> used;
+        for (auto *adj : interferenceGraph[v]) {
+            if (regAssignment.count(adj)) used.insert(regAssignment[adj]);
+        }
+        int reg = 0;
+        while (used.count(reg)) ++reg;
+        regAssignment[v] = reg < K ? reg : -1; // -1表示溢出需分配到内存
+    }
+    //可选：输出分配结果
+    for (auto &p : regAssignment) 
+    {
+        if (auto *c = dynamic_cast<Constant*>(p.first)) 
+        {
+            std::cout << "Constant : "<<c->toString() << " -> R" << p.second << std::endl;
+        } 
+        else 
+        {
+            std::cout << p.first->getName() << " -> R" << p.second << std::endl;
+        }
+    }
+    return false; // 只分析和分配，不修改IR
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose) 
 {
@@ -688,6 +809,16 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         pm->addPass(std::make_unique<FunctionInliningPass>());
         pm->addPass(std::make_unique<ConstantFoldingPass>());
+    }
+    else if(level==OptimizationLevel::O15)
+    {
+        pm->addPass(std::make_unique<RegisterAllocationPass>());
+    }
+    else if(level==OptimizationLevel::O16)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+        pm->addPass(std::make_unique<PhiEliminationPass>());
+        pm->addPass(std::make_unique<RegisterAllocationPass>());
     }
     return pm;
 }
