@@ -61,7 +61,7 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         riscvModule->addFunction(riscvFunc);
 
         // 为函数添加prologue基本块
-        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("prologue", riscvFunc));
+        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("prologue_" + func->getName(), riscvFunc));
 
         // 为每个IR基本块创建对应的RISC-V基本块
         for (const auto &bb : func->BasicBlocks)
