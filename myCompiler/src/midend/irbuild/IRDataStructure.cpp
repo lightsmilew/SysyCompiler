@@ -1032,7 +1032,7 @@ FunctionType *Function::getFunctionType()
 {
     return static_cast<FunctionType *>(getType());
 }
-const vector<unique_ptr<BasicBlock>> &Function::getBasicBlocks() const
+vector<unique_ptr<BasicBlock>> &Function::getBasicBlocks()
 {
     return BasicBlocks;
 }

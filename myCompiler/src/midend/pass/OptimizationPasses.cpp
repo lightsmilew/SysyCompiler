@@ -35,6 +35,24 @@ const std::unordered_map<Value*, int>* PassManager::getRegisterAssignment() cons
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func) 
 {
+    // 先删除不可达基本块（前驱为空且不是入口块）
+    auto &bbs = func->getBasicBlocks();
+    if (!bbs.empty()) {
+        BasicBlock *entry = bbs[0].get();
+        for (auto it = bbs.begin(); it != bbs.end(); ) {
+            BasicBlock *bb = it->get();
+            if (bb != entry && bb->getPredecessors().empty()) {
+                // 从后继中删除自身
+                for (auto *succ : bb->getSuccessors()) {
+                    succ->removePredecessor(bb);
+                }
+                it = bbs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     std::unordered_set<Instruction *> liveInsts;
     markLiveInstructions(func, liveInsts);
 
