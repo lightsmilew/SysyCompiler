@@ -77,6 +77,10 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O13; // 调试级别O13
         else if (strcmp(argv[4], "O14") == 0)
             opt_level = optimization::OptimizationLevel::O14; // 调试级别O14
+        else if (strcmp(argv[4], "O15") == 0)
+            opt_level = optimization::OptimizationLevel::O15; // 调试级别O15
+        else if (strcmp(argv[4], "O16") == 0)
+            opt_level = optimization::OptimizationLevel::O16; // 调试级别O16
         else
             throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
         // 不开启优化日志
