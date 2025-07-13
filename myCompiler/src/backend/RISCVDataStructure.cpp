@@ -345,10 +345,10 @@ namespace RISCV
                 return "fmv.s";
             case RISCVOpcode::FMV_W_X:
                 return "fmv.w.x";
-            case RISCVOpcode::ECALL:
-                return "ecall";
-            case RISCVOpcode::EBREAK:
-                return "ebreak";
+            case RISCVOpcode::RET:
+                return "ret";
+            case RISCVOpcode::CALL:
+                return "call";
             default:
                 return "unknown";
             }
@@ -402,16 +402,16 @@ namespace RISCV
         return valueStackSize + raStackSize + argStackSize;
     }
 
-    int StackFrame::allocateSpace(Value *value, int size)
+    int StackFrame::allocateSpace(const string &valueName, int size)
     {
-        if (valueToOffset.find(value) != valueToOffset.end())
+        if (valueToOffset.find(valueName) != valueToOffset.end())
         {
             // 已经分配过，返回现有偏移
-            return valueToOffset[value];
+            return valueToOffset[valueName];
         }
 
         int offset = currentOffset;
-        valueToOffset[value] = offset;
+        valueToOffset[valueName] = offset;
         currentOffset += size;
 
         // 更新相应的大小统计
@@ -420,9 +420,9 @@ namespace RISCV
         return offset;
     }
 
-    int StackFrame::getOffset(Value *value) const
+    int StackFrame::getOffset(const string &valueName) const
     {
-        auto it = valueToOffset.find(value);
+        auto it = valueToOffset.find(valueName);
         if (it != valueToOffset.end())
         {
             return it->second;
@@ -430,9 +430,9 @@ namespace RISCV
         throw std::runtime_error("Value not found in stack frame");
     }
 
-    bool StackFrame::hasAllocation(Value *value) const
+    bool StackFrame::hasAllocation(const string &valueName) const
     {
-        return valueToOffset.find(value) != valueToOffset.end();
+        return valueToOffset.find(valueName) != valueToOffset.end();
     }
 
     int StackFrame::getAlignedSize() const

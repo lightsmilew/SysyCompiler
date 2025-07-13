@@ -343,8 +343,8 @@ namespace RISCV
         int raStackSize;    // ra寄存器需要的栈空间（ABI规范）
         int argStackSize;   // 传参预留的栈空间（ABI规范）
 
-        // Value到栈帧偏移的映射（相对于函数入口时的sp）
-        unordered_map<Value *, int> valueToOffset;
+        // Value名字到栈帧偏移的映射（相对于函数入口时的sp）
+        unordered_map<string, int> valueToOffset;
 
         // 已分配的栈空间偏移（从0开始分配）
         int currentOffset;
@@ -354,13 +354,13 @@ namespace RISCV
         int getTotalSize() const;
 
         // 为Value分配栈空间并返回偏移量
-        int allocateSpace(Value *value, int size = 4);
+        int allocateSpace(const string &valueName, int size = 4);
 
         // 获取Value的栈偏移量
-        int getOffset(Value *value) const;
+        int getOffset(const string &valueName) const;
 
         // 检查是否有分配的栈空间
-        bool hasAllocation(Value *value) const;
+        bool hasAllocation(const string &valueName) const;
 
         // 计算16字节对齐后的总大小
         int getAlignedSize() const;
