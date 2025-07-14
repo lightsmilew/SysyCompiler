@@ -286,7 +286,8 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                 }
             }
         }
-        cout<<"Removed Instructions: "<<count<<endl;
+        // 调试输出
+        // cout<<"Removed Instructions: "<<count<<endl;
     } while (localChanged);
     return changed;
 }

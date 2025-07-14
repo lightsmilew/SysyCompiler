@@ -96,8 +96,8 @@ int main(int argc, const char *argv[])
         if(argc > 3 && strcmp(argv[3], "-debug") == 0)
          {
             cout << "Debugging IR Module:" << endl;
-            ir_module->printBasic();
-            irbuilder.printBlockValue();
+            ir_module->printBasicBlockInfo();
+            irbuilder.printValueTableInEveryBlock();
          }
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
