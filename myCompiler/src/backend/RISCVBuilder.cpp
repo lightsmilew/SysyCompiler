@@ -474,9 +474,21 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
     // 生成函数结尾（恢复栈帧）
     generateFunctionEpilogue(currentFunc);
 
-    // 生成返回指令
-    auto retInst = RISCVInstruction::createPseudoRET();
-    currentBB->addInstruction(retInst);
+    if (currentFunc->getName() == "main")
+    {
+        // li a0, 0
+        // call exit
+        auto liRetInst = RISCVInstruction::createPseudoLI(make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0), (int64_t)0);
+        currentBB->addInstruction(liRetInst);
+        auto callExitInst = RISCVInstruction::createPseudoCALL("exit");
+        currentBB->addInstruction(callExitInst);
+    }
+    else
+    {
+        // 对于其他函数，直接返回
+        auto retInst = RISCVInstruction::createPseudoRET();
+        currentBB->addInstruction(retInst);
+    }
 }
 
 void InstructionSelector::visitBranchInst(BranchInst *inst)
@@ -485,6 +497,15 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
     {
         // 条件分支
         auto condReg = getOrCreateVirtualReg(inst->getCondition());
+
+        if (condReg->getType() == RegisterType::FLOAT)
+        {
+            // 如果条件是浮点类型，需要先转换为整数
+            auto intCondReg = getGeneralTempRegister(0);
+            auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, condReg);
+            currentBB->addInstruction(ftoiInst);
+            condReg = intCondReg; // 使用转换后的整数寄存器作为条件
+        }
 
         // 生成条件分支指令 - 条件应该在通用寄存器中
         auto brInst = RISCVInstruction::createBType(RISCVOpcode::BNE, condReg,
@@ -575,8 +596,8 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     auto baseAddressReg = getOrCreateVirtualReg(inst->getPointerOperand());
     auto elementAddressReg = getGeneralTempRegister(0);
 
-    auto indices = inst->getIndices();
-    auto stridePtr = inst->getArrayStride(); // 这是 vector<int>* 类型
+    auto indices = inst->getIndices();       // 访问下标
+    auto stridePtr = inst->getArrayStride(); // 获取数组的步长信息
 
     if (!indices.empty())
     {
@@ -590,27 +611,40 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             auto initInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, totalOffsetReg, zeroReg);
             currentBB->addInstruction(initInst);
 
+            auto offsetReg = getGeneralTempRegister(2);
+            auto liInst = RISCVInstruction::createPseudoLI(offsetReg, 1);
+            currentBB->addInstruction(liInst);
+
             // 处理每个维度的索引
-            for (size_t i = 0; i < indices.size() && i < stridePtr->size(); ++i)
+            for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
             {
                 auto indexReg = getOrCreateVirtualReg(indices[i]);
-                auto strideReg = getGeneralTempRegister(2);
-                auto offsetReg = getGeneralTempRegister(3);
+                auto tmpReg = getGeneralTempRegister(3);
 
-                // 获取当前维度的步长（已经是元素个数，需要乘以4得到字节数）
-                int stride = (*stridePtr)[i]; // 解引用指针并访问元素
-
-                // 加载步长到寄存器：stride * 4（字节步长）
-                auto liInst = RISCVInstruction::createPseudoLI(strideReg, stride * 4);
-                currentBB->addInstruction(liInst);
-
-                // 计算当前维度的偏移：index * stride * 4
-                auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, indexReg, strideReg);
+                // totalOffset += offset * index * 4
+                auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
                 currentBB->addInstruction(mulInst);
-
-                // 累加到总偏移量
-                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, offsetReg);
+                auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmpReg, tmpReg, 2); // 左移2位，相当于乘以4
+                currentBB->addInstruction(shiftInst);
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
                 currentBB->addInstruction(addInst);
+
+                // offset *= stride
+                if (i == 0)
+                {
+                    // 最后一个维度的偏移量不需要乘以stride
+                    break;
+                }
+
+                int stride = (*stridePtr)[i - 1];
+                if (stride != 1)
+                {
+                    auto strideReg = getGeneralTempRegister(4);
+                    auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
+                    currentBB->addInstruction(liStrideInst);
+                    auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
+                    currentBB->addInstruction(mulStrideInst);
+                }
             }
 
             // 基地址加上总偏移量得到最终地址
@@ -1040,11 +1074,25 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     // 如果是全局变量
     if (value->isGlobal())
     {
-        // 全局变量需要从全局内存加载
-        auto globalReg = getGeneralTempRegister(0);
+        // 全局变量需要先从从全局内存加载地址，然后再加载值
+        auto globalReg = getTempRegister(RegisterType::GENERAL, 0);
 
         auto laInst = RISCVInstruction::createPseudoLA(globalReg, value->getName());
         currentBB->addInstruction(laInst);
+
+        // 如果是浮点类型，需要从全局内存加载到浮点寄存器
+        if (value->getType()->isFloatTy())
+        {
+            auto floatReg = getFloatTempRegister(0);
+            auto loadInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, globalReg);
+            currentBB->addInstruction(loadInst);
+            globalReg = floatReg; // 更新返回寄存器为浮点寄存器
+        }
+        else
+        {
+            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, globalReg, globalReg, 0);
+            currentBB->addInstruction(loadInst);
+        }
 
         return globalReg;
     }
@@ -1574,6 +1622,9 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
         ss << emitGlobals(module->getGlobalBlocks());
     }
 
+    // 生成文本段
+    ss << ".text\n";
+
     // 生成函数
     for (const auto &func : module->getFunctions())
     {
@@ -1606,7 +1657,6 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
     stringstream ss;
 
     // 函数标签
-    ss << ".text\n";
 
     ss << "\n";
     ss << ".globl " << func->getName() << "\n";
@@ -1627,7 +1677,7 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     stringstream ss;
 
     // 基本块标签（如果不是入口块）
-    if (bb->getLabel() != bb->getParentFunc()->getName() && !bb->getInstructions().empty())
+    if (bb->getLabel() != bb->getParentFunc()->getName())
     {
         ss << bb->getLabel() << ":\n";
     }

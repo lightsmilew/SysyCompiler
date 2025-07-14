@@ -345,10 +345,14 @@ namespace RISCV
                 return "fmv.s";
             case RISCVOpcode::FMV_W_X:
                 return "fmv.w.x";
+            case RISCVOpcode::FMV_X_W:
+                return "fmv.x.w";
             case RISCVOpcode::RET:
                 return "ret";
             case RISCVOpcode::CALL:
                 return "call";
+            case RISCVOpcode::ECALL:
+                return "ecall";
             default:
                 return "unknown";
             }
@@ -357,7 +361,7 @@ namespace RISCV
         ss << "    " << opcodeToString(opcode);
 
         // 特殊处理系统指令（不需要操作数）
-        if (opcode == RISCVOpcode::ECALL || opcode == RISCVOpcode::EBREAK)
+        if (opcode == RISCVOpcode::RET)
         {
             // 系统指令不需要操作数
         }
@@ -760,6 +764,13 @@ namespace RISCV
     {
         auto instr = make_shared<RISCVInstruction>(RISCVOpcode::RET, InstructionType::PSEUDO);
         instr->operands = {}; // RET 不需要操作数
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoECALL()
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::ECALL, InstructionType::PSEUDO);
+        instr->operands = {}; // ECALL 不需要操作数
         return instr;
     }
 }
