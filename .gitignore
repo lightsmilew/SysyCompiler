@@ -2,3 +2,4 @@ myCompiler/build/
 .vscode/
 test_cases/**/*
 case/**/*
+test.sh

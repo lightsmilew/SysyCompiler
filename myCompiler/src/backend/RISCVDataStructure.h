@@ -119,6 +119,7 @@ namespace RISCV
         MV,
         FMV_S,
         FMV_W_X, // 整数寄存器到浮点寄存器的移动
+        FMV_X_W, // 浮点寄存器到整数寄存器的移动
 
         // 系统指令
         ECALL,
@@ -321,6 +322,7 @@ namespace RISCV
         static shared_ptr<RISCVInstruction> createPseudoLA(shared_ptr<RISCVRegister> rd, const string &label);
         static shared_ptr<RISCVInstruction> createPseudoCALL(const string &label = "");
         static shared_ptr<RISCVInstruction> createPseudoRET();
+        static shared_ptr<RISCVInstruction> createPseudoECALL();
 
         // 访问器
         RISCVOpcode getOpcode() const { return opcode; }
