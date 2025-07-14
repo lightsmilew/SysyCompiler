@@ -290,6 +290,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             }
             else if (node->initializer && node->type.isConst())
             {
+                visitInitExpr(node->initializer, varType, alloca);
                 Constant *initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType*>(varType));
                 constVarToValue[node->identifier] = initializer;
             }            
@@ -716,6 +717,7 @@ Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
 
 Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
 {
+
     auto it = varToValue.find(node->identifier);
     if (it == varToValue.end())
     {
@@ -727,6 +729,40 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     {
         // 如果是标量变量，直接返回其 SSA 值
         return ptr;
+    }
+    // 进入下面的语句只能是指针或常量数组
+    // 如果是const数组
+    if (constVarToValue.count(node->identifier))
+    {
+        vector<int> indices;
+        bool isAllConstant = true;
+        for(int i = 0; i < node->indices.size(); ++i)
+        {
+            auto indexValue = evaluateConstantExpr(node->indices[i]);
+            if(!indexValue)
+            {
+                isAllConstant = false;
+                break;
+            } // 如果有一个下标不是常量，直接跳出
+            auto constantInt= dynamic_cast<ConstantInt *>(indexValue);
+            if(!constantInt)
+            {
+                throw std::runtime_error("Array index must be constant for const array,line: " + std::to_string(node->line));
+            }
+            // 如果是常量数组，直接返回对应的值
+            indices.push_back(constantInt->Value);
+        }
+        // 如果是常量数组且下标全是常量，获取指定value直接返回
+        if(isAllConstant)
+        {
+            auto ConstantValue=getConstantArrayValueByIndices(constVarToValue[node->identifier], indices);
+            if(!ConstantValue)
+            {
+                throw std::runtime_error("ConstantArray is a nullptr,line : " + std::to_string(node->line));
+            }
+            // 如果是常量数组，直接返回对应的值
+            return ConstantValue;
+        }
     }
     // 处理数组索引
     if (!node->indices.empty()&&ptr->getType()->isPointerTy())
@@ -901,7 +937,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
     {
         // 到达最底层元素
         Vector<Value *> gep_indices;
-        gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+        //gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         for (int idx : indices) {
             gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
         }
@@ -1025,7 +1061,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     else if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
         auto it = constVarToValue.find(lval->identifier);
         if (it == constVarToValue.end())
-            throw std::runtime_error("Non-constant variable in constant expression: " + lval->identifier+",line: "+ std::to_string(node->line));
+            return nullptr; // 如果没有找到常量变量，返回 nullptr
         if(auto constInt= dynamic_cast<ConstantInt*>(it->second)) {
             return constInt;
         } else if(auto constFloat = dynamic_cast<ConstantFloat*>(it->second)) {
@@ -1049,10 +1085,14 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         }
     }
 
-    throw std::runtime_error("Non-constant expression in constant context ,line: " + std::to_string(node->line));
+    throw std::runtime_error("Unsupported expression in evaluateConstantExpr FunctionCall ,line: " + std::to_string(node->line));
 }
 int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
     auto value=evaluateConstantExpr(node);
+    if(value==nullptr)
+    {
+        throw std::runtime_error("Expression is not constant,line: "+std::to_string(node->line));
+    }
     if(auto int_value=dynamic_cast<ConstantInt*>(value)){
         return int_value->Value;
     }
@@ -1653,6 +1693,37 @@ int IRBuilder::getArrayDims(string varName)
         type = arrayType->ElementType; // 继续向下获取元素类型
     }
     return dims;
+}
+Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant,const Vector<int> &indices)const
+{
+    if (indices.empty()) return nullptr;
+    auto constArray = dynamic_cast<ConstantArray*>(constant);
+    if (!constArray)
+    {
+        throw std::runtime_error("Variable is not a constant array");
+    }
+    // 遍历索引获取元素
+    ConstantArray *tmpArray = constArray;
+    for (size_t i = 0; i < indices.size(); ++i)
+    {
+        int index = indices[i];
+        if (index < 0 || index >= tmpArray->Elements.size())
+        {
+            throw std::runtime_error("Index out of bounds for constant array,index: " + std::to_string(index));
+        }
+        // 如果是最后一个索引，返回对应的元素
+        if (i == indices.size() - 1)
+        {
+            return tmpArray->Elements[index];
+        }
+        // 否则继续深入下一层数组
+        tmpArray = dynamic_cast<ConstantArray*>(tmpArray->Elements[index]);
+        if (!tmpArray)
+        {
+            throw std::runtime_error("Indexing into non-array element in constant array");
+        }
+    }
+    return nullptr; // 理论上不会到这里
 }
 bool IRBuilder::isBlockNewDeclaredVar(const String &varName) const
 {

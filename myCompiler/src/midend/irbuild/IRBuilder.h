@@ -118,7 +118,8 @@ namespace ir_builder
         bool isConstantValue(Value *value);                                                     // 判断一个Value是否为常量值                                  
         bool hasTerminatorInst(BasicBlock *block);                                              // 判断基本块是否有终结指令
         bool isBlockNewDeclaredVar(const String &varName)const;                                 // 是否为块内新定义变量
-        int getArrayDims(string varName);                                                       // 获取数组维度数量                   
+        int getArrayDims(string varName);
+        Value *getConstantArrayValueByIndices(Constant *constant,const Vector<int> &indices) const;                // 获取数组维度数量    
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);        // AST类型转换IR类型
         Value *createCast(Value *value, Type *targetType,string statement);                     // 生成类型强制转换指令 statement用于调试定位
         Value *convertToBool(Value *value);                                                     // 转换为布尔值
