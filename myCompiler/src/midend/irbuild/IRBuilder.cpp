@@ -265,6 +265,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             } 
             else 
             {
+                // 经过静态检查，这里必定是常量，不用判空
                 initializer = evaluateConstantExpr(node->initializer->singleInitVal);
             }
         }
@@ -305,6 +306,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             }
             else if (node->initializer && node->type.isConst())
             {
+                // 经过静态检查，这里必定是常量，不用判空
                 Constant *initializer = evaluateConstantExpr(node->initializer->singleInitVal);
                 initValue = initializer;
                 constVarToValue[node->identifier] = initializer;
@@ -968,7 +970,8 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
                 elements.push_back(evaluateConstantArray(node->multiInitVal[i], static_cast<ArrayType*>(elemType)));
             } 
             else 
-            {
+            {   
+                // 经过静态检查，这里必定是常量
                 elements.push_back(evaluateConstantExpr(node->multiInitVal[i]->singleInitVal));
             }
         }
@@ -1002,6 +1005,8 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     else if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
         auto lhs = evaluateConstantExpr(binExpr->left);
         auto rhs = evaluateConstantExpr(binExpr->right);
+        if(!lhs|| !rhs)
+            return nullptr; // 如果有一个子表达式不是常量，返回 nullptr
         // 这里只处理 int/float 常量
         if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy()) {
             int l = static_cast<ConstantInt*>(lhs)->Value;
@@ -1033,6 +1038,8 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     else if(auto uval=std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
     {
         auto operand=evaluateConstantExpr(uval->operand);
+        if(!operand)
+            return nullptr; // 如果操作数不是常量，返回 nullptr
         if(operand->getType()->isIntegerTy())
         {
             int v=static_cast<ConstantInt*>(operand)->Value;
@@ -1089,7 +1096,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 }
 int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
     auto value=evaluateConstantExpr(node);
-    if(value==nullptr)
+    if(!value)
     {
         throw std::runtime_error("Expression is not constant,line: "+std::to_string(node->line));
     }
