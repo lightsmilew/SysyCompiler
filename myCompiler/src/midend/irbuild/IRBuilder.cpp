@@ -377,10 +377,10 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     setCurrentBlock(thenBlock);
     visitStatement(node->then_body,false);
     NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
-    bool then_hasTerminator = currentBlock->hasTerminator();
+    //bool then_hasTerminator = currentBlock->hasTerminator();
     // 如果没有else分支，则该变量为true，符合逻辑
-    bool else_hasTerminator=true;
-    if (!then_hasTerminator)
+    //bool else_hasTerminator=true;
+    if (!currentBlock->hasTerminator())
     {
         createBranch(mergeBlock);
     }
@@ -388,8 +388,8 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     {
         setCurrentBlock(elseBlock);
         visitStatement(node->else_body,false);
-        else_hasTerminator = currentBlock->hasTerminator();
-        if (!else_hasTerminator)
+        //else_hasTerminator = currentBlock->hasTerminator();
+        if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
@@ -398,11 +398,14 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     NewDeclaredVarsInBlock.clear();
     // 合流块
     setCurrentBlock(mergeBlock);
-    // 如果两个分支都有终结指令则不插入phi
-    if (then_hasTerminator && else_hasTerminator)
-    {
+    // // 如果两个分支都有终结指令则不插入phi
+    // if (then_hasTerminator && else_hasTerminator)
+    // {
+    //     return;
+    // }
+    // 修改判断，如果合流块没有前驱则返回，不生产phi指令
+    if (mergeBlock->getPredecessors().empty())
         return;
-    }
     // 生成phi占位    
     addPhiForVars(); 
     // 插入phi输入

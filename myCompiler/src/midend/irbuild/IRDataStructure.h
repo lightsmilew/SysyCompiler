@@ -361,6 +361,7 @@ public:
     bool isTerminator() const;                                             // 是否为终结指令
     bool isCopy() const;                                                   // 是否为复制指令
     bool mayHaveSideEffects() const;                                       // 是否有负面作用
+    bool hasResult() const;                                                // 是否有结果
     virtual string toString() const = 0;
 };
 

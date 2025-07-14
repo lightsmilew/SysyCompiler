@@ -22,16 +22,6 @@ bool PassManager::runOnModule(Module *module) {
     }
     return changed;
 }
-const std::unordered_map<Value*, int>* PassManager::getRegisterAssignment() const
-{
-    for (const auto& pass : passes) {
-        auto regPass = dynamic_cast<RegisterAllocationPass*>(pass.get());
-        if (regPass) {
-            return &(regPass->regAssignment);
-        }
-    }
-    return nullptr;
-}
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func) 
 {
@@ -185,49 +175,6 @@ std::size_t CommonSubexpressionEliminationPass::ExpressionHash::operator()(const
     return h;
 }
 
-// ========== 基本块合并 ==========
-bool BasicBlockMergePass::runOnFunction(Function *func) 
-{
-    bool changed = false;
-    auto &bbs = func->getBasicBlocks();
-    for (size_t i = 0; i + 1 < bbs.size(); ++i) 
-    {
-        BasicBlock *bb1 = bbs[i].get();
-        BasicBlock *bb2 = bbs[i + 1].get();
-        if (canMergeBlocks(bb1, bb2)) 
-        {
-            mergeBlocks(bb1, bb2);
-            changed = true;
-        }
-    }
-    return changed;
-}
-bool BasicBlockMergePass::canMergeBlocks(BasicBlock *bb1, BasicBlock *bb2) 
-{
-    // bb1 只有一个后继且是bb2，bb2只有一个前驱且是bb1
-    return bb1->getSuccessors().size() == 1 && bb1->getSuccessors()[0] == bb2 &&
-           bb2->getPredecessors().size() == 1 && bb2->getPredecessors()[0] == bb1;
-}
-void BasicBlockMergePass::mergeBlocks(BasicBlock *bb1, BasicBlock *bb2) 
-{
-    // 合并指令
-    for (auto &inst : bb2->getInstructions()) 
-    {
-        bb1->addInstruction(std::move(inst));
-    }
-    bb2->getInstructions().clear();
-    // 更新前驱和后继关系
-    for (auto *succ : bb2->getSuccessors()) 
-    {
-        // 将bb2的后继转移到bb1
-        bb1->addSuccessor(succ);
-        // 更新后继的前驱为bb1
-        succ->removePredecessor(bb2);
-        succ->addPredecessor(bb1);
-    }
-    // 删除bb2
-    delete bb2;
-}
 // ========== 循环不变代码移动 ==========
 bool LoopInvariantCodeMotionPass::runOnFunction(Function *func) 
 {
@@ -666,116 +613,100 @@ bool PhiEliminationPass::runOnFunction(Function *func)
 }
 
 
-bool RegisterAllocationPass::runOnFunction(Function *func)
-{
+// 活跃变量分析 Pass 实现
+bool LiveVariableAnalysisPass::runOnFunction(Function *func) {
     liveIn.clear();
     liveOut.clear();
-    interferenceGraph.clear();
-    regAssignment.clear();
 
-    // ===== 活跃变量分析 =====
+    // 初始化
     auto &bbs = func->getBasicBlocks();
     for (auto &bbPtr : bbs) {
-        liveIn[bbPtr.get()] = {};
-        liveOut[bbPtr.get()] = {};
-    }
-    bool changed;
-    do {
-        changed = false;
-        for (auto &bbPtr : bbs) {
-            BasicBlock *bb = bbPtr.get();
-            std::set<Value*> newIn, newOut;
-            // liveOut = 所有后继的liveIn之并集
-            for (auto *succ : bb->getSuccessors()) {
-                auto &succIn = liveIn[succ];
-                newOut.insert(succIn.begin(), succIn.end());
-            }
-            // use/def分析
-            std::set<Value*> use, def;
-            for (auto &instPtr : bb->getInstructions()) {
-                Instruction *inst = instPtr.get();
-                def.insert(inst);
-                // 特殊处理call指令
-                if (auto *call = dynamic_cast<CallInst*>(inst)) {
-                    // 跳过第一个操作数（函数名），只统计参数
-                    for (size_t i = 1; i < call->getNumOperands(); ++i) {
-                        Value *op = call->getOperandByIndex(i);
-                        if (!def.count(op)) use.insert(op);
-                    }
-                } else {
-                    for (auto *op : inst->getOperands()) {
-                        if (!def.count(op)) use.insert(op);
-                    }
-                }
-            }
-            newIn = use;
-            for (auto *v : newOut) {
-                if (!def.count(v)) newIn.insert(v);
-            }
-            if (newIn != liveIn[bb] || newOut != liveOut[bb]) {
-                liveIn[bb] = newIn;
-                liveOut[bb] = newOut;
-                changed = true;
-            }
-        }
-    } while (changed);
-
-    // ===== 冲突图构建 =====
-    for (auto &bbPtr : bbs) {
         BasicBlock *bb = bbPtr.get();
-        auto &insts = bb->getInstructions();
-        auto live = liveOut[bb];
-        for (auto it = insts.rbegin(); it != insts.rend(); ++it) {
-            Instruction *inst = it->get();
-            for (auto *v : live) {
-                if (v != inst) {
-                    interferenceGraph[inst].insert(v);
-                    interferenceGraph[v].insert(inst);
-                }
-            }
-            // 特殊处理call指令
-            if (auto *call = dynamic_cast<CallInst*>(inst)) {
-                for (size_t i = 1; i < call->getNumOperands(); ++i) {
-                    live.insert(call->getOperandByIndex(i));
-                }
-            } else {
-                for (auto *op : inst->getOperands()) {
-                    live.insert(op);
-                }
-            }
-            live.erase(inst);
-        }
+        liveIn[bb] = {};
+        liveOut[bb] = {};
     }
 
-    // ===== 图着色分配 =====
-    int K = 8; // 假设有8个物理寄存器
-    std::vector<Value*> nodes;
-    for (auto &p : interferenceGraph) nodes.push_back(p.first);
-    std::sort(nodes.begin(), nodes.end(), [&](Value* a, Value* b) {
-        return interferenceGraph[a].size() > interferenceGraph[b].size();
-    });
-    for (auto *v : nodes) {
-        std::set<int> used;
-        for (auto *adj : interferenceGraph[v]) {
-            if (regAssignment.count(adj)) used.insert(regAssignment[adj]);
-        }
-        int reg = 0;
-        while (used.count(reg)) ++reg;
-        regAssignment[v] = reg < K ? reg : -1; // -1表示溢出需分配到内存
-    }
-    //可选：输出分配结果
-    for (auto &p : regAssignment) 
+    bool changed = true;
+    while (changed) 
     {
-        if (auto *c = dynamic_cast<Constant*>(p.first)) 
+        changed = false;
+        // 逆序遍历基本块更快收敛
+        for (auto it = bbs.rbegin(); it != bbs.rend(); ++it) 
         {
-            std::cout << "Constant : "<<c->toString() << " -> R" << p.second << std::endl;
-        } 
-        else 
-        {
-            std::cout << p.first->getName() << " -> R" << p.second << std::endl;
+            BasicBlock *bb = it->get();
+            std::set<Value*> oldIn = liveIn[bb];
+            std::set<Value*> oldOut = liveOut[bb];
+
+            // liveOut[bb] = 并集(succ的liveIn)
+            liveOut[bb].clear();
+            for (auto *succ : bb->getSuccessors()) 
+            {
+                liveOut[bb].insert(liveIn[succ].begin(), liveIn[succ].end());
+            }
+
+            // use/def集合
+            std::set<Value*> use, def;
+            for (auto &instPtr : bb->getInstructions()) 
+            {
+                Instruction *inst = instPtr.get();
+                // def: 被定义的变量
+                if (inst->hasResult()) 
+                {
+                    def.insert(inst);
+                }
+                // use: 所有操作数，且未被def过
+                if (auto *call = dynamic_cast<CallInst*>(inst)) 
+                {
+                    // 跳过第一个操作数（函数名），只统计参数
+                    for (size_t i = 1; i < call->getNumOperands(); ++i) 
+                    {
+                        Value *op = call->getOperandByIndex(i);
+                        // 跳过常量
+                        if (dynamic_cast<Constant*>(op)) continue;
+                        if (def.count(op) == 0)
+                            use.insert(op);
+                    }
+                } 
+                else 
+                {
+                    for (auto *op : inst->getOperands()) 
+                    {
+                        // 跳过常量
+                        if (dynamic_cast<Constant*>(op)) continue;                        
+                        if (def.count(op) == 0)
+                            use.insert(op);
+                    }
+                }
+            }
+
+            // liveIn[bb] = use ∪ (liveOut[bb] - def)
+            liveIn[bb] = use;
+            for (auto *v : liveOut[bb]) 
+            {
+                if (def.count(v) == 0)
+                    liveIn[bb].insert(v);
+            }
+
+            if (liveIn[bb] != oldIn || liveOut[bb] != oldOut)
+                changed = true;
         }
     }
-    return false; // 只分析和分配，不修改IR
+    if(verbose)
+    {
+        std::cout << "Live Variable Analysis Pass:\n";
+        //调试输出
+        for (auto &bbPtr : bbs) 
+        {
+            BasicBlock *bb = bbPtr.get();
+            std::cout << "BB: " << bb->getName() << "\n";
+            std::cout << "  liveIn: ";
+            for (auto *v : liveIn[bb]) std::cout << v->toRef() << " ";
+            std::cout << "\n  liveOut: ";
+            for (auto *v : liveOut[bb]) std::cout << v->toRef() << " ";
+            std::cout << "\n";
+        }
+    }
+    return false; // 只分析，不修改IR
 }
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose) 
@@ -785,59 +716,55 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     if (level == OptimizationLevel::O0) 
     {
         // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>());
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     } 
     else if (level == OptimizationLevel::O1) 
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>());        
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
 
     } 
     else if (level == OptimizationLevel::O2) 
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
-        pm->addPass(std::make_unique<PhiEliminationPass>());        
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));        
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
 
-        pm->addPass(std::make_unique<FunctionInliningPass>());
-        pm->addPass(std::make_unique<ConstantFoldingPass>());
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     //以下为调试内容
     else if(level==OptimizationLevel::O10)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
     else if(level==OptimizationLevel::O11)
     {
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>());
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
     }
     else if(level==OptimizationLevel::O12)
     {
-        pm->addPass(std::make_unique<FunctionInliningPass>());
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
     }
     else if(level==OptimizationLevel::O13)
     {
         //必须要先消除phi才能进行循环不变量外提
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
-        pm->addPass(std::make_unique<PhiEliminationPass>());
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>());
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
     }
     else if(level==OptimizationLevel::O14)
     {
-        pm->addPass(std::make_unique<FunctionInliningPass>());
-        pm->addPass(std::make_unique<ConstantFoldingPass>());
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     else if(level==OptimizationLevel::O15)
     {
-        pm->addPass(std::make_unique<RegisterAllocationPass>());
-    }
-    else if(level==OptimizationLevel::O16)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>());
-        pm->addPass(std::make_unique<PhiEliminationPass>());
-        pm->addPass(std::make_unique<RegisterAllocationPass>());
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LiveVariableAnalysisPass>(verbose));
     }
     return pm;
 }

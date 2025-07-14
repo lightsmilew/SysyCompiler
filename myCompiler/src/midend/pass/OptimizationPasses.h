@@ -15,6 +15,8 @@ class Pass
 {
 public:
     vector<Instruction*> needToDelete; // 存储需要删除的值
+    bool verbose;
+    Pass(bool verbose = false) : verbose(verbose) {}
     virtual ~Pass() = default;
     virtual bool runOnFunction(Function *func) = 0;
     virtual string getName() const = 0;
@@ -34,14 +36,13 @@ public:
     bool runOnModule(Module *module);
     void setVerbose(bool v) { verbose = v; }
 
-    // 新增：获取寄存器分配结果接口
-    const std::unordered_map<Value*, int>* getRegisterAssignment() const;
 };
 
 // 1. 死代码消除Pass
 class DeadCodeEliminationPass : public Pass
 {
 public:
+    DeadCodeEliminationPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
     string getName() const override { return "DeadCodeElimination"; }
 private:
@@ -61,6 +62,7 @@ private:
     std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value*, ExpressionHash> exprMap;
 
 public:
+    CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
     std::string getName() const override { return "CommonSubexpressionElimination"; }
 
@@ -69,23 +71,12 @@ private:
     bool canBeCommonSubexpression(Instruction *inst);
 };
 
-// 无效果可删除
-// 3. 基本块合并Pass
-class BasicBlockMergePass : public Pass
-{
-public:
-    bool runOnFunction(Function *func) override;
-    string getName() const override { return "BasicBlockMerge"; }
 
-private:
-    bool canMergeBlocks(BasicBlock *bb1, BasicBlock *bb2);
-    void mergeBlocks(BasicBlock *bb1, BasicBlock *bb2);
-};
-
-// 4. 循环不变代码外提Pass
+// 3. 循环不变代码外提Pass
 class LoopInvariantCodeMotionPass : public Pass
 {
 public:
+    LoopInvariantCodeMotionPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
     string getName() const override { return "LoopInvariantCodeMotion"; }
 private:
@@ -106,9 +97,10 @@ private:
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
     BasicBlock *findPreheader(const Loop &loop);
 };
-// 5. 函数内联 Pass（将函数调用替换为函数体）
+// 4. 函数内联 Pass（将函数调用替换为函数体）
 class FunctionInliningPass : public Pass {
 public:
+    FunctionInliningPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
     string getsuffix() { return "_inl"+to_string(inlineCount++); }
     std::string getName() const override { return "FunctionInlining"; }
@@ -117,31 +109,38 @@ private:
     bool shouldInline(Function *callee);
     int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
 };
-// 6. 常量折叠 Pass（将常量表达式计算为常量值）函数内联时会产生常量二元表达式
+// 5. 常量折叠 Pass（将常量表达式计算为常量值）函数内联时会产生常量二元表达式
 class ConstantFoldingPass : public Pass {
 public:
+    ConstantFoldingPass(bool verbose = false) : Pass(verbose) {}
     std::string getName() const override { return "ConstantFoldingPass"; }
     bool runOnFunction(Function *func) override;
 };
-// 7. phi 消除 Pass（SSA转回普通IR，消除phi指令）
+// 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
 class PhiEliminationPass : public Pass
 {
 public:
+    PhiEliminationPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
     string getName() const override { return "PhiElimination"; }
 };
-// 8. 寄存器分配 Pass（基于图的寄存器分配）
-class RegisterAllocationPass : public Pass {
+// 7. 活跃变量分析 Pass（Live Variable Analysis）
+// liveIn
+// 含义：在进入该基本块时，哪些变量是“活跃”的。
+// 解释：这些变量在该基本块及其后继中会被使用，但在本基本块内还没有被重新定义。
+// 用途：进入基本块前，这些变量的值必须是有效的（不能被覆盖或丢弃）。
+// liveOut
+// 含义：在离开该基本块时，哪些变量是“活跃”的。
+// 解释：这些变量在该基本块的后继基本块中会被使用。
+// 用途：离开基本块时，这些变量的值必须被保留，以便后继块使用。
+class LiveVariableAnalysisPass : public Pass {
 public:
-    // 活跃变量分析结果
+    // 每个基本块的liveIn/liveOut集合
     std::unordered_map<BasicBlock*, std::set<Value*>> liveIn, liveOut;
-    // 冲突图
-    std::unordered_map<Value*, std::set<Value*>> interferenceGraph;
-    // 分配结果
-    std::unordered_map<Value*, int> regAssignment;
+
+    LiveVariableAnalysisPass(bool verbose = false) : Pass(verbose) {}
     bool runOnFunction(Function *func) override;
-    // 获取寄存器分配结果
-    string getName() const override{ return "RegisterAllocationPass"; }
+    std::string getName() const override { return "LiveVariableAnalysis"; }
 };
 // 优化级别枚举
 enum class OptimizationLevel

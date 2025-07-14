@@ -84,7 +84,7 @@ int main(int argc, const char *argv[])
         else
             throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
         // 不开启优化日志
-        pass_manager = optimization::createOptimizationPipeline(opt_level, false);
+        pass_manager = optimization::createOptimizationPipeline(opt_level, true);
         pass_manager->runOnModule(ir_module.get());
     }
     // 输出结果

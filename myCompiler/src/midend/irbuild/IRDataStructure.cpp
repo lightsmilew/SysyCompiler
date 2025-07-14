@@ -303,6 +303,33 @@ bool Instruction::mayHaveSideEffects() const
     return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
            Op == Opcode::Ret   || Op == Opcode::Alloca;
 }
+// 判断该指令是否有结果（即是否定义SSA变量）
+bool Instruction:: hasResult() const {
+    switch (Op) {
+        case Opcode::Add:
+        case Opcode::Sub:
+        case Opcode::Mul:
+        case Opcode::SDiv:
+        case Opcode::SRem:
+        case Opcode::FAdd:
+        case Opcode::FSub:
+        case Opcode::FMul:
+        case Opcode::FDiv:
+        case Opcode::ICmp:
+        case Opcode::FCmp:
+        case Opcode::Alloca:
+        case Opcode::Load:
+        case Opcode::Call:
+        case Opcode::Phi:
+        case Opcode::GetElementPtr:
+        case Opcode::SIToFP:
+        case Opcode::FPToSI:
+        case Opcode::Copy:
+            return true;
+        default:
+            return false; // Ret, Br, Store等没有结果
+    }
+}
 Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap,string suffix) const
 {
     // 复制操作数，若在映射表中则替换
