@@ -7,7 +7,8 @@ size_t ArrayType::getArrayLength() const
     {
         return NumElements * arrayType->getArrayLength();
     }
-    return NumElements; // 基础类型的数组长度为元素数量
+    // 基础类型的数组长度为元素数量
+    return NumElements;
 }
 vector<size_t> ArrayType::getArrayIndices() const
 {
@@ -44,8 +45,9 @@ std::string FunctionType::toString() const
 // ===== Value System Implementation =====
 void Value::replaceAllUsesWith(Value *newValue)
 {
+    // 避免自替换
     if (this == newValue)
-        return; // 避免自替换
+        return;
 
     // 复制Users列表，因为在替换过程中会修改这个列表
     vector<User *> usersCopy = Users;
@@ -125,10 +127,14 @@ void User::replaceOperand(Value *oldValue, Value *newValue)
         }
     }
 }
-
-unsigned User::getNumOperands() const { return Operands.size(); }
-const vector<Value *> &User::getOperands() const { return Operands; }
-// 获取指定索引的操作数
+unsigned User::getNumOperands() const
+{
+    return Operands.size();
+}
+const vector<Value *> &User::getOperands() const
+{
+    return Operands;
+}
 Value *User::getOperandByIndex(unsigned index) const
 {
     if (index < Operands.size())
@@ -137,7 +143,6 @@ Value *User::getOperandByIndex(unsigned index) const
     }
     throw std::out_of_range("Invalid operand index");
 }
-// 设置指定索引的操作数
 void User::setOperandByIndex(unsigned index, Value *value)
 {
     if (index < Operands.size())
@@ -153,6 +158,7 @@ void User::setOperandByIndex(unsigned index, Value *value)
         }
     }
 }
+
 string ConstantString::toString() const
 {
     // 输出为 LLVM IR 字符串常量格式
@@ -166,6 +172,7 @@ string ConstantString::toString() const
     s += "\"";
     return s;
 }
+
 string ConstantArray::toString() const
 {
     std::string s = "[";
@@ -178,7 +185,8 @@ string ConstantArray::toString() const
     s += "]";
     return s;
 }
-// GlobalVariable implementation
+
+// =====GlobalVariable implementation=====
 std::string GlobalVariable::toString() const
 {
     std::stringstream ss;
@@ -202,13 +210,12 @@ std::string GlobalVariable::toString() const
 
     return ss.str();
 }
-// 判断是否是全局变量
+
 bool Value::isGlobal() const
 {
-
     return dynamic_cast<GlobalVariable *>(const_cast<Value *>(this)) != nullptr;
 }
-// User implementation
+// =====User implementation=====
 std::string User::toString() const
 {
     // User是抽象基类，通常不直接使用toString，而是由子类重写
@@ -293,76 +300,9 @@ bool Instruction::mayHaveSideEffects() const
     return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
            Op == Opcode::Ret || Op == Opcode::Alloca;
 }
-std::string BinaryOperator::toString() const
-{
-    std::stringstream ss;
-    std::string opStr;
-
-    switch (Op)
-    {
-    case Opcode::Add:
-        opStr = "add";
-        break;
-    case Opcode::Sub:
-        opStr = "sub";
-        break;
-    case Opcode::Mul:
-        opStr = "mul";
-        break;
-    case Opcode::SDiv:
-        opStr = "sdiv";
-        break;
-    case Opcode::SRem:
-        opStr = "srem";
-        break;
-    case Opcode::FAdd:
-        opStr = "fadd";
-        break;
-    case Opcode::FSub:
-        opStr = "fsub";
-        break;
-    case Opcode::FMul:
-        opStr = "fmul";
-        break;
-    case Opcode::FDiv:
-        opStr = "fdiv";
-        break;
-    default:
-        opStr = "unknown";
-        break;
-    }
-
-    ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-       << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
-
-    return ss.str();
-}
-
-std::string UnaryOperator::toString() const
-{
-    std::stringstream ss;
-    std::string opStr;
-
-    switch (Op)
-    {
-    case Opcode::Sub:
-        opStr = "sub";
-        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-           << " 0, " << getOperand()->toRef();
-        break;
-    default:
-        opStr = "unknown_unary";
-        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
-           << " " << getOperand()->toRef();
-        break;
-    }
-
-    return ss.str();
-}
-// 增加名字后缀参数
 Instruction *Instruction::cloneWithRename(const std::unordered_map<Value *, Value *> &valueMap, string suffix) const
 {
-    // 1. 复制操作数，若在映射表中则替换
+    // 复制操作数，若在映射表中则替换
     std::vector<Value *> newOperands;
     for (auto *op : this->getOperands())
     {
@@ -373,17 +313,17 @@ Instruction *Instruction::cloneWithRename(const std::unordered_map<Value *, Valu
             newOperands.push_back(op);
     }
 
-    // 2. 创建新指令（假设有 createXXX 工厂函数或构造函数）
-    Instruction *newInst = this->clone(); // 通常 clone() 会复制类型和操作码
+    // 创建新指令(通过clone工厂方法)
+    // clone() 会复制类型和操作码
+    Instruction *newInst = this->clone();
     newInst->setOperands(newOperands);
 
-    // 3. 变量重命名（如有必要，为 SSA 名字加后缀或生成新名字）
+    // 变量重命名(添加后缀_inl*)
     static int inline_cnt = 0;
     newInst->setName(this->getName() + suffix);
 
     return newInst;
 }
-// 通用 Clone 实现
 Instruction *Instruction::clone() const
 {
     switch (Op)
@@ -454,6 +394,74 @@ Instruction *Instruction::clone() const
         throw std::runtime_error("Clone not implemented for this opcode");
     }
 }
+
+std::string BinaryOperator::toString() const
+{
+    std::stringstream ss;
+    std::string opStr;
+
+    switch (Op)
+    {
+    case Opcode::Add:
+        opStr = "add";
+        break;
+    case Opcode::Sub:
+        opStr = "sub";
+        break;
+    case Opcode::Mul:
+        opStr = "mul";
+        break;
+    case Opcode::SDiv:
+        opStr = "sdiv";
+        break;
+    case Opcode::SRem:
+        opStr = "srem";
+        break;
+    case Opcode::FAdd:
+        opStr = "fadd";
+        break;
+    case Opcode::FSub:
+        opStr = "fsub";
+        break;
+    case Opcode::FMul:
+        opStr = "fmul";
+        break;
+    case Opcode::FDiv:
+        opStr = "fdiv";
+        break;
+    default:
+        opStr = "unknown";
+        break;
+    }
+
+    ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+       << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
+
+    return ss.str();
+}
+
+std::string UnaryOperator::toString() const
+{
+    std::stringstream ss;
+    std::string opStr;
+
+    switch (Op)
+    {
+    case Opcode::Sub:
+        opStr = "sub";
+        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+           << " 0, " << getOperand()->toRef();
+        break;
+    default:
+        opStr = "unknown_unary";
+        ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
+           << " " << getOperand()->toRef();
+        break;
+    }
+
+    return ss.str();
+}
+
 std::string ICmpInst::toString() const
 {
     std::stringstream ss;
@@ -519,14 +527,15 @@ std::string FCmpInst::toString() const
 
     return ss.str();
 }
-// 获取数组的元素总长度
+
 size_t AllocaInst::getAllocatedSize() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
     {
         return arrayType->getArrayLength();
     }
-    return 1; // 非数组类型的分配大小为1
+    // 非数组类型的分配大小为1
+    return 1;
 }
 // 从左到右获取数组每一维的长度
 // 例如：int a[2][3][4] -> 返回 {2, 3, 4}
@@ -583,7 +592,49 @@ std::string StoreInst::toString() const
        << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
-// 获取函数参数
+
+// CallInst implementation
+CallInst::CallInst(Function *func, const vector<Value *> &args, const string &name)
+    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name) {}
+
+vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *> &args)
+{
+    vector<Value *> operands;
+    operands.push_back(func);
+    operands.insert(operands.end(), args.begin(), args.end());
+    return operands;
+}
+Function *CallInst::getCalledFunction() const
+{
+    return dynamic_cast<Function *>(getOperandByIndex(0));
+}
+Type *CallInst::getFunctionReturnType(Value *func)
+{
+    if (!func)
+    {
+        throw std::invalid_argument("CallInst: function cannot be null");
+    }
+
+    FunctionType *funcTy = nullptr;
+
+    // 如果是函数类型
+    if (auto ft = dynamic_cast<FunctionType *>(func->getType()))
+    {
+        funcTy = ft;
+    }
+    // 函数指针类型
+    else if (auto ptrTy = dynamic_cast<PointerType *>(func->getType()))
+    {
+        funcTy = dynamic_cast<FunctionType *>(ptrTy->ElementType);
+    }
+
+    if (!funcTy)
+    {
+        throw std::invalid_argument("CallInst: operand is not a function");
+    }
+
+    return funcTy->ReturnType;
+}
 vector<Value *> CallInst::getArguments() const
 {
     vector<Value *> args(getOperands().begin() + 1, getOperands().end());
@@ -718,18 +769,17 @@ std::string BranchInst::toString() const
     }
     return ss.str();
 }
-// 添加前驱基本块和对应的值
+
 void PhiInst::addIncoming(Value *value, BasicBlock *block)
 {
     IncomingValues.emplace_back(block);
-    addOperand(value); // 添加到操作数列表中
+    // 添加到操作数列表中
+    addOperand(value);
 }
-// 获取前驱基本块和对应的值长度
 unsigned PhiInst::getNumIncomingValues() const
 {
     return IncomingValues.size();
 }
-// 获取前驱value
 Value *PhiInst::getIncomingValue(unsigned index) const
 {
     if (index < getNumOperands())
@@ -738,7 +788,6 @@ Value *PhiInst::getIncomingValue(unsigned index) const
     }
     throw std::out_of_range("Invalid incoming value index");
 }
-// 获取前驱基本块
 BasicBlock *PhiInst::getIncomingBlock(unsigned index) const
 {
     if (index < IncomingValues.size())
@@ -761,6 +810,7 @@ std::string PhiInst::toString() const
     }
     return ss.str();
 }
+
 // ===== CopyInst Implementation =====
 std::string CopyInst::toString() const
 {
@@ -806,7 +856,6 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     operands.insert(operands.end(), indices.begin(), indices.end());
     return operands;
 }
-
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
 {
     // 如果是指针类型
@@ -814,7 +863,8 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
     {
         if (indices.empty())
         {
-            return ptr->getType(); // 返回原指针类型
+            // 返回原指针类型
+            return ptr->getType();
         }
         auto ptrType = static_cast<PointerType *>(ptr->getType());
         Type *currentType = ptrType->ElementType;
@@ -835,8 +885,8 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
         // 否则返回基础类型的指针
         return PointerType::getInstance(currentType);
     }
-
-    throw std::runtime_error("GetElementPtrInst: operand is not a pointer"); // 如果不是指针类型，报错
+    // 如果不是指针类型，报错
+    throw std::runtime_error("GetElementPtrInst: operand is not a pointer");
 }
 
 bool Type::isTypeEqual(Type *a, Type *b)
@@ -857,7 +907,6 @@ bool Type::isTypeEqual(Type *a, Type *b)
         return isTypeEqual(static_cast<PointerType *>(a)->ElementType, static_cast<PointerType *>(b)->ElementType);
     }
     // 基本类型直接比较
-
     return true;
 }
 std::string GetElementPtrInst::toString() const
@@ -1083,7 +1132,7 @@ std::string Function::toString() const
 {
     std::stringstream ss;
 
-    // Function signature - only return type
+    // 函数签名
     FunctionType *funcTy = static_cast<FunctionType *>(getType());
     ss << "define " << funcTy->ReturnType->toString()
        << " @" << getName() << "(";
@@ -1097,7 +1146,7 @@ std::string Function::toString() const
 
     ss << ") {\n";
 
-    // Basic blocks
+    // 基本块内容
     for (const auto &bb : BasicBlocks)
     {
         ss << bb->toString();
@@ -1126,7 +1175,8 @@ GlobalVariable *Module::addGlobalVariable(Type *type, const string &name,
 }
 Function *Module::getFunction(const string &name)
 {
-    string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name; // 添加前缀_sysy_以匹配SysY标准库函数
+    // 遇到stoptime和starttime时添加前缀_sysy_以匹配SysY标准库函数
+    string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name;
     for (auto &func : Functions)
     {
         if (func->getName() == tmp_name)
@@ -1148,7 +1198,7 @@ GlobalVariable *Module::getGlobalVariable(const string &name)
     return nullptr;
 }
 // Debug
-void Module::printBasic()
+void Module::printBasicBlockInfo()
 {
     for (int i = 13; i < Functions.size(); i++)
     {
@@ -1179,7 +1229,7 @@ std::string Module::toString() const
 
     ss << "; ModuleID = '" << Name << "'\n\n";
 
-    // Global variables
+    // 全局变量
     for (const auto &gv : GlobalVariables)
     {
         ss << gv->toString() << "\n";

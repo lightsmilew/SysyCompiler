@@ -328,8 +328,8 @@ enum class Opcode
     GetElementPtr,
 
     // 类型转换符
-    SIToFP, // signed int (i32) to float
-    FPToSI, // float to signed int (i32)
+    SIToFP,                                                                 // signed int (i32) to float
+    FPToSI,                                                                 // float to signed int (i32)
 
     // 其他操作
     Call,
@@ -675,7 +675,7 @@ public:
 
     BasicBlock *addBasicBlock(const string &name = "");             // 添加基本块
     BasicBlock *getEntryBlock();                                    // 获取入口基本块
-    vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块
+    vector<unique_ptr<BasicBlock>> &getBasicBlocks();               // 获取所有基本块
 
     Argument *addArgument(Type *type, const string &name = "");     // 添加参数
     const vector<unique_ptr<Argument>> &getArguments() const;       // 获取函数参数
@@ -704,7 +704,8 @@ public:
     Function *getFunction(const string &name);                        // 根据名称查找函数
     GlobalVariable *getGlobalVariable(const string &name);            // 根据名称查找全局变量
 
-    // Debug输出
-    void printBasic();                                                // 输出基本块后继信息
     string toString() const;
+
+    // Debug输出
+    void printBasicBlockInfo();                                       // 输出基本块后继信息
 };
