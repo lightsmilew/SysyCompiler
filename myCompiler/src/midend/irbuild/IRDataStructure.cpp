@@ -698,49 +698,6 @@ std::string CallInst::toString() const
     return ss.str();
 }
 
-// CallInst implementation
-CallInst::CallInst(Function *func, const vector<Value *> &args, const string &name)
-    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name) {}
-
-vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *> &args)
-{
-    vector<Value *> operands;
-    operands.push_back(func);
-    operands.insert(operands.end(), args.begin(), args.end());
-    return operands;
-}
-Function *CallInst::getCalledFunction() const
-{
-    return dynamic_cast<Function *>(getOperandByIndex(0));
-}
-Type *CallInst::getFunctionReturnType(Value *func)
-{
-    if (!func)
-    {
-        throw std::invalid_argument("CallInst: function cannot be null");
-    }
-
-    FunctionType *funcTy = nullptr;
-
-    // 如果是函数类型
-    if (auto ft = dynamic_cast<FunctionType *>(func->getType()))
-    {
-        funcTy = ft;
-    }
-    // 函数指针类型
-    else if (auto ptrTy = dynamic_cast<PointerType *>(func->getType()))
-    {
-        funcTy = dynamic_cast<FunctionType *>(ptrTy->ElementType);
-    }
-
-    if (!funcTy)
-    {
-        throw std::invalid_argument("CallInst: operand is not a function");
-    }
-
-    return funcTy->ReturnType;
-}
-
 std::string ReturnInst::toString() const
 {
     std::stringstream ss;
