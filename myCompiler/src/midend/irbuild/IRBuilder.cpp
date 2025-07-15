@@ -164,6 +164,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     varToValueStack.pop();
     currentFunction = nullptr;
 }
+// 这里的isRestore可以删除
 void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRestore)
 {
     // 记录外层变量名
@@ -379,7 +380,12 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     createCondBranch(condition, thenBlock, elseBlock ? elseBlock : mergeBlock);
     // then 分支
     setCurrentBlock(thenBlock);
+    // 进入新作用域
+    varToValueStack.push(varToValue);
     visitStatement(node->then_body,false);
+    // 恢复作用域
+    varToValue = varToValueStack.top();
+    varToValueStack.pop();
     NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
     //bool then_hasTerminator = currentBlock->hasTerminator();
     // 如果没有else分支，则该变量为true，符合逻辑
@@ -391,7 +397,12 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     if (elseBlock)
     {
         setCurrentBlock(elseBlock);
+        // 进入新作用域
+        varToValueStack.push(varToValue);
         visitStatement(node->else_body,false);
+        // 恢复作用域
+        varToValue = varToValueStack.top();
+        varToValueStack.pop();
         //else_hasTerminator = currentBlock->hasTerminator();
         if (!currentBlock->hasTerminator())
         {
@@ -444,7 +455,13 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     // 进入循环体
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
+    // 进入新作用域
+    varToValueStack.push(varToValue);
     visitStatement(node->body,false);
+    // 恢复作用域
+    varToValue = varToValueStack.top();
+    varToValueStack.pop();
+    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
     loopStack.pop(); 
     // 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
@@ -1031,35 +1048,37 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
 }
 // 用于数组初始化 递归返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
-    Vector<Constant*> elements;
-    int dim = arrayType->getNumElements();
-    Type *elemType = arrayType->ElementType;
-    size_t i = 0;
-    if(node)
-    {
-        for (; i < node->multiInitVal.size(); ++i) {
-            if (elemType->isArrayTy()) 
-            {
-                elements.push_back(evaluateConstantArray(node->multiInitVal[i], static_cast<ArrayType*>(elemType)));
-            } 
-            else 
-            {   
-                // 经过静态检查，这里必定是常量
-                elements.push_back(evaluateConstantExpr(node->multiInitVal[i]->singleInitVal));
+    // 1. 展平所有叶子节点
+    std::vector<size_t> dims = arrayType->getArrayIndices();
+    Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
+    flattenInitList(node, flat_inits, dims, 0);
+
+    // 2. 递归构造 ConstantArray
+    size_t flat_idx = 0;
+    std::function<Constant*(ArrayType*, int)> buildArray = [&](ArrayType* arrTy, int dim) -> Constant* {
+        int len = arrTy->getNumElements();
+        Type* elemTy = arrTy->ElementType;
+        Vector<Constant*> elements;
+        if (elemTy->isArrayTy()) {
+            for (int i = 0; i < len; ++i) {
+                elements.push_back(buildArray(static_cast<ArrayType*>(elemTy), dim + 1));
+            }
+        } else {
+            for (int i = 0; i < len; ++i) {
+                if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) {
+                    elements.push_back(evaluateConstantExpr(flat_inits[flat_idx]->singleInitVal));
+                } else if (elemTy->isIntegerTy()) {
+                    elements.push_back(new ConstantInt(IntegerType::getInstance(), 0));
+                } else if (elemTy->isFloatTy()) {
+                    elements.push_back(new ConstantFloat(FloatType::getInstance(), 0.0f));
+                }
+                ++flat_idx;
             }
         }
-    }
-    // 补零
-    for (; i < dim; ++i) {
-        if (elemType->isArrayTy()) {
-            elements.push_back(evaluateConstantArray(nullptr, static_cast<ArrayType*>(elemType)));
-        } else if (elemType->isIntegerTy()) {
-            elements.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-        } else if (elemType->isFloatTy()) {
-            elements.push_back(new ConstantFloat(FloatType::getInstance(), 0.0f));
-        }
-    }
-    return new ConstantArray(arrayType, elements);
+        return new ConstantArray(arrTy, elements);
+    };
+
+    return buildArray(arrayType, 0);
 }
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 {
