@@ -15,6 +15,9 @@ namespace RISCV
     RISCVRegister::RISCVRegister(RegisterType regType)
         : type(regType), physicalReg(PhysicalReg::ZERO), virtualId(nextVirtualId++) {}
 
+    RISCVRegister::RISCVRegister(PhysicalReg reg, RegisterType regType)
+        : type(regType), physicalReg(reg), virtualId(-1) {}
+
     string RISCVRegister::toString() const
     {
         if (isVirtual())
@@ -299,6 +302,8 @@ namespace RISCV
                 return "lh";
             case RISCVOpcode::LW:
                 return "lw";
+            case RISCVOpcode::LD:
+                return "ld";
             case RISCVOpcode::LBU:
                 return "lbu";
             case RISCVOpcode::LHU:
@@ -309,6 +314,8 @@ namespace RISCV
                 return "sh";
             case RISCVOpcode::SW:
                 return "sw";
+            case RISCVOpcode::SD:
+                return "sd";
             case RISCVOpcode::FADD_S:
                 return "fadd.s";
             case RISCVOpcode::FSUB_S:
@@ -374,7 +381,7 @@ namespace RISCV
         }
         else if ((instrType == InstructionType::I_TYPE) &&
                  (opcode == RISCVOpcode::LW || opcode == RISCVOpcode::LH || opcode == RISCVOpcode::LB ||
-                  opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU || opcode == RISCVOpcode::FLW) &&
+                  opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU || opcode == RISCVOpcode::FLW || opcode == RISCVOpcode::LD) &&
                  operands.size() >= 3)
         {
             // I-Type内存加载: lw rd, offset(rs1)

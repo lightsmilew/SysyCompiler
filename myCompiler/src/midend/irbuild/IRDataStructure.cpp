@@ -8,9 +8,9 @@ size_t ArrayType::getArrayLength() const
         return NumElements * arrayType->getArrayLength();
     }
     // 基础类型的数组长度为元素数量
-    return NumElements; 
+    return NumElements;
 }
-vector<size_t>ArrayType::getArrayIndices() const
+vector<size_t> ArrayType::getArrayIndices() const
 {
     vector<size_t> dimensions;
 
@@ -47,7 +47,7 @@ void Value::replaceAllUsesWith(Value *newValue)
 {
     // 避免自替换
     if (this == newValue)
-        return; 
+        return;
 
     // 复制Users列表，因为在替换过程中会修改这个列表
     vector<User *> usersCopy = Users;
@@ -60,11 +60,11 @@ void Value::replaceAllUsesWith(Value *newValue)
     // 此时Users应该已经被清空了（通过replaceOperand调用removeUser）
     Users.clear();
 }
-void Value:: addUser(User *user) 
-{ 
-    Users.push_back(user); 
+void Value::addUser(User *user)
+{
+    Users.push_back(user);
 }
-void Value:: removeUser(User *user)
+void Value::removeUser(User *user)
 {
     Users.erase(std::remove(Users.begin(), Users.end(), user), Users.end());
 }
@@ -81,7 +81,7 @@ void User::removeThisFromOperands()
         }
     }
 }
-void User:: addOperand(Value *operand)
+void User::addOperand(Value *operand)
 {
     if (operand)
     {
@@ -89,7 +89,7 @@ void User:: addOperand(Value *operand)
         operand->addUser(this);
     }
 }
-void User:: setOperands(const vector<Value *> &operands)
+void User::setOperands(const vector<Value *> &operands)
 {
     // 替换当前操作数并更新Users列表
     for (Value *op : Operands)
@@ -99,9 +99,9 @@ void User:: setOperands(const vector<Value *> &operands)
             Operands.erase(std::remove(Operands.begin(), Operands.end(), op), Operands.end());
             op->removeUser(this);
         }
-    }      
+    }
     Operands = operands;
-    for(Value *op : Operands)
+    for (Value *op : Operands)
     {
         if (op)
         {
@@ -109,7 +109,7 @@ void User:: setOperands(const vector<Value *> &operands)
         }
     }
 }
-void User:: replaceOperand(Value *oldValue, Value *newValue)
+void User::replaceOperand(Value *oldValue, Value *newValue)
 {
     for (size_t i = 0; i < Operands.size(); i++)
     {
@@ -127,15 +127,15 @@ void User:: replaceOperand(Value *oldValue, Value *newValue)
         }
     }
 }
-unsigned User:: getNumOperands() const 
-{ 
-    return Operands.size(); 
+unsigned User::getNumOperands() const
+{
+    return Operands.size();
 }
-const vector<Value *> & User::getOperands() const 
-{ 
-    return Operands; 
+const vector<Value *> &User::getOperands() const
+{
+    return Operands;
 }
-Value * User::getOperandByIndex(unsigned index) const
+Value *User::getOperandByIndex(unsigned index) const
 {
     if (index < Operands.size())
     {
@@ -143,7 +143,7 @@ Value * User::getOperandByIndex(unsigned index) const
     }
     throw std::out_of_range("Invalid operand index");
 }
-void User:: setOperandByIndex(unsigned index, Value *value)
+void User::setOperandByIndex(unsigned index, Value *value)
 {
     if (index < Operands.size())
     {
@@ -159,8 +159,7 @@ void User:: setOperandByIndex(unsigned index, Value *value)
     }
 }
 
-
-string ConstantString::toString() const 
+string ConstantString::toString() const
 {
     // 输出为 LLVM IR 字符串常量格式
     std::string s = "c\"";
@@ -173,7 +172,6 @@ string ConstantString::toString() const
     s += "\"";
     return s;
 }
-
 
 string ConstantArray::toString() const
 {
@@ -212,7 +210,6 @@ std::string GlobalVariable::toString() const
 
     return ss.str();
 }
-
 
 bool Value::isGlobal() const
 {
@@ -282,7 +279,7 @@ string Instruction::getOpcodeName() const
 }
 bool Instruction::isBinaryOp() const
 {
-    return Op == Opcode::Add  || Op == Opcode::Sub  || Op == Opcode::Mul  ||
+    return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv;
 }
@@ -292,7 +289,7 @@ bool Instruction::isComparisonOp() const
 }
 bool Instruction::isTerminator() const
 {
-    return Op == Opcode::Ret  || Op == Opcode::Br;
+    return Op == Opcode::Ret || Op == Opcode::Br;
 }
 bool Instruction::isCopy() const
 {
@@ -301,40 +298,43 @@ bool Instruction::isCopy() const
 bool Instruction::mayHaveSideEffects() const
 {
     return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
-           Op == Opcode::Ret   || Op == Opcode::Alloca;
+           Op == Opcode::Ret || Op == Opcode::Alloca;
 }
 // 判断该指令是否有结果（即是否定义SSA变量）
-bool Instruction:: hasResult() const {
-    switch (Op) {
-        case Opcode::Add:
-        case Opcode::Sub:
-        case Opcode::Mul:
-        case Opcode::SDiv:
-        case Opcode::SRem:
-        case Opcode::FAdd:
-        case Opcode::FSub:
-        case Opcode::FMul:
-        case Opcode::FDiv:
-        case Opcode::ICmp:
-        case Opcode::FCmp:
-        case Opcode::Alloca:
-        case Opcode::Load:
-        case Opcode::Call:
-        case Opcode::Phi:
-        case Opcode::GetElementPtr:
-        case Opcode::SIToFP:
-        case Opcode::FPToSI:
-        case Opcode::Copy:
-            return true;
-        default:
-            return false; // Ret, Br, Store等没有结果
+bool Instruction::hasResult() const
+{
+    switch (Op)
+    {
+    case Opcode::Add:
+    case Opcode::Sub:
+    case Opcode::Mul:
+    case Opcode::SDiv:
+    case Opcode::SRem:
+    case Opcode::FAdd:
+    case Opcode::FSub:
+    case Opcode::FMul:
+    case Opcode::FDiv:
+    case Opcode::ICmp:
+    case Opcode::FCmp:
+    case Opcode::Alloca:
+    case Opcode::Load:
+    case Opcode::Call:
+    case Opcode::Phi:
+    case Opcode::GetElementPtr:
+    case Opcode::SIToFP:
+    case Opcode::FPToSI:
+    case Opcode::Copy:
+        return true;
+    default:
+        return false; // Ret, Br, Store等没有结果
     }
 }
-Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value*>& valueMap,string suffix) const
+Instruction *Instruction::cloneWithRename(const std::unordered_map<Value *, Value *> &valueMap, string suffix) const
 {
     // 复制操作数，若在映射表中则替换
-    std::vector<Value*> newOperands;
-    for (auto *op : this->getOperands()) {
+    std::vector<Value *> newOperands;
+    for (auto *op : this->getOperands())
+    {
         auto it = valueMap.find(op);
         if (it != valueMap.end())
             newOperands.push_back(it->second);
@@ -344,7 +344,7 @@ Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value
 
     // 创建新指令(通过clone工厂方法)
     // clone() 会复制类型和操作码
-    Instruction* newInst = this->clone(); 
+    Instruction *newInst = this->clone();
     newInst->setOperands(newOperands);
 
     // 变量重命名(添加后缀_inl*)
@@ -353,8 +353,10 @@ Instruction* Instruction::cloneWithRename(const std::unordered_map<Value*, Value
 
     return newInst;
 }
-Instruction* Instruction::clone() const {
-    switch (Op) {
+Instruction *Instruction::clone() const
+{
+    switch (Op)
+    {
     case Opcode::Add:
     case Opcode::Sub:
     case Opcode::Mul:
@@ -366,62 +368,61 @@ Instruction* Instruction::clone() const {
     case Opcode::FDiv:
         return new BinaryOperator(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::ICmp:
-        return new ICmpInst(static_cast<const ICmpInst*>(this)->getPredicate(),
+        return new ICmpInst(static_cast<const ICmpInst *>(this)->getPredicate(),
                             getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::FCmp:
-        return new FCmpInst(static_cast<const FCmpInst*>(this)->getPredicate(),
+        return new FCmpInst(static_cast<const FCmpInst *>(this)->getPredicate(),
                             getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::Alloca:
-        return new AllocaInst(static_cast<const AllocaInst*>(this)->AllocatedType, getName());
+        return new AllocaInst(static_cast<const AllocaInst *>(this)->AllocatedType, getName());
     case Opcode::Load:
-        return new LoadInst(getOperandByIndex(0),getName());
+        return new LoadInst(getOperandByIndex(0), getName());
     case Opcode::Store:
         return new StoreInst(getOperandByIndex(0), getOperandByIndex(1));
     case Opcode::Call:
-        {
-            auto *call = static_cast<const CallInst*>(this);
-            std::vector<Value*> args = call->getArguments();
-            return new CallInst(call->getCalledFunction(), args, getName());
-        }
+    {
+        auto *call = static_cast<const CallInst *>(this);
+        std::vector<Value *> args = call->getArguments();
+        return new CallInst(call->getCalledFunction(), args, getName());
+    }
     case Opcode::Ret:
         if (getNumOperands() > 0)
             return new ReturnInst(getOperandByIndex(0));
         else
             return new ReturnInst();
     case Opcode::Br:
-        {
-            auto *br = static_cast<const BranchInst*>(this);
-            if (br->isConditional())
-                return new BranchInst(br->getCondition(), br->TrueBlock, br->FalseBlock);
-            else
-                return new BranchInst(br->TrueBlock);
-        }
+    {
+        auto *br = static_cast<const BranchInst *>(this);
+        if (br->isConditional())
+            return new BranchInst(br->getCondition(), br->TrueBlock, br->FalseBlock);
+        else
+            return new BranchInst(br->TrueBlock);
+    }
     case Opcode::Phi:
-        {
-            auto *phi = static_cast<const PhiInst*>(this);
-            auto *newPhi = new PhiInst(getType(), getName());
-            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
-                newPhi->addIncoming(phi->getIncomingValue(i), phi->getIncomingBlock(i));
-            return newPhi;
-        }
+    {
+        auto *phi = static_cast<const PhiInst *>(this);
+        auto *newPhi = new PhiInst(getType(), getName());
+        for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+            newPhi->addIncoming(phi->getIncomingValue(i), phi->getIncomingBlock(i));
+        return newPhi;
+    }
     case Opcode::GetElementPtr:
-        {
-            auto *gep = static_cast<const GetElementPtrInst*>(this);
-            return new GetElementPtrInst(gep->getPointerOperand(), gep->getIndices(), getName());
-        }
+    {
+        auto *gep = static_cast<const GetElementPtrInst *>(this);
+        return new GetElementPtrInst(gep->getPointerOperand(), gep->getIndices(), getName());
+    }
     case Opcode::SIToFP:
     case Opcode::FPToSI:
-        {
-            auto *cast = static_cast<const CastInst*>(this);
-            return new CastInst(Op, getOperandByIndex(0), cast->DestType, getName());
-        }
+    {
+        auto *cast = static_cast<const CastInst *>(this);
+        return new CastInst(Op, getOperandByIndex(0), cast->DestType, getName());
+    }
     case Opcode::Copy:
         return new CopyInst(getOperandByIndex(0), getName());
     default:
         throw std::runtime_error("Clone not implemented for this opcode");
     }
 }
-
 
 std::string BinaryOperator::toString() const
 {
@@ -468,7 +469,6 @@ std::string BinaryOperator::toString() const
     return ss.str();
 }
 
-
 std::string UnaryOperator::toString() const
 {
     std::stringstream ss;
@@ -490,7 +490,6 @@ std::string UnaryOperator::toString() const
 
     return ss.str();
 }
-
 
 std::string ICmpInst::toString() const
 {
@@ -525,7 +524,6 @@ std::string ICmpInst::toString() const
     return ss.str();
 }
 
-
 std::string FCmpInst::toString() const
 {
     std::stringstream ss;
@@ -559,7 +557,6 @@ std::string FCmpInst::toString() const
     return ss.str();
 }
 
-
 size_t AllocaInst::getAllocatedSize() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
@@ -567,7 +564,7 @@ size_t AllocaInst::getAllocatedSize() const
         return arrayType->getArrayLength();
     }
     // 非数组类型的分配大小为1
-    return 1; 
+    return 1;
 }
 // 从左到右获取数组每一维的长度
 // 例如：int a[2][3][4] -> 返回 {2, 3, 4}
@@ -596,7 +593,6 @@ std::string AllocaInst::toString() const
     return ss.str();
 }
 
-
 Type *LoadInst::getElementType(Value *ptr)
 {
     // load操作数为空，报错
@@ -618,7 +614,6 @@ std::string LoadInst::toString() const
     return ss.str();
 }
 
-
 std::string StoreInst::toString() const
 {
     std::stringstream ss;
@@ -627,10 +622,9 @@ std::string StoreInst::toString() const
     return ss.str();
 }
 
-
 // CallInst implementation
 CallInst::CallInst(Function *func, const vector<Value *> &args, const string &name)
-    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name){}
+    : Instruction(getFunctionReturnType(func), Opcode::Call, constructOperands(func, args), name) {}
 
 vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *> &args)
 {
@@ -639,7 +633,7 @@ vector<Value *> CallInst::constructOperands(Function *func, const vector<Value *
     operands.insert(operands.end(), args.begin(), args.end());
     return operands;
 }
-Function * CallInst::getCalledFunction() const
+Function *CallInst::getCalledFunction() const
 {
     return dynamic_cast<Function *>(getOperandByIndex(0));
 }
@@ -733,7 +727,6 @@ std::string CallInst::toString() const
     return ss.str();
 }
 
-
 std::string ReturnInst::toString() const
 {
     std::stringstream ss;
@@ -747,7 +740,6 @@ std::string ReturnInst::toString() const
     }
     return ss.str();
 }
-
 
 std::string BranchInst::toString() const
 {
@@ -764,12 +756,11 @@ std::string BranchInst::toString() const
     return ss.str();
 }
 
-
 void PhiInst::addIncoming(Value *value, BasicBlock *block)
 {
     IncomingValues.emplace_back(block);
     // 添加到操作数列表中
-    addOperand(value); 
+    addOperand(value);
 }
 unsigned PhiInst::getNumIncomingValues() const
 {
@@ -806,7 +797,6 @@ std::string PhiInst::toString() const
     return ss.str();
 }
 
-
 // ===== CopyInst Implementation =====
 std::string CopyInst::toString() const
 {
@@ -816,27 +806,31 @@ std::string CopyInst::toString() const
     return ss.str();
 }
 
-
 // ===== GetElementPtrInst Implementation =====
 Value *GetElementPtrInst::getPointerOperand() const
-{ 
-    return getOperandByIndex(0); 
+{
+    return getOperandByIndex(0);
 }
 vector<Value *> GetElementPtrInst::getIndices() const
 {
     vector<Value *> indices(getOperands().begin() + 1, getOperands().end());
     return indices;
 }
-Value *GetElementPtrInst::getDest() const 
-{ 
-    return const_cast<GetElementPtrInst *>(this); 
+Value *GetElementPtrInst::getDest() const
+{
+    return const_cast<GetElementPtrInst *>(this);
 }
 vector<size_t> *GetElementPtrInst::getArrayStride() const
 {
     auto stride = getPointerOperand()->getType();
-    if (auto arrayType = dynamic_cast<ArrayType *>(stride))
+    auto ptrType = dynamic_cast<PointerType *>(stride);
+    if (ptrType)
     {
-        return new vector<size_t>(arrayType->getArrayIndices());
+        auto arrayType = dynamic_cast<ArrayType *>(ptrType->ElementType);
+        if (arrayType)
+        {
+            return new vector<size_t>(arrayType->getArrayIndices());
+        }
     }
     return nullptr; // 如果不是数组类型，返回空指针
 }
@@ -855,7 +849,7 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
         if (indices.empty())
         {
             // 返回原指针类型
-            return ptr->getType(); 
+            return ptr->getType();
         }
         auto ptrType = static_cast<PointerType *>(ptr->getType());
         Type *currentType = ptrType->ElementType;
@@ -879,7 +873,6 @@ Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &
     // 如果不是指针类型，报错
     throw std::runtime_error("GetElementPtrInst: operand is not a pointer");
 }
-
 
 bool Type::isTypeEqual(Type *a, Type *b)
 {
@@ -964,8 +957,8 @@ void BasicBlock::insertBeforeTerminator(std::unique_ptr<Instruction> inst)
     auto &insts = getInstructions();
     auto termIt = std::find_if(
         insts.begin(), insts.end(),
-        [](const std::unique_ptr<Instruction>& i) { return i->isTerminator(); }
-    );
+        [](const std::unique_ptr<Instruction> &i)
+        { return i->isTerminator(); });
     this->insert(std::move(inst), termIt - insts.begin());
 }
 void BasicBlock::insert(unique_ptr<Instruction> inst, unsigned index)
@@ -993,12 +986,12 @@ void BasicBlock::addSuccessor(BasicBlock *succ)
 void BasicBlock::removePredecessor(BasicBlock *pred)
 {
     Predecessors.erase(std::remove(Predecessors.begin(), Predecessors.end(), pred),
-                           Predecessors.end());
+                       Predecessors.end());
 }
 void BasicBlock::removeSuccessor(BasicBlock *succ)
 {
     Successors.erase(std::remove(Successors.begin(), Successors.end(), succ),
-                         Successors.end());
+                     Successors.end());
 }
 Instruction *BasicBlock::getTerminator()
 {
@@ -1025,10 +1018,10 @@ bool BasicBlock::containsByName(Instruction *inst) const
 {
     const std::string &name = inst->getName();
     return std::any_of(Instructions.begin(), Instructions.end(),
-                        [&](const unique_ptr<Instruction> &i)
-                        {
-                            return i->getName() == name;
-                        });
+                       [&](const unique_ptr<Instruction> &i)
+                       {
+                           return i->getName() == name;
+                       });
 }
 std::string BasicBlock::toString() const
 {
@@ -1076,7 +1069,7 @@ const vector<unique_ptr<Argument>> &Function::getArguments() const
 }
 BasicBlock *Function::getEntryBlock()
 {
-        return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();
+    return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();
 }
 FunctionType *Function::getFunctionType()
 {
@@ -1097,12 +1090,12 @@ unsigned Function::getInstructionCount() const
 }
 bool Function::isLibraryFunction() const
 {
-    return getName() == "getint"    || getName() == "getch"     ||
-           getName() == "getfloat"  || getName() == "getarray"  ||
-           getName() == "getfarray" || getName() == "putint"    ||
-           getName() == "putch"     || getName() == "putfloat"  ||
-           getName() == "putarray"  || getName() == "putfarray" ||
-           getName() == "putf"      ||
+    return getName() == "getint" || getName() == "getch" ||
+           getName() == "getfloat" || getName() == "getarray" ||
+           getName() == "getfarray" || getName() == "putint" ||
+           getName() == "putch" || getName() == "putfloat" ||
+           getName() == "putarray" || getName() == "putfarray" ||
+           getName() == "putf" ||
            getName() == "_sysy_starttime" || getName() == "_sysy_stoptime";
 }
 bool Function::isRecursive() const
@@ -1133,7 +1126,7 @@ std::string Function::toString() const
     {
         if (i > 0)
             ss << ", ";
-        ss << Arguments[i]->getType()->toString() << " %" << Arguments[i]->getName();     
+        ss << Arguments[i]->getType()->toString() << " %" << Arguments[i]->getName();
     }
 
     ss << ") {\n";
@@ -1158,7 +1151,7 @@ Function *Module::addFunction(FunctionType *funcType, const string &name)
     return ptr;
 }
 GlobalVariable *Module::addGlobalVariable(Type *type, const string &name,
-                                      Constant *initializer , bool isConstant)
+                                          Constant *initializer, bool isConstant)
 {
     auto global = make_unique<GlobalVariable>(type, name, initializer, isConstant);
     GlobalVariable *ptr = global.get();
@@ -1168,7 +1161,7 @@ GlobalVariable *Module::addGlobalVariable(Type *type, const string &name,
 Function *Module::getFunction(const string &name)
 {
     // 遇到stoptime和starttime时添加前缀_sysy_以匹配SysY标准库函数
-    string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name; 
+    string tmp_name = (name == "starttime" || name == "stoptime") ? "_sysy_" + name : name;
     for (auto &func : Functions)
     {
         if (func->getName() == tmp_name)
