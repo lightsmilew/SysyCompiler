@@ -54,12 +54,12 @@ int main(int argc, const char *argv[])
 
     // 中间代码生成部分
     bool debugMode = false; // 默认不开启调试模式
-    if(argc > 5 && strcmp(argv[5], "-debug") == 0)
+    if (argc > 5 && strcmp(argv[5], "-debug") == 0)
     {
         debugMode = true;
     }
     IRBuilder irbuilder(debugMode);
-    auto ir_module=irbuilder.buildModule(ast_root);
+    auto ir_module = irbuilder.buildModule(ast_root);
 
     // 中间代码优化部分
     unique_ptr<optimization::PassManager> pass_manager;
@@ -76,7 +76,7 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O10; // 调试级别O10
         else if (strcmp(argv[4], "O11") == 0)
             opt_level = optimization::OptimizationLevel::O11; // 调试级别O11
-        else if (strcmp(argv[4], "O12") == 0)   
+        else if (strcmp(argv[4], "O12") == 0)
             opt_level = optimization::OptimizationLevel::O12; // 调试级别O12
         else if (strcmp(argv[4], "O13") == 0)
             opt_level = optimization::OptimizationLevel::O13; // 调试级别O13
@@ -98,12 +98,12 @@ int main(int argc, const char *argv[])
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
         // 调试
-        if(debugMode)
-         {
+        if (debugMode)
+        {
             cout << "Debugging IR Module:" << endl;
             ir_module->printBasicBlockInfo();
             irbuilder.printValueTableInEveryBlock();
-         }
+        }
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {
@@ -111,9 +111,14 @@ int main(int argc, const char *argv[])
         optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
         auto pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
+
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
-        auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module.get())));
+
+        // 正确的转移方式：将unique_ptr转换为shared_ptr
+        std::shared_ptr<Module> shared_module(ir_module.release());
+        auto riscv_module = riscv_builder.generateRISCVCode(shared_module);
+
         string assembly_code = riscv_builder.generateAssembly(riscv_module);
         cout << assembly_code << endl;
     }
