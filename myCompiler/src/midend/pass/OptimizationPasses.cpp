@@ -27,8 +27,38 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
     // 先删除不可达基本块（前驱为空且不是入口块）
     auto &bbs = func->getBasicBlocks();
+    
     if (!bbs.empty()) {
         BasicBlock *entry = bbs[0].get();
+        // 先收集所有将要删除的不可达基本块
+        std::vector<BasicBlock*> toDelete;
+        for (auto &bbPtr : bbs) {
+            BasicBlock *bb = bbPtr.get();
+            if (bb != entry && bb->getPredecessors().empty()) {
+                toDelete.push_back(bb);
+            }
+        }
+        // 对所有 phi 指令，移除对将要删除块的引用
+        for (auto &bbPtr : bbs) {
+            BasicBlock *bb = bbPtr.get();
+            auto &insts = bb->getInstructions();
+            for (auto &instPtr : insts) {
+                if (auto *phi = dynamic_cast<PhiInst*>(instPtr.get())) {
+                    for (BasicBlock *delBB : toDelete) {
+                        unsigned index=phi->getIndexByBasicBlock(delBB);
+                        if (index == -1) continue; // 如果没有这个前驱块，跳过
+                        // 删除对应的前驱块和值
+                        phi->removeIncoming(index);
+                    }
+                    // 如果只剩一个incoming，直接替换
+                    if (phi->getNumIncomingValues() == 1) {
+                        Value *incomingValue = phi->getIncomingValue(0);
+                        phi->replaceAllUsesWith(incomingValue);
+                        // 标记phi待删除（可加入needToDelete，或直接删除）
+                    }
+                }
+            }
+        }
         for (auto it = bbs.begin(); it != bbs.end(); ) {
             BasicBlock *bb = it->get();
             if (bb != entry && bb->getPredecessors().empty()) {
@@ -575,7 +605,9 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 BasicBlock *pred = phi->getIncomingBlock(i);
                 Value *val = phi->getIncomingValue(i);
                 // 在终结指令前插入
-                pred->insertBeforeTerminator(std::make_unique<CopyInst>(val, phi->getName()));
+                auto rawPtr = new CopyInst(val, phi->getName());
+                std::unique_ptr<Instruction> copyInst(rawPtr);
+                pred->insertBeforeTerminator(std::move(copyInst));
             }
             // 从基本块中删除原来指令，phi对应value仍然保留
             needToDelete.push_back(it->release());

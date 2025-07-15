@@ -143,7 +143,7 @@ Value * User::getOperandByIndex(unsigned index) const
     }
     throw std::out_of_range("Invalid operand index");
 }
-void User:: setOperandByIndex(unsigned index, Value *value)
+void User::setOperandByIndex(unsigned index, Value *value)
 {
     if (index < Operands.size())
     {
@@ -158,7 +158,18 @@ void User:: setOperandByIndex(unsigned index, Value *value)
         }
     }
 }
-
+void User::removeOperandByIndex(unsigned index) 
+{
+    if (index < Operands.size())
+    {
+        Value *oldValue = Operands[index];
+        if (oldValue)
+        {
+            oldValue->removeUser(this);
+        }
+        Operands.erase(Operands.begin() + index);
+    }
+}
 
 string ConstantString::toString() const 
 {
@@ -764,12 +775,34 @@ std::string BranchInst::toString() const
     return ss.str();
 }
 
-
+unsigned PhiInst::getIndexByBasicBlock(BasicBlock *block) const
+{
+    auto it = std::find(IncomingValues.begin(), IncomingValues.end(), block);
+    if (it != IncomingValues.end())
+    {
+        return std::distance(IncomingValues.begin(), it);
+    }
+    return -1; // 如果没有找到，返回无效索引
+}
 void PhiInst::addIncoming(Value *value, BasicBlock *block)
 {
     IncomingValues.emplace_back(block);
     // 添加到操作数列表中
     addOperand(value); 
+}
+void PhiInst::removeIncoming(unsigned index)
+{
+    if (index < IncomingValues.size())
+    {
+        // 从操作数列表中删除对应的值
+        removeOperandByIndex(index);
+        // 删除IncomingValues中的对应块
+        IncomingValues.erase(IncomingValues.begin() + index);
+    }
+    else
+    {
+        throw std::out_of_range("Invalid incoming index");
+    }
 }
 unsigned PhiInst::getNumIncomingValues() const
 {
@@ -1192,10 +1225,10 @@ GlobalVariable *Module::getGlobalVariable(const string &name)
 // Debug
 void Module::printBasicBlockInfo()
 {
+    int j=0;
     for (int i = 13; i < Functions.size(); i++)
     {
         std::cout << Functions[i]->getName() << ":" << std::endl;
-        int j = 0;
         for (const auto &it : Functions[i]->BasicBlocks)
         {
             std::cout << "BasicBlockSuccs " << j << ":" << std::endl;

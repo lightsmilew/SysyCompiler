@@ -175,6 +175,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
                 // 多维数组的初始化
                 auto initVals = AS(initVal, Vector<Ptr<ast::InitExprNode>>);
                 initExprPtr = makePtr<ast::InitExprNode>(initVals);
+                initExprPtr->line = varDefs->getStart()->getLine(); // 设置行号
             }
         }
         else

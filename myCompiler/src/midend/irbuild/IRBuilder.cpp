@@ -124,7 +124,8 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
 
     // 创建入口基本块
     // entry
-    BasicBlock *entryBlock = createBasicBlock();
+    string entryblock_name=debugMode?"entry":"";
+    BasicBlock *entryBlock = createBasicBlock(entryblock_name);
     setCurrentBlock(entryBlock);
 
     // 进入新的作用域 访问参数之前调用，防止形参实参之间干扰或者不同函数形参名相同产生干扰
@@ -364,11 +365,14 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 {
     Value *condition = visitExpression(node->condition); 
     // if.then
-    BasicBlock *thenBlock = createBasicBlock();
+    string thenblock_name=debugMode?"if.then."+std::to_string(node->line):"";
+    BasicBlock *thenBlock = createBasicBlock(thenblock_name);
     // if.else
-    BasicBlock *elseBlock = node->else_body ? createBasicBlock() : nullptr;
+    string elseblock_name=debugMode?"if.else."+std::to_string(node->line):"";
+    BasicBlock *elseBlock = node->else_body ? createBasicBlock(elseblock_name) : nullptr;
     // if.end
-    BasicBlock *mergeBlock = createBasicBlock();
+    string mergeblock_name=debugMode?"if.merge."+std::to_string(node->line):"";
+    BasicBlock *mergeBlock = createBasicBlock(mergeblock_name);
     // 记录分支前变量状态
     auto tmp_block=currentBlock;
     // 条件跳转
@@ -403,7 +407,7 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // {
     //     return;
     // }
-    // 修改判断，如果合流块没有前驱则返回，不生产phi指令
+    // 修改判断,如果合流块没有前驱则返回,不生产phi指令
     if (mergeBlock->getPredecessors().empty())
         return;
     // 生成phi占位    
@@ -415,7 +419,8 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
 void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
 {
     // while.cond
-    BasicBlock *condBlock = createBasicBlock();
+    string condblock_name=debugMode?"while.cond."+std::to_string(node->line):"";
+    BasicBlock *condBlock = createBasicBlock(condblock_name);
     // 生成phi占位
     auto tmpblock=currentBlock;
     setCurrentBlock(condBlock); 
@@ -423,9 +428,11 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     addPhiForVars();
     setCurrentBlock(tmpblock);
     // while.body
-    BasicBlock *bodyBlock = createBasicBlock();
+    string bodyblock_name=debugMode?"while.body."+std::to_string(node->line):"";
+    BasicBlock *bodyBlock = createBasicBlock(bodyblock_name);
     // while.end
-    BasicBlock *exitBlock = createBasicBlock(); 
+    string exitblock_name=debugMode?"while.exit."+std::to_string(node->line):"";
+    BasicBlock *exitBlock = createBasicBlock(exitblock_name);
     // 跳转到条件判断块
     createBranch(condBlock);
     // 设置当前块为条件判断块
@@ -605,9 +612,9 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        BasicBlock *rhsBlock = createBasicBlock();
+        BasicBlock *rhsBlock = createBasicBlock(debugMode?"logical.rhs."+std::to_string(node->line):"");
         // "logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
+        BasicBlock *mergeBlock = createBasicBlock(debugMode?"logical.end."+std::to_string(node->line):"");
 
 
         Value *lhs = visitExpression(node->left);
@@ -636,9 +643,9 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        BasicBlock *rhsBlock = createBasicBlock();
+        BasicBlock *rhsBlock = createBasicBlock(debugMode?"logical.rhs."+std::to_string(node->line):"");
         // "logical.end"
-        BasicBlock *mergeBlock = createBasicBlock();
+        BasicBlock *mergeBlock = createBasicBlock(debugMode?"lobical.end."+std::to_string(node->line):"");
 
 
         Value *lhs = visitExpression(node->left);
@@ -891,29 +898,93 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
     Vector<int> indices;
     size_t flat_idx = 0;
     Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
-
+    
+    std::vector<size_t> arrayindices=dynamic_cast<ArrayType*>(targetType)->getArrayIndices();
+    if(arrayindices.empty())
+    {
+        throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
+    }
+    size_t depth=getInitExprMaxDepth(node);
     // 展平所有叶子节点，用于底层赋值
-    flattenInitList(node, flat_inits);
-
+    flattenInitList(node, flat_inits, arrayindices,arrayindices.size()-depth);
+    if(debugMode)
+    {
+        std::cout<<"begin at dimension: "<<arrayindices.size()-depth<<",line: "<<node->line<<std::endl;
+        std::cout<< "Flattened init list size: " << flat_inits.size() <<",line : "+std::to_string(node->line)<< std::endl;
+        for(size_t i = 0; i < flat_inits.size(); ++i) {
+            if (flat_inits[i]) {
+                std::cout << " ptr ";
+            } else {
+                std::cout << " nullptr" ;
+            }
+        }
+        std::cout<<std::endl;
+    }
     // 计算数组总元素个数（支持多维）
     auto arrayType = dynamic_cast<ArrayType *>(targetType);
     size_t totalElements=arrayType?arrayType->getArrayLength() : 1;
     if (flat_inits.size() > totalElements) {
         throw std::runtime_error("Initializer list has more elements than array dimension,line: " + std::to_string(node->line));
     }
-
     // 递归处理初始化并检查每一维的初始化项数量
     visitInitExprImpl(targetType, targetPtr, indices, node, flat_inits, flat_idx);
 }
 
+size_t IRBuilder::getInitExprMaxDepth(std::shared_ptr<ast::InitExprNode> node, size_t currentDepth)
+{
+    if (!node || node->singleInitVal) return currentDepth;
+    size_t maxDepth = currentDepth;
+    for (const auto &child : node->multiInitVal)
+    {
+        maxDepth = std::max(maxDepth, getInitExprMaxDepth(child, currentDepth + 1));
+    }
+    return maxDepth;
+}
 // 展开所有叶子节点到 flat_inits
-void IRBuilder::flattenInitList(std::shared_ptr<ast::InitExprNode> node, Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits) {
-    if (!node) return;
-    if (node->singleInitVal) {
+void IRBuilder::flattenInitList(
+    std::shared_ptr<ast::InitExprNode> node,
+    Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+    const std::vector<size_t>& dims,
+    int dim // 当前递归到第几维
+) {
+    int dim_len = dims[dim];
+    int filled = 0;
+
+    // 情况1：全平铺（只有singleInitVal），直接顺序push
+    if (node && node->singleInitVal) {
         flat_inits.push_back(node);
-    } else {
+        return;
+    }
+
+    // 情况2：有嵌套，递归处理
+    if (node && !node->multiInitVal.empty()) {
         for (auto& child : node->multiInitVal) {
-            flattenInitList(child, flat_inits);
+            // 如果 child 是平铺（singleInitVal），且当前不是最后一维，说明是全平铺，直接顺序push
+            if (child && child->singleInitVal && dim < dims.size() - 1) {
+                flattenInitList(child, flat_inits, dims, dims.size() - 1); // 直接递归到最后一维
+                ++filled;
+            } else if (dim == dims.size() - 1) {
+                // 最后一维
+                if (child && child->singleInitVal) {
+                    flat_inits.push_back(child);
+                } else {
+                    flat_inits.push_back(nullptr);
+                }
+                ++filled;
+            } else {
+                flattenInitList(child, flat_inits, dims, dim + 1);
+                ++filled;
+            }
+        }
+    }
+
+    // 补零
+    int remain = dim_len - filled;
+    for (int i = 0; i < remain; ++i) {
+        if (dim == dims.size() - 1) {
+            flat_inits.push_back(nullptr);
+        } else {
+            flattenInitList(nullptr, flat_inits, dims, dim + 1);
         }
     }
 }
@@ -942,7 +1013,6 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
     {
         // 到达最底层元素
         Vector<Value *> gep_indices;
-        //gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), 0));
         for (int idx : indices) {
             gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
         }
@@ -1081,7 +1151,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
             auto indice_size=lval->indices.size();
             auto tmp_array=constArray;
             //获取元素
-            for(int i=0;i<indice_size-2;i++){
+            for(int i=0;i<indice_size-1;i++){
                 auto j=getExpressionConstantValue(indices[i]);
                 tmp_array=dynamic_cast<ConstantArray*>(tmp_array->Elements[j]);
                 //转换失败:常量计算不允许指针操作
@@ -1095,7 +1165,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         }
     }
 
-    throw std::runtime_error("Unsupported expression in evaluateConstantExpr FunctionCall ,line: " + std::to_string(node->line));
+    return nullptr; // 如果没有匹配到任何常量表达式，返回 nullptr
 }
 int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
     auto value=evaluateConstantExpr(node);
@@ -1749,5 +1819,31 @@ void IRBuilder::printValueTableInEveryBlock()
         {
             std::cout << "  Variable: " << var.first << " -> " << var.second->toRef() << std::endl;
         }   
+    }
+}
+void IRBuilder::printBasicBlockInfo()
+{
+    int j=0;
+    auto _module=module.get();
+    for (int i = 13; i < _module->Functions.size(); i++)
+    {
+        std::cout << module->Functions[i]->getName() << ":" << std::endl;
+        for (const auto &it : _module->Functions[i]->BasicBlocks)
+        {
+            std::cout << "BasicBlockSuccs " << j << ":" << std::endl;
+            std::cout << "                   Successors: ";
+            for (auto suc : it->getSuccessors())
+            {
+                std::cout << suc->getName() << " ";
+            }
+            std::cout << std::endl;
+            std::cout << "                   Predecessors: ";
+            for (auto pre : it->getPredecessors())
+            {
+                std::cout << pre->getName() << " ";
+            }
+            std::cout << std::endl;
+            j++;
+        }
     }
 }

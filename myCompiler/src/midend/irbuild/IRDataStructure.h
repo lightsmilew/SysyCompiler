@@ -221,6 +221,7 @@ public:
     const vector<Value *> &getOperands() const;                                 // 获取所有操作数
     Value *getOperandByIndex(unsigned index) const;                             // 获取指定索引的操作数
     void setOperandByIndex(unsigned index, Value *value);                       // 设置指定索引的操作数
+    void removeOperandByIndex(unsigned index);
     string toString() const override;
 };
 
@@ -569,7 +570,9 @@ public:
     PhiInst(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
 
+    unsigned getIndexByBasicBlock(BasicBlock *block) const;        // 获取前驱基本块的索引
     void addIncoming(Value *value, BasicBlock *block);              // 添加前驱基本块和对应的值
+    void removeIncoming(unsigned index);                            // 删除指定前驱基本块和对应的值
     unsigned getNumIncomingValues() const;                          // 获取前驱基本块和对应的值长度
     Value *getIncomingValue(unsigned index) const;                  // 获取前驱value
     BasicBlock *getIncomingBlock(unsigned index) const;             // 获取前驱基本块

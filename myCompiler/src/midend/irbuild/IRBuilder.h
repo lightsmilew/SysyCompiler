@@ -36,12 +36,13 @@ namespace ir_builder
         unsigned tempVarCounter;           // 临时变量计数器
         unsigned labelCounter;             // 标签计数器
         unsigned stringCounter;            // 字符串常量计数器
-
+        // Debug
+        bool debugMode = false; // 是否开启调试模式
     public:
         // 构造与初始化 
-        IRBuilder( const String &moduleName = "main_module")
+        IRBuilder( bool debugMode,const String &moduleName = "main_module")
             : currentFunction(nullptr), currentBlock(nullptr),
-              tempVarCounter(0), labelCounter(0), stringCounter(0)
+              tempVarCounter(0), labelCounter(0), stringCounter(0), debugMode(debugMode)
         {
             module = std::make_unique<Module>(moduleName);
             initializeLibraryFunctions(); 
@@ -103,8 +104,13 @@ namespace ir_builder
 
 
         // 辅助函数
-        void flattenInitList(std::shared_ptr<ast::InitExprNode> node, 
-                                  Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits);      // 扁平化初始化列表
+        // 计算初始表达式大括号最深层数
+        size_t getInitExprMaxDepth(std::shared_ptr<ast::InitExprNode> node,
+                                        size_t currentDepth = 0);                               // 获取初始化表达式的最大深度
+        void flattenInitList(std::shared_ptr<ast::InitExprNode> node,
+                                Vector<std::shared_ptr<ast::InitExprNode>>& flat_inits,
+                                const std::vector<size_t>& dims,
+                                int dim);                                                       // 扁平化初始化列表
         void visitInitExprImpl(Type *targetType, Value *targetPtr,
                                   Vector<int>& indices,
                                   std::shared_ptr<ast::InitExprNode> initNode,
@@ -143,5 +149,7 @@ namespace ir_builder
 
         // Debug输出
         void printValueTableInEveryBlock();
+        // 这个函数有问题
+        void printBasicBlockInfo(); // 输出基本块后继信息
     };
 }

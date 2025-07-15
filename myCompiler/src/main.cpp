@@ -53,8 +53,13 @@ int main(int argc, const char *argv[])
     }
 
     // 中间代码生成部分
-    IRBuilder irbuilder;
-    auto ir_module = irbuilder.buildModule(ast_root);
+    bool debugMode = false; // 默认不开启调试模式
+    if(argc > 5 && strcmp(argv[5], "-debug") == 0)
+    {
+        debugMode = true;
+    }
+    IRBuilder irbuilder(debugMode);
+    auto ir_module=irbuilder.buildModule(ast_root);
 
     // 中间代码优化部分
     unique_ptr<optimization::PassManager> pass_manager;
@@ -83,7 +88,7 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O16; // 调试级别O16
         else
             throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
-        // 不开启优化日志
+        // 开启优化日志
         pass_manager = optimization::createOptimizationPipeline(opt_level, true);
         pass_manager->runOnModule(ir_module.get());
     }
@@ -93,7 +98,7 @@ int main(int argc, const char *argv[])
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
         // 调试
-        if(argc > 3 && strcmp(argv[3], "-debug") == 0)
+        if(debugMode)
          {
             cout << "Debugging IR Module:" << endl;
             ir_module->printBasicBlockInfo();
@@ -108,7 +113,7 @@ int main(int argc, const char *argv[])
         pass_manager->runOnModule(ir_module.get());
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
-        auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module)));
+        auto riscv_module = riscv_builder.generateRISCVCode(std::shared_ptr<Module>(std::move(ir_module.get())));
         string assembly_code = riscv_builder.generateAssembly(riscv_module);
         cout << assembly_code << endl;
     }
