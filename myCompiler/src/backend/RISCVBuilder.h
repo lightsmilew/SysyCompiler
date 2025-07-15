@@ -39,9 +39,34 @@ namespace RISCV
         unordered_map<string, shared_ptr<RISCVRegister>> registerMap; // IR值名字到寄存器的映射
         unordered_map<string, int> stackArguments;                    // 栈参数名字到偏移量的映射
 
-        // 临时寄存器轮换计数器，避免寄存器冲突
-        mutable int generalTempCounter = 0;
-        mutable int floatTempCounter = 0;
+        // 寄存器状态管理
+        struct RegisterState {
+            bool inUse = false;
+            string occupiedBy = "";
+            int allocationOrder = 0;  // 分配顺序，用于LRU
+        };
+        
+        unordered_map<RISCVRegister::PhysicalReg, RegisterState> generalRegState;
+        unordered_map<RISCVRegister::PhysicalReg, RegisterState> floatRegState;
+        int allocationCounter = 0;  // 分配计数器
+        
+        // 可用的临时寄存器池
+        vector<RISCVRegister::PhysicalReg> availableGeneralTemps = {
+            RISCVRegister::PhysicalReg::T0, RISCVRegister::PhysicalReg::T1,
+            RISCVRegister::PhysicalReg::T2, RISCVRegister::PhysicalReg::T3,
+            RISCVRegister::PhysicalReg::T4, RISCVRegister::PhysicalReg::T5,
+            RISCVRegister::PhysicalReg::T6
+        };
+        
+        vector<RISCVRegister::PhysicalReg> availableFloatTemps = {
+            RISCVRegister::PhysicalReg::FT0, RISCVRegister::PhysicalReg::FT1,
+            RISCVRegister::PhysicalReg::FT2, RISCVRegister::PhysicalReg::FT3,
+            RISCVRegister::PhysicalReg::FT4, RISCVRegister::PhysicalReg::FT5,
+            RISCVRegister::PhysicalReg::FT6, RISCVRegister::PhysicalReg::FT7
+        };
+        
+        // 当前指令使用的临时寄存器列表（用于自动释放）
+        vector<shared_ptr<RISCVRegister>> currentInstructionTemps;
 
     public:
         InstructionSelector() = default;
@@ -86,6 +111,9 @@ namespace RISCV
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
 
         // 临时寄存器管理方法
+        shared_ptr<RISCVRegister> allocateTempRegister(RegisterType type, const string& purpose = "");
+        void releaseTempRegister(shared_ptr<RISCVRegister> reg);
+        void releaseAllCurrentTemps();  // 释放当前指令的所有临时寄存器
         shared_ptr<RISCVRegister> getTempRegister(RegisterType type, int index = 0);
         shared_ptr<RISCVRegister> getGeneralTempRegister(int index = 0);
         shared_ptr<RISCVRegister> getFloatTempRegister(int index = 0);

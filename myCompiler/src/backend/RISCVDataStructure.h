@@ -221,11 +221,13 @@ namespace RISCV
 
     public:
         // 构造函数
-        RISCVRegister(PhysicalReg reg);   // 物理寄存器
-        RISCVRegister(RegisterType type); // 虚拟寄存器
+        RISCVRegister(PhysicalReg reg);                       // 物理寄存器
+        RISCVRegister(RegisterType type);                     // 虚拟寄存器
+        RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器，指定类型
 
         // 访问器
         RegisterType getType() const { return type; }
+        RegisterType getRegType() const { return type; } // 兼容性方法
         bool isVirtual() const { return virtualId != -1; }
         bool isPhysical() const { return virtualId == -1; }
         int getVirtualId() const { return virtualId; }

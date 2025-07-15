@@ -148,6 +148,9 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
 void InstructionSelector::visitInstruction(Instruction *inst)
 {
+    // 清理上一条指令的临时寄存器
+    releaseAllCurrentTemps();
+
     switch (inst->Op)
     {
     case Opcode::Add:
@@ -240,6 +243,10 @@ void InstructionSelector::visitInstruction(Instruction *inst)
         // 其他指令暂时忽略
         break;
     }
+
+    // 指令处理完成后，自动释放本条指令使用的所有临时寄存器
+    // 由于结果已经存储到栈上，可以安全释放
+    releaseAllCurrentTemps();
 }
 
 void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
@@ -247,9 +254,9 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
     auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
 
-    // 创建临时寄存器存储计算结果
+    // 创建临时寄存器存储计算结果，避免与操作数冲突
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto tempReg = getTempRegister(regType, 0);
+    auto tempReg = allocateTempRegister(regType, "binary_result_" + inst->getDest()->getName());
 
     RISCVOpcode opcode;
 
@@ -304,7 +311,7 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
     // 创建临时寄存器存储加载的数据
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto valueReg = getTempRegister(regType, 0);
+    auto valueReg = allocateTempRegister(regType, "phi_value");
 
     // 根据数据类型选择合适的加载指令
     RISCVOpcode loadOpcode;
@@ -316,6 +323,11 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
     {
         loadOpcode = RISCVOpcode::LW; // 整数加载
     }
+    else if (inst->getType()->isPointerTy())
+    {
+        loadOpcode = RISCVOpcode::LD; // 指针加载
+    }
+
     else
     {
         loadOpcode = RISCVOpcode::LW; // 默认使用字加载
@@ -348,6 +360,10 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
     else if (inst->getValueToStore()->getType()->isIntegerTy())
     {
         storeOpcode = RISCVOpcode::SW; // 整数存储
+    }
+    else if (inst->getValueToStore()->getType()->isPointerTy())
+    {
+        storeOpcode = RISCVOpcode::SD; // 指针存储
     }
     else
     {
@@ -429,6 +445,8 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                 stackArgIndex++;
             }
         }
+
+        releaseTempRegister(argReg); // 释放当前参数的临时寄存器
     }
 
     // 2. 生成函数调用指令
@@ -501,7 +519,7 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
         if (condReg->getType() == RegisterType::FLOAT)
         {
             // 如果条件是浮点类型，需要先转换为整数
-            auto intCondReg = getGeneralTempRegister(0);
+            auto intCondReg = allocateTempRegister(RegisterType::GENERAL, "branch_cond");
             auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, condReg);
             currentBB->addInstruction(ftoiInst);
             condReg = intCondReg; // 使用转换后的整数寄存器作为条件
@@ -558,7 +576,7 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     int varOffset = stackFrame.getOffset(inst->getDest()->getName());
 
     // 创建临时寄存器保存数组/变量的首地址
-    auto addressReg = getGeneralTempRegister(0);
+    auto addressReg = allocateTempRegister(RegisterType::GENERAL, "store_addr");
 
     // 计算首地址：sp + offset
     if (isImmediateInRange(varOffset))
@@ -583,7 +601,7 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 
     // 将数组/变量的首地址存储到栈中供后续使用stridegetNumElements
     // alloca指令的结果是一个指针，指向分配的内存区域
-    storeValueToStack(inst->getDest(), addressReg);
+    storeValueToStack(inst->getDest(), addressReg, 8);
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
@@ -593,8 +611,12 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     // 输入：数组首地址（由alloca返回）+ 多个索引
     // 输出：指定元素的地址
 
+    // 获取数组的基地址,数组的基地址通常是alloca指令的指针
     auto baseAddressReg = getOrCreateVirtualReg(inst->getPointerOperand());
-    auto elementAddressReg = getGeneralTempRegister(0);
+    auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, baseAddressReg, baseAddressReg, 8);
+    currentBB->addInstruction(addiInst);
+
+    auto elementAddressReg = allocateTempRegister(RegisterType::GENERAL, "element_addr");
 
     auto indices = inst->getIndices();       // 访问下标
     auto stridePtr = inst->getArrayStride(); // 获取数组的步长信息
@@ -604,14 +626,14 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
         if (stridePtr != nullptr && !stridePtr->empty())
         {
             // 多维数组：计算元素地址：base + sum(index[i] * stride[i] * 4)
-            auto totalOffsetReg = getGeneralTempRegister(1);
+            auto totalOffsetReg = allocateTempRegister(RegisterType::GENERAL, "total_offset");
 
             // 初始化偏移量为0
             auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
             auto initInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, totalOffsetReg, zeroReg);
             currentBB->addInstruction(initInst);
 
-            auto offsetReg = getGeneralTempRegister(2);
+            auto offsetReg = allocateTempRegister(RegisterType::GENERAL, "index_offset");
             auto liInst = RISCVInstruction::createPseudoLI(offsetReg, 1);
             currentBB->addInstruction(liInst);
 
@@ -619,7 +641,7 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
             {
                 auto indexReg = getOrCreateVirtualReg(indices[i]);
-                auto tmpReg = getGeneralTempRegister(3);
+                auto tmpReg = allocateTempRegister(RegisterType::GENERAL, "index_calc");
 
                 // totalOffset += offset * index * 4
                 auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
@@ -628,6 +650,9 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
                 currentBB->addInstruction(shiftInst);
                 auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
                 currentBB->addInstruction(addInst);
+
+                releaseTempRegister(tmpReg);   // 释放临时寄存器
+                releaseTempRegister(indexReg); // 释放偏移寄存器
 
                 // offset *= stride
                 if (i == 0)
@@ -639,11 +664,13 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
                 int stride = (*stridePtr)[i - 1];
                 if (stride != 1)
                 {
-                    auto strideReg = getGeneralTempRegister(4);
+                    auto strideReg = allocateTempRegister(RegisterType::GENERAL, "stride_calc");
                     auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
                     currentBB->addInstruction(liStrideInst);
                     auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
                     currentBB->addInstruction(mulStrideInst);
+
+                    releaseTempRegister(strideReg); // 释放stride寄存器
                 }
             }
 
@@ -655,7 +682,7 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
         {
             // 一维数组或简单情况：base + index * 4
             auto indexReg = getOrCreateVirtualReg(indices[0]);
-            auto shiftReg = getGeneralTempRegister(1);
+            auto shiftReg = allocateTempRegister(RegisterType::GENERAL, "shift_calc");
 
             // 将索引左移2位（相当于乘以4）
             auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, shiftReg, indexReg, 2);
@@ -674,14 +701,14 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     }
 
     // 将计算出的元素地址存储到栈中供load/store指令使用
-    storeValueToStack(inst->getDest(), elementAddressReg);
+    storeValueToStack(inst->getDest(), elementAddressReg, 8);
 }
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
     auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
     auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
-    auto destReg = getGeneralTempRegister(0);
+    auto destReg = allocateTempRegister(RegisterType::GENERAL, "icmp_result");
 
     RISCVOpcode opcode;
     switch (inst->Pred)
@@ -753,7 +780,7 @@ void InstructionSelector::visitFCmpInst(FCmpInst *inst)
 {
     auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
     auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
-    auto destReg = getGeneralTempRegister(0); // 浮点比较结果存储在通用寄存器中
+    auto destReg = allocateTempRegister(RegisterType::GENERAL, "fcmp_result"); // 浮点比较结果存储在通用寄存器中
 
     RISCVOpcode opcode;
     switch (inst->Pred)
@@ -804,7 +831,7 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
     auto srcReg = getOrCreateVirtualReg(inst->getOperand());
 
     // 创建目标浮点寄存器 - 使用临时寄存器管理
-    auto destReg = getFloatTempRegister(0); // 使用FT0进行类型转换
+    auto destReg = allocateTempRegister(RegisterType::FLOAT, "sitofp_result"); // 类型转换
 
     // 生成 RISC-V 的 fcvt.s.w 指令（整数到单精度浮点）
     auto fcvtInst = RISCVInstruction::createPseudo(RISCVOpcode::FCVT_S_W, destReg, srcReg);
@@ -820,7 +847,7 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
     auto srcReg = getOrCreateVirtualReg(inst->getOperand());
 
     // 创建目标整数寄存器 - 使用临时寄存器管理
-    auto destReg = getGeneralTempRegister(0); // 使用T0进行类型转换
+    auto destReg = allocateTempRegister(RegisterType::GENERAL, "fptosi_result"); // 类型转换
 
     // 生成 RISC-V 的 fcvt.w.s 指令（单精度浮点到整数）
     // 使用RTZ（Round toward Zero）舍入模式，这是C语言标准的行为
@@ -841,7 +868,7 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
 
     // 创建临时寄存器进行复制操作
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-    auto destReg = getTempRegister(regType, 0);
+    auto destReg = allocateTempRegister(regType, "copy_result");
 
     // 生成移动指令
     RISCVOpcode moveOpcode;
@@ -947,7 +974,7 @@ void InstructionSelector::generateFloatConstantLoad(shared_ptr<RISCVRegister> re
     std::memcpy(&bits, &value, sizeof(float));
 
     // 创建临时的整数寄存器来加载位表示
-    auto tempIntReg = getGeneralTempRegister(2); // 使用T2用于浮点常量加载
+    auto tempIntReg = allocateTempRegister(RegisterType::GENERAL, "float_const_bits"); // 用于浮点常量加载
 
     // 特殊情况：0.0
     if (value == 0.0f)
@@ -973,14 +1000,14 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (auto constInt = dynamic_cast<ConstantInt *>(value))
     {
         // 根据常量大小优化加载指令
-        auto tempReg = getGeneralTempRegister(0);
+        auto tempReg = allocateTempRegister(RegisterType::GENERAL, "const_" + std::to_string(constInt->Value));
         generateConstantLoad(tempReg, constInt->Value);
         return tempReg;
     }
     else if (auto constFloat = dynamic_cast<ConstantFloat *>(value))
     {
         // 对于浮点常量，需要更复杂的处理
-        auto tempReg = getFloatTempRegister(0);
+        auto tempReg = allocateTempRegister(RegisterType::FLOAT, "constf_" + std::to_string(constFloat->Value));
         generateFloatConstantLoad(tempReg, constFloat->Value);
         return tempReg;
     }
@@ -1006,7 +1033,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     {
         // 这是一个栈参数，需要从调用者栈帧中加载
         // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
-        auto loadReg = getGeneralTempRegister(0);
+        auto loadReg = allocateTempRegister(RegisterType::GENERAL, "stackarg_" + valueName);
 
         // 计算栈参数的实际偏移量：
         // argOffset = 被调用者栈帧大小 + 参数在调用者栈帧中的偏移
@@ -1023,21 +1050,24 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         else
         {
             // 偏移量太大，先计算地址
-            auto addrReg = getGeneralTempRegister(3);
+            auto addrReg = allocateTempRegister(RegisterType::GENERAL, "stack_addr");
             auto liInst = RISCVInstruction::createPseudoLI(addrReg, argOffset);
             currentBB->addInstruction(liInst);
 
             auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, addrReg);
             currentBB->addInstruction(addInst);
 
-            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, loadReg, addrReg, 0);
+            // 目标是否为指针
+            auto loadOpcode = value->getType()->isPointerTy() ? RISCVOpcode::LD : RISCVOpcode::LW;
+
+            auto loadInst = RISCVInstruction::createIType(loadOpcode, loadReg, addrReg, 0);
             currentBB->addInstruction(loadInst);
         }
 
         // 如果目标是浮点类型，需要转移到浮点寄存器
         if (value->getType()->isFloatTy())
         {
-            auto floatReg = getFloatTempRegister(0);
+            auto floatReg = allocateTempRegister(RegisterType::FLOAT, "stackarg_float_" + valueName);
             auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, loadReg);
             currentBB->addInstruction(moveInst);
             return floatReg;
@@ -1059,14 +1089,13 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
 
         // 从栈中加载值到新的虚拟寄存器
         RegisterType regType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
-        auto virtualReg = getTempRegister(regType, 0);
+        auto virtualReg = allocateTempRegister(regType, "load_" + valueName);
 
-        // 先保存映射，避免递归调用
-        registerMap[valueName] = virtualReg;
+        auto isPtr = value->getType()->isPointerTy();
 
         // 生成从栈加载的指令
         int offset = stackFrame.getOffset(valueName);
-        generateStackAccess(offset, virtualReg, false); // false表示load
+        generateStackAccess(offset, virtualReg, false, isPtr); // false表示load
 
         return virtualReg;
     }
@@ -1075,7 +1104,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (value->isGlobal())
     {
         // 全局变量需要先从从全局内存加载地址，然后再加载值
-        auto globalReg = getTempRegister(RegisterType::GENERAL, 0);
+        auto globalReg = allocateTempRegister(RegisterType::GENERAL, "global_" + valueName);
 
         auto laInst = RISCVInstruction::createPseudoLA(globalReg, value->getName());
         currentBB->addInstruction(laInst);
@@ -1083,7 +1112,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         // 如果是浮点类型，需要从全局内存加载到浮点寄存器
         if (value->getType()->isFloatTy())
         {
-            auto floatReg = getFloatTempRegister(0);
+            auto floatReg = allocateTempRegister(RegisterType::FLOAT, "global_float_" + valueName);
             auto loadInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, globalReg);
             currentBB->addInstruction(loadInst);
             globalReg = floatReg; // 更新返回寄存器为浮点寄存器
@@ -1098,8 +1127,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     }
 
     // 错误情况：未能找到Value的寄存器或栈位置
-    // 返回0
-    return 0;
+    throw std::runtime_error("Cannot allocate register for value: " + valueName);
 }
 
 void InstructionSelector::storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size)
@@ -1140,7 +1168,7 @@ void InstructionSelector::generateStackAccess(int offset, shared_ptr<RISCVRegist
     else
     {
         // 偏移量超出范围，需要计算地址
-        auto tempReg = getGeneralTempRegister(1); // 使用T1用于地址计算
+        auto tempReg = allocateTempRegister(RegisterType::GENERAL, "addr_calc"); // 地址计算
 
         // li temp, offset
         auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
@@ -1359,6 +1387,8 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
 
             auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, spReg, spReg, tempReg);
             func->getBasicBlocks()[0]->addInstruction(addInst);
+
+            releaseTempRegister(tempReg); // 释放临时寄存器
         }
 
         // 2. 如果R不为0，保存ra寄存器到 sp + S' - 4
@@ -1384,6 +1414,8 @@ void InstructionSelector::generateFunctionPrologue(shared_ptr<RISCVFunction> fun
 
                 auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, tempReg, raReg, 0);
                 func->getBasicBlocks()[0]->addInstruction(swInst);
+
+                releaseTempRegister(tempReg); // 释放临时寄存器
             }
         }
     }
@@ -1422,6 +1454,8 @@ void InstructionSelector::generateFunctionEpilogue(shared_ptr<RISCVFunction> fun
 
                 auto lwInst = RISCVInstruction::createIType(RISCVOpcode::LW, raReg, tempReg, 0);
                 currentBB->addInstruction(lwInst);
+
+                releaseTempRegister(tempReg); // 释放临时寄存器
             }
         }
 
@@ -1439,6 +1473,8 @@ void InstructionSelector::generateFunctionEpilogue(shared_ptr<RISCVFunction> fun
 
             auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, spReg, spReg, tempReg);
             currentBB->addInstruction(addInst);
+
+            releaseTempRegister(tempReg); // 释放临时寄存器
         }
     }
 }
@@ -1704,69 +1740,139 @@ bool AssemblyEmitter::isLibraryFunction(const string &funcName)
     return libFuncs.count(funcName) > 0;
 }
 
-// 临时寄存器管理方法的实现
+// 保持与原有接口的兼容性
 shared_ptr<RISCVRegister> InstructionSelector::getTempRegister(RegisterType type, int index)
 {
-    if (type == RegisterType::GENERAL)
-    {
-        return getGeneralTempRegister(index);
-    }
-    else if (type == RegisterType::FLOAT)
-    {
-        return getFloatTempRegister(index);
-    }
-    return nullptr;
+    return allocateTempRegister(type, "temp_" + std::to_string(index));
 }
 
 shared_ptr<RISCVRegister> InstructionSelector::getGeneralTempRegister(int index)
 {
-    // 预定义的通用临时寄存器，确保不会冲突
-    static vector<RISCVRegister::PhysicalReg> tempRegs = {
-        RISCVRegister::PhysicalReg::T0, // index 0: 主要临时寄存器
-        RISCVRegister::PhysicalReg::T1, // index 1: 地址计算用
-        RISCVRegister::PhysicalReg::T2, // index 2: 复杂操作用
-        RISCVRegister::PhysicalReg::T3, // index 3: 备用
-        RISCVRegister::PhysicalReg::T4, // index 4: 备用
-        RISCVRegister::PhysicalReg::T5, // index 5: 备用
-        RISCVRegister::PhysicalReg::T6  // index 6: 备用
-    }; // 如果指定了特定的index，使用指定的寄存器
-    if (index >= 1 && index < tempRegs.size())
-    {
-        return make_shared<RISCVRegister>(tempRegs[index]);
-    }
-
-    // 否则使用轮换策略避免冲突
-    int rotatedIndex = generalTempCounter % tempRegs.size();
-    generalTempCounter++;
-
-    return make_shared<RISCVRegister>(tempRegs[rotatedIndex]);
+    return allocateTempRegister(RegisterType::GENERAL, "general_temp_" + std::to_string(index));
 }
 
 shared_ptr<RISCVRegister> InstructionSelector::getFloatTempRegister(int index)
 {
-    // 预定义的浮点临时寄存器，确保不会冲突
-    static vector<RISCVRegister::PhysicalReg> tempRegs = {
-        RISCVRegister::PhysicalReg::FT0,  // index 0: 主要浮点临时寄存器
-        RISCVRegister::PhysicalReg::FT1,  // index 1: 辅助浮点临时寄存器
-        RISCVRegister::PhysicalReg::FT2,  // index 2: 复杂操作用
-        RISCVRegister::PhysicalReg::FT3,  // index 3: 备用
-        RISCVRegister::PhysicalReg::FT4,  // index 4: 备用
-        RISCVRegister::PhysicalReg::FT5,  // index 5: 备用
-        RISCVRegister::PhysicalReg::FT6,  // index 6: 备用
-        RISCVRegister::PhysicalReg::FT7,  // index 7: 备用
-        RISCVRegister::PhysicalReg::FT8,  // index 8: 备用
-        RISCVRegister::PhysicalReg::FT9,  // index 9: 备用
-        RISCVRegister::PhysicalReg::FT10, // index 10: 备用
-        RISCVRegister::PhysicalReg::FT11  // index 11: 备用
-    }; // 如果指定了特定的index，使用指定的寄存器
-    if (index >= 1 && index < tempRegs.size())
+    return allocateTempRegister(RegisterType::FLOAT, "float_temp_" + std::to_string(index));
+}
+
+// 临时寄存器管理方法实现
+shared_ptr<RISCVRegister> InstructionSelector::allocateTempRegister(RegisterType type, const string &purpose)
+{
+    vector<RISCVRegister::PhysicalReg> *availablePool;
+    unordered_map<RISCVRegister::PhysicalReg, RegisterState> *stateMap;
+
+    // 选择合适的寄存器池和状态映射
+    if (type == RegisterType::GENERAL)
     {
-        return make_shared<RISCVRegister>(tempRegs[index]);
+        availablePool = &availableGeneralTemps;
+        stateMap = &generalRegState;
+    }
+    else
+    {
+        availablePool = &availableFloatTemps;
+        stateMap = &floatRegState;
     }
 
-    // 否则使用轮换策略避免冲突
-    int rotatedIndex = floatTempCounter % tempRegs.size();
-    floatTempCounter++;
+    // 首先尝试找到空闲的寄存器
+    for (auto reg : *availablePool)
+    {
+        if (!(*stateMap)[reg].inUse)
+        {
+            // 标记为使用中
+            (*stateMap)[reg].inUse = true;
+            (*stateMap)[reg].occupiedBy = purpose;
+            (*stateMap)[reg].allocationOrder = allocationCounter++;
 
-    return make_shared<RISCVRegister>(tempRegs[rotatedIndex]);
+            // 创建寄存器对象
+            auto tempReg = make_shared<RISCVRegister>(reg, type);
+
+            // 添加到当前指令的临时寄存器列表
+            currentInstructionTemps.push_back(tempReg);
+
+            return tempReg;
+        }
+    }
+
+    // 如果没有空闲寄存器，使用LRU策略释放最旧的寄存器
+    RISCVRegister::PhysicalReg oldestReg = (*availablePool)[0];
+    int oldestOrder = (*stateMap)[oldestReg].allocationOrder;
+
+    for (auto reg : *availablePool)
+    {
+        if ((*stateMap)[reg].allocationOrder < oldestOrder)
+        {
+            oldestOrder = (*stateMap)[reg].allocationOrder;
+            oldestReg = reg;
+        }
+    }
+
+    // 释放最旧的寄存器并重新分配
+    (*stateMap)[oldestReg].inUse = true;
+    (*stateMap)[oldestReg].occupiedBy = purpose;
+    (*stateMap)[oldestReg].allocationOrder = allocationCounter++;
+
+    auto tempReg = make_shared<RISCVRegister>(oldestReg, type);
+    currentInstructionTemps.push_back(tempReg);
+
+    return tempReg;
+}
+
+void InstructionSelector::releaseTempRegister(shared_ptr<RISCVRegister> reg)
+{
+    if (!reg || reg->getRegType() == RegisterType::VIRTUAL)
+    {
+        return; // 只释放物理临时寄存器
+    }
+
+    unordered_map<RISCVRegister::PhysicalReg, RegisterState> *stateMap;
+
+    if (reg->getType() == RegisterType::GENERAL)
+    {
+        stateMap = &generalRegState;
+    }
+    else
+    {
+        stateMap = &floatRegState;
+    }
+
+    // 标记为空闲
+    auto physReg = reg->getPhysicalReg();
+    (*stateMap)[physReg].inUse = false;
+    (*stateMap)[physReg].occupiedBy = "";
+
+    // 从当前指令临时寄存器列表中移除
+    auto it = std::find(currentInstructionTemps.begin(), currentInstructionTemps.end(), reg);
+    if (it != currentInstructionTemps.end())
+    {
+        currentInstructionTemps.erase(it);
+    }
+}
+
+void InstructionSelector::releaseAllCurrentTemps()
+{
+    // 释放当前指令使用的所有临时寄存器
+    for (auto reg : currentInstructionTemps)
+    {
+        if (reg->getRegType() != RegisterType::VIRTUAL)
+        {
+            unordered_map<RISCVRegister::PhysicalReg, RegisterState> *stateMap;
+
+            if (reg->getType() == RegisterType::GENERAL)
+            {
+                stateMap = &generalRegState;
+            }
+            else
+            {
+                stateMap = &floatRegState;
+            }
+
+            auto physReg = reg->getPhysicalReg();
+            (*stateMap)[physReg].inUse = false;
+            (*stateMap)[physReg].occupiedBy = "";
+        }
+    }
+
+    // 清空当前指令的临时寄存器列表
+    currentInstructionTemps.clear();
 }
