@@ -383,6 +383,10 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     if (!inst->getCalledFunction())
         return;
 
+    // 0. 现场保护：保存caller-saved寄存器中存储的函数参数
+    vector<shared_ptr<RISCVRegister>> savedRegisters;
+    saveCallerSavedRegisters(savedRegisters);
+
     // 1. 处理参数传递 - 严格按照RISC-V ABI规范
     // 前8个整数/指针参数使用a0-a7，前8个浮点参数使用fa0-fa7
     // 超出的参数按顺序存放在调用者栈帧的参数区域
@@ -464,6 +468,9 @@ void InstructionSelector::visitCallInst(CallInst *inst)
         // 将返回值存储到栈中
         storeValueToStack(inst->getDest(), returnPhysReg);
     }
+
+    // 4. 现场恢复：恢复caller-saved寄存器中存储的函数参数
+    restoreCallerSavedRegisters(savedRegisters);
 }
 
 void InstructionSelector::visitReturnInst(ReturnInst *inst)
@@ -1033,7 +1040,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (stackIt != stackArguments.end())
     {
         // 这是一个栈参数，需要从调用者栈帧中加载
-        // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
+        // 栈参数存储在调用者栈
         auto loadReg = allocateTempRegister(RegisterType::GENERAL, "stackarg_" + valueName);
 
         // 计算栈参数的实际偏移量：
@@ -1492,9 +1499,16 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
             if (intArgIndex < 8)
             {
                 // 使用a0-a7寄存器
-                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
-                    static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
+                auto physReg = static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex);
+                auto reg = make_shared<RISCVRegister>(physReg);
                 registerMap[arg->getName()] = reg;
+
+                // 标记寄存器为参数使用
+                generalRegState[physReg].inUse = true;
+                generalRegState[physReg].occupiedBy = "arg_" + arg->getName();
+                generalRegState[physReg].allocationOrder = allocationCounter++;
+
                 intArgIndex++;
             }
             else
@@ -1510,9 +1524,16 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
             if (floatArgIndex < 8)
             {
                 // 使用fa0-fa7寄存器
-                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
-                    static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex));
+                auto physReg = static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgIndex);
+                auto reg = make_shared<RISCVRegister>(physReg);
                 registerMap[arg->getName()] = reg;
+
+                // 标记寄存器为参数使用
+                floatRegState[physReg].inUse = true;
+                floatRegState[physReg].occupiedBy = "arg_" + arg->getName();
+                floatRegState[physReg].allocationOrder = allocationCounter++;
+
                 floatArgIndex++;
             }
             else
@@ -1528,9 +1549,16 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
             if (intArgIndex + ptrArgIndex < 8)
             {
                 // 使用a0-a7寄存器
-                auto reg = make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
-                    static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex));
+                auto physReg = static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgIndex);
+                auto reg = make_shared<RISCVRegister>(physReg);
                 registerMap[arg->getName()] = reg;
+
+                // 标记寄存器为参数使用
+                generalRegState[physReg].inUse = true;
+                generalRegState[physReg].occupiedBy = "arg_" + arg->getName();
+                generalRegState[physReg].allocationOrder = allocationCounter++;
+
                 intArgIndex++;
             }
             else
@@ -1862,4 +1890,135 @@ void InstructionSelector::releaseAllCurrentTemps()
 
     // 清空当前指令的临时寄存器列表
     currentInstructionTemps.clear();
+}
+
+// 现场保护和恢复方法实现
+void InstructionSelector::saveCallerSavedRegisters(vector<shared_ptr<RISCVRegister>> &savedRegisters)
+{
+    // 定义caller-saved寄存器列表
+    vector<RISCVRegister::PhysicalReg> callerSavedGeneralRegs = {
+        RISCVRegister::PhysicalReg::A0, RISCVRegister::PhysicalReg::A1, RISCVRegister::PhysicalReg::A2, RISCVRegister::PhysicalReg::A3,
+        RISCVRegister::PhysicalReg::A4, RISCVRegister::PhysicalReg::A5, RISCVRegister::PhysicalReg::A6, RISCVRegister::PhysicalReg::A7,
+        RISCVRegister::PhysicalReg::T0, RISCVRegister::PhysicalReg::T1, RISCVRegister::PhysicalReg::T2,
+        RISCVRegister::PhysicalReg::T3, RISCVRegister::PhysicalReg::T4, RISCVRegister::PhysicalReg::T5, RISCVRegister::PhysicalReg::T6};
+
+    vector<RISCVRegister::PhysicalReg> callerSavedFloatRegs = {
+        RISCVRegister::PhysicalReg::FA0, RISCVRegister::PhysicalReg::FA1, RISCVRegister::PhysicalReg::FA2, RISCVRegister::PhysicalReg::FA3,
+        RISCVRegister::PhysicalReg::FA4, RISCVRegister::PhysicalReg::FA5, RISCVRegister::PhysicalReg::FA6, RISCVRegister::PhysicalReg::FA7,
+        RISCVRegister::PhysicalReg::FT0, RISCVRegister::PhysicalReg::FT1, RISCVRegister::PhysicalReg::FT2, RISCVRegister::PhysicalReg::FT3,
+        RISCVRegister::PhysicalReg::FT4, RISCVRegister::PhysicalReg::FT5, RISCVRegister::PhysicalReg::FT6, RISCVRegister::PhysicalReg::FT7,
+        RISCVRegister::PhysicalReg::FT8, RISCVRegister::PhysicalReg::FT9, RISCVRegister::PhysicalReg::FT10, RISCVRegister::PhysicalReg::FT11};
+
+    // 检查通用寄存器中是否存储了当前函数的参数
+    for (auto reg : callerSavedGeneralRegs)
+    {
+        if (generalRegState[reg].inUse && generalRegState[reg].occupiedBy.find("arg_") == 0)
+        {
+            // 找到可用的callee-saved寄存器来保存
+            vector<RISCVRegister::PhysicalReg> calleeSavedRegs = {
+                RISCVRegister::PhysicalReg::S1, RISCVRegister::PhysicalReg::S2, RISCVRegister::PhysicalReg::S3,
+                RISCVRegister::PhysicalReg::S4, RISCVRegister::PhysicalReg::S5, RISCVRegister::PhysicalReg::S6,
+                RISCVRegister::PhysicalReg::S7, RISCVRegister::PhysicalReg::S8, RISCVRegister::PhysicalReg::S9,
+                RISCVRegister::PhysicalReg::S10, RISCVRegister::PhysicalReg::S11};
+
+            // 寻找空闲的callee-saved寄存器
+            for (auto saveReg : calleeSavedRegs)
+            {
+                if (!generalRegState[saveReg].inUse)
+                {
+                    auto sourceReg = make_shared<RISCVRegister>(reg);
+                    auto targetReg = make_shared<RISCVRegister>(saveReg);
+
+                    // 生成保存指令：mv saveReg, originalReg
+                    auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, targetReg, sourceReg);
+                    currentBB->addInstruction(moveInst);
+
+                    // 标记保存寄存器为已使用
+                    generalRegState[saveReg].inUse = true;
+                    generalRegState[saveReg].occupiedBy = "save_" + generalRegState[reg].occupiedBy;
+                    generalRegState[saveReg].allocationOrder = allocationCounter++;
+
+                    // 记录保存信息
+                    savedRegisters.push_back(sourceReg);
+                    savedRegisters.push_back(targetReg);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 检查浮点寄存器中是否存储了当前函数的参数
+    for (auto reg : callerSavedFloatRegs)
+    {
+        if (floatRegState[reg].inUse && floatRegState[reg].occupiedBy.find("arg_") == 0)
+        {
+            // 找到可用的callee-saved浮点寄存器来保存
+            vector<RISCVRegister::PhysicalReg> calleeSavedFloatRegs = {
+                RISCVRegister::PhysicalReg::FS0, RISCVRegister::PhysicalReg::FS1, RISCVRegister::PhysicalReg::FS2,
+                RISCVRegister::PhysicalReg::FS3, RISCVRegister::PhysicalReg::FS4, RISCVRegister::PhysicalReg::FS5,
+                RISCVRegister::PhysicalReg::FS6, RISCVRegister::PhysicalReg::FS7, RISCVRegister::PhysicalReg::FS8,
+                RISCVRegister::PhysicalReg::FS9, RISCVRegister::PhysicalReg::FS10, RISCVRegister::PhysicalReg::FS11};
+
+            // 寻找空闲的callee-saved浮点寄存器
+            for (auto saveReg : calleeSavedFloatRegs)
+            {
+                if (!floatRegState[saveReg].inUse)
+                {
+                    auto sourceReg = make_shared<RISCVRegister>(reg);
+                    auto targetReg = make_shared<RISCVRegister>(saveReg);
+
+                    // 生成保存指令：fmv.s saveReg, originalReg
+                    auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, targetReg, sourceReg);
+                    currentBB->addInstruction(moveInst);
+
+                    // 标记保存寄存器为已使用
+                    floatRegState[saveReg].inUse = true;
+                    floatRegState[saveReg].occupiedBy = "save_" + floatRegState[reg].occupiedBy;
+                    floatRegState[saveReg].allocationOrder = allocationCounter++;
+
+                    // 记录保存信息
+                    savedRegisters.push_back(sourceReg);
+                    savedRegisters.push_back(targetReg);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void InstructionSelector::restoreCallerSavedRegisters(const vector<shared_ptr<RISCVRegister>> &savedRegisters)
+{
+    // savedRegisters中存储的是成对的寄存器：[原寄存器, 保存寄存器, 原寄存器, 保存寄存器, ...]
+    for (size_t i = 0; i < savedRegisters.size(); i += 2)
+    {
+        if (i + 1 < savedRegisters.size())
+        {
+            auto originalReg = savedRegisters[i]; // 原始寄存器
+            auto saveReg = savedRegisters[i + 1]; // 保存寄存器
+
+            // 生成恢复指令
+            if (originalReg->getType() == RegisterType::GENERAL)
+            {
+                // mv originalReg, saveReg
+                auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, originalReg, saveReg);
+                currentBB->addInstruction(moveInst);
+
+                // 释放保存寄存器
+                auto physSaveReg = saveReg->getPhysicalReg();
+                generalRegState[physSaveReg].inUse = false;
+                generalRegState[physSaveReg].occupiedBy = "";
+            }
+            else
+            {
+                // fmv.s originalReg, saveReg
+                auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, originalReg, saveReg);
+                currentBB->addInstruction(moveInst);
+
+                // 释放保存寄存器
+                auto physSaveReg = saveReg->getPhysicalReg();
+                floatRegState[physSaveReg].inUse = false;
+                floatRegState[physSaveReg].occupiedBy = "";
+            }
+        }
+    }
 }
