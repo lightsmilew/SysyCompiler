@@ -273,7 +273,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
         varToValue[node->identifier] = globalVar;
-        // const变量加入常量表
+        // const变量加入常量表 const int i=10;把10加入下表
         if(node->type.isConst())
         {
             constVarToValue[node->identifier] = initializer;
@@ -340,7 +340,7 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
         if(ptrType->ElementType!= rvalue->getType())
         {
             // 如果指针类型的元素类型和右值类型不匹配，进行类型转换
-            rvalue = createCast(rvalue, ptrType->ElementType,"assign in array");
+            rvalue = createCast(rvalue, ptrType->ElementType,"assign in memory model");
         }     
         // 指针类型用store
         createStore(rvalue, lvalue);
@@ -451,7 +451,6 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     // 生成条件表达式的 IR
     Value *condition = visitExpression(node->condition);
     createCondBranch(condition, bodyBlock, exitBlock);
-
     // 进入循环体
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
@@ -629,9 +628,11 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        BasicBlock *rhsBlock = createBasicBlock(debugMode?"logical.rhs."+std::to_string(node->line):"");
+        string rhsblock_name=debugMode?"logical.rhs."+std::to_string(node->line):"";
+        BasicBlock *rhsBlock = createBasicBlock(rhsblock_name);
         // "logical.end"
-        BasicBlock *mergeBlock = createBasicBlock(debugMode?"logical.end."+std::to_string(node->line):"");
+        string mergeblock_name=debugMode?"logical.end."+std::to_string(node->line):"";
+        BasicBlock *mergeBlock = createBasicBlock(mergeblock_name);
 
 
         Value *lhs = visitExpression(node->left);
@@ -660,9 +661,11 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        BasicBlock *rhsBlock = createBasicBlock(debugMode?"logical.rhs."+std::to_string(node->line):"");
+        string rhsblock_name=debugMode?"logical.rhs."+std::to_string(node->line):"";
+        BasicBlock *rhsBlock = createBasicBlock(rhsblock_name);
         // "logical.end"
-        BasicBlock *mergeBlock = createBasicBlock(debugMode?"lobical.end."+std::to_string(node->line):"");
+        string mergeblock_name=debugMode?"logical.end."+std::to_string(node->line):"";
+        BasicBlock *mergeBlock = createBasicBlock(mergeblock_name);
 
 
         Value *lhs = visitExpression(node->left);
@@ -760,7 +763,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         return ptr;
     }
     // 进入下面的语句只能是指针或常量数组
-    // 如果是const数组
+    // 如果是const数组或者const全局变量
     if (constVarToValue.count(node->identifier))
     {
         vector<int> indices;
@@ -789,7 +792,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
             {
                 throw std::runtime_error("ConstantArray is a nullptr,line : " + std::to_string(node->line));
             }
-            // 如果是常量数组，直接返回对应的值
+            // 如果是常量数组或者常量全局变量（全局变量用内存模型），直接返回对应的值
             return ConstantValue;
         }
     }
@@ -820,11 +823,30 @@ Value *IRBuilder::visitCallExpr(std::shared_ptr<ast::CallExprNode> node)
         throw std::runtime_error("Undefined function: " + node->callee+",line:"+ std::to_string(node->line));
     }
     Vector<Value *> args;
+    // 特判三个函数starttime, stoptime, putf
     // _sysy_starttime 和 _sysy_stoptime 函数单独处理
     if(func->getName()=="_sysy_starttime" || func->getName()=="_sysy_stoptime")
     {
         // 传入行号
         args.push_back(new ConstantInt(IntegerType::getInstance(), node->line));
+        return createCall(func, args);
+    }
+    // putf 可变参数处理
+    if(func->getName() == "putf") {
+        // 第一个参数（字符串）类型检查
+        if(node->args.empty())
+            throw std::runtime_error("putf requires at least one argument,line:"+ std::to_string(node->line));
+        Value *strArg = visitExpression(node->args[0]);
+        Type *expectedType = func->getFunctionType()->ParamTypes[0];
+        if (!expectedType->isTypeEqual(strArg->getType(), expectedType)) {
+            // 不是字符串直接报错，目前不支持其他类型强转为字符串
+            throw std::runtime_error("putf first argument must be a string,line: " + std::to_string(node->line));
+        }
+        args.push_back(strArg);
+        // 后续参数全部直接传递
+        for(size_t i = 1; i < node->args.size(); ++i) {
+            args.push_back(visitExpression(node->args[i]));
+        }
         return createCall(func, args);
     }
     // 其他函数的处理
@@ -1047,7 +1069,8 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
     }
 }
 // 用于数组初始化 递归返回一个ConstantArray
-Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) {
+Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType) 
+{
     // 1. 展平所有叶子节点
     std::vector<size_t> dims = arrayType->getArrayIndices();
     Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
@@ -1055,21 +1078,32 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
 
     // 2. 递归构造 ConstantArray
     size_t flat_idx = 0;
-    std::function<Constant*(ArrayType*, int)> buildArray = [&](ArrayType* arrTy, int dim) -> Constant* {
+    std::function<Constant*(ArrayType*, int)> buildArray = [&](ArrayType* arrTy, int dim) -> Constant* 
+    {
         int len = arrTy->getNumElements();
         Type* elemTy = arrTy->ElementType;
         Vector<Constant*> elements;
-        if (elemTy->isArrayTy()) {
-            for (int i = 0; i < len; ++i) {
+        if (elemTy->isArrayTy()) 
+        {
+            for (int i = 0; i < len; ++i) 
+            {
                 elements.push_back(buildArray(static_cast<ArrayType*>(elemTy), dim + 1));
             }
-        } else {
-            for (int i = 0; i < len; ++i) {
-                if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) {
+        } 
+        else 
+        {
+            for (int i = 0; i < len; ++i) 
+            {
+                if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal) 
+                {
                     elements.push_back(evaluateConstantExpr(flat_inits[flat_idx]->singleInitVal));
-                } else if (elemTy->isIntegerTy()) {
+                } 
+                else if (elemTy->isIntegerTy()) 
+                {
                     elements.push_back(new ConstantInt(IntegerType::getInstance(), 0));
-                } else if (elemTy->isFloatTy()) {
+                } 
+                else if (elemTy->isFloatTy()) 
+                {
                     elements.push_back(new ConstantFloat(FloatType::getInstance(), 0.0f));
                 }
                 ++flat_idx;
@@ -1077,7 +1111,6 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
         }
         return new ConstantArray(arrTy, elements);
     };
-
     return buildArray(arrayType, 0);
 }
 Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
@@ -1094,17 +1127,20 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         return new ConstantFloat(FloatType::getInstance(), floatLiteral->value);
 
     // 常量二元表达式
-    else if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) {
+    else if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node)) 
+    {
         auto lhs = evaluateConstantExpr(binExpr->left);
         auto rhs = evaluateConstantExpr(binExpr->right);
         if(!lhs|| !rhs)
             return nullptr; // 如果有一个子表达式不是常量，返回 nullptr
         // 这里只处理 int/float 常量
-        if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy()) {
+        if (lhs->getType()->isIntegerTy() && rhs->getType()->isIntegerTy()) 
+        {
             int l = static_cast<ConstantInt*>(lhs)->Value;
             int r = static_cast<ConstantInt*>(rhs)->Value;
             int res = 0;
-            switch (binExpr->op) {
+            switch (binExpr->op) 
+            {
                 case ast::BinaryOp::Add: res = l + r; break;
                 case ast::BinaryOp::Sub: res = l - r; break;
                 case ast::BinaryOp::Mul: res = l * r; break;
@@ -1113,11 +1149,14 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
                 default: throw std::runtime_error("Unsupported op in const int expr,line: "+ std::to_string(node->line));
             }
             return new ConstantInt(IntegerType::getInstance(), res);
-        } else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy()) {
+        } 
+        else if (lhs->getType()->isFloatTy() || rhs->getType()->isFloatTy()) 
+        {
             float l = lhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(lhs)->Value : static_cast<ConstantInt*>(lhs)->Value;
             float r = rhs->getType()->isFloatTy() ? static_cast<ConstantFloat*>(rhs)->Value : static_cast<ConstantInt*>(rhs)->Value;
             float res = 0;
-            switch (binExpr->op) {
+            switch (binExpr->op) 
+            {
                 case ast::BinaryOp::Add: res = l + r; break;
                 case ast::BinaryOp::Sub: res = l - r; break;
                 case ast::BinaryOp::Mul: res = l * r; break;
@@ -1157,20 +1196,27 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         }
     }
     // 常量变量引用（只允许 const 变量）
-    else if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) {
+    else if (auto lval = std::dynamic_pointer_cast<ast::LValueExprNode>(node)) 
+    {
         auto it = constVarToValue.find(lval->identifier);
         if (it == constVarToValue.end())
             return nullptr; // 如果没有找到常量变量，返回 nullptr
-        if(auto constInt= dynamic_cast<ConstantInt*>(it->second)) {
+        if(auto constInt= dynamic_cast<ConstantInt*>(it->second)) 
+        {
             return constInt;
-        } else if(auto constFloat = dynamic_cast<ConstantFloat*>(it->second)) {
+        } 
+        else if(auto constFloat = dynamic_cast<ConstantFloat*>(it->second)) 
+        {
             return constFloat;
-        } else if(auto constArray = dynamic_cast<ConstantArray*>(it->second)) {
+        } 
+        else if(auto constArray = dynamic_cast<ConstantArray*>(it->second)) 
+        {
             auto indices= lval->indices;
             auto indice_size=lval->indices.size();
             auto tmp_array=constArray;
             //获取元素
-            for(int i=0;i<indice_size-1;i++){
+            for(int i=0;i<indice_size-1;i++)
+            {
                 auto j=getExpressionConstantValue(indices[i]);
                 tmp_array=dynamic_cast<ConstantArray*>(tmp_array->Elements[j]);
                 //转换失败:常量计算不允许指针操作
@@ -1186,23 +1232,28 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 
     return nullptr; // 如果没有匹配到任何常量表达式，返回 nullptr
 }
-int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node){
+int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node)
+{
     auto value=evaluateConstantExpr(node);
     if(!value)
     {
         throw std::runtime_error("Expression is not constant,line: "+std::to_string(node->line));
     }
-    if(auto int_value=dynamic_cast<ConstantInt*>(value)){
+    if(auto int_value=dynamic_cast<ConstantInt*>(value))
+    {
         return int_value->Value;
     }
-    else if(auto float_value=dynamic_cast<ConstantFloat*>(value)){
+    else if(auto float_value=dynamic_cast<ConstantFloat*>(value))
+    {
         return (int)float_value->Value;
     }
-    else{
+    else
+    {
         throw std::runtime_error("Unsupported constant expression type in getExpressionConstantValue,line: "+ std::to_string(node->line));
     }
 }
-bool IRBuilder::isConstVars(string name){
+bool IRBuilder::isConstVars(string name)
+{
     auto it=constVarToValue.find(name);
     if(it==constVarToValue.end())return false;
     return true;
@@ -1706,15 +1757,18 @@ Value *IRBuilder::convertToBool(Value *value)
 }
 
 Vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
-    shared_ptr<ast::InitExprNode> node) {
+    shared_ptr<ast::InitExprNode> node) 
+{
     if (!node) return {};
-    if (node->multiInitVal.empty()) {
+    if (node->multiInitVal.empty()) 
+    {
         return {node}; // 单个值视为一个子项
     } else {
         return node->multiInitVal; // 多个子项
     }
 }
-bool IRBuilder::hasTerminatorInst(BasicBlock *block){
+bool IRBuilder::hasTerminatorInst(BasicBlock *block)
+{
     if(block->hasTerminator())return true;
     else
     {
@@ -1744,12 +1798,14 @@ void IRBuilder::addPhiForVars()
 void IRBuilder::addPhiIncomings(BasicBlock *block)
 {
     // 遍历合流块所有变量
-    for (const auto& [name, value] : basicBlockVarToValue[block]) {
+    for (const auto& [name, value] : basicBlockVarToValue[block]) 
+    {
         // 只处理 phi
         auto phi = dynamic_cast<PhiInst*>(value);
         if (!phi) continue;
         // 遍历所有前驱块
-        for (auto pred : block->getPredecessors()) {
+        for (auto pred : block->getPredecessors()) 
+        {
             // 如果前驱块有该变量的 SSA 值
             auto it = basicBlockVarToValue[pred].find(name);
             if (it != basicBlockVarToValue[pred].end()&&it->second != value) {
@@ -1779,13 +1835,17 @@ int IRBuilder::getArrayDims(string varName)
     {
         throw std::runtime_error("Variable not found: " + varName);
     }
-    int dims=1;
     // 不是指针抛出异常
     if(!ptr->second->getType()->isPointerTy())
     {
         throw std::runtime_error("Variable is not an array: " + varName);
     }
     Type *type = dynamic_cast<PointerType*>(ptr->second->getType())->ElementType;
+    if(type->isIntegerTy() || type->isFloatTy())
+    {
+        return 0; // 如果是基本类型，返回0维
+    }
+    int dims=1;
     while (auto arrayType = dynamic_cast<ArrayType*>(type))
     {
         dims++;
@@ -1795,7 +1855,7 @@ int IRBuilder::getArrayDims(string varName)
 }
 Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant,const Vector<int> &indices)const
 {
-    if (indices.empty()) return nullptr;
+    if (indices.empty()) return constant; // 如果没有索引，直接返回常量
     auto constArray = dynamic_cast<ConstantArray*>(constant);
     if (!constArray)
     {
