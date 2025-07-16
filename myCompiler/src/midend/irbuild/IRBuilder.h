@@ -18,6 +18,7 @@ namespace ir_builder
         std::unordered_map<String, Constant*> constVarToValue;           // 常量符号表                               
         std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
         std::vector<String> NewDeclaredVarsInBlock;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
+        std::stack<std::vector<String>> NewDeclaredVarsInBlockStack;     // 块内新定义符号栈，用于嵌套作用域管理变量写回
         std::unordered_map<BasicBlock*,
         std::unordered_map<String, Value*>> basicBlockVarToValue;        // 基本块到变量映射 用于作用域嵌套管理
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
@@ -125,10 +126,14 @@ namespace ir_builder
         bool hasTerminatorInst(BasicBlock *block);                                              // 判断基本块是否有终结指令
         bool isBlockNewDeclaredVar(const String &varName)const;                                 // 是否为块内新定义变量
         int getArrayDims(string varName);
-        Value *getConstantArrayValueByIndices(Constant *constant,const Vector<int> &indices) const;                // 获取数组维度数量    
+        Value *getConstantArrayValueByIndices(Constant *constant,
+                                        const Vector<int> &indices) const;                      // 获取数组维度数量    
         Type *convertASTTypeToIRType(const ast::DataType &astType,bool isFunctionParam);        // AST类型转换IR类型
         Value *createCast(Value *value, Type *targetType,string statement);                     // 生成类型强制转换指令 statement用于调试定位
         Value *convertToBool(Value *value);                                                     // 转换为布尔值
+        // 作用域管理(符号表压栈与弹出)
+        void PushVarsStack();                                                                   //作用域管理压栈(包括符号表和新定义变量列表)
+        void PopVarsStack();                                                                    //作用域管理弹栈(包括符号表和新定义变量列表)
         // 临时变量名生成
         String getNextTempName()
         {
