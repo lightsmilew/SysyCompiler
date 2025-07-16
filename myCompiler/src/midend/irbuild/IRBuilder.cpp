@@ -172,8 +172,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     for (auto& [name, _] : varToValue) outerVars.insert(name);
 
     // 进入新作用域
-    varToValueStack.push(varToValue);
-
+    PushVarsStack();
     // 访问 block 内所有语句
     for (auto &stmt : node->stmts) 
     {
@@ -181,20 +180,34 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
         if (currentBlock->hasTerminator()) break;
     }
     // 恢复作用域
+    // 这里不能调用PopVarsStack，因为需要将当前块内新声明的变量写回外层作用域
     auto innerVarToValue = varToValue;
     varToValue = varToValueStack.top();
     varToValueStack.pop();
     // 只在 isRestore 为真时写回外层变量
+    if(debugMode)
+    {
+        std::cout<<"Block Debug Info, line: " << node->line << std::endl;
+        for(auto it:innerVarToValue)
+        {
+            std::cout << "Block variable: " << it.first << ", Value: " << it.second->toRef() <<",is NewDeclaredVar:"+std::to_string(isBlockNewDeclaredVar(it.first))+", line:" << node->line << std::endl;
+        }
+    }
     if (isRestore) {
         for (const auto& name : outerVars) 
         {
             if (innerVarToValue.count(name) && !isBlockNewDeclaredVar(name)) 
             {
                 varToValue[name] = innerVarToValue[name];
+                if(debugMode)
+                {
+                    std::cout << "Restoring variable: " << name << " to outer scope with :" << innerVarToValue[name]->toRef() << ", line:" << node->line << std::endl;
+                }
             }
         }
     }
-    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
+    NewDeclaredVarsInBlock = NewDeclaredVarsInBlockStack.top();
+    NewDeclaredVarsInBlockStack.pop();
 }
 
 void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node,bool isRestore)
@@ -381,15 +394,10 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     // then 分支
     setCurrentBlock(thenBlock);
     // 进入新作用域
-    varToValueStack.push(varToValue);
+    PushVarsStack();
     visitStatement(node->then_body,false);
     // 恢复作用域
-    varToValue = varToValueStack.top();
-    varToValueStack.pop();
-    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
-    //bool then_hasTerminator = currentBlock->hasTerminator();
-    // 如果没有else分支，则该变量为true，符合逻辑
-    //bool else_hasTerminator=true;
+    PopVarsStack();
     if (!currentBlock->hasTerminator())
     {
         createBranch(mergeBlock);
@@ -398,26 +406,17 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     {
         setCurrentBlock(elseBlock);
         // 进入新作用域
-        varToValueStack.push(varToValue);
+        PushVarsStack();
         visitStatement(node->else_body,false);
         // 恢复作用域
-        varToValue = varToValueStack.top();
-        varToValueStack.pop();
-        //else_hasTerminator = currentBlock->hasTerminator();
+        PopVarsStack();
         if (!currentBlock->hasTerminator())
         {
             createBranch(mergeBlock);
         }
     }
-    // 清空当前块新声明的变量列表
-    NewDeclaredVarsInBlock.clear();
     // 合流块
     setCurrentBlock(mergeBlock);
-    // // 如果两个分支都有终结指令则不插入phi
-    // if (then_hasTerminator && else_hasTerminator)
-    // {
-    //     return;
-    // }
     // 修改判断,如果合流块没有前驱则返回,不生产phi指令
     if (mergeBlock->getPredecessors().empty())
         return;
@@ -455,12 +454,11 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     setCurrentBlock(bodyBlock);
     loopStack.push(LoopContext(condBlock, exitBlock));
     // 进入新作用域
-    varToValueStack.push(varToValue);
+    PushVarsStack();
     visitStatement(node->body,false);
     // 恢复作用域
-    varToValue = varToValueStack.top();
-    varToValueStack.pop();
-    NewDeclaredVarsInBlock.clear(); // 清空当前块新声明的变量列表
+    PopVarsStack();
+    // 弹出循环上下文
     loopStack.pop(); 
     // 如果循环体没有提前 return/break，循环体结尾跳回条件判断块
     if (!currentBlock->hasTerminator())
@@ -501,6 +499,14 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
         if (retValue->getType() != expectedType)
         {
             retValue = createCast(retValue, expectedType,"return");
+        }
+        // 如果是main函数要插入一条putint指令
+        if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
+        {
+            // 生成 putint 调用
+            Function *putintFunc = module->getFunction("putint");
+            Vector<Value *> args = { retValue };
+            createCall(putintFunc, args);
         }
         createReturn(retValue);
     }
@@ -1892,6 +1898,22 @@ Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant,const Vector
         }
     }
     return nullptr; // 理论上不会到这里
+}
+void IRBuilder::PushVarsStack()
+{
+    // 进入新作用域
+    varToValueStack.push(varToValue);
+    NewDeclaredVarsInBlockStack.push(NewDeclaredVarsInBlock);
+    // 清空当前块新声明的变量列表
+    NewDeclaredVarsInBlock.clear(); 
+}
+void IRBuilder::PopVarsStack()
+{
+    // 恢复作用域
+    varToValue = varToValueStack.top();
+    varToValueStack.pop();
+    NewDeclaredVarsInBlock = NewDeclaredVarsInBlockStack.top();
+    NewDeclaredVarsInBlockStack.pop();
 }
 bool IRBuilder::isBlockNewDeclaredVar(const String &varName) const
 {
