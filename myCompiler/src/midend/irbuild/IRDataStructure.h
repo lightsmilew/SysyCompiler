@@ -297,6 +297,11 @@ public:
             auto arrayType = static_cast<ArrayType *>(ty);
             setType(PointerType::getInstance(arrayType->getElementType()));
         }
+        // 其他类型也用指针，统一用内存模型
+        else if(ty->isIntegerTy()|| ty->isFloatTy() )
+        {
+            setType(PointerType::getInstance(ty));
+        }
     }
     string toString() const override;
 };
