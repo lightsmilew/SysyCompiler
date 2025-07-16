@@ -1830,6 +1830,7 @@ bool IRBuilder::isConstantValue(Value *value)
 }
 int IRBuilder::getArrayDims(string varName)
 {
+    // 这个函数处理三种情况:局部变量数组、全局变量数组和全局普通变量，第三个要返回0，前两者正常走流程
     auto ptr= varToValue.find(varName);
     if (ptr == varToValue.end())
     {
@@ -1841,9 +1842,17 @@ int IRBuilder::getArrayDims(string varName)
         throw std::runtime_error("Variable is not an array: " + varName);
     }
     Type *type = dynamic_cast<PointerType*>(ptr->second->getType())->ElementType;
-    if(type->isIntegerTy() || type->isFloatTy())
+    // 如果是基本类型且是全局变量，返回0
+    if((type->isIntegerTy() || type->isFloatTy()))
     {
-        return 0; // 如果是基本类型，返回0维
+        if(auto globalVar=dynamic_cast<GlobalVariable*>(ptr->second))
+        {
+            auto basic_type=globalVar->basicType;
+            if(basic_type->isIntegerTy()||basic_type->isFloatTy())
+            {
+                return 0;
+            }
+        }
     }
     int dims=1;
     while (auto arrayType = dynamic_cast<ArrayType*>(type))
