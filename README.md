@@ -43,7 +43,7 @@ python3 test.py
 # 运行并输出汇编代码
 ./run.sh -riscv
 # gdb调试
-gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -riscv
+./run.sh -gdb
 ```
 
 ### qemu-riscv64 模拟器运行
@@ -59,7 +59,7 @@ qemu-system-riscv64 \
 -drive file=ubuntu-24.04.2-preinstalled-server-riscv64.img,format=raw,if=virtio
 
 # 传递文件
-scp -P 端口号 本地文件路径 用户名@远程主机IP:远程目录路径
+./run.sh -transfer
 
 
 ```
