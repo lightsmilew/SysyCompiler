@@ -710,66 +710,56 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
     auto destReg = allocateTempRegister(RegisterType::GENERAL, "icmp_result");
 
-    RISCVOpcode opcode;
     switch (inst->Pred)
     {
     case ICmpInst::ICMP_EQ:
-        // eq: sub + seqz
-        {
-            auto subInst = RISCVInstruction::createRType(RISCVOpcode::SUB, destReg, lhsReg, rhsReg);
-            currentBB->addInstruction(subInst);
-
-            // seqz rd, rs1 等价于 sltiu rd, rs1, 1
-            auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
-            currentBB->addInstruction(seqzInst);
-        }
-        break;
+    {
+        auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(xorInst);
+        auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
+        currentBB->addInstruction(seqzInst);
+    }
+    break;
     case ICmpInst::ICMP_NE:
-        // ne: sub + snez
-        {
-            auto subInst = RISCVInstruction::createRType(RISCVOpcode::SUB, destReg, lhsReg, rhsReg);
-            currentBB->addInstruction(subInst);
-
-            // snez rd, rs1 等价于 sltu rd, zero, rs1
-            auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
-                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                          destReg);
-            currentBB->addInstruction(snezInst);
-        }
-        break;
+    {
+        auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(xorInst);
+        auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
+                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                      destReg);
+        currentBB->addInstruction(snezInst);
+    }
+    break;
     case ICmpInst::ICMP_SLT:
-        opcode = RISCVOpcode::SLT;
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case ICmpInst::ICMP_SLE:
-        // le: slt + xori
-        {
-            auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
-            currentBB->addInstruction(sltInst);
-            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
-            currentBB->addInstruction(xoriInst);
-        }
-        break;
+    {
+        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(sltInst);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+        currentBB->addInstruction(xoriInst);
+    }
+    break;
     case ICmpInst::ICMP_SGT:
-        opcode = RISCVOpcode::SLT;
-        std::swap(lhsReg, rhsReg); // gt: slt with swapped operands
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case ICmpInst::ICMP_SGE:
-        // ge: slt + xori with swapped operands
-        {
-            auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
-            currentBB->addInstruction(sltInst);
-            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
-            currentBB->addInstruction(xoriInst);
-        }
-        break;
+    {
+        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(sltInst);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+        currentBB->addInstruction(xoriInst);
+    }
+    break;
     default:
         return;
-    }
-
-    if (inst->Pred == ICmpInst::ICMP_SLT || inst->Pred == ICmpInst::ICMP_SGT)
-    {
-        auto cmpInst = RISCVInstruction::createRType(opcode, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(cmpInst);
     }
 
     // 将结果存储到栈中
@@ -778,47 +768,53 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
 
 void InstructionSelector::visitFCmpInst(FCmpInst *inst)
 {
+    // 修改：使用浮点寄存器类型
     auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
     auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
-    auto destReg = allocateTempRegister(RegisterType::GENERAL, "fcmp_result"); // 浮点比较结果存储在通用寄存器中
+    auto destReg = allocateTempRegister(RegisterType::GENERAL, "fcmp_result"); // 结果仍存储在通用寄存器
 
-    RISCVOpcode opcode;
     switch (inst->Pred)
     {
     case FCmpInst::FCMP_OEQ:
-        opcode = RISCVOpcode::FEQ_S;
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::FEQ_S, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case FCmpInst::FCMP_OLT:
-        opcode = RISCVOpcode::FLT_S;
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::FLT_S, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case FCmpInst::FCMP_OLE:
-        opcode = RISCVOpcode::FLE_S;
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::FLE_S, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case FCmpInst::FCMP_OGT:
-        opcode = RISCVOpcode::FLT_S;
-        std::swap(lhsReg, rhsReg); // gt: flt with swapped operands
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::FLT_S, destReg, rhsReg, lhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case FCmpInst::FCMP_OGE:
-        opcode = RISCVOpcode::FLE_S;
-        std::swap(lhsReg, rhsReg); // ge: fle with swapped operands
-        break;
+    {
+        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::FLE_S, destReg, rhsReg, lhsReg);
+        currentBB->addInstruction(cmpInst);
+    }
+    break;
     case FCmpInst::FCMP_ONE:
-        // ne: !feq
-        {
-            auto feqInst = RISCVInstruction::createRType(RISCVOpcode::FEQ_S, destReg, lhsReg, rhsReg);
-            currentBB->addInstruction(feqInst);
-            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
-            currentBB->addInstruction(xoriInst);
-        }
-        break;
+    {
+        auto feqInst = RISCVInstruction::createRType(RISCVOpcode::FEQ_S, destReg, lhsReg, rhsReg);
+        currentBB->addInstruction(feqInst);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+        currentBB->addInstruction(xoriInst);
+    }
+    break;
     default:
         return;
-    }
-
-    if (inst->Pred != FCmpInst::FCMP_ONE)
-    {
-        auto cmpInst = RISCVInstruction::createRType(opcode, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(cmpInst);
     }
 
     // 将结果存储到栈中
@@ -1103,25 +1099,11 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     // 如果是全局变量
     if (value->isGlobal())
     {
-        // 全局变量需要先从从全局内存加载地址，然后再加载值
+        // 全局变量需要先从从全局内存加载地址
         auto globalReg = allocateTempRegister(RegisterType::GENERAL, "global_" + valueName);
 
         auto laInst = RISCVInstruction::createPseudoLA(globalReg, value->getName());
         currentBB->addInstruction(laInst);
-
-        // 如果是浮点类型，需要从全局内存加载到浮点寄存器
-        if (value->getType()->isFloatTy())
-        {
-            auto floatReg = allocateTempRegister(RegisterType::FLOAT, "global_float_" + valueName);
-            auto loadInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, floatReg, globalReg);
-            currentBB->addInstruction(loadInst);
-            globalReg = floatReg; // 更新返回寄存器为浮点寄存器
-        }
-        else
-        {
-            auto loadInst = RISCVInstruction::createIType(RISCVOpcode::LW, globalReg, globalReg, 0);
-            currentBB->addInstruction(loadInst);
-        }
 
         return globalReg;
     }
