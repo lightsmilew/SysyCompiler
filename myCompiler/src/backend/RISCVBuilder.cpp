@@ -1040,7 +1040,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     if (stackIt != stackArguments.end())
     {
         // 这是一个栈参数，需要从调用者栈帧中加载
-        // 栈参数存储在调用者栈
+        // 栈参数存储在调用者栈帧顶部，被调用者通过SP+偏移量访问
         auto loadReg = allocateTempRegister(RegisterType::GENERAL, "stackarg_" + valueName);
 
         // 计算栈参数的实际偏移量：
