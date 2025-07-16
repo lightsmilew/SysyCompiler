@@ -479,14 +479,6 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
         RISCVOpcode moveOpcode = inst->getReturnValue()->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, returnReg, valueReg);
         currentBB->addInstruction(moveInst);
-
-        // 如果是main函数，需要调用putint输出返回值
-        if (currentFunc->getName() == "main")
-        {
-            // 返回值已经在a0中，直接调用putint
-            auto callPutint = RISCVInstruction::createPseudoCALL("putint");
-            currentBB->addInstruction(callPutint);
-        }
     }
 
     // 生成函数结尾（恢复栈帧）
@@ -613,8 +605,15 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 
     // 获取数组的基地址,数组的基地址通常是alloca指令的指针
     auto baseAddressReg = getOrCreateVirtualReg(inst->getPointerOperand());
-    auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, baseAddressReg, baseAddressReg, 8);
-    currentBB->addInstruction(addiInst);
+
+    // 如果不是全局变量，可能需要调整基地址
+    auto globalVar = dynamic_cast<GlobalVariable *>(inst->getPointerOperand());
+    if (!globalVar)
+    {
+        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, baseAddressReg,
+                                                      baseAddressReg, 8);
+        currentBB->addInstruction(addiInst);
+    }
 
     auto elementAddressReg = allocateTempRegister(RegisterType::GENERAL, "element_addr");
 
@@ -738,7 +737,7 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     break;
     case ICmpInst::ICMP_SLE:
     {
-        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
         currentBB->addInstruction(sltInst);
         auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
         currentBB->addInstruction(xoriInst);
@@ -1020,7 +1019,13 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     auto it = registerMap.find(valueName);
     if (it != registerMap.end())
     {
-        return it->second;
+        auto reg = allocateTempRegister(it->second->getType(), "reuse_" + valueName);
+
+        // 如果是浮点寄存器，使用浮点move指令
+        auto op = it->second->getType() == RegisterType::FLOAT ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
+        auto moveInst = RISCVInstruction::createPseudo(op, reg, it->second);
+        currentBB->addInstruction(moveInst);
+        return reg;
     }
 
     // 检查是否是栈参数
