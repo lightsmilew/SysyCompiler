@@ -129,7 +129,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     setCurrentBlock(entryBlock);
 
     // 进入新的作用域 访问参数之前调用，防止形参实参之间干扰或者不同函数形参名相同产生干扰
-    varToValueStack.push(varToValue);
+    PushVarsStack();
 
     for (size_t i = 0; i < node->params.size(); i++)
     {
@@ -160,8 +160,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     }
 
     // 退出作用域
-    varToValue = varToValueStack.top();
-    varToValueStack.pop();
+    PopVarsStack();
     currentFunction = nullptr;
 }
 // 这里的isRestore可以删除
@@ -205,6 +204,8 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
                 }
             }
         }
+        // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
+        basicBlockVarToValue[currentBlock]= varToValue;
     }
     NewDeclaredVarsInBlock = NewDeclaredVarsInBlockStack.top();
     NewDeclaredVarsInBlockStack.pop();
@@ -1790,10 +1791,18 @@ bool IRBuilder::hasTerminatorInst(BasicBlock *block)
 }
 void IRBuilder::addPhiForVars()
 {
+    if(debugMode)
+    {
+        std::cout<<"phi for vars in block: "<<currentBlock->getName()<<std::endl;
+        for(const auto& [name, value] : varToValue)
+        {
+            std::cout << "Variable: " << name << ", Value: " << value->toRef() << std::endl;
+        }
+    }
     for (const auto& [name, value] : varToValue)
     {
-        // 普通变量
-        if (!(value->getType()->isPointerTy()||value->getType()->isArrayTy()||isConstVars(name))) 
+        // 普通变量,全局变量不生成phi
+        if (!(value->getType()->isPointerTy()||value->getType()->isArrayTy()||isConstVars(name)))
         {
             PhiInst* phi = createPhi(value->getType());
             varToValue[name] = phi;                         // 更新 SSA 值为 PHI 节点

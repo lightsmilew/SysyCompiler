@@ -65,7 +65,7 @@ int main(int argc, const char *argv[])
     unique_ptr<optimization::PassManager> pass_manager;
     if (argc > 4 && strcmp(argv[3], "-opt") == 0)
     {
-        optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O2; // 默认O2级别
+        optimization::OptimizationLevel opt_level;
         if (strcmp(argv[4], "O0") == 0)
             opt_level = optimization::OptimizationLevel::O0;
         else if (strcmp(argv[4], "O1") == 0)
