@@ -27,7 +27,7 @@ namespace RISCV
 
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
-        void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type);
+        void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar);
     };
 
     // 指令选择器
@@ -67,11 +67,38 @@ namespace RISCV
         // 当前指令使用的临时寄存器列表（用于自动释放）
         vector<shared_ptr<RISCVRegister>> currentInstructionTemps;
 
+        // 数组信息管理
+        struct ArrayInfo
+        {
+            enum class Location
+            {
+                GLOBAL,   // 全局数据段
+                STACK,    // 栈上分配
+                PARAMETER // 函数参数（传递的是指针）
+            };
+
+            Location location;
+            int stackOffset;    // 对于栈数组，相对于栈帧的偏移
+            string globalLabel; // 对于全局数组，标签名
+
+            // 数组维度信息
+            vector<size_t> dimensions;
+            Type *elementType; // 元素类型（假设为整数或浮点数）
+            int totalSize;     // 总字节数
+
+            ArrayInfo() : location(Location::STACK), stackOffset(0), elementType(nullptr), totalSize(0) {}
+        };
+
+        unordered_map<string, ArrayInfo> arrayInfoMap; // 数组信息映射
+
     public:
         InstructionSelector() = default;
 
         // 为函数生成指令
         void selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc);
+
+        // 全局数组处理（供RISCVBuilder调用）
+        void processGlobalArray(GlobalVariable *gvar);
 
     private:
         // 通用指令访问接口
@@ -108,6 +135,14 @@ namespace RISCV
         bool isImmediateInRange(int immediate, int bits = 12);
         void generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value);
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
+
+        // 数组管理方法
+        shared_ptr<RISCVRegister> getArrayBaseAddress(Value *arrayValue);
+        shared_ptr<RISCVRegister> calculateArrayOffset(GetElementPtrInst *gepInst);
+        void processLocalArray(AllocaInst *alloca);
+        void processParameterArray(Argument *arg);
+        void generateGlobalAddressLoad(shared_ptr<RISCVRegister> reg, const string &label);
+        void generateStackAddressLoad(shared_ptr<RISCVRegister> reg, int offset);
 
         // 临时寄存器管理方法
         shared_ptr<RISCVRegister> allocateTempRegister(RegisterType type, const string &purpose = "");

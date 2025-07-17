@@ -13,6 +13,7 @@ class BasicBlock;
 class Function;
 class Module;
 class User;
+class ArrayType;
 
 // ===== Type System Implementation =====
 class Type
@@ -60,7 +61,7 @@ public:
         static IntegerType instance;
         return &instance;
     }
-    string toString() const override{return "i32";}
+    string toString() const override { return "i32"; }
 };
 
 // ===== FloatType Implementation =====
@@ -82,14 +83,14 @@ public:
 class StringType : public Type
 {
 public:
-    StringType() : Type(StringTyID) {}   
+    StringType() : Type(StringTyID) {}
 
     static StringType *getInstance()
     {
         static StringType instance;
         return &instance;
     }
-    string toString() const override { return "i8*"; }                        // LLVM风格字符串
+    string toString() const override { return "i8*"; } // LLVM风格字符串
 };
 
 // ===== VoidType Implementation =====
@@ -120,6 +121,9 @@ public:
         return new PointerType(elemTy);
     }
     string toString() const override { return ElementType->toString() + "*"; }
+
+    Type *getGroundElementType() const;
+    vector<size_t> getArrayIndices() const;
 };
 // ===== ArrayType Implementation =====
 class ArrayType : public Type
@@ -136,11 +140,20 @@ public:
         return new ArrayType(elemTy, numElements);
     }
     // 维度管理
-    unsigned getNumElements() const { return NumElements; }                  // 获取数组长度
-    size_t getArrayLength() const;                                           // 获取数组的总长度
-    vector<size_t> getArrayIndices() const;                                  // 获取数组每一维的长度
-    Type *getElementType() const { return ElementType; }                     // 获取元素类型
+    unsigned getNumElements() const { return NumElements; } // 获取数组长度
+    size_t getArrayLength() const;                          // 获取数组的总长度
+    vector<size_t> getArrayIndices() const;                 // 获取数组每一维的长度
+    Type *getElementType() const { return ElementType; }    // 获取元素类型
 
+    Type *getGroundElementType() const
+    {
+        // 获取数组的基本元素类型
+        if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
+        {
+            return arrayType->getGroundElementType();
+        }
+        return ElementType; // 如果不是数组类型，返回自身
+    }
     string toString() const override;
 };
 
@@ -157,34 +170,56 @@ public:
     string toString() const override;
 };
 
+// ===== PointerType方法实现（需要在ArrayType定义之后） =====
+inline Type *PointerType::getGroundElementType() const
+{
+    if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
+    {
+        // 如果是数组类型，递归获取基本元素类型
+        return arrayType->getGroundElementType();
+    }
+
+    return ElementType;
+}
+
+inline vector<size_t> PointerType::getArrayIndices() const
+{
+    // 获取数组的每一维长度
+    if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
+    {
+        return arrayType->getArrayIndices();
+    }
+    return vector<size_t>{0}; // 标量返回0维度
+}
+
 // ===== Value System Implementation =====
 class Value
 {
 private:
     Type *Ty;
     string Name;
-    vector<User *> Users;                                                     // 使用这个Value的所有User
+    vector<User *> Users; // 使用这个Value的所有User
 
 public:
     Value(Type *ty, const string &name = "") : Ty(ty), Name(name) {}
     virtual ~Value() = default;
 
-    Type *getType() const { return Ty; }                                      // 获取类型
-    void setType(Type *ty) { Ty = ty; }                                       // 设置类型
-    const string &getName() const { return Name; }                            // 获取名称
-    void setName(const string &name) { Name = name; }                         // 设置名称
-    const vector<User *> &getUsers() const { return Users; }                  // 获取所有使用这个Value的User
-    bool isGlobal() const;                                                    // 判断是否是全局变量
+    Type *getType() const { return Ty; }                     // 获取类型
+    void setType(Type *ty) { Ty = ty; }                      // 设置类型
+    const string &getName() const { return Name; }           // 获取名称
+    void setName(const string &name) { Name = name; }        // 设置名称
+    const vector<User *> &getUsers() const { return Users; } // 获取所有使用这个Value的User
+    bool isGlobal() const;                                   // 判断是否是全局变量
 
     // User管理方法
-    void addUser(User *user);                                                 // 添加使用这个Value的User
-    void removeUser(User *user);                                              // 删除某个User
-    void replaceAllUsesWith(Value *newValue);                                 // 替换所有使用这个Value的地方为newValue  
-    virtual string toRef() const                                              // 输出引用形式的名称（如%var_name）
+    void addUser(User *user);                 // 添加使用这个Value的User
+    void removeUser(User *user);              // 删除某个User
+    void replaceAllUsesWith(Value *newValue); // 替换所有使用这个Value的地方为newValue
+    virtual string toRef() const              // 输出引用形式的名称（如%var_name）
     {
         if (getName().empty())
         {
-            return toString();                                                // 如果没有名称，返回值本身
+            return toString(); // 如果没有名称，返回值本身
         }
         return "%" + getName();
     }
@@ -211,16 +246,16 @@ public:
     }
     virtual ~User()
     {
-        //removeThisFromOperands();                                                     
+        // removeThisFromOperands();
     }
-    void removeThisFromOperands();                                              // 从所有操作数的Users列表中移除自己
-    void addOperand(Value *operand);                                            // 添加操作数
-    void setOperands(const vector<Value *> &operands);                          // 设置操作数
-    void replaceOperand(Value *oldValue, Value *newValue);                      // 替换操作数
-    unsigned getNumOperands() const;                                            // 获取操作数数量
-    const vector<Value *> &getOperands() const;                                 // 获取所有操作数
-    Value *getOperandByIndex(unsigned index) const;                             // 获取指定索引的操作数
-    void setOperandByIndex(unsigned index, Value *value);                       // 设置指定索引的操作数
+    void removeThisFromOperands();                         // 从所有操作数的Users列表中移除自己
+    void addOperand(Value *operand);                       // 添加操作数
+    void setOperands(const vector<Value *> &operands);     // 设置操作数
+    void replaceOperand(Value *oldValue, Value *newValue); // 替换操作数
+    unsigned getNumOperands() const;                       // 获取操作数数量
+    const vector<Value *> &getOperands() const;            // 获取所有操作数
+    Value *getOperandByIndex(unsigned index) const;        // 获取指定索引的操作数
+    void setOperandByIndex(unsigned index, Value *value);  // 设置指定索引的操作数
     void removeOperandByIndex(unsigned index);
     string toString() const override;
 };
@@ -230,8 +265,8 @@ class Constant : public Value
 {
 public:
     Constant(Type *ty, const string &name = "") : Value(ty, name) {}
-    
-    string toRef() const override{return toString();}                           // 常量输出值本身，不是引用
+
+    string toRef() const override { return toString(); } // 常量输出值本身，不是引用
 };
 
 // ===== ConstantInt Implementation =====
@@ -298,15 +333,15 @@ public:
             setType(PointerType::getInstance(arrayType->getElementType()));
         }
         // 其他类型也用指针，统一用内存模型
-        else if(ty->isIntegerTy()|| ty->isFloatTy() )
+        else if (ty->isIntegerTy() || ty->isFloatTy())
         {
             setType(PointerType::getInstance(ty));
         }
     };
-    bool isArray()const;                                       // 判断是否为数组类型
-    size_t getDims()const;                                     // 获取全局变量维度（标量返回0）
-    size_t getTotallength() const;                             // 获取数组总长度(标量返回0)
-    Type*  getGroundElementType() const;                       // 获取全局变量的基本元素类型
+    bool isArray() const;               // 判断是否为数组类型
+    vector<size_t> getDims() const;     // 获取全局变量维度（标量返回0）
+    size_t getTotallength() const;      // 获取数组总长度(标量返回0)
+    Type *getGroundElementType() const; // 获取全局变量的基本元素类型
     string toString() const override;
 };
 
@@ -338,8 +373,8 @@ enum class Opcode
     GetElementPtr,
 
     // 类型转换符
-    SIToFP,                                                                 // signed int (i32) to float
-    FPToSI,                                                                 // float to signed int (i32)
+    SIToFP, // signed int (i32) to float
+    FPToSI, // float to signed int (i32)
 
     // 其他操作
     Call,
@@ -353,25 +388,29 @@ class Instruction : public User
 public:
     Opcode Op;
 
-    Instruction(Type *ty, Opcode op, const string &name = "")              // 无操作数的构造函数
-        : User(ty, {}, name), Op(op) {}
- 
-    Instruction(Type *ty, Opcode op, const vector<Value *> &operands,      // 带操作数的构造函数
-                    const string &name = "")
-        : User(ty, operands, name), Op(op) {}
+    Instruction(Type *ty, Opcode op, const string &name = "") // 无操作数的构造函数
+        : User(ty, {}, name), Op(op)
+    {
+    }
 
-    Instruction *clone() const;                                            // 克隆指令
-    Opcode getOpcode() const { return Op; }                                // 获取操作符
-    Instruction *cloneWithRename(const std::unordered_map<Value*, 
-                                                Value*>& valueMap,
-                                                string suffix) const;      // 复制指令并重命名操作数
-    string getOpcodeName() const;                                          // 获取操作符名称
-    bool isBinaryOp() const;                                               // 是否为二元操作
-    bool isComparisonOp() const;                                           // 是否为比较操作
-    bool isTerminator() const;                                             // 是否为终结指令
-    bool isCopy() const;                                                   // 是否为复制指令
-    bool mayHaveSideEffects() const;                                       // 是否有负面作用
-    bool hasResult() const;                                                // 是否有结果
+    Instruction(Type *ty, Opcode op, const vector<Value *> &operands, // 带操作数的构造函数
+                const string &name = "")
+        : User(ty, operands, name), Op(op)
+    {
+    }
+
+    Instruction *clone() const;             // 克隆指令
+    Opcode getOpcode() const { return Op; } // 获取操作符
+    Instruction *cloneWithRename(const std::unordered_map<Value *,
+                                                          Value *> &valueMap,
+                                 string suffix) const; // 复制指令并重命名操作数
+    string getOpcodeName() const;                      // 获取操作符名称
+    bool isBinaryOp() const;                           // 是否为二元操作
+    bool isComparisonOp() const;                       // 是否为比较操作
+    bool isTerminator() const;                         // 是否为终结指令
+    bool isCopy() const;                               // 是否为复制指令
+    bool mayHaveSideEffects() const;                   // 是否有负面作用
+    bool hasResult() const;                            // 是否有结果
     virtual string toString() const = 0;
 };
 
@@ -380,9 +419,9 @@ class BinaryOperator : public Instruction
 {
 public:
     BinaryOperator(Opcode op, Value *lhs, Value *rhs,
-                         const string &name = "")
-        : Instruction(lhs->getType(), op, 
-          vector<Value *>{lhs, rhs}, name) {}
+                   const string &name = "")
+        : Instruction(lhs->getType(), op,
+                      vector<Value *>{lhs, rhs}, name) {}
 
     Value *getDest() const { return const_cast<BinaryOperator *>(this); } // 获取目的操作数(本身)
     Value *getLHS() const { return getOperandByIndex(0); }                // 获取左操作数
@@ -395,8 +434,8 @@ class UnaryOperator : public Instruction
 {
 public:
     UnaryOperator(Opcode op, Value *operand, const string &name = "")
-        : Instruction(operand->getType(), op, 
-          vector<Value *>{operand}, name) {}
+        : Instruction(operand->getType(), op,
+                      vector<Value *>{operand}, name) {}
 
     Value *getDest() const { return const_cast<UnaryOperator *>(this); } // 获取目的操作数(本身)
     Value *getOperand() const { return getOperandByIndex(0); }           // 获取操作数
@@ -416,17 +455,18 @@ public:
         ICMP_SGT,
         ICMP_SGE
     };
+
 public:
     Predicate Pred;
 
     ICmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
         : Instruction(IntegerType::getInstance(), Opcode::ICmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
-    
-    Predicate getPredicate() const { return Pred; }                     // 获取比较谓词
-    Value *getDest() const { return const_cast<ICmpInst *>(this); }     // 获取目的操作数(本身)
-    Value *getLHS() const { return getOperandByIndex(0); }              // 获取左操作数
-    Value *getRHS() const { return getOperandByIndex(1); }              // 获取右操作数
+
+    Predicate getPredicate() const { return Pred; }                 // 获取比较谓词
+    Value *getDest() const { return const_cast<ICmpInst *>(this); } // 获取目的操作数(本身)
+    Value *getLHS() const { return getOperandByIndex(0); }          // 获取左操作数
+    Value *getRHS() const { return getOperandByIndex(1); }          // 获取右操作数
     string toString() const override;
 };
 
@@ -443,6 +483,7 @@ public:
         FCMP_OGT, // >
         FCMP_OGE  // >=
     };
+
 public:
     Predicate Pred;
 
@@ -450,10 +491,10 @@ public:
         : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
 
-    Predicate getPredicate() const { return Pred; }                     // 获取比较谓词
-    Value *getDest() const { return const_cast<FCmpInst *>(this); }     // 获取目的操作数(本身)
-    Value *getLHS() const { return getOperandByIndex(0); }              // 获取左操作数
-    Value *getRHS() const { return getOperandByIndex(1); }              // 获取右操作数
+    Predicate getPredicate() const { return Pred; }                 // 获取比较谓词
+    Value *getDest() const { return const_cast<FCmpInst *>(this); } // 获取目的操作数(本身)
+    Value *getLHS() const { return getOperandByIndex(0); }          // 获取左操作数
+    Value *getRHS() const { return getOperandByIndex(1); }          // 获取右操作数
     string toString() const override;
 };
 
@@ -461,16 +502,26 @@ public:
 class AllocaInst : public Instruction
 {
 public:
-    Type *AllocatedType;                                                // 传入数组类型，返回退化后的指针
+    Type *AllocatedType; // 传入数组类型，返回退化后的指针
 
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType),
-          Opcode::Alloca, name), AllocatedType(ty) {}
+                      Opcode::Alloca, name),
+          AllocatedType(ty) {}
 
-    size_t getAllocatedSize() const;                                    // 获取数组的元素总长度
-    vector<size_t> getArrayEveryDimensionLength() const;                // 从左到右获取数组每一维的长度
-    Value *getDest() const { return const_cast<AllocaInst *>(this); }   // 获取目的操作数(本身)
+    int getAllocatedSize() const;                                     // 获取数组的元素总长度
+    vector<size_t> getArrayEveryDimensionLength() const;              // 从左到右获取数组每一维的长度
+    Value *getDest() const { return const_cast<AllocaInst *>(this); } // 获取目的操作数(本身)
     string toString() const override;
+    Type *getGroundElementType() const
+    {
+        // 获取数组的基本元素类型
+        if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+        {
+            return arrayType->getGroundElementType();
+        }
+        return AllocatedType; // 如果不是数组类型，返回自身
+    }
 };
 
 // ===== LoadInst Implementation =====
@@ -478,14 +529,15 @@ class LoadInst : public Instruction
 {
 public:
     LoadInst(Value *ptr, const string &name = "")
-        : Instruction(getElementType(ptr), Opcode::Load, 
-          vector<Value *>{ptr}, name) {}
+        : Instruction(getElementType(ptr), Opcode::Load,
+                      vector<Value *>{ptr}, name) {}
 
-    Value *getDest() const { return const_cast<LoadInst *>(this); }     // 获取目的操作数(本身)
-    Value *getPointer() const { return getOperandByIndex(0); }          // 获取指针操作数
+    Value *getDest() const { return const_cast<LoadInst *>(this); } // 获取目的操作数(本身)
+    Value *getPointer() const { return getOperandByIndex(0); }      // 获取指针操作数
     string toString() const override;
-private:  
-    static Type *getElementType(Value *ptr);                            // 获取指针指向的元素类型
+
+private:
+    static Type *getElementType(Value *ptr); // 获取指针指向的元素类型
 };
 
 // ===== StoreInst Implementation =====
@@ -494,10 +546,10 @@ class StoreInst : public Instruction
 public:
     StoreInst(Value *val, Value *ptr)
         : Instruction(VoidType::getInstance(), Opcode::Store,
-          vector<Value *>{val, ptr}) {}
+                      vector<Value *>{val, ptr}) {}
 
-    Value *getValueToStore() const { return getOperandByIndex(0); }     // 获取要存储的值
-    Value *getPointer() const { return getOperandByIndex(1); }          // 获取存储的指针
+    Value *getValueToStore() const { return getOperandByIndex(0); } // 获取要存储的值
+    Value *getPointer() const { return getOperandByIndex(1); }      // 获取存储的指针
     string toString() const override;
 };
 
@@ -507,13 +559,13 @@ class CallInst : public Instruction
 public:
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
 
-    Function *getCalledFunction() const;                                // 获取被调用的函数
+    Function *getCalledFunction() const; // 获取被调用的函数
 
-    vector<Value *> getArguments() const;                               // 获取函数参数
-    vector<Value *> getIntArguments() const;                            // 获取int类型参数
-    vector<Value *> getFloatArguments() const;                          // 获取float类型参数
-    vector<Value *> getPtrArguments() const;                            // 获取指针类型参数
-    bool hasReturnValue() const{return !getType()->isVoidTy();}
+    vector<Value *> getArguments() const;      // 获取函数参数
+    vector<Value *> getIntArguments() const;   // 获取int类型参数
+    vector<Value *> getFloatArguments() const; // 获取float类型参数
+    vector<Value *> getPtrArguments() const;   // 获取指针类型参数
+    bool hasReturnValue() const { return !getType()->isVoidTy(); }
     Value *getDest() const { return const_cast<CallInst *>(this); }
     string toString() const override;
 
@@ -526,19 +578,20 @@ private:
 class ReturnInst : public Instruction
 {
 public:
-
-    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {}  // 无返回值
-    ReturnInst(Value *retVal)                                            // 有返回值
+    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {} // 无返回值
+    ReturnInst(Value *retVal)                                           // 有返回值
         : Instruction(VoidType::getInstance(), Opcode::Ret,
-          vector<Value *>{retVal}) {}
+                      vector<Value *>{retVal})
+    {
+    }
 
-    Value *getReturnValue() const                                        // 获取返回值
+    Value *getReturnValue() const // 获取返回值
     {
         if (getNumOperands() > 0)
         {
             return getOperandByIndex(0);
         }
-        return nullptr; 
+        return nullptr;
     }
     string toString() const override;
 };
@@ -550,16 +603,20 @@ public:
     BasicBlock *TrueBlock;
     BasicBlock *FalseBlock;
 
-    BranchInst(BasicBlock *target)                                        // 无条件跳转
-        : Instruction(VoidType::getInstance(), Opcode::Br), 
-          TrueBlock(target), FalseBlock(nullptr) {}
-    BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock)// 有条件跳转
+    BranchInst(BasicBlock *target) // 无条件跳转
+        : Instruction(VoidType::getInstance(), Opcode::Br),
+          TrueBlock(target), FalseBlock(nullptr)
+    {
+    }
+    BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock) // 有条件跳转
         : Instruction(VoidType::getInstance(), Opcode::Br,
-          vector<Value *>{cond}),
-          TrueBlock(trueBlock), FalseBlock(falseBlock) {}
+                      vector<Value *>{cond}),
+          TrueBlock(trueBlock), FalseBlock(falseBlock)
+    {
+    }
 
-    bool isConditional() const { return getNumOperands() > 0; }           // 是否为条件分支
-    Value *getCondition() const                                           // 获取条件
+    bool isConditional() const { return getNumOperands() > 0; } // 是否为条件分支
+    Value *getCondition() const                                 // 获取条件
     {
         if (isConditional())
         {
@@ -580,12 +637,12 @@ public:
         : Instruction(ty, Opcode::Phi, name) {}
 
     unsigned getIndexByBasicBlock(BasicBlock *block) const;        // 获取前驱基本块的索引
-    void addIncoming(Value *value, BasicBlock *block);              // 添加前驱基本块和对应的值
-    void removeIncoming(unsigned index);                            // 删除指定前驱基本块和对应的值
-    unsigned getNumIncomingValues() const;                          // 获取前驱基本块和对应的值长度
-    Value *getIncomingValue(unsigned index) const;                  // 获取前驱value
-    BasicBlock *getIncomingBlock(unsigned index) const;             // 获取前驱基本块
-    Value *getDest() const { return const_cast<PhiInst *>(this); }  // 获取目的操作数(本身)
+    void addIncoming(Value *value, BasicBlock *block);             // 添加前驱基本块和对应的值
+    void removeIncoming(unsigned index);                           // 删除指定前驱基本块和对应的值
+    unsigned getNumIncomingValues() const;                         // 获取前驱基本块和对应的值长度
+    Value *getIncomingValue(unsigned index) const;                 // 获取前驱value
+    BasicBlock *getIncomingBlock(unsigned index) const;            // 获取前驱基本块
+    Value *getDest() const { return const_cast<PhiInst *>(this); } // 获取目的操作数(本身)
     string toString() const override;
 };
 
@@ -597,10 +654,10 @@ public:
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
                       constructOperands(ptr, indices), name) {}
 
-    vector<Value *> getIndices() const;                             // 获取索引操作数
-    vector<size_t> *getArrayStride() const;                         // 获取数组的步长
-    Value *getDest() const;                                         // 获取目的操作数(本身)
-    Value *getPointerOperand()const;                                // 获取指针操作数
+    vector<Value *> getIndices() const;  // 获取索引操作数
+    vector<int> *getArrayStride() const; // 获取数组的步长
+    Value *getDest() const;              // 获取目的操作数(本身)
+    Value *getPointerOperand() const;    // 获取指针操作数
     string toString() const override;
 
 private:
@@ -628,8 +685,8 @@ public:
     CopyInst(Value *source, const string &name = "")
         : Instruction(source->getType(), Opcode::Copy, vector<Value *>{source}, name) {}
 
-    Value *getDest() const { return const_cast<CopyInst *>(this); }  // 获取目的操作数(本身)
-    Value *getSource() const { return getOperandByIndex(0); }        // 获取源操作数
+    Value *getDest() const { return const_cast<CopyInst *>(this); } // 获取目的操作数(本身)
+    Value *getSource() const { return getOperandByIndex(0); }       // 获取源操作数
     string toString() const override;
 };
 
@@ -644,25 +701,25 @@ public:
 
     BasicBlock(const string &name = "", Function *parent = nullptr)
         : Value(VoidType::getInstance(), name), Parent(parent) {}
- 
-    void addInstruction(unique_ptr<Instruction> inst);               // 添加指令到基本块
-    void insertBeforeTerminator(std::unique_ptr<Instruction> inst);  // 在终结指令前插入指令
-    void insert(unique_ptr<Instruction> inst, unsigned index);       // 插入指令
-    void addPredecessor(BasicBlock *pred);                           // 添加前驱基本块
-    void removePredecessor(BasicBlock *pred);                        // 移除前驱基本块
-    void addSuccessor(BasicBlock *succ);                             // 添加后继基本块
-    void removeSuccessor(BasicBlock *succ);                          // 移除后继基本块
-    const vector<BasicBlock *> &getPredecessors() const;             // 获取前驱基本块
-    const vector<BasicBlock *> &getSuccessors() const;               // 获取后继基本块
 
-    Instruction *getTerminator();                                    // 获取终结指令
-    vector<unique_ptr<Instruction>> &getInstructions();              // 获取所有指令
-    bool hasTerminator();                                            // 检查是否有终结指令
-    bool containsByName(Instruction *inst) const;                    // 判断是否包含特定指令(通过名称)
+    void addInstruction(unique_ptr<Instruction> inst);              // 添加指令到基本块
+    void insertBeforeTerminator(std::unique_ptr<Instruction> inst); // 在终结指令前插入指令
+    void insert(unique_ptr<Instruction> inst, unsigned index);      // 插入指令
+    void addPredecessor(BasicBlock *pred);                          // 添加前驱基本块
+    void removePredecessor(BasicBlock *pred);                       // 移除前驱基本块
+    void addSuccessor(BasicBlock *succ);                            // 添加后继基本块
+    void removeSuccessor(BasicBlock *succ);                         // 移除后继基本块
+    const vector<BasicBlock *> &getPredecessors() const;            // 获取前驱基本块
+    const vector<BasicBlock *> &getSuccessors() const;              // 获取后继基本块
+
+    Instruction *getTerminator();                       // 获取终结指令
+    vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令
+    bool hasTerminator();                               // 检查是否有终结指令
+    bool containsByName(Instruction *inst) const;       // 判断是否包含特定指令(通过名称)
     string toString() const override;
 };
 
-// ===== Argument ===== 
+// ===== Argument =====
 class Argument : public Value
 {
 public:
@@ -686,16 +743,16 @@ public:
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
         : Value(funcTy, name), Parent(parent) {}
 
-    BasicBlock *addBasicBlock(const string &name = "");             // 添加基本块
-    BasicBlock *getEntryBlock();                                    // 获取入口基本块
-    vector<unique_ptr<BasicBlock>> &getBasicBlocks();               // 获取所有基本块
+    BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
+    BasicBlock *getEntryBlock();                        // 获取入口基本块
+    vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块
 
-    Argument *addArgument(Type *type, const string &name = "");     // 添加参数
-    const vector<unique_ptr<Argument>> &getArguments() const;       // 获取函数参数
-    FunctionType *getFunctionType();                                // 获取函数类型
-    unsigned getInstructionCount() const;                           // 获取指令数量
-    bool isLibraryFunction() const;                                 // 是否为库函数
-    bool isRecursive() const;                                       // 是否为递归函数
+    Argument *addArgument(Type *type, const string &name = ""); // 添加参数
+    const vector<unique_ptr<Argument>> &getArguments() const;   // 获取函数参数
+    FunctionType *getFunctionType();                            // 获取函数类型
+    unsigned getInstructionCount() const;                       // 获取指令数量
+    bool isLibraryFunction() const;                             // 是否为库函数
+    bool isRecursive() const;                                   // 是否为递归函数
     string toString() const override;
 };
 
@@ -709,16 +766,15 @@ public:
 
     Module(const string &name) : Name(name) {}
 
-
-    Function *addFunction(FunctionType *funcType, const string &name);// 添加函数
-    GlobalVariable *addGlobalVariable(Type *type, const string &name, // 添加全局变量
+    Function *addFunction(FunctionType *funcType, const string &name); // 添加函数
+    GlobalVariable *addGlobalVariable(Type *type, const string &name,  // 添加全局变量
                                       Constant *initializer = nullptr,
                                       bool isConstant = false);
-    Function *getFunction(const string &name);                        // 根据名称查找函数
-    GlobalVariable *getGlobalVariable(const string &name);            // 根据名称查找全局变量
+    Function *getFunction(const string &name);             // 根据名称查找函数
+    GlobalVariable *getGlobalVariable(const string &name); // 根据名称查找全局变量
 
     string toString() const;
 
     // Debug输出
-    void printBasicBlockInfo();                                       // 输出基本块后继信息
+    void printBasicBlockInfo(); // 输出基本块后继信息
 };
