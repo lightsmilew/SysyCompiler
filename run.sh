@@ -1,12 +1,12 @@
 #!/bin/bash
-INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-# INPUT_DIR="test_cases/semantic_cases"
-# OUTPUT_DIR="test_cases/output"
+#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#INPUT_DIR="test_cases/semantic_cases"
+#OUTPUT_DIR="test_cases/output"
 #INPUT_DIR="test_cases/official_cases"
 #OUTPUT_DIR="test_cases/official_output"
-#INPUT_DIR="case/final_performance"
-#OUTPUT_DIR="case/final_performance/output"
+INPUT_DIR="case/functional"
+OUTPUT_DIR="case/functional"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -39,7 +39,7 @@ elif [ "$1" == "-ir_opt" ]; then
         # 执行编译器并生成优化后的IR代码
         # 支持带调试参数
         if [ "$3" == "-debug" ]; then
-            ./myCompiler/build/my_compiler "$file" -ir -opt $2 -debug > "$OUTPUT_DIR/${filename%.sy}.ir.opt"
+            ./myCompiler/build/my_compiler "$file" -ir -opt $2 -debug > "$OUTPUT_DIR/${filename%.sy}.ir.opt$2"
         else
             ./myCompiler/build/my_compiler "$file" -ir -opt $2 > "$OUTPUT_DIR/${filename%.sy}.ir.opt"
         fi
@@ -70,5 +70,16 @@ elif [ "$1" == "-gdb" ]; then
         fi
     done
 elif [ "$1" == "-transfer" ]; then
-        scp -P 2222 $INPUT_DIR/*.s $INPUT_DIR/*.in $INPUT_DIR/*.out $INPUT_DIR/*.ir.opt ubuntu@localhost:/home/ubuntu/riscv
+        scp -P 2222 $INPUT_DIR/*.s $INPUT_DIR/*.in $INPUT_DIR/*.out  ubuntu@localhost:/home/ubuntu/riscv
+elif [ "$1" == "-qemu" ]; then
+    qemu-system-riscv64 \
+      -machine virt \
+      -nographic \
+      -m 2048 \
+      -smp 4 \
+      -kernel /usr/lib/u-boot/qemu-riscv64_smode/uboot.elf \
+      -device virtio-net-device,netdev=eth0 \
+      -netdev user,id=eth0,hostfwd=tcp::2222-:22 \
+      -device virtio-rng-pci \
+      -drive file=ubuntu-24.04.2-preinstalled-server-riscv64.img,format=raw,if=virtio
 fi

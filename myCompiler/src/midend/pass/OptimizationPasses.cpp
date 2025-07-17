@@ -193,7 +193,9 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst) 
 {
-    // 只处理无副作用的二元运算,不包括Store Call Ret Br
+    if(inst->getOpcode() == Opcode::Load)
+        return false; // Load指令不参与公共子表达式消除
+    // 只处理无副作用的二元运算,不包括Store Call Ret Br Load
     return inst->isBinaryOp() && !inst->mayHaveSideEffects();
 }
 // 哈希函数，用于表达式键的哈希表
@@ -235,8 +237,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                         Instruction *inst = instPtr.get();
                         if (std::find_if(invariants.begin(), invariants.end(),
                                          [inst](const auto& p){ return p.first == inst; }) == invariants.end() &&
-                            !inst->mayHaveSideEffects() && !inst->isTerminator() &&
-                            isLoopInvariant(inst, loop)) 
+                            canMoveToPreheader(inst) && isLoopInvariant(inst, loop)) 
                         {
                             invariants.emplace_back(inst, bb);
                             foundNew = true;
@@ -267,6 +268,10 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
         // cout<<"Removed Instructions: "<<count<<endl;
     } while (localChanged);
     return changed;
+}
+bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
+{
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load;
 }
 
 // 辅助：DFS遍历，记录访问顺序和父节点
@@ -509,7 +514,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
             {
                 Instruction *inst = it->get();
                 // 只处理二元运算且无副作用
-                if (inst && inst->isBinaryOp() && !inst->mayHaveSideEffects())
+                if (inst && inst->isBinaryOp())
                 {
                     auto binaryOperator = dynamic_cast<BinaryOperator *>(inst);
                     if (!binaryOperator) 
@@ -774,6 +779,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if(level==OptimizationLevel::O11)
     {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
     }
     else if(level==OptimizationLevel::O12)
@@ -789,6 +796,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if(level==OptimizationLevel::O14)
     {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }

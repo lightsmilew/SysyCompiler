@@ -95,6 +95,7 @@ private:
     };
     vector<Loop> findLoops(Function *func);
     bool isLoopInvariant(Instruction *inst, const Loop &loop);
+    bool canMoveToPreheader(Instruction *inst);
     BasicBlock *findPreheader(const Loop &loop);
 };
 // 4. 函数内联 Pass（将函数调用替换为函数体）

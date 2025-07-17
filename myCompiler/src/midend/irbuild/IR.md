@@ -10,7 +10,7 @@
 - **TypeID ID**：类型唯一标识（枚举）。
 - **getTypeID()**：获取类型ID。
 - **isVoidTy()/isIntegerTy()/isFloatTy()/isPointerTy()/isArrayTy()/isFunctionTy()/isStringTy()**：类型判断。
-- **isTypeEqual(Type *a, Type *b)**：判断两个类型是否相等。
+- **isTypeEqual(Type *a, Type *b)**：判断两个类型是否相等(通过typeID判断，如果是指针或者数组则需要额外判断维度)。 
 - **toString()**：类型转字符串（纯虚函数）。
 
 #### 子类
@@ -81,8 +81,8 @@
 - **Constant *Initializer**：初始值。
 - **bool IsConstant**：是否为常量。
 - **isArray()**：是否为数组类型。
-- **getDims()**：获取维度。
-- **getTotallength()**：获取总长度。
+- **getDims()**：获取维度(标量返回0)。
+- **getTotallength()**：获取总长度(标量返回0)。
 - **getGroundElementType()**：获取基本元素类型。
 - **toString()**：转字符串。
 
@@ -147,7 +147,7 @@
 - **getTerminator()**：获取终结指令。
 - **getInstructions()**：获取所有指令。
 - **hasTerminator()**：是否有终结指令。
-- **containsByName()**：是否包含指定指令。
+- **containsByName()**：是否包含指定指令(通过name字段判断)。
 - **toString()**：转字符串。
 
 ---
