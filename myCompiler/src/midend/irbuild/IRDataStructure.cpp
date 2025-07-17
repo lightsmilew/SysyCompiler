@@ -158,7 +158,7 @@ void User::setOperandByIndex(unsigned index, Value *value)
         }
     }
 }
-void User::removeOperandByIndex(unsigned index) 
+void User::removeOperandByIndex(unsigned index)
 {
     if (index < Operands.size())
     {
@@ -171,7 +171,7 @@ void User::removeOperandByIndex(unsigned index)
     }
 }
 
-string ConstantString::toString() const 
+string ConstantString::toString() const
 {
     // 输出为 LLVM IR 字符串常量格式
     std::string s = "c\"";
@@ -204,21 +204,14 @@ bool GlobalVariable::isArray() const
     // 判断是否为数组类型
     return OriginalType->isArrayTy();
 }
-size_t GlobalVariable::getDims() const
+vector<size_t> GlobalVariable::getDims() const
 {
-    // 获取数组维度
     if (OriginalType->isArrayTy())
     {
         auto arrayType = static_cast<ArrayType *>(OriginalType);
-        size_t dims = 0;
-        while (arrayType)
-        {
-            dims++;
-            arrayType = dynamic_cast<ArrayType *>(arrayType->getElementType());
-        }
-        return dims;
+        return arrayType->getArrayIndices();
     }
-    return 0; // 不是数组类型
+    return vector<size_t>{0}; // 标量返回0维度
 }
 size_t GlobalVariable::getTotallength() const
 {
@@ -614,7 +607,7 @@ std::string FCmpInst::toString() const
     return ss.str();
 }
 
-size_t AllocaInst::getAllocatedSize() const
+int AllocaInst::getAllocatedSize() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
     {
@@ -900,7 +893,7 @@ Value *GetElementPtrInst::getDest() const
 {
     return const_cast<GetElementPtrInst *>(this);
 }
-vector<size_t> *GetElementPtrInst::getArrayStride() const
+vector<int> *GetElementPtrInst::getArrayStride() const
 {
     auto stride = getPointerOperand()->getType();
     auto ptrType = dynamic_cast<PointerType *>(stride);
@@ -909,7 +902,8 @@ vector<size_t> *GetElementPtrInst::getArrayStride() const
         auto arrayType = dynamic_cast<ArrayType *>(ptrType->ElementType);
         if (arrayType)
         {
-            return new vector<size_t>(arrayType->getArrayIndices());
+            auto indices = arrayType->getArrayIndices();
+            return new vector<int>(indices.begin(), indices.end());
         }
     }
     return nullptr; // 如果不是数组类型，返回空指针
@@ -1265,7 +1259,7 @@ GlobalVariable *Module::getGlobalVariable(const string &name)
 // Debug
 void Module::printBasicBlockInfo()
 {
-    int j=0;
+    int j = 0;
     for (int i = 13; i < Functions.size(); i++)
     {
         std::cout << Functions[i]->getName() << ":" << std::endl;

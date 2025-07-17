@@ -50,7 +50,7 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         else
         {
             // 没有初始化器，添加零初始化
-            processZeroInitializer(globalBlock, globalVar->getType());
+            processZeroInitializer(globalBlock, globalVar.get());
         }
     }
 
@@ -74,6 +74,18 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
 
 void RISCVBuilder::generateInstructions()
 {
+    // 创建指令选择器（全局共享，用于处理全局数组信息）
+    InstructionSelector selector;
+
+    // 首先处理所有全局数组（只处理一次）
+    for (auto &globalVar : irModule->GlobalVariables)
+    {
+        if (globalVar->isArray())
+        {
+            selector.processGlobalArray(globalVar.get());
+        }
+    }
+
     // 为每个函数生成指令
     for (const auto &func : irModule->Functions)
     {
@@ -81,7 +93,6 @@ void RISCVBuilder::generateInstructions()
         if (!riscvFunc)
             continue;
 
-        InstructionSelector selector;
         selector.selectInstructions(riscvFunc, func.get());
     }
 }
@@ -383,10 +394,6 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     if (!inst->getCalledFunction())
         return;
 
-    // 0. 现场保护：保存caller-saved寄存器中存储的函数参数
-    vector<shared_ptr<RISCVRegister>> savedRegisters;
-    saveCallerSavedRegisters(savedRegisters);
-
     // 1. 处理参数传递 - 严格按照RISC-V ABI规范
     // 前8个整数/指针参数使用a0-a7，前8个浮点参数使用fa0-fa7
     // 超出的参数按顺序存放在调用者栈帧的参数区域
@@ -396,11 +403,33 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     int stackArgIndex = 0;
 
     // 逐个处理每个参数，避免同时占用过多临时寄存器
-    for (size_t i = 0; i < inst->getArguments().size(); ++i)
+    for (auto arg : inst->getArguments())
     {
-        auto arg = inst->getArguments()[i];
-        // 为当前参数获取寄存器（每次只处理一个参数）
-        auto argReg = getOrCreateVirtualReg(arg);
+        shared_ptr<RISCVRegister> argReg;
+
+        // 对于指针类型参数，需要特殊处理
+        if (arg->getType()->isPointerTy())
+        {
+            // 检查是否是数组参数
+            string argName = arg->getName();
+            auto arrayIt = arrayInfoMap.find(argName);
+
+            if (arrayIt != arrayInfoMap.end())
+            {
+                // 这是一个数组参数，传递数组的基地址
+                argReg = getArrayBaseAddress(arg);
+            }
+            else
+            {
+                // 普通指针参数，传递指针的值
+                argReg = getOrCreateVirtualReg(arg);
+            }
+        }
+        else
+        {
+            // 普通值类型参数
+            argReg = getOrCreateVirtualReg(arg);
+        }
 
         if (arg->getType()->isFloatTy())
         {
@@ -453,13 +482,17 @@ void InstructionSelector::visitCallInst(CallInst *inst)
         releaseTempRegister(argReg); // 释放当前参数的临时寄存器
     }
 
-    // 2. 生成函数调用指令
+    // 2. 现场保护：保存caller-saved寄存器中存储的函数参数
+    vector<shared_ptr<RISCVRegister>> savedRegisters;
+    saveCallerSavedRegisters(savedRegisters);
+
+    // 3. 生成函数调用指令
     auto callInst = RISCVInstruction::createJType(RISCVOpcode::JAL,
                                                   make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
                                                   inst->getCalledFunction()->getName());
     currentBB->addInstruction(callInst);
 
-    // 3. 处理返回值 - 从a0/fa0中获取返回值并存储到栈
+    // 4. 处理返回值 - 从a0/fa0中获取返回值并存储到栈
     if (!inst->getType()->isVoidTy())
     {
         auto returnPhysReg = make_shared<RISCVRegister>(
@@ -469,7 +502,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
         storeValueToStack(inst->getDest(), returnPhysReg);
     }
 
-    // 4. 现场恢复：恢复caller-saved寄存器中存储的函数参数
+    // 5. 现场恢复：恢复caller-saved寄存器中存储的函数参数
     restoreCallerSavedRegisters(savedRegisters);
 }
 
@@ -551,163 +584,35 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
-    // Alloca指令用于在栈上分配数组或变量的内存空间
-    // 返回分配内存的首地址（对于数组，即第一个元素的地址）
+    // 使用新的统一数组管理系统
+    Type *allocatedType = inst->AllocatedType;
 
-    StackFrame &stackFrame = currentFunc->getStackFrame();
-
-    // 检查是否已经为该alloca分配了栈空间
-    string allocaName = inst->getName();
-    if (!stackFrame.hasAllocation(allocaName))
+    // 检查分配的是否为数组类型
+    if (dynamic_cast<ArrayType *>(allocatedType))
     {
-        // 计算需要分配的内存大小
-        Type *allocatedType = inst->AllocatedType;
-        // 数组类型：大小 = 元素数量 × 元素大小
-        auto arrayType = static_cast<ArrayType *>(allocatedType);
-        int elementSize = 4; // 假设int/float都是4字节
-
-        int allocatedSize = arrayType->getArrayLength() * elementSize;
-
-        stackFrame.allocateSpace(inst->getDest()->getName(), allocatedSize);
+        // 数组类型，使用新的数组管理
+        processLocalArray(inst);
     }
 
-    // 获取alloca分配的内存在栈帧中的偏移
-    int varOffset = stackFrame.getOffset(inst->getDest()->getName());
-
-    // 创建临时寄存器保存数组/变量的首地址
-    auto addressReg = allocateTempRegister(RegisterType::GENERAL, "store_addr");
-
-    // 计算首地址：sp + offset
-    if (isImmediateInRange(varOffset))
-    {
-        // 直接使用addi计算地址
-        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addressReg,
-                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
-                                                      varOffset);
-        currentBB->addInstruction(addiInst);
-    }
-    else
-    {
-        // 偏移量太大，使用li + add组合
-        auto liInst = RISCVInstruction::createPseudoLI(addressReg, varOffset);
-        currentBB->addInstruction(liInst);
-
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addressReg,
-                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
-                                                     addressReg);
-        currentBB->addInstruction(addInst);
-    }
-
-    // 将数组/变量的首地址存储到栈中供后续使用stridegetNumElements
-    // alloca指令的结果是一个指针，指向分配的内存区域
-    storeValueToStack(inst->getDest(), addressReg, 8);
+    // 不应该有其他情况
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
-    // GetElementPtr指令用于计算数组元素的地址
-    // 支持多维数组的地址计算
-    // 输入：数组首地址（由alloca返回）+ 多个索引
-    // 输出：指定元素的地址
+    // 使用新的统一数组访问接口
 
-    // 获取数组的基地址,数组的基地址通常是alloca指令的指针
-    auto baseAddressReg = getOrCreateVirtualReg(inst->getPointerOperand());
+    // 1. 获取数组基地址（统一接口，自动处理全局/局部/参数数组）
+    auto baseAddr = getArrayBaseAddress(inst->getPointerOperand());
 
-    // 如果不是全局变量，可能需要调整基地址
-    auto globalVar = dynamic_cast<GlobalVariable *>(inst->getPointerOperand());
-    if (!globalVar)
-    {
-        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, baseAddressReg,
-                                                      baseAddressReg, 8);
-        currentBB->addInstruction(addiInst);
-    }
+    auto offsetReg = calculateArrayOffset(inst);
 
-    auto elementAddressReg = allocateTempRegister(RegisterType::GENERAL, "element_addr");
+    // 3. 生成最终地址：baseAddr + offset
+    auto resultAddr = allocateTempRegister(RegisterType::GENERAL, "gep_result");
+    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, resultAddr, baseAddr, offsetReg);
+    currentBB->addInstruction(addInst);
 
-    auto indices = inst->getIndices();       // 访问下标
-    auto stridePtr = inst->getArrayStride(); // 获取数组的步长信息
-
-    if (!indices.empty())
-    {
-        if (stridePtr != nullptr && !stridePtr->empty())
-        {
-            // 多维数组：计算元素地址：base + sum(index[i] * stride[i] * 4)
-            auto totalOffsetReg = allocateTempRegister(RegisterType::GENERAL, "total_offset");
-
-            // 初始化偏移量为0
-            auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-            auto initInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, totalOffsetReg, zeroReg);
-            currentBB->addInstruction(initInst);
-
-            auto offsetReg = allocateTempRegister(RegisterType::GENERAL, "index_offset");
-            auto liInst = RISCVInstruction::createPseudoLI(offsetReg, 1);
-            currentBB->addInstruction(liInst);
-
-            // 处理每个维度的索引
-            for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
-            {
-                auto indexReg = getOrCreateVirtualReg(indices[i]);
-                auto tmpReg = allocateTempRegister(RegisterType::GENERAL, "index_calc");
-
-                // totalOffset += offset * index * 4
-                auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
-                currentBB->addInstruction(mulInst);
-                auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmpReg, tmpReg, 2); // 左移2位，相当于乘以4
-                currentBB->addInstruction(shiftInst);
-                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
-                currentBB->addInstruction(addInst);
-
-                releaseTempRegister(tmpReg);   // 释放临时寄存器
-                releaseTempRegister(indexReg); // 释放偏移寄存器
-
-                // offset *= stride
-                if (i == 0)
-                {
-                    // 最后一个维度的偏移量不需要乘以stride
-                    break;
-                }
-
-                int stride = (*stridePtr)[i - 1];
-                if (stride != 1)
-                {
-                    auto strideReg = allocateTempRegister(RegisterType::GENERAL, "stride_calc");
-                    auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
-                    currentBB->addInstruction(liStrideInst);
-                    auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
-                    currentBB->addInstruction(mulStrideInst);
-
-                    releaseTempRegister(strideReg); // 释放stride寄存器
-                }
-            }
-
-            // 基地址加上总偏移量得到最终地址
-            auto finalAddInst = RISCVInstruction::createRType(RISCVOpcode::ADD, elementAddressReg, baseAddressReg, totalOffsetReg);
-            currentBB->addInstruction(finalAddInst);
-        }
-        else
-        {
-            // 一维数组或简单情况：base + index * 4
-            auto indexReg = getOrCreateVirtualReg(indices[0]);
-            auto shiftReg = allocateTempRegister(RegisterType::GENERAL, "shift_calc");
-
-            // 将索引左移2位（相当于乘以4）
-            auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, shiftReg, indexReg, 2);
-            currentBB->addInstruction(shiftInst);
-
-            // 基地址加上偏移量
-            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, elementAddressReg, baseAddressReg, shiftReg);
-            currentBB->addInstruction(addInst);
-        }
-    }
-    else
-    {
-        // 没有索引，直接复制基地址
-        auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, elementAddressReg, baseAddressReg);
-        currentBB->addInstruction(moveInst);
-    }
-
-    // 将计算出的元素地址存储到栈中供load/store指令使用
-    storeValueToStack(inst->getDest(), elementAddressReg, 8);
+    // 4. 存储结果地址
+    storeValueToStack(inst->getDest(), resultAddr, 8);
 }
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
@@ -1254,7 +1159,7 @@ void InstructionSelector::prescanFunction(shared_ptr<RISCVFunction> func, Functi
                     if (allocatedType->isArrayTy())
                     {
                         auto arrayType = static_cast<ArrayType *>(allocatedType);
-                        allocSize = arrayType->getArrayLength() * 4 + 8; // 数组元素大小 + 指针大小
+                        allocSize = arrayType->getArrayLength() * 4; // 数组元素大小
                     }
                     else
                     {
@@ -1569,6 +1474,15 @@ void InstructionSelector::mapArguments(shared_ptr<RISCVFunction> func, Function 
             }
         }
     }
+
+    // 处理参数数组
+    for (const auto &arg : irFunc->getArguments())
+    {
+        if (arg->getType()->isPointerTy())
+        {
+            processParameterArray(arg.get());
+        }
+    }
 }
 
 void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer)
@@ -1632,13 +1546,12 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
     }
 }
 
-void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Type *type)
+void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar)
 {
     // 处理零初始化
-    if (type->isArrayTy())
+    if (globalVar->isArray())
     {
-        auto arrayType = static_cast<ArrayType *>(type);
-        int numElements = arrayType->getArrayLength();
+        int numElements = globalVar->getTotallength();
 
         // 创建零初始化的数组
         vector<string> zeroArray(numElements, "0");
@@ -2021,4 +1934,175 @@ void InstructionSelector::restoreCallerSavedRegisters(const vector<shared_ptr<RI
             }
         }
     }
+}
+
+// ======================== 数组管理方法实现 ========================
+
+shared_ptr<RISCVRegister> InstructionSelector::getArrayBaseAddress(Value *arrayValue)
+{
+    string arrayName = arrayValue->getName();
+    auto it = arrayInfoMap.find(arrayName);
+
+    if (it == arrayInfoMap.end())
+    {
+        throw std::runtime_error("Array not found in arrayInfoMap: " + arrayName);
+    }
+
+    ArrayInfo &info = it->second;
+    auto baseReg = allocateTempRegister(RegisterType::GENERAL, "array_base_" + arrayName);
+
+    switch (info.location)
+    {
+    case ArrayInfo::Location::GLOBAL:
+        generateGlobalAddressLoad(baseReg, info.globalLabel);
+        break;
+
+    case ArrayInfo::Location::STACK:
+        generateStackAddressLoad(baseReg, info.stackOffset);
+        break;
+
+    case ArrayInfo::Location::PARAMETER:
+        // 参数数组传递的是指针，从寄存器或栈中加载指针值
+        {
+            auto existingReg = getOrCreateVirtualReg(arrayValue);
+            auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, baseReg, existingReg);
+            currentBB->addInstruction(moveInst);
+        }
+        break;
+    }
+
+    return baseReg;
+}
+
+void InstructionSelector::generateGlobalAddressLoad(shared_ptr<RISCVRegister> reg, const string &label)
+{
+    // la reg, label (伪指令，等价于 auipc + addi)
+    auto laInst = RISCVInstruction::createPseudoLA(reg, label);
+    currentBB->addInstruction(laInst);
+}
+
+void InstructionSelector::generateStackAddressLoad(shared_ptr<RISCVRegister> reg, int offset)
+{
+    auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+
+    if (isImmediateInRange(offset, 12))
+    {
+        // addi reg, sp, offset
+        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, reg, spReg, offset);
+        currentBB->addInstruction(addiInst);
+    }
+    else
+    {
+        // 大偏移量，先加载到临时寄存器
+        auto tempReg = allocateTempRegister(RegisterType::GENERAL, "large_offset");
+        generateConstantLoad(tempReg, offset);
+
+        // add reg, sp, tempReg
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, reg, spReg, tempReg);
+        currentBB->addInstruction(addInst);
+    }
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::calculateArrayOffset(GetElementPtrInst *gepInst)
+{
+    auto stridePtr = gepInst->getArrayStride(); // 获取数组步长 vector<int> stride;
+    auto indices = gepInst->getIndices();       // 获取索引 vector<Value*> indices;
+
+    auto totalOffsetReg = allocateTempRegister(RegisterType::GENERAL, "total_offset");
+
+    // 初始化偏移量为0
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    auto initInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, totalOffsetReg, zeroReg);
+    currentBB->addInstruction(initInst);
+
+    auto offsetReg = allocateTempRegister(RegisterType::GENERAL, "index_offset");
+    auto liInst = RISCVInstruction::createPseudoLI(offsetReg, 1);
+    currentBB->addInstruction(liInst);
+
+    // 处理每个维度的索引
+    for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
+    {
+        auto indexReg = getOrCreateVirtualReg(indices[i]);
+        auto tmpReg = allocateTempRegister(RegisterType::GENERAL, "index_calc");
+
+        // totalOffset += offset * index * 4
+        auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
+        currentBB->addInstruction(mulInst);
+        auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmpReg, tmpReg, 2); // 左移2位，相当于乘以4
+        currentBB->addInstruction(shiftInst);
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
+        currentBB->addInstruction(addInst);
+
+        releaseTempRegister(tmpReg);   // 释放临时寄存器
+        releaseTempRegister(indexReg); // 释放偏移寄存器
+
+        // offset *= stride
+        if (i == 0)
+        {
+            // 最后一个维度的偏移量不需要乘以stride
+            break;
+        }
+
+        int stride = (*stridePtr)[i - 1];
+        if (stride != 1)
+        {
+            auto strideReg = allocateTempRegister(RegisterType::GENERAL, "stride_calc");
+            auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
+            currentBB->addInstruction(liStrideInst);
+            auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
+            currentBB->addInstruction(mulStrideInst);
+
+            releaseTempRegister(strideReg); // 释放stride寄存器
+        }
+    }
+
+    return totalOffsetReg;
+}
+
+void InstructionSelector::processLocalArray(AllocaInst *alloca)
+{
+    string arrayName = alloca->getDest()->getName();
+
+    ArrayInfo info;
+    info.location = ArrayInfo::Location::STACK;
+    info.totalSize = alloca->getAllocatedSize() * 4;
+    info.elementType = alloca->getGroundElementType();
+    info.dimensions = alloca->getArrayEveryDimensionLength();
+
+    // 从已经分配的栈空间中获取偏移量（prescanFunction已经处理了栈分配）
+    StackFrame &stackFrame = currentFunc->getStackFrame();
+    info.stackOffset = stackFrame.getOffset(arrayName);
+
+    // 记录数组信息
+    arrayInfoMap[arrayName] = info;
+}
+
+void InstructionSelector::processParameterArray(Argument *arg)
+{
+    string paramName = arg->getName();
+    Type *paramType = arg->getType();
+
+    // 参数数组通过指针传递
+    if (auto ptrType = dynamic_cast<PointerType *>(paramType))
+    {
+        ArrayInfo info;
+        info.location = ArrayInfo::Location::PARAMETER;
+        info.elementType = ptrType->getGroundElementType();
+        info.dimensions = ptrType->getArrayIndices();
+        info.totalSize = 0; // 参数数组大小在编译时未知
+
+        arrayInfoMap[paramName] = info;
+    }
+}
+
+void InstructionSelector::processGlobalArray(GlobalVariable *gvar)
+{
+    ArrayInfo info;
+    info.location = ArrayInfo::Location::GLOBAL;
+    info.globalLabel = gvar->getName();
+    info.dimensions = gvar->getDims();
+    info.elementType = gvar->getGroundElementType();
+    info.totalSize = gvar->getTotallength() * 4; // 假设元素类型为32位整数
+
+    arrayInfoMap[gvar->getName()] = info;
 }
