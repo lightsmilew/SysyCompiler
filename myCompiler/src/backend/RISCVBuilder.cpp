@@ -426,13 +426,13 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             else
             {
                 // 普通指针参数，传递指针的值
-                argReg = getOrCreateVirtualReg(arg);
+                argReg = getArgumentRegister(arg, savedRegisters);
             }
         }
         else
         {
             // 普通值类型参数
-            argReg = getOrCreateVirtualReg(arg);
+            argReg = getArgumentRegister(arg, savedRegisters);
         }
 
         if (arg->getType()->isFloatTy())
@@ -1507,8 +1507,9 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
     }
     else if (auto constArray = dynamic_cast<ConstantArray *>(initializer))
     {
-        // 数组常量：收集所有元素，然后作为数组添加
+        // 数组常量：递归处理所有元素
         vector<string> arrayElements;
+
         for (Constant *element : constArray->Elements)
         {
             if (element)
@@ -1523,9 +1524,20 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
                     std::memcpy(&bits, &elemFloat->Value, sizeof(float));
                     arrayElements.push_back(std::to_string(bits));
                 }
+                else if (auto elemArray = dynamic_cast<ConstantArray *>(element))
+                {
+                    // 递归处理嵌套数组
+                    // 创建临时块来收集嵌套数组的数据
+                    auto tempBlock = make_shared<RISCVGlobalBlock>("temp");
+                    processGlobalInitializer(tempBlock, elemArray);
+
+                    // 将临时块的数据添加到当前数组
+                    auto tempData = tempBlock->getData();
+                    arrayElements.insert(arrayElements.end(), tempData.begin(), tempData.end());
+                }
                 else
                 {
-                    // 未定义的元素用零初始化
+                    // 其他未知类型用零初始化
                     arrayElements.push_back("0");
                 }
             }
@@ -1934,6 +1946,47 @@ void InstructionSelector::restoreCallerSavedRegisters(const vector<shared_ptr<RI
             }
         }
     }
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getArgumentRegister(Value *arg, const vector<shared_ptr<RISCVRegister>> &savedRegisters)
+{
+    // 检查这个参数是否是当前函数的参数，并且已经被保存
+    string argName = arg->getName();
+
+    // 检查是否在registerMap中有映射到参数寄存器
+    auto regIt = registerMap.find(argName);
+    if (regIt != registerMap.end())
+    {
+        auto mappedReg = regIt->second;
+
+        // 检查这个寄存器是否是参数寄存器(a0-a7)
+        if (mappedReg->getType() == RegisterType::GENERAL &&
+            mappedReg->getPhysicalReg() >= RISCVRegister::PhysicalReg::A0 &&
+            mappedReg->getPhysicalReg() <= RISCVRegister::PhysicalReg::A7)
+        {
+            // 这是一个参数寄存器，检查是否已经被保存
+            int argIndex = static_cast<int>(mappedReg->getPhysicalReg()) - static_cast<int>(RISCVRegister::PhysicalReg::A0);
+
+            // savedRegisters按对保存：[原始寄存器, 保存寄存器, 原始寄存器, 保存寄存器, ...]
+            for (size_t i = 0; i < savedRegisters.size(); i += 2)
+            {
+                if (i + 1 < savedRegisters.size())
+                {
+                    auto originalReg = savedRegisters[i];
+                    auto savedReg = savedRegisters[i + 1];
+
+                    if (originalReg->getPhysicalReg() == mappedReg->getPhysicalReg())
+                    {
+                        // 找到了保存的寄存器，返回保存寄存器
+                        return savedReg;
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果不是保存的参数寄存器，使用普通的获取方法
+    return getOrCreateVirtualReg(arg);
 }
 
 // ======================== 数组管理方法实现 ========================
