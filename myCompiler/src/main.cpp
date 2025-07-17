@@ -63,9 +63,11 @@ int main(int argc, const char *argv[])
 
     // 中间代码优化部分
     unique_ptr<optimization::PassManager> pass_manager;
+    optimization::OptimizationLevel opt_level=optimization::OptimizationLevel::O0;
+    bool isOptimizationEnabled = false;
     if (argc > 4 && strcmp(argv[3], "-opt") == 0)
     {
-        optimization::OptimizationLevel opt_level;
+        isOptimizationEnabled = true;
         if (strcmp(argv[4], "O0") == 0)
             opt_level = optimization::OptimizationLevel::O0;
         else if (strcmp(argv[4], "O1") == 0)
@@ -88,8 +90,11 @@ int main(int argc, const char *argv[])
             opt_level = optimization::OptimizationLevel::O16; // 调试级别O16
         else
             throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
-        // 开启优化日志
-        pass_manager = optimization::createOptimizationPipeline(opt_level, true);
+    }
+    // 只有三个参数且第三个参数为-riscv则默认开启O0优化，或者开启优化时启动
+    if((argc==3&&strcmp(argv[2],"-riscv")==0)||isOptimizationEnabled)
+    {
+        pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
     }
     // 输出结果
@@ -97,7 +102,6 @@ int main(int argc, const char *argv[])
     {
         // 输出IR中间代码
         cout << ir_module->toString() << endl;
-        // 调试
         if (debugMode)
         {
             cout << "Debugging IR Module:" << endl;
@@ -107,11 +111,6 @@ int main(int argc, const char *argv[])
     }
     else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
     {
-        // 消除phi指令
-        optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
-        auto pass_manager = optimization::createOptimizationPipeline(opt_level, false);
-        pass_manager->runOnModule(ir_module.get());
-
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
 

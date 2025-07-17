@@ -919,6 +919,20 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     vector<Value *> operands;
     operands.push_back(ptr);
     operands.insert(operands.end(), indices.begin(), indices.end());
+    int dimensions = 0;
+    if(auto ptrType = dynamic_cast<PointerType *>(ptr->getType()))
+    {
+        auto elementType = dynamic_cast<ArrayType*>(ptrType->ElementType);
+        // 一层指针返回 1维
+        if(!elementType)dimensions=1;
+        // 数组类型的指针，+1是因为第一个索引是指针本身
+        else dimensions=elementType->getArrayIndices().size()+1; 
+    }
+    // 如果索引小于维度数，补齐为0
+    for(int i= indices.size(); i < dimensions; ++i)
+    {
+        operands.push_back(new ConstantInt(IntegerType::getInstance(),0)); // 补齐为0
+    }
     return operands;
 }
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
