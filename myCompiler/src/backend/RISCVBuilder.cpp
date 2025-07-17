@@ -394,6 +394,10 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     if (!inst->getCalledFunction())
         return;
 
+    // 0. 现场保护：保存caller-saved寄存器中存储的函数参数
+    vector<shared_ptr<RISCVRegister>> savedRegisters;
+    saveCallerSavedRegisters(savedRegisters);
+
     // 1. 处理参数传递 - 严格按照RISC-V ABI规范
     // 前8个整数/指针参数使用a0-a7，前8个浮点参数使用fa0-fa7
     // 超出的参数按顺序存放在调用者栈帧的参数区域
@@ -482,17 +486,13 @@ void InstructionSelector::visitCallInst(CallInst *inst)
         releaseTempRegister(argReg); // 释放当前参数的临时寄存器
     }
 
-    // 2. 现场保护：保存caller-saved寄存器中存储的函数参数
-    vector<shared_ptr<RISCVRegister>> savedRegisters;
-    saveCallerSavedRegisters(savedRegisters);
-
-    // 3. 生成函数调用指令
+    // 2. 生成函数调用指令
     auto callInst = RISCVInstruction::createJType(RISCVOpcode::JAL,
                                                   make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::RA),
                                                   inst->getCalledFunction()->getName());
     currentBB->addInstruction(callInst);
 
-    // 4. 处理返回值 - 从a0/fa0中获取返回值并存储到栈
+    // 3. 处理返回值 - 从a0/fa0中获取返回值并存储到栈
     if (!inst->getType()->isVoidTy())
     {
         auto returnPhysReg = make_shared<RISCVRegister>(
@@ -502,7 +502,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
         storeValueToStack(inst->getDest(), returnPhysReg);
     }
 
-    // 5. 现场恢复：恢复caller-saved寄存器中存储的函数参数
+    // 4. 现场恢复：恢复caller-saved寄存器中存储的函数参数
     restoreCallerSavedRegisters(savedRegisters);
 }
 
