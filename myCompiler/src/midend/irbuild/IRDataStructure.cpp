@@ -199,6 +199,51 @@ string ConstantArray::toString() const
 }
 
 // =====GlobalVariable implementation=====
+bool GlobalVariable::isArray() const
+{
+    // 判断是否为数组类型
+    return OriginalType->isArrayTy();
+}
+size_t GlobalVariable::getDims() const
+{
+    // 获取数组维度
+    if (OriginalType->isArrayTy())
+    {
+        auto arrayType = static_cast<ArrayType *>(OriginalType);
+        size_t dims = 0;
+        while (arrayType)
+        {
+            dims++;
+            arrayType = dynamic_cast<ArrayType *>(arrayType->getElementType());
+        }
+        return dims;
+    }
+    return 0; // 不是数组类型
+}
+size_t GlobalVariable::getTotallength() const
+{
+    // 获取数组总长度
+    if (OriginalType->isArrayTy())
+    {
+        auto arrayType = static_cast<ArrayType *>(OriginalType);
+        return arrayType->getArrayLength();
+    }
+    return 0; // 不是数组类型
+}
+Type *GlobalVariable::getGroundElementType() const
+{
+    // 获取数组的基本元素类型
+    if (OriginalType->isArrayTy())
+    {
+        auto arrayType = static_cast<ArrayType *>(OriginalType);
+        while (arrayType->getElementType()->isArrayTy())
+        {
+            arrayType = static_cast<ArrayType *>(arrayType->getElementType());
+        }
+        return arrayType->getElementType();
+    }
+    return OriginalType; // 如果不是数组类型，返回原始类型
+}
 std::string GlobalVariable::toString() const
 {
     std::stringstream ss;
@@ -209,7 +254,7 @@ std::string GlobalVariable::toString() const
         ss << "global ";
 
     // 直接使用存储的类型（不是指针包装）
-    ss << basicType->toString();
+    ss << OriginalType->toString();
 
     if (Initializer)
     {

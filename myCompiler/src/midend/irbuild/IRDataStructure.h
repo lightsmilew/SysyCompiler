@@ -284,12 +284,12 @@ public:
 class GlobalVariable : public Value
 {
 public:
-    Type *basicType;
+    Type *OriginalType;
     Constant *Initializer;
     bool IsConstant;
     // 如果是数组则存入退化后的指针
     GlobalVariable(Type *ty, const string &name = "", Constant *init = nullptr, bool isConst = false)
-        : Value(ty, name), Initializer(init), IsConstant(isConst), basicType(ty)
+        : Value(ty, name), Initializer(init), IsConstant(isConst), OriginalType(ty)
     {
         // 如果是数组类型，退化成指针类型
         if (ty->isArrayTy())
@@ -302,7 +302,11 @@ public:
         {
             setType(PointerType::getInstance(ty));
         }
-    }
+    };
+    bool isArray()const;                                       // 判断是否为数组类型
+    size_t getDims()const;                                     // 获取全局变量维度（标量返回0）
+    size_t getTotallength() const;                             // 获取数组总长度(标量返回0)
+    Type*  getGroundElementType() const;                       // 获取全局变量的基本元素类型
     string toString() const override;
 };
 

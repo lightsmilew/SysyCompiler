@@ -1791,14 +1791,6 @@ bool IRBuilder::hasTerminatorInst(BasicBlock *block)
 }
 void IRBuilder::addPhiForVars()
 {
-    if(debugMode)
-    {
-        std::cout<<"phi for vars in block: "<<currentBlock->getName()<<std::endl;
-        for(const auto& [name, value] : varToValue)
-        {
-            std::cout << "Variable: " << name << ", Value: " << value->toRef() << std::endl;
-        }
-    }
     for (const auto& [name, value] : varToValue)
     {
         // 普通变量,全局变量不生成phi
@@ -1862,7 +1854,7 @@ int IRBuilder::getArrayDims(string varName)
     {
         if(auto globalVar=dynamic_cast<GlobalVariable*>(ptr->second))
         {
-            auto basic_type=globalVar->basicType;
+            auto basic_type=globalVar->OriginalType;
             if(basic_type->isIntegerTy()||basic_type->isFloatTy())
             {
                 return 0;
