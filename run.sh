@@ -6,7 +6,7 @@
 #INPUT_DIR="test_cases/official_cases"
 #OUTPUT_DIR="test_cases/official_output"
 INPUT_DIR="case/functional"
-OUTPUT_DIR="case/functional"
+OUTPUT_DIR="case/functional/output"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -24,32 +24,33 @@ elif [ "$1" == "-ir" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
         echo "Processing $filename..."
-        # 支持带调试参数
-        if [ "$2" == "-debug" ]; then
-            ./myCompiler/build/my_compiler "$file" -ir -X -X -debug > "$OUTPUT_DIR/${filename%.sy}.ir"
+        # 判断是否带有 -opt 参数
+        if [ "$2" == "-opt" ] && [ -n "$3" ]; then
+            # 支持带调试参数
+            if [ "$4" == "-debug" ]; then
+                ./myCompiler/build/my_compiler "$file" -ir -opt "$3" -debug > "$OUTPUT_DIR/${filename%.sy}.ir.opt$3"
+            else
+                ./myCompiler/build/my_compiler "$file" -ir -opt "$3" > "$OUTPUT_DIR/${filename%.sy}.ir.opt$3"
+            fi
         else
-            ./myCompiler/build/my_compiler "$file" -ir > "$OUTPUT_DIR/${filename%.sy}.ir"
-        fi
-    done
-    #优化
-elif [ "$1" == "-ir_opt" ]; then
-    for file in $INPUT_DIR/*.sy; do
-        filename=$(basename "$file")
-        echo "Processing $filename..."
-        # 执行编译器并生成优化后的IR代码
-        # 支持带调试参数
-        if [ "$3" == "-debug" ]; then
-            ./myCompiler/build/my_compiler "$file" -ir -opt $2 -debug > "$OUTPUT_DIR/${filename%.sy}.ir.opt$2"
-        else
-            ./myCompiler/build/my_compiler "$file" -ir -opt $2 > "$OUTPUT_DIR/${filename%.sy}.ir.opt"
+            # 支持带调试参数
+            if [ "$2" == "-debug" ]; then
+                ./myCompiler/build/my_compiler "$file" -ir -X -X -debug > "$OUTPUT_DIR/${filename%.sy}.ir"
+            else
+                ./myCompiler/build/my_compiler "$file" -ir > "$OUTPUT_DIR/${filename%.sy}.ir"
+            fi
         fi
     done
 elif [ "$1" == "-riscv" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
         echo "Processing $filename..."
-        # 执行编译器并生成RISC-V代码
-        ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.s"
+        # 判断是否带有 -opt 参数
+        if [ "$2" == "-opt" ] && [ -n "$3" ]; then
+            ./myCompiler/build/my_compiler "$file" -riscv -opt "$3" > "$OUTPUT_DIR/${filename%.sy}.s"
+        else
+            ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.s"
+        fi
     done
 elif [ "$1" == "-gdb" ]; then
     for file in $INPUT_DIR/*.sy; do
@@ -82,4 +83,22 @@ elif [ "$1" == "-qemu" ]; then
       -netdev user,id=eth0,hostfwd=tcp::2222-:22 \
       -device virtio-rng-pci \
       -drive file=ubuntu-24.04.2-preinstalled-server-riscv64.img,format=raw,if=virtio
+#优化使用，比较不同级别优化效果
+elif [ "$1" == "-diff" ]; then
+    for file in $INPUT_DIR/*.sy; do
+        filename=$(basename "$file" .sy)
+        file1="$OUTPUT_DIR/${filename}.ir.optO"
+        file2="$OUTPUT_DIR/${filename}.ir.optO111"
+        if [ -f "$file1" ] && [ -f "$file2" ]; then
+            line1=$(wc -l < "$file1")
+            line2=$(wc -l < "$file2")
+            if [ "$line1" -eq "$line2" ]; then
+                echo "$filename: 行数相同 ($line1 行)"
+            else
+                echo "$filename: 行数不同 ($line1 vs $line2)"
+            fi
+        else
+            echo "$filename: 缺少 $file1 或 $file2"
+        fi
+    done      
 fi

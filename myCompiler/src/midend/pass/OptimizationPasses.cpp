@@ -195,6 +195,12 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
 {
     if(inst->getOpcode() == Opcode::Load)
         return false; // Load指令不参与公共子表达式消除
+    // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
+    for (auto *v : inst->getOperands()) {
+        if (dynamic_cast<PhiInst*>(v)) {
+            return false;
+        }
+    }    
     // 只处理无副作用的二元运算,不包括Store Call Ret Br Load
     return inst->isBinaryOp() && !inst->mayHaveSideEffects();
 }
@@ -599,6 +605,25 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 Value *incomingValue = phi->getIncomingValue(0);
                 phi->replaceAllUsesWith(incomingValue);
                 needToDelete.push_back(it->release()); 
+                it = insts.erase(it);
+                changed = true;
+                continue;
+            }
+            // 如果所有输入都相同，直接替换，不需要产生copy指令
+            bool allSame = true;
+            Value *firstVal = phi->getIncomingValue(0);
+            for (size_t i = 1; i < phi->getNumIncomingValues(); ++i) 
+            {
+                if (phi->getIncomingValue(i) != firstVal) 
+                {
+                    allSame = false;
+                    break;
+                }
+            }
+            if (allSame)    
+            {
+                phi->replaceAllUsesWith(firstVal);
+                needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
                 continue;
