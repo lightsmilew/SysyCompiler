@@ -426,13 +426,13 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             else
             {
                 // 普通指针参数，传递指针的值
-                argReg = getOrCreateVirtualReg(arg);
+                argReg = getArgumentRegister(arg, savedRegisters);
             }
         }
         else
         {
             // 普通值类型参数
-            argReg = getOrCreateVirtualReg(arg);
+            argReg = getArgumentRegister(arg, savedRegisters);
         }
 
         if (arg->getType()->isFloatTy())
@@ -1946,6 +1946,47 @@ void InstructionSelector::restoreCallerSavedRegisters(const vector<shared_ptr<RI
             }
         }
     }
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getArgumentRegister(Value *arg, const vector<shared_ptr<RISCVRegister>> &savedRegisters)
+{
+    // 检查这个参数是否是当前函数的参数，并且已经被保存
+    string argName = arg->getName();
+
+    // 检查是否在registerMap中有映射到参数寄存器
+    auto regIt = registerMap.find(argName);
+    if (regIt != registerMap.end())
+    {
+        auto mappedReg = regIt->second;
+
+        // 检查这个寄存器是否是参数寄存器(a0-a7)
+        if (mappedReg->getType() == RegisterType::GENERAL &&
+            mappedReg->getPhysicalReg() >= RISCVRegister::PhysicalReg::A0 &&
+            mappedReg->getPhysicalReg() <= RISCVRegister::PhysicalReg::A7)
+        {
+            // 这是一个参数寄存器，检查是否已经被保存
+            int argIndex = static_cast<int>(mappedReg->getPhysicalReg()) - static_cast<int>(RISCVRegister::PhysicalReg::A0);
+
+            // savedRegisters按对保存：[原始寄存器, 保存寄存器, 原始寄存器, 保存寄存器, ...]
+            for (size_t i = 0; i < savedRegisters.size(); i += 2)
+            {
+                if (i + 1 < savedRegisters.size())
+                {
+                    auto originalReg = savedRegisters[i];
+                    auto savedReg = savedRegisters[i + 1];
+
+                    if (originalReg->getPhysicalReg() == mappedReg->getPhysicalReg())
+                    {
+                        // 找到了保存的寄存器，返回保存寄存器
+                        return savedReg;
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果不是保存的参数寄存器，使用普通的获取方法
+    return getOrCreateVirtualReg(arg);
 }
 
 // ======================== 数组管理方法实现 ========================

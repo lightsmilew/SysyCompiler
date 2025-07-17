@@ -155,6 +155,9 @@ namespace RISCV
         // 现场保护和恢复方法
         void saveCallerSavedRegisters(vector<shared_ptr<RISCVRegister>> &savedRegisters);
         void restoreCallerSavedRegisters(const vector<shared_ptr<RISCVRegister>> &savedRegisters);
+
+        // 参数寄存器获取方法（处理保存的参数）
+        shared_ptr<RISCVRegister> getArgumentRegister(Value *arg, const vector<shared_ptr<RISCVRegister>> &savedRegisters);
     };
 
     // // 寄存器分配器
