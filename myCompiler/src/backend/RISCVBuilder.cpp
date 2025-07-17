@@ -1507,8 +1507,9 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
     }
     else if (auto constArray = dynamic_cast<ConstantArray *>(initializer))
     {
-        // 数组常量：收集所有元素，然后作为数组添加
+        // 数组常量：递归处理所有元素
         vector<string> arrayElements;
+
         for (Constant *element : constArray->Elements)
         {
             if (element)
@@ -1523,9 +1524,20 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
                     std::memcpy(&bits, &elemFloat->Value, sizeof(float));
                     arrayElements.push_back(std::to_string(bits));
                 }
+                else if (auto elemArray = dynamic_cast<ConstantArray *>(element))
+                {
+                    // 递归处理嵌套数组
+                    // 创建临时块来收集嵌套数组的数据
+                    auto tempBlock = make_shared<RISCVGlobalBlock>("temp");
+                    processGlobalInitializer(tempBlock, elemArray);
+
+                    // 将临时块的数据添加到当前数组
+                    auto tempData = tempBlock->getData();
+                    arrayElements.insert(arrayElements.end(), tempData.begin(), tempData.end());
+                }
                 else
                 {
-                    // 未定义的元素用零初始化
+                    // 其他未知类型用零初始化
                     arrayElements.push_back("0");
                 }
             }
