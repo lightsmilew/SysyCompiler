@@ -4,3 +4,5 @@ myCompiler/.antlr/
 test_cases/**/*
 case/**/*
 test.sh
+ubuntu-24.04.2-preinstalled-server-riscv64.img
+ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
