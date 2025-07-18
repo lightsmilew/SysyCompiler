@@ -410,10 +410,10 @@ namespace RISCV
     // StackFrame 实现
     int StackFrame::getTotalSize() const
     {
-        return valueStackSize + raStackSize + argStackSize;
+        return valueStackSize + raStackSize + argStackSize + saveArgs;
     }
 
-    int StackFrame::allocateSpace(const string &valueName, int size)
+    int StackFrame::allocateValueSpace(const string &valueName, int size)
     {
         if (valueToOffset.find(valueName) != valueToOffset.end())
         {
@@ -421,9 +421,9 @@ namespace RISCV
             return valueToOffset[valueName];
         }
 
-        int offset = currentOffset;
+        int offset = valueOffset;
         valueToOffset[valueName] = offset;
-        currentOffset += size;
+        valueOffset += size;
 
         // 更新相应的大小统计
         valueStackSize += size;
@@ -431,19 +431,67 @@ namespace RISCV
         return offset;
     }
 
-    int StackFrame::getOffset(const string &valueName) const
+    int StackFrame::allocateCallerArgSpace(int ArgNumber, int size)
+    {
+        int offset = callerArgOffset;
+        callerToOffset[ArgNumber] = offset;
+        callerArgOffset += size;
+
+        saveArgs += size;
+
+        return offset;
+    }
+
+    int StackFrame::allocateCalleeArgSpace(int ArgNumber, int size)
+    {
+        int offset = calleeArgOffset;
+        calleeToOffset[ArgNumber] = offset;
+        calleeArgOffset += size;
+    }
+    int StackFrame::getValueOffset(const string &valueName) const
     {
         auto it = valueToOffset.find(valueName);
         if (it != valueToOffset.end())
+        {
+            return it->second + argStackSize;
+        }
+        throw std::runtime_error("Value not found in stack frame");
+    }
+
+    int StackFrame::getCallerArgOffset(int ArgNumber) const
+    {
+        auto it = callerToOffset.find(ArgNumber);
+        if (it != callerToOffset.end())
+        {
+            return it->second + valueStackSize + argStackSize;
+        }
+
+        // 如果没有就返回-1
+        return -1;
+    }
+    int StackFrame::getCalleeArgOffset(int ArgNumber) const
+    {
+        auto it = calleeToOffset.find(ArgNumber);
+        if (it != calleeToOffset.end())
         {
             return it->second;
         }
         throw std::runtime_error("Value not found in stack frame");
     }
 
-    bool StackFrame::hasAllocation(const string &valueName) const
+    bool StackFrame::hasAllocation_value(const string &valueName) const
     {
         return valueToOffset.find(valueName) != valueToOffset.end();
+    }
+
+    bool StackFrame::hasAllocation_calleeArg(int ArgNumber) const
+    {
+        return calleeToOffset.find(ArgNumber) != calleeToOffset.end();
+    }
+
+    bool StackFrame::hasAllocation_callerArg(int ArgNumber) const
+    {
+        return callerToOffset.find(ArgNumber) != callerToOffset.end();
     }
 
     int StackFrame::getAlignedSize() const

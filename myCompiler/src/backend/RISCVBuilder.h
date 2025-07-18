@@ -34,10 +34,12 @@ namespace RISCV
     class InstructionSelector
     {
     private:
+        Function* irFunction; // 保存IR函数引用
         shared_ptr<RISCVFunction> currentFunc;
         shared_ptr<RISCVBasicBlock> currentBB;
         unordered_map<string, shared_ptr<RISCVRegister>> registerMap; // IR值名字到寄存器的映射
         unordered_map<string, int> stackArguments;                    // 栈参数名字到偏移量的映射
+        bool hasCallInst = false;                                     // 标记是否有函数调用指令
 
         // 寄存器状态管理
         struct RegisterState
@@ -122,12 +124,12 @@ namespace RISCV
 
         // 辅助方法
         shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);
-        void mapArguments(shared_ptr<RISCVFunction> func, Function *irFunc);
+        void mapArguments();
 
         // 栈帧管理相关方法
-        void prescanFunction(shared_ptr<RISCVFunction> func, Function *irFunc);
-        void generateFunctionPrologue(shared_ptr<RISCVFunction> func);
-        void generateFunctionEpilogue(shared_ptr<RISCVFunction> func);
+        void prescanFunction();
+        void generateFunctionPrologue();
+        void generateFunctionEpilogue();
 
         // 栈偏移计算辅助方法
         void storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size = 4);
@@ -153,10 +155,8 @@ namespace RISCV
         shared_ptr<RISCVRegister> getFloatTempRegister(int index = 0);
 
         // 现场保护和恢复方法
-        void saveCallerSavedRegisters(vector<shared_ptr<RISCVRegister>> &savedRegisters);
-        void restoreCallerSavedRegisters(const vector<shared_ptr<RISCVRegister>> &savedRegisters);
-
-        // 参数寄存器获取方法（处理保存的参数）
+        void saveCallerArgs();
+        void restoreCallerSavedRegisters();
         shared_ptr<RISCVRegister> getArgumentRegister(Value *arg, const vector<shared_ptr<RISCVRegister>> &savedRegisters);
     };
 

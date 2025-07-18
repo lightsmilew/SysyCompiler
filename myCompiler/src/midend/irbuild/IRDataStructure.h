@@ -750,6 +750,9 @@ public:
 
     Argument *addArgument(Type *type, const string &name = ""); // 添加参数
     const vector<unique_ptr<Argument>> &getArguments() const;   // 获取函数参数
+    const vector<Argument *> getIntArguments() const;           // 获取int类型参数
+    const vector<Argument *> getFloatArguments() const;         // 获取float类型参数
+    const vector<Argument *> getPtrArguments() const;           // 获取指针类型参数
     FunctionType *getFunctionType();                            // 获取函数类型
     unsigned getInstructionCount() const;                       // 获取指令数量
     bool isLibraryFunction() const;                             // 是否为库函数

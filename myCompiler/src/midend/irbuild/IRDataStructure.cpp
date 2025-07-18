@@ -927,18 +927,20 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     operands.push_back(ptr);
     operands.insert(operands.end(), indices.begin(), indices.end());
     int dimensions = 0;
-    if(auto ptrType = dynamic_cast<PointerType *>(ptr->getType()))
+    if (auto ptrType = dynamic_cast<PointerType *>(ptr->getType()))
     {
-        auto elementType = dynamic_cast<ArrayType*>(ptrType->ElementType);
+        auto elementType = dynamic_cast<ArrayType *>(ptrType->ElementType);
         // 一层指针返回 1维
-        if(!elementType)dimensions=1;
+        if (!elementType)
+            dimensions = 1;
         // 数组类型的指针，+1是因为第一个索引是指针本身
-        else dimensions=elementType->getArrayIndices().size()+1; 
+        else
+            dimensions = elementType->getArrayIndices().size() + 1;
     }
     // 如果索引小于维度数，补齐为0
-    for(int i= indices.size(); i < dimensions; ++i)
+    for (int i = indices.size(); i < dimensions; ++i)
     {
-        operands.push_back(new ConstantInt(IntegerType::getInstance(),0)); // 补齐为0
+        operands.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 补齐为0
     }
     return operands;
 }
@@ -1167,6 +1169,42 @@ Argument *Function::addArgument(Type *type, const string &name)
 const vector<unique_ptr<Argument>> &Function::getArguments() const
 {
     return Arguments;
+}
+const vector<Argument *> Function::getIntArguments() const
+{
+    vector<Argument *> intArgs;
+    for (const auto &arg : Arguments)
+    {
+        if (arg->getType()->isIntegerTy())
+        {
+            intArgs.push_back(arg.get());
+        }
+    }
+    return intArgs;
+}
+const vector<Argument *> Function::getFloatArguments() const
+{
+    vector<Argument *> floatArgs;
+    for (const auto &arg : Arguments)
+    {
+        if (arg->getType()->isFloatTy())
+        {
+            floatArgs.push_back(arg.get());
+        }
+    }
+    return floatArgs;
+}
+const vector<Argument *> Function::getPtrArguments() const
+{
+    vector<Argument *> ptrArgs;
+    for (const auto &arg : Arguments)
+    {
+        if (arg->getType()->isPointerTy())
+        {
+            ptrArgs.push_back(arg.get());
+        }
+    }
+    return ptrArgs;
 }
 BasicBlock *Function::getEntryBlock()
 {

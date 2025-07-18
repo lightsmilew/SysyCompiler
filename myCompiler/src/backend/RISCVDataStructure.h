@@ -341,33 +341,55 @@ namespace RISCV
         string toString() const;
     };
 
+    // 栈帧结构体
+    // 高地址 (函数入口时的 sp)
+    // +------------------+ <- sp (函数入口)
+    // | raStackSize      | ← 保存返回地址 ra 寄存器
+    // +------------------+
+    // | saveArgs 区域    | ← 保存caller参数寄存器(a0-a7, fa0-fa7)
+    // +------------------+
+    // | valueStackSize   | ← 局部变量、临时值、alloca等
+    // +------------------+
+    // | argStackSize     | ← 为调用其他函数预留的参数空间
+    // +------------------+ <- sp (函数执行中)
+    // 低地址
+
     struct StackFrame
     {
         int valueStackSize; // 所有Value（局部变量、临时值、参数等）的栈空间
         int raStackSize;    // ra寄存器需要的栈空间（ABI规范）
         int argStackSize;   // 传参预留的栈空间（ABI规范）
+        int saveArgs;       // 保存调用参数的寄存器空间
 
-        // Value名字到栈帧偏移的映射（相对于函数入口时的sp）
         unordered_map<string, int> valueToOffset;
+        unordered_map<int, int> callerToOffset;
+        unordered_map<int, int> calleeToOffset;
 
         // 已分配的栈空间偏移（从0开始分配）
-        int currentOffset;
+        int valueOffset;
+        int calleeArgOffset;
+        int callerArgOffset;
 
-        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), currentOffset(0) {}
+        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), saveArgs(0), valueOffset(0), calleeArgOffset(0), callerArgOffset(0) {}
 
         int getTotalSize() const;
+        int getAlignedSize() const;
 
-        // 为Value分配栈空间并返回偏移量
-        int allocateSpace(const string &valueName, int size = 4);
+        // 分配栈空间并返回偏移量
+        int allocateValueSpace(const string &valueName, int size = 4);
+        int allocateCallerArgSpace(int ArgNumber, int size = 4); // 为调用参数分配空间
+        int allocateCalleeArgSpace(int ArgNumber, int size = 4); // 为被调用函数参数分配空间
 
-        // 获取Value的栈偏移量
-        int getOffset(const string &valueName) const;
+        // 获取栈偏移量
+        int getValueOffset(const string &valueName) const;
+        int getCallerArgOffset(int ArgNumber) const;              // 获取调用参数偏移
+        int getCalleeArgOffset(int ArgNumber) const;              // 获取被调用函数参数
+        int getRaOffset() const { return getAlignedSize() - 4; }; // 获取返回地址偏移
 
         // 检查是否有分配的栈空间
-        bool hasAllocation(const string &valueName) const;
-
-        // 计算16字节对齐后的总大小
-        int getAlignedSize() const;
+        bool hasAllocation_value(const string &valueName) const;
+        bool hasAllocation_callerArg(int ArgNumber) const; // 检查调用参数是否有分配
+        bool hasAllocation_calleeArg(int ArgNumber) const; // 检查被调用
     };
 
     // RISC-V基本块
@@ -440,10 +462,6 @@ namespace RISCV
         vector<shared_ptr<RISCVBasicBlock>> basicBlocks;
         StackFrame stackFrame;
 
-        // 函数调用约定相关
-        vector<shared_ptr<RISCVRegister>> argRegs;
-        shared_ptr<RISCVRegister> returnReg;
-
     public:
         RISCVFunction(const string &name, shared_ptr<RISCVModule> module);
 
@@ -455,12 +473,6 @@ namespace RISCV
         const string &getName() const { return name; }
         const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() const { return basicBlocks; }
         StackFrame &getStackFrame() { return stackFrame; }
-
-        // 寄存器管理
-        const vector<shared_ptr<RISCVRegister>> &getArgRegs() const { return argRegs; }
-        void setArgRegs(const vector<shared_ptr<RISCVRegister>> &regs) { argRegs = regs; }
-        shared_ptr<RISCVRegister> getReturnReg() const { return returnReg; }
-        void setReturnReg(shared_ptr<RISCVRegister> reg) { returnReg = reg; }
 
         string toString() const;
     };
