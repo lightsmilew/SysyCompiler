@@ -818,6 +818,7 @@ unsigned PhiInst::getIndexByBasicBlock(BasicBlock *block) const
 void PhiInst::addIncoming(Value *value, BasicBlock *block)
 {
     IncomingValues.emplace_back(block);
+    block->addUser(this); // 添加到BasicBlock的用户列表中
     // 添加到操作数列表中
     addOperand(value);
 }
@@ -854,6 +855,18 @@ BasicBlock *PhiInst::getIncomingBlock(unsigned index) const
         return IncomingValues[index];
     }
     throw std::out_of_range("Invalid incoming block index");
+}
+void PhiInst::setIncomingBlock(unsigned index, BasicBlock *block)
+{
+    if (index < IncomingValues.size())
+    {
+        IncomingValues[index] = block;
+        block->addUser(this); // 添加到BasicBlock的用户列表中
+    }
+    else
+    {
+        throw std::out_of_range("Invalid incoming block index");
+    }
 }
 std::string PhiInst::toString() const
 {

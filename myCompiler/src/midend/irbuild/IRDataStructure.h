@@ -642,6 +642,7 @@ public:
     unsigned getNumIncomingValues() const;                         // 获取前驱基本块和对应的值长度
     Value *getIncomingValue(unsigned index) const;                 // 获取前驱value
     BasicBlock *getIncomingBlock(unsigned index) const;            // 获取前驱基本块
+    void setIncomingBlock(unsigned index, BasicBlock *block);      // 设置前驱基本块
     Value *getDest() const { return const_cast<PhiInst *>(this); } // 获取目的操作数(本身)
     string toString() const override;
 };

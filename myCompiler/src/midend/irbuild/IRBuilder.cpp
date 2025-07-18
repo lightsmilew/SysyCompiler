@@ -184,24 +184,24 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     varToValue = varToValueStack.top();
     varToValueStack.pop();
     // 只在 isRestore 为真时写回外层变量
-    if(debugMode)
-    {
-        std::cout<<"Block Debug Info, line: " << node->line << std::endl;
-        for(auto it:innerVarToValue)
-        {
-            std::cout << "Block variable: " << it.first << ", Value: " << it.second->toRef() <<",is NewDeclaredVar:"+std::to_string(isBlockNewDeclaredVar(it.first))+", line:" << node->line << std::endl;
-        }
-    }
+    // if(debugMode)
+    // {
+    //     std::cout<<"Block Debug Info, line: " << node->line << std::endl;
+    //     for(auto it:innerVarToValue)
+    //     {
+    //         std::cout << "Block variable: " << it.first << ", Value: " << it.second->toRef() <<",is NewDeclaredVar:"+std::to_string(isBlockNewDeclaredVar(it.first))+", line:" << node->line << std::endl;
+    //     }
+    // }
     if (isRestore) {
         for (const auto& name : outerVars) 
         {
             if (innerVarToValue.count(name) && !isBlockNewDeclaredVar(name)) 
             {
                 varToValue[name] = innerVarToValue[name];
-                if(debugMode)
-                {
-                    std::cout << "Restoring variable: " << name << " to outer scope with :" << innerVarToValue[name]->toRef() << ", line:" << node->line << std::endl;
-                }
+                // if(debugMode)
+                // {
+                //     std::cout << "Restoring variable: " << name << " to outer scope with :" << innerVarToValue[name]->toRef() << ", line:" << node->line << std::endl;
+                // }
             }
         }
         // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
@@ -953,19 +953,19 @@ void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *tar
     size_t depth=getInitExprMaxDepth(node);
     // 展平所有叶子节点，用于底层赋值
     flattenInitList(node, flat_inits, arrayindices,arrayindices.size()-depth);
-    if(debugMode)
-    {
-        std::cout<<"begin at dimension: "<<arrayindices.size()-depth<<",line: "<<node->line<<std::endl;
-        std::cout<< "Flattened init list size: " << flat_inits.size() <<",line : "+std::to_string(node->line)<< std::endl;
-        for(size_t i = 0; i < flat_inits.size(); ++i) {
-            if (flat_inits[i]) {
-                std::cout << " ptr ";
-            } else {
-                std::cout << " nullptr" ;
-            }
-        }
-        std::cout<<std::endl;
-    }
+    // if(debugMode)
+    // {
+    //     std::cout<<"begin at dimension: "<<arrayindices.size()-depth<<",line: "<<node->line<<std::endl;
+    //     std::cout<< "Flattened init list size: " << flat_inits.size() <<",line : "+std::to_string(node->line)<< std::endl;
+    //     for(size_t i = 0; i < flat_inits.size(); ++i) {
+    //         if (flat_inits[i]) {
+    //             std::cout << " ptr ";
+    //         } else {
+    //             std::cout << " nullptr" ;
+    //         }
+    //     }
+    //     std::cout<<std::endl;
+    // }
     // 计算数组总元素个数（支持多维）
     auto arrayType = dynamic_cast<ArrayType *>(targetType);
     size_t totalElements=arrayType?arrayType->getArrayLength() : 1;
