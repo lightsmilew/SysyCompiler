@@ -5,7 +5,9 @@
 #include "generate/SysYParser.h"
 #include "generate/SysYLexer.h"
 #include "ASTNode.h"
-#include "common/Common.h"
+#include "../common/Common.h"
+
+//
 class ASTNodeVisitor : public SysYBaseVisitor
 {
 public:
