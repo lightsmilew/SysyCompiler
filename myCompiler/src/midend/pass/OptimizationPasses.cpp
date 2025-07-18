@@ -66,6 +66,9 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                 for (auto *succ : bb->getSuccessors()) {
                     succ->removePredecessor(bb);
                 }
+                // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
+                needToDelete.push_back(it->release());
+                // 从基本块列表中删除
                 it = bbs.erase(it);
             } else {
                 ++it;
@@ -277,7 +280,8 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 }
 bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
 {
-    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load;
+    // copy指令不能外提，因为是由合流产生
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load&&inst->getOpcode()!=Opcode::Copy;
 }
 
 // 辅助：DFS遍历，记录访问顺序和父节点

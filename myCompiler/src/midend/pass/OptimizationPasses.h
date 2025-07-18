@@ -14,7 +14,7 @@ namespace optimization
 class Pass
 {
 public:
-    vector<Instruction*> needToDelete; // 存储需要删除的值
+    vector<Value*> needToDelete; // 存储需要删除的值
     bool verbose;
     Pass(bool verbose = false) : verbose(verbose) {}
     virtual ~Pass() = default;
