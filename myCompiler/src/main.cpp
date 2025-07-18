@@ -91,26 +91,43 @@ int main(int argc, const char *argv[])
         else
             throw std::invalid_argument("Unknown optimization level: " + string(argv[4]));
     }
-    // 只有三个参数且第三个参数为-riscv则默认开启O0优化，或者开启优化时启动
-    if((argc==3&&strcmp(argv[2],"-riscv")==0)||isOptimizationEnabled)
-    {
+    // // 只有三个参数且第三个参数为-riscv则默认开启O0优化，或者开启优化时启动
+    // if((argc==3&&strcmp(argv[2],"-riscv")==0)||isOptimizationEnabled)
+    // {
+    //     pass_manager = optimization::createOptimizationPipeline(opt_level, false);
+    //     pass_manager->runOnModule(ir_module.get());
+    // }
+    // // 输出结果
+    // if (argc > 2 && strcmp(argv[2], "-ir") == 0)
+    // {
+    //     // 输出IR中间代码
+    //     cout << ir_module->toString() << endl;
+    //     if (debugMode)
+    //     {
+    //         cout << "Debugging IR Module:" << endl;
+    //         ir_module->printBasicBlockInfo();
+    //         irbuilder.printValueTableInEveryBlock();
+    //     }
+    // }
+    // else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
+    // {
+    //     // 输出RISC-V代码
+    //     RISCV::RISCVBuilder riscv_builder;
+
+    //     // 正确的转移方式：将unique_ptr转换为shared_ptr
+    //     std::shared_ptr<Module> shared_module(ir_module.release());
+    //     auto riscv_module = riscv_builder.generateRISCVCode(shared_module);
+
+    //     string assembly_code = riscv_builder.generateAssembly(riscv_module);
+    //     cout << assembly_code << endl;
+    // }
+    // else if (argc > 2 && strcmp(argv[2], "-ast") == 0)
+    // {
+    //     // 输出AST
+    //     ast_root->print(cout, 0);
+    // }
         pass_manager = optimization::createOptimizationPipeline(opt_level, false);
         pass_manager->runOnModule(ir_module.get());
-    }
-    // 输出结果
-    if (argc > 2 && strcmp(argv[2], "-ir") == 0)
-    {
-        // 输出IR中间代码
-        cout << ir_module->toString() << endl;
-        if (debugMode)
-        {
-            cout << "Debugging IR Module:" << endl;
-            ir_module->printBasicBlockInfo();
-            irbuilder.printValueTableInEveryBlock();
-        }
-    }
-    else if (argc > 2 && strcmp(argv[2], "-riscv") == 0)
-    {
         // 输出RISC-V代码
         RISCV::RISCVBuilder riscv_builder;
 
@@ -120,12 +137,5 @@ int main(int argc, const char *argv[])
 
         string assembly_code = riscv_builder.generateAssembly(riscv_module);
         cout << assembly_code << endl;
-    }
-    else if (argc > 2 && strcmp(argv[2], "-ast") == 0)
-    {
-        // 输出AST
-        ast_root->print(cout, 0);
-    }
-
     return 0;
 }

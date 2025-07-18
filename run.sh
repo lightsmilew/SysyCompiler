@@ -6,7 +6,7 @@
 #INPUT_DIR="test_cases/official_cases"
 #OUTPUT_DIR="test_cases/official_output"
 INPUT_DIR="case/functional"
-OUTPUT_DIR="case/functional/output"
+OUTPUT_DIR="case/functional"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -52,6 +52,13 @@ elif [ "$1" == "-riscv" ]; then
             ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.s"
         fi
     done
+elif [ "$1" == "-test" ]; then
+    for file in $INPUT_DIR/*.sy; do
+        filename=$(basename "$file")
+        echo "Processing $filename..."
+        ./myCompiler/build/my_compiler "$file"  > "$OUTPUT_DIR/${filename%.sy}.s"
+
+    done
 elif [ "$1" == "-gdb" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
@@ -88,7 +95,7 @@ elif [ "$1" == "-diff" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file" .sy)
         file1="$OUTPUT_DIR/${filename}.ir.optO"
-        file2="$OUTPUT_DIR/${filename}.ir.optO111"
+        file2="$OUTPUT_DIR/${filename}.ir.optO11"
         if [ -f "$file1" ] && [ -f "$file2" ]; then
             line1=$(wc -l < "$file1")
             line2=$(wc -l < "$file2")
