@@ -21,60 +21,27 @@ elif [ "$1" == "-build" ]; then
     make
     cd ../..
 elif [ "$1" == "-ir" ]; then
+    # 支持 -O0/-O1/-O2... 作为第二参数
+    opt_level="O0"
+    if [[ "$2" =~ ^-O[0-9]+$ ]]; then
+        opt_level="${2#-}"
+    fi
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
-        echo "Processing $filename..."
-        # 判断是否带有 -opt 参数
-        if [ "$2" == "-opt" ] && [ -n "$3" ]; then
-            # 支持带调试参数
-            if [ "$4" == "-debug" ]; then
-                ./myCompiler/build/my_compiler "$file" -ir -opt "$3" -debug > "$OUTPUT_DIR/${filename%.sy}.ir.opt$3"
-            else
-                ./myCompiler/build/my_compiler "$file" -ir -opt "$3" > "$OUTPUT_DIR/${filename%.sy}.ir.opt$3"
-            fi
-        else
-            # 支持带调试参数
-            if [ "$2" == "-debug" ]; then
-                ./myCompiler/build/my_compiler "$file" -ir -X -X -debug > "$OUTPUT_DIR/${filename%.sy}.ir"
-            else
-                ./myCompiler/build/my_compiler "$file" -ir > "$OUTPUT_DIR/${filename%.sy}.ir"
-            fi
-        fi
+        echo "Processing $filename (IR debug mode, $opt_level)..."
+        ./myCompiler/build/my_compiler -debug "$file" -${opt_level}
+        mv "${file}.ir" "$OUTPUT_DIR/${filename%.sy}.ir"
+        mv "${file}.ir.opt.${opt_level}" "$OUTPUT_DIR/${filename%.sy}.ir.opt.${opt_level}"
     done
 elif [ "$1" == "-riscv" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
-        echo "Processing $filename..."
+        echo "Processing $filename (RISC-V mode)..."
         # 判断是否带有 -opt 参数
         if [ "$2" == "-opt" ] && [ -n "$3" ]; then
-            ./myCompiler/build/my_compiler "$file" -riscv -opt "$3" > "$OUTPUT_DIR/${filename%.sy}.s"
+            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-O$3"
         else
-            ./myCompiler/build/my_compiler "$file" -riscv > "$OUTPUT_DIR/${filename%.sy}.s"
-        fi
-    done
-elif [ "$1" == "-test" ]; then
-    for file in $INPUT_DIR/*.sy; do
-        filename=$(basename "$file")
-        echo "Processing $filename..."
-        ./myCompiler/build/my_compiler "$file"  > "$OUTPUT_DIR/${filename%.sy}.s"
-
-    done
-elif [ "$1" == "-gdb" ]; then
-    for file in $INPUT_DIR/*.sy; do
-        filename=$(basename "$file")
-        echo -e "\n\033[1;34m==========================================\033[0m"
-        echo -e "\033[1;34m🔍 Processing: $filename\033[0m"
-        echo -e "\033[1;34m==========================================\033[0m"
-        # 先尝试正常运行，成功时丢弃输出，失败时显示错误
-        if ! ./myCompiler/build/my_compiler "$file" -riscv > /dev/null; then
-            echo -e "\n\033[1;31m❌ ERROR OCCURRED WITH: $filename\033[0m"
-            echo -e "\033[1;31m==========================================\033[0m"
-            ./myCompiler/build/my_compiler "$file" -riscv
-            echo -e "\033[1;31m==========================================\033[0m"
-            echo -e "\033[1;33m🔧 Running with GDB for debugging...\033[0m"
-            gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler "$file" -riscv
-        else
-            echo -e "\033[1;32m✅ Successfully processed: $filename\033[0m"
+            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
         fi
     done
 elif [ "$1" == "-transfer" ]; then
