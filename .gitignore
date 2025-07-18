@@ -1,5 +1,5 @@
 myCompiler/build/
-myCompiler/.antlr/
+myCompiler/3rd_party/
 .vscode/
 test_cases/**/*
 case/**/*

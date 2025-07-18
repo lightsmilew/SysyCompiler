@@ -1,7 +1,8 @@
 #include "IRBuilder.h"
 #include <stdexcept>
 #include <sstream>
-
+#include <functional>
+#include <utility>
 using namespace ir_builder;
 using namespace ast;
 
