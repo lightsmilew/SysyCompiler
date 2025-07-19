@@ -1,7 +1,7 @@
 myCompiler/build/
 myCompiler/3rd_party/
 .vscode/
-test_cases/**/*
+debug_case/*
 case/**/*
 ubuntu-24.04.2-preinstalled-server-riscv64.img
 ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
