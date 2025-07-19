@@ -23,6 +23,7 @@ int main(int argc, const char *argv[])
     // 1. compiler -S -o testcase.s testcase.sy [-O1]
     // 2. compiler -debug testcase.sy
     bool debugMode = false;
+    bool infoMode = false;
     bool optMode = false;
     string input_file, output_file;
     optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
@@ -34,11 +35,16 @@ int main(int argc, const char *argv[])
         debugMode = true;
         if (argc < 4)
         {
-            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...] [-info]" << endl;
             return 1;
         }
         input_file = argv[2];
         output_file = argv[3];
+        if (argc > 4 && strcmp(argv[4], "-info") == 0)
+        {
+            infoMode = true;
+        }
         if (argc > 4)
         {
             if (strcmp(argv[4], "-O0") == 0)
@@ -65,6 +71,10 @@ int main(int argc, const char *argv[])
             {
                 cerr << "Unknown optimization level: " << argv[4] << endl;
                 return 1;
+            }
+            if (argc > 5 && strcmp(argv[5], "-info") == 0)
+            {
+                infoMode = true;
             }
             optMode = true;
         }
@@ -204,8 +214,12 @@ int main(int argc, const char *argv[])
             return 1;
         }
         fout_before << ir_module->toString() << endl;
-        fout_before << ir_module->getBasicBlockInfo() << endl;
-        fout_before << irbuilder.getValueTableInEveryBlock() << endl;
+        if (infoMode)
+        {
+            fout_before << ir_module->getBasicBlockInfo() << endl;
+            fout_before << irbuilder.getValueTableInEveryBlock() << endl;
+        }
+
         fout_before.close();
 
         if (optMode)
@@ -221,8 +235,11 @@ int main(int argc, const char *argv[])
                 return 1;
             }
             fout_after << ir_module->toString() << endl;
-            fout_after << ir_module->getBasicBlockInfo() << endl;
-            fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+            if (infoMode)
+            {
+                fout_after << ir_module->getBasicBlockInfo() << endl;
+                fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+            }
             fout_after.close();
         }
 

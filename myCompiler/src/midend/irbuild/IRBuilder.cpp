@@ -281,6 +281,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         {
             if (varType->isArrayTy())
             {
+                // evaluateConstantArray可能返回null，此时代表是{}初始化
                 initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType *>(varType));
             }
             else
@@ -307,11 +308,11 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             varToValue[node->identifier] = alloca;
             if (node->initializer && !node->type.isConst())
             {
-                visitInitExpr(node->initializer, varType, alloca);
+                visitArrayInitExpr(node->initializer, varType, alloca);
             }
             else if (node->initializer && node->type.isConst())
             {
-                visitInitExpr(node->initializer, varType, alloca);
+                visitArrayInitExpr(node->initializer, varType, alloca);
                 Constant *initializer = evaluateConstantArray(node->initializer, static_cast<ArrayType *>(varType));
                 constVarToValue[node->identifier] = initializer;
             }
@@ -322,7 +323,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             Value *initValue = nullptr;
             if (node->initializer && !node->type.isConst())
             {
-                initValue = visitInitExpr(node->initializer, varType);
+                initValue = visitScalarInitExpr(node->initializer, varType);
             }
             else if (node->initializer && node->type.isConst())
             {
@@ -505,15 +506,15 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
         {
             retValue = createCast(retValue, expectedType, "return");
         }
-        //不需要插入putint，测评机使用echo $?拿到返回值
-        // // 如果是main函数要插入一条putint指令
-        // if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
-        // {
-        //     // 生成 putint 调用
-        //     Function *putintFunc = module->getFunction("putint");
-        //     Vector<Value *> args = {retValue};
-        //     createCall(putintFunc, args);
-        // }
+        // 不需要插入putint，测评机使用echo $?拿到返回值
+        //  // 如果是main函数要插入一条putint指令
+        //  if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
+        //  {
+        //      // 生成 putint 调用
+        //      Function *putintFunc = module->getFunction("putint");
+        //      Vector<Value *> args = {retValue};
+        //      createCall(putintFunc, args);
+        //  }
         createReturn(retValue);
     }
     else
@@ -911,45 +912,21 @@ Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprN
     return new ConstantString(StringType::getInstance(), node->value);
 }
 
-Value *IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
+// 这个函数用来处理标量初始值
+Value *IRBuilder::visitScalarInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
 {
     if (node->singleInitVal)
     {
         return visitExpression(node->singleInitVal);
     }
-    // 处理数组初始化
-    else if (auto arrayType = dynamic_cast<ArrayType *>(targetType))
-    {
-        // 分配一块数组空间
-        Value *arrayAlloca = createAlloca(targetType);
-
-        // 遍历每个元素，递归初始化
-        for (size_t i = 0; i < node->multiInitVal.size(); ++i)
-        {
-            // 计算当前元素的 GEP
-            Vector<Value *> indices;
-            indices.push_back(new ConstantInt(IntegerType::getInstance(), i));
-
-            // 递归初始化子元素
-            Value *elemValue = visitInitExpr(node->multiInitVal[i], arrayType->ElementType);
-
-            // 生成 GEP 指令
-            auto elemPtr = createGetElementPtr(arrayAlloca, indices);
-
-            // 存储元素值
-            createStore(elemValue, elemPtr);
-        }
-
-        return arrayAlloca;
-    }
     else
     {
-        throw std::runtime_error("Array initialization: targetType is not array,line: " + std::to_string(node->line));
+        throw std::runtime_error("InitExprNode must have a singleInitVal for scalar initialization,line: " + std::to_string(node->line));
     }
 }
 // 新增重载 处理数组初始化表达式
 // 支持平铺和嵌套初始化的递归数组初始化
-void IRBuilder::visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr)
+void IRBuilder::visitArrayInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType, Value *targetPtr)
 {
     Vector<int> indices;
     size_t flat_idx = 0;
@@ -1087,14 +1064,6 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
     else
     {
         // 到达最底层元素
-        Vector<Value *> gep_indices;
-        for (int idx : indices)
-        {
-            gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
-        }
-
-        auto elemPtr = createGetElementPtr(targetPtr, gep_indices);
-
         Value *val;
         if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal)
         {
@@ -1102,15 +1071,48 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
         }
         else
         {
-            val = new ConstantInt(IntegerType::getInstance(), 0);
+            // 判断元素类型
+            if (targetType->isFloatTy())
+            {
+                val = new ConstantFloat(FloatType::getInstance(), 0.0f);
+            }
+            else
+            {
+                val = new ConstantInt(IntegerType::getInstance(), 0);
+            }
+        }
+        // 计算 GEP 索引
+        Vector<Value *> gep_indices;
+        for (int idx : indices)
+        {
+            gep_indices.push_back(new ConstantInt(IntegerType::getInstance(), idx));
+        }
+        bool isZero = false;
+        if (auto constantInt = dynamic_cast<ConstantInt *>(val))
+        {
+            isZero = constantInt->Value == 0;
+        }
+        else if (auto constantFloat = dynamic_cast<ConstantFloat *>(val))
+        {
+            isZero = constantFloat->Value == 0.0f;
+        }
+        if (!isZero)
+        {
+            auto elemPtr = createGetElementPtr(targetPtr, gep_indices);
+            createStore(val, elemPtr);
         }
         ++flat_idx;
-        createStore(val, elemPtr);
     }
 }
 // 用于数组初始化 递归返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType)
 {
+    if(node->multiInitVal.empty())
+    {
+        // 如果没有初始化值，返回 nullptr
+        // 这时为{}初始化，代表没有初值
+        return nullptr; 
+    }
     // 1. 展平所有叶子节点
     std::vector<size_t> dims = arrayType->getArrayIndices();
     Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
@@ -1272,6 +1274,9 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         auto it = constVarToValue.find(lval->identifier);
         if (it == constVarToValue.end())
             return nullptr; // 如果没有找到常量变量，返回 nullptr
+        // 如果是空指针，代表是{}初始化
+        if(!it->second)
+            return new ConstantInt(IntegerType::getInstance(), 0); 
         if (auto constInt = dynamic_cast<ConstantInt *>(it->second))
         {
             return constInt;
@@ -1999,6 +2004,11 @@ int IRBuilder::getArrayDims(string varName)
 }
 Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant, const Vector<int> &indices) const
 {
+    //常量为空则代表const数组初始化表达式为{}
+    if(!constant)
+    {
+        return new ConstantInt(IntegerType::getInstance(), 0); // 如果常量为空，返回一个默认的零值
+    }
     if (indices.empty())
         return constant; // 如果没有索引，直接返回常量
     auto constArray = dynamic_cast<ConstantArray *>(constant);
@@ -2062,30 +2072,4 @@ string IRBuilder::getValueTableInEveryBlock()
         }
     }
     return ss.str();
-}
-void IRBuilder::printBasicBlockInfo()
-{
-    int j = 0;
-    auto _module = module.get();
-    for (int i = 13; i < _module->Functions.size(); i++)
-    {
-        std::cout << module->Functions[i]->getName() << ":" << std::endl;
-        for (const auto &it : _module->Functions[i]->BasicBlocks)
-        {
-            std::cout << "BasicBlockSuccs " << j << ":" << std::endl;
-            std::cout << "                   Successors: ";
-            for (auto suc : it->getSuccessors())
-            {
-                std::cout << suc->getName() << " ";
-            }
-            std::cout << std::endl;
-            std::cout << "                   Predecessors: ";
-            for (auto pre : it->getPredecessors())
-            {
-                std::cout << pre->getName() << " ";
-            }
-            std::cout << std::endl;
-            j++;
-        }
-    }
 }
