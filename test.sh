@@ -1,6 +1,10 @@
 #!/bin/bash
 
-INPUT_DIR="${1:-riscv}"   # 可指定输入目录，默认"riscv"
+if [ $# -ge 2 ]; then
+    INPUT_DIR="$1"
+else
+    INPUT_DIR="riscv"
+fi
 OUTPUT_DIR="assembles"
 CROSS_COMPILE="riscv64-linux-gnu-"
 TMP_OUTPUT=$(mktemp)      # 存储程序原始输出（含时间信息）

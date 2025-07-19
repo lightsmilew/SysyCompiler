@@ -807,6 +807,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            // 还要打印输出
+                            needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;
@@ -838,6 +840,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantFloat(FloatType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            // 还要打印输出
+                            needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;
@@ -877,6 +881,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        // 还要打印输出
+                        needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
                         changed = true;
@@ -915,6 +921,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        // 还要打印输出
+                        needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
                         changed = true;
@@ -1132,18 +1140,19 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O2)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
 
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+
+    }
+    else if (level == OptimizationLevel::O2)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     // 以下为调试内容
     else if (level == OptimizationLevel::O10)
@@ -1178,8 +1187,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     else if(level==OptimizationLevel::O16)
     {
