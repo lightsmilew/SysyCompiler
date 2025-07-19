@@ -39,7 +39,7 @@ namespace ir_builder
         unsigned labelCounter;   // 标签计数器
         unsigned stringCounter;  // 字符串常量计数器
         // Debug
-        bool debugMode = false; // 是否开启调试模式
+        bool debugMode = false;  // 是否开启调试模式
     public:
         // 构造与初始化
         IRBuilder(bool debugMode, const String &moduleName = "main_module")
@@ -50,12 +50,12 @@ namespace ir_builder
             initializeLibraryFunctions();
         }
 
-        void initializeLibraryFunctions();                                                // 初始化库函数
-        std::unique_ptr<Module> buildModule(std::shared_ptr<ast::CompUnitNode> compUnit); // 主入口：构建整个模块
+        void initializeLibraryFunctions();                                               // 初始化库函数
+        std::unique_ptr<Module> buildModule(std::shared_ptr<ast::CompUnitNode> compUnit);// 主入口：构建整个模块
         // AST节点访问接口
-        void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);                      // 访问编译单元
-        void visitFunction(std::shared_ptr<ast::FuncNode> node);                          // 访问函数节点
-        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRestore = true); // 访问块节点(isRestore用于判断是否将块内Value写回外层)
+        void visitCompUnit(std::shared_ptr<ast::CompUnitNode> node);                     // 访问编译单元
+        void visitFunction(std::shared_ptr<ast::FuncNode> node);                         // 访问函数节点
+        void visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRestore = true);// 访问块节点(isRestore用于判断是否将块内Value写回外层)
 
         // 语句访问
         void visitStatement(std::shared_ptr<ast::StmtNode> node, bool isRestore = true); // 访问语句节点
@@ -78,17 +78,18 @@ namespace ir_builder
         Value *visitIntLiteralExpr(std::shared_ptr<ast::IntLiteralExprNode> node);       // 整数字面量访问
         Value *visitFloatLiteralExpr(std::shared_ptr<ast::FloatLiteralExprNode> node);   // 浮点数字面量访问
         Value *visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprNode> node); // 字符串字面量访问
-        Value *visitInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType); // 初始化表达式访问
-        void visitInitExpr(std::shared_ptr<ast::InitExprNode> node,
+        Value *visitScalarInitExpr(std::shared_ptr<ast::InitExprNode> node,
+                                        Type *targetType);                               // 初始化表达式访问
+        void visitArrayInitExpr(std::shared_ptr<ast::InitExprNode> node,
                            Type *targetType,
-                           Value *targetPtr); // 新增重载 处理数组初始化
+                           Value *targetPtr);                                            // 处理数组初始化
         Constant *evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node,
-                                        ArrayType *arrayType);               // 常量数组求值
-        Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node); // 编译时常量表达式求值
+                                        ArrayType *arrayType);                           // 常量数组求值
+        Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);             // 编译时常量表达式求值
 
         // 基本块管理
-        BasicBlock *createBasicBlock(const String &name = ""); // 创建基本块
-        void setCurrentBlock(BasicBlock *block);               // 设置当前基本块
+        BasicBlock *createBasicBlock(const String &name = "");                           // 创建基本块
+        void setCurrentBlock(BasicBlock *block);                                         // 设置当前基本块
 
         // 指令生成辅助
         Value *createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs);                        // 产生二元操作指令
@@ -107,16 +108,16 @@ namespace ir_builder
         // 辅助函数
         // 计算初始表达式大括号最深层数
         size_t getInitExprMaxDepth(std::shared_ptr<ast::InitExprNode> node,
-                                   size_t currentDepth = 0); // 获取初始化表达式的最大深度
+                                   size_t currentDepth = 0);                                    // 获取初始化表达式的最大深度
         void flattenInitList(std::shared_ptr<ast::InitExprNode> node,
                              Vector<std::shared_ptr<ast::InitExprNode>> &flat_inits,
                              const std::vector<size_t> &dims,
-                             int dim); // 扁平化初始化列表
+                             int dim);                                                          // 扁平化初始化列表
         void visitInitExprImpl(Type *targetType, Value *targetPtr,
                                Vector<int> &indices,
                                std::shared_ptr<ast::InitExprNode> initNode,
                                const Vector<std::shared_ptr<ast::InitExprNode>> &flat_inits,
-                               size_t &flat_idx); // 用于支持嵌套和平铺赋值
+                               size_t &flat_idx);                                               // 用于支持嵌套和平铺赋值
         Vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
         void addPhiForVars();
         void addPhiIncomings(BasicBlock *block);
@@ -154,7 +155,5 @@ namespace ir_builder
 
         // Debug输出
         string getValueTableInEveryBlock();
-        // 这个函数有问题
-        void printBasicBlockInfo(); // 输出基本块后继信息
     };
 }

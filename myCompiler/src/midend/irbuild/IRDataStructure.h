@@ -704,7 +704,7 @@ public:
         : Value(VoidType::getInstance(), name), Parent(parent) {}
 
     void addInstruction(unique_ptr<Instruction> inst);              // 添加指令到基本块
-    void insertBeforeTerminator(std::unique_ptr<Instruction> inst); // 在终结指令前插入指令
+    void insertBeforeTerminator(unique_ptr<Instruction> inst);      // 在终结指令前插入指令
     void insert(unique_ptr<Instruction> inst, unsigned index);      // 插入指令
     void addPredecessor(BasicBlock *pred);                          // 添加前驱基本块
     void removePredecessor(BasicBlock *pred);                       // 移除前驱基本块
