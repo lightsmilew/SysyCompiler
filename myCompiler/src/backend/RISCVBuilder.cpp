@@ -824,10 +824,10 @@ void InstructionSelector::generateConstantLoad(shared_ptr<RISCVRegister> reg, in
     else if ((value & 0xFFF) == 0)
     {
         // 值是4096的倍数：只需要lui指令
-        int upper = static_cast<int>(value >> 12);
-        if (isImmediateInRange(upper, 20))
+        uint32_t upper = static_cast<uint32_t>(value >> 12) & 0xFFFFF; // 取20位无符号
+        if (isLUIImmediateInRange(upper))
         {
-            auto luiInst = RISCVInstruction::createUType(RISCVOpcode::LUI, reg, upper);
+            auto luiInst = RISCVInstruction::createUType(RISCVOpcode::LUI, reg, static_cast<int>(upper));
             currentBB->addInstruction(luiInst);
         }
         else
@@ -840,8 +840,9 @@ void InstructionSelector::generateConstantLoad(shared_ptr<RISCVRegister> reg, in
     else if (isImmediateInRange(value, 32))
     {
         // 32位常量：使用lui + addi组合
-        int upper = static_cast<int>((value + 0x800) >> 12); // 考虑符号扩展
-        int lower = static_cast<int>(value & 0xFFF);
+        // 正确处理LUI指令的20位无符号立即数
+        uint32_t uvalue = static_cast<uint32_t>(value);
+        int lower = static_cast<int>(uvalue & 0xFFF);
 
         // 调整下半部分为有符号数
         if (lower > 2047)
@@ -849,10 +850,18 @@ void InstructionSelector::generateConstantLoad(shared_ptr<RISCVRegister> reg, in
             lower -= 4096;
         }
 
-        if (isImmediateInRange(upper, 20))
+        // 计算上半部分，考虑ADDI的符号扩展
+        uint32_t adjusted_value = uvalue;
+        if (lower < 0)
+        {
+            adjusted_value += 0x1000; // 如果ADDI会减法，LUI需要多加1
+        }
+        uint32_t upper = (adjusted_value >> 12) & 0xFFFFF; // 20位无符号
+
+        if (isLUIImmediateInRange(upper))
         {
             // lui rd, upper
-            auto luiInst = RISCVInstruction::createUType(RISCVOpcode::LUI, reg, upper);
+            auto luiInst = RISCVInstruction::createUType(RISCVOpcode::LUI, reg, static_cast<int>(upper));
             currentBB->addInstruction(luiInst);
 
             // addi rd, rd, lower (如果lower不为0)
@@ -1422,6 +1431,12 @@ bool InstructionSelector::isImmediateInRange(int immediate, int bits)
     int minVal = -(1 << (bits - 1));
     int maxVal = (1 << (bits - 1)) - 1;
     return immediate >= minVal && immediate <= maxVal;
+}
+
+// LUI指令专用的20位无符号立即数范围检查
+bool InstructionSelector::isLUIImmediateInRange(int immediate)
+{
+    return immediate >= 0 && immediate <= 0xFFFFF; // 20位无符号：0 到 1048575
 }
 
 void InstructionSelector::mapArguments()

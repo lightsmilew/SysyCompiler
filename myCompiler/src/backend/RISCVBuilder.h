@@ -34,7 +34,7 @@ namespace RISCV
     class InstructionSelector
     {
     private:
-        Function* irFunction; // 保存IR函数引用
+        Function *irFunction; // 保存IR函数引用
         shared_ptr<RISCVFunction> currentFunc;
         shared_ptr<RISCVBasicBlock> currentBB;
         unordered_map<string, shared_ptr<RISCVRegister>> registerMap; // IR值名字到寄存器的映射
@@ -135,6 +135,7 @@ namespace RISCV
         void storeValueToStack(Value *value, shared_ptr<RISCVRegister> reg, int size = 4);
         void generateStackAccess(int offset, shared_ptr<RISCVRegister> reg, bool isStore, bool isDouble = false);
         bool isImmediateInRange(int immediate, int bits = 12);
+        bool isLUIImmediateInRange(int immediate); // LUI指令专用的20位无符号立即数检查
         void generateConstantLoad(shared_ptr<RISCVRegister> reg, int64_t value);
         void generateFloatConstantLoad(shared_ptr<RISCVRegister> reg, float value);
 
