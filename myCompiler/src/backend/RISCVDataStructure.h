@@ -128,7 +128,10 @@ namespace RISCV
 
         // 函数调用指令
         CALL, // 伪指令，用于函数调用
-        RET   // 伪指令，用于函数返回
+        RET,  // 伪指令，用于函数返回
+
+        // 自创的伪指令
+        INIT,
     };
 
     // 寄存器类型枚举
@@ -326,9 +329,13 @@ namespace RISCV
         static shared_ptr<RISCVInstruction> createPseudoCALL(const string &label = "");
         static shared_ptr<RISCVInstruction> createPseudoRET();
         static shared_ptr<RISCVInstruction> createPseudoECALL();
+        static shared_ptr<RISCVInstruction> createPseudoINIT(const string &name, int64_t offset, int64_t size);
 
         // 访问器
-        RISCVOpcode getOpcode() const { return opcode; }
+        RISCVOpcode getOpcode() const
+        {
+            return opcode;
+        }
         InstructionType getInstrType() const { return instrType; }
         const vector<shared_ptr<RISCVOperand>> &getOperands() const { return operands; }
 

@@ -19,10 +19,12 @@ using namespace ir_builder;
 
 int main(int argc, const char *argv[])
 {
-    // 支持两种模式：
+    // 支持三种模式：
     // 1. compiler -S -o testcase.s testcase.sy [-O1]
-    // 2. compiler -debug testcase.sy
+    // 2. compiler testcase.sy -S -o testcase.s [-O1]
+    // 3. compiler -debug testcase.sy
     bool debugMode = false;
+    bool infoMode = false;
     bool optMode = false;
     string input_file, output_file;
     optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
@@ -34,11 +36,16 @@ int main(int argc, const char *argv[])
         debugMode = true;
         if (argc < 4)
         {
-            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...] [-info]" << endl;
             return 1;
         }
         input_file = argv[2];
         output_file = argv[3];
+        if (argc > 4 && strcmp(argv[4], "-info") == 0)
+        {
+            infoMode = true;
+        }
         if (argc > 4)
         {
             if (strcmp(argv[4], "-O0") == 0)
@@ -66,9 +73,14 @@ int main(int argc, const char *argv[])
                 cerr << "Unknown optimization level: " << argv[4] << endl;
                 return 1;
             }
+            if (argc > 5 && strcmp(argv[5], "-info") == 0)
+            {
+                infoMode = true;
+            }
             optMode = true;
         }
     }
+    // 兼容格式1：compiler -S -o testcase.s testcase.sy [-O1]
     else if (argc >= 5 && strcmp(argv[1], "-S") == 0 && strcmp(argv[2], "-o") == 0)
     {
         emit_riscv = true;
@@ -103,10 +115,46 @@ int main(int argc, const char *argv[])
             }
         }
     }
+    // 兼容格式2：compiler testcase.sy -S -o testcase.s [-O1]
+    else if (argc >= 5 && strcmp(argv[2], "-S") == 0 && strcmp(argv[3], "-o") == 0)
+    {
+        emit_riscv = true;
+        input_file = argv[1];
+        output_file = argv[4];
+        if (argc > 5)
+        {
+            if (strcmp(argv[5], "-O0") == 0)
+                opt_level = optimization::OptimizationLevel::O0;
+            else if (strcmp(argv[5], "-O1") == 0)
+                opt_level = optimization::OptimizationLevel::O1;
+            else if (strcmp(argv[5], "-O2") == 0)
+                opt_level = optimization::OptimizationLevel::O2;
+            else if (strcmp(argv[5], "-O10") == 0)
+                opt_level = optimization::OptimizationLevel::O10;
+            else if (strcmp(argv[5], "-O11") == 0)
+                opt_level = optimization::OptimizationLevel::O11;
+            else if (strcmp(argv[5], "-O12") == 0)
+                opt_level = optimization::OptimizationLevel::O12;
+            else if (strcmp(argv[5], "-O13") == 0)
+                opt_level = optimization::OptimizationLevel::O13;
+            else if (strcmp(argv[5], "-O14") == 0)
+                opt_level = optimization::OptimizationLevel::O14;
+            else if (strcmp(argv[5], "-O15") == 0)
+                opt_level = optimization::OptimizationLevel::O15;
+            else if (strcmp(argv[5], "-O16") == 0)
+                opt_level = optimization::OptimizationLevel::O16;
+            else
+            {
+                cerr << "Unknown optimization level: " << argv[5] << endl;
+                return 1;
+            }
+        }
+    }
     else
     {
         cerr << "Usage:\n"
              << "  compiler -S -o <output.s> <input.sy> [-O0|-O1|-O2|...]\n"
+             << "  compiler <input.sy> -S -o <output.s> [-O0|-O1|-O2|...]\n"
              << "  compiler -debug <input.sy>\n";
         return 1;
     }
@@ -204,8 +252,12 @@ int main(int argc, const char *argv[])
             return 1;
         }
         fout_before << ir_module->toString() << endl;
-        fout_before << ir_module->getBasicBlockInfo() << endl;
-        fout_before << irbuilder.getValueTableInEveryBlock() << endl;
+        if (infoMode)
+        {
+            fout_before << ir_module->getBasicBlockInfo() << endl;
+            fout_before << irbuilder.getValueTableInEveryBlock() << endl;
+        }
+
         fout_before.close();
 
         if (optMode)
@@ -221,8 +273,11 @@ int main(int argc, const char *argv[])
                 return 1;
             }
             fout_after << ir_module->toString() << endl;
-            fout_after << ir_module->getBasicBlockInfo() << endl;
-            fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+            if (infoMode)
+            {
+                fout_after << ir_module->getBasicBlockInfo() << endl;
+                fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+            }
             fout_after.close();
         }
 

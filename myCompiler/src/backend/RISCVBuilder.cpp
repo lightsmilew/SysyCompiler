@@ -2252,6 +2252,8 @@ void InstructionSelector::processLocalArray(AllocaInst *alloca)
     StackFrame &stackFrame = currentFunc->getStackFrame();
     info.stackOffset = stackFrame.getValueOffset(arrayName);
 
+    auto initInst = RISCVInstruction::createPseudoINIT(alloca->getName(), info.stackOffset, info.totalSize / 4);
+    currentBB->addInstruction(initInst);
     // 记录数组信息
     arrayInfoMap[arrayName] = info;
 }

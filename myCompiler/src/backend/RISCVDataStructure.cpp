@@ -360,6 +360,8 @@ namespace RISCV
                 return "call";
             case RISCVOpcode::ECALL:
                 return "ecall";
+            case RISCVOpcode::INIT:
+                return "";
             default:
                 return "unknown";
             }
@@ -371,6 +373,19 @@ namespace RISCV
         if (opcode == RISCVOpcode::RET)
         {
             // 系统指令不需要操作数
+        }
+        else if (opcode == RISCVOpcode::INIT)
+        {
+            ss << "\n        li s11, 0\n";
+            ss << "        li s10, " + operands[2]->toString() + "\n";
+            ss << "        li s9, " + operands[1]->toString() + "\n";
+            ss << "        add s9, s9, sp\n";
+            // 生成循环标签
+            ss << "loop_" + operands[0]->toString() + ":\n";
+            ss << "        sw s11, 0(s9)\n";
+            ss << "        addi s9, s9, 4\n";                                 // 假设每次循环处理4字节
+            ss << "        addi s10, s10, -1\n";                              // 减少计数器
+            ss << "        bnez s10, loop_" + operands[0]->toString() + "\n"; // 如果计数器不为0，继续循环
         }
         // 特殊处理内存访问指令的操作数格式
         else if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
@@ -828,6 +843,13 @@ namespace RISCV
     {
         auto instr = make_shared<RISCVInstruction>(RISCVOpcode::ECALL, InstructionType::PSEUDO);
         instr->operands = {}; // ECALL 不需要操作数
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoINIT(const string &name, int64_t offset, int64_t size)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::INIT, InstructionType::PSEUDO);
+        instr->operands = {make_shared<RISCVOperand>(name), make_shared<RISCVOperand>(offset), make_shared<RISCVOperand>(size)};
         return instr;
     }
 }
