@@ -1132,7 +1132,7 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
             std::cout << "\n";
         }
     }
-    return false; // 只分析，不修改IR
+    return false;
 }
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
@@ -1141,7 +1141,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 不进行任何优化
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
