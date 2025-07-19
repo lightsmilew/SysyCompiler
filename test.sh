@@ -32,6 +32,7 @@ assemble() {
 }
 
 # 测试功能（新增超时中断机制）
+# 测试功能（支持超时和输出过滤）
 test_programs() {
     [ -d "$OUTPUT_DIR" ] || {
         echo "❌ 未找到编译目录 $OUTPUT_DIR，请先执行 ./test.sh $INPUT_DIR -assembles"
@@ -58,16 +59,17 @@ test_programs() {
             continue
         }
 
-        echo -e "\n--- 测试 $filename ---"
-        # 运行程序并设置超时
-        if timeout ${TIMEOUT_SECONDS} bash -c "eval \"$exe $input_redir > $TMP_OUTPUT 2>&1\""; then
-            # 获取程序返回值
-            program_ret=$?
-            total_time=$(grep '^TOTAL:' "$TMP_OUTPUT" || echo "")
-            grep -v '^TOTAL:' "$TMP_OUTPUT" > "$TMP_FILTERED"
-            # 追加返回值到输出文件
-            echo "$program_ret" >> "$TMP_FILTERED"
+        # 为每个用例生成独立的临时文件
+        TMP_OUTPUT=$(mktemp)
+        TMP_FILTERED=$(mktemp)
 
+        echo -e "\n--- 测试 $filename ---"
+        # 运行程序并设置超时，把返回值直接追加到输出文件最后一行
+        if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo \$? >> $TMP_OUTPUT"; then
+            total_time=$(grep '^TOTAL:' "$TMP_OUTPUT" || echo "")
+            # 过滤 TOTAL 和 +Timer@ 行
+            grep -v '^TOTAL:' "$TMP_OUTPUT" | grep -v '+Timer@' > "$TMP_FILTERED"
+            # 不需要再追加返回值，因为已经在最后一行
             diff -u "$expected_file" "$TMP_FILTERED" > /dev/null
             if [ $? -eq 0 ]; then
                 echo "✅ 测试通过"
@@ -77,31 +79,43 @@ test_programs() {
                 diff -u "$expected_file" "$TMP_FILTERED"
             fi
         else
-            # 超时或异常退出的处理逻辑
             if [ $? -eq 124 ]; then
                 echo "⏰ 测试超时（超过${TIMEOUT_SECONDS}秒），已中断"
             else
                 echo "❌ 程序异常退出（非超时）"
             fi
         fi
+
+        rm -f "$TMP_OUTPUT" "$TMP_FILTERED"
     done
 
-    rm -f "$TMP_OUTPUT" "$TMP_FILTERED"
     echo -e "\n===== 测试结束 ====="
 }
 
 # 脚本入口
-case "$2" in
-    -assembles)
-        assemble
-        ;;
-    -test)
-        test_programs
-        ;;
-    *)
-        echo "用法："
-        echo "  编译程序：./test.sh [输入目录] -assembles"
-        echo "  测试程序：./test.sh [输入目录] -test"
-        exit 1
-        ;;
-esac
+# 脚本入口
+if [[ "$2" == "-assembles" || "$2" == "-test" ]]; then
+    case "$2" in
+        -assembles)
+            assemble
+            ;;
+        -test)
+            test_programs
+            ;;
+    esac
+else
+    case "$1" in
+        -assembles)
+            assemble
+            ;;
+        -test)
+            test_programs
+            ;;
+        *)
+            echo "用法："
+            echo "  编译程序：./test.sh [输入目录] -assembles"
+            echo "  测试程序：./test.sh [输入目录] -test"
+            exit 1
+            ;;
+    esac
+fi

@@ -1,12 +1,13 @@
 #!/bin/bash
 #INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
 #OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#INPUT_DIR="test_cases/semantic_cases"
-#OUTPUT_DIR="test_cases/output"
-#INPUT_DIR="test_cases/official_cases"
-#OUTPUT_DIR="test_cases/official_output"
+#INPUT_DIR="debug_cases"
+#OUTPUT_DIR="debug_cases"
+
+#INPUT_DIR="case/performance2025"
+#OUTPUT_DIR="case/performance2025"
 INPUT_DIR="case/functional"
-OUTPUT_DIR="case/functional/output"
+OUTPUT_DIR="case/functional"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -45,7 +46,7 @@ elif [ "$1" == "-riscv" ]; then
         for file in $INPUT_DIR/*.sy; do
             filename=$(basename "$file")
             echo "Processing $filename (RISC-V mode, $opt_level)..."
-            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-O${opt_level}"
+            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}"
         done
     else
         for file in $INPUT_DIR/*.sy; do
