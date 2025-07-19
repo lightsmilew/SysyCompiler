@@ -377,8 +377,8 @@ namespace RISCV
         else if (opcode == RISCVOpcode::INIT)
         {
             ss << "\n        li s11, 0\n";
-            ss << "        li s10, " + operands[1]->toString() + "\n";
-            ss << "        li s9, " + operands[2]->toString() + "\n";
+            ss << "        li s10, " + operands[2]->toString() + "\n";
+            ss << "        li s9, " + operands[1]->toString() + "\n";
             ss << "        add s9, s9, sp\n";
             // 生成循环标签
             ss << "loop_" + operands[0]->toString() + ":\n";
