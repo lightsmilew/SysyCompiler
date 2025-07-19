@@ -24,19 +24,6 @@ bool PassManager::runOnModule(Module *module)
     }
     return changed;
 }
-std::pair<unordered_map<BasicBlock *, std::set<Value *>>,
-          unordered_map<BasicBlock *, std::set<Value *>>>
-PassManager::getLiveSets() const
-{
-    for (const auto &pass : passes)
-    {
-        if (auto livePass = dynamic_cast<LiveVariableAnalysisPass *>(pass.get()))
-        {
-            return {livePass->liveIn, livePass->liveOut};
-        }
-    }
-    return {{}, {}}; // 如果没有找到，返回空集合
-}
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
@@ -1154,6 +1141,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
@@ -1164,12 +1152,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
