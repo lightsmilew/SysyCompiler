@@ -436,7 +436,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             {
                 // 超出fa0-fa7的浮点参数写入栈
                 int stackOffset = stackArgIndex * 4; // 每个参数4字节
-                
+
                 if (isImmediateInRange(stackOffset))
                 {
                     // 偏移量在范围内，直接使用
@@ -449,15 +449,15 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                     // 偏移量超出范围，使用地址计算
                     auto tempReg = allocateTempRegister(RegisterType::GENERAL, "stack_addr");
                     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-                    
+
                     // li temp, stackOffset
                     auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
                     currentBB->addInstruction(liInst);
-                    
+
                     // add temp, sp, temp
                     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
                     currentBB->addInstruction(addInst);
-                    
+
                     // fsw argReg, 0(temp)
                     auto storeInst = RISCVInstruction::createSType(RISCVOpcode::FSW, tempReg, argReg, 0);
                     currentBB->addInstruction(storeInst);
@@ -482,7 +482,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             {
                 // 超出a0-a7的整数参数写入栈
                 int stackOffset = stackArgIndex * 4; // 每个参数4字节
-                
+
                 if (isImmediateInRange(stackOffset))
                 {
                     // 偏移量在范围内，直接使用
@@ -495,15 +495,15 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                     // 偏移量超出范围，使用地址计算
                     auto tempReg = allocateTempRegister(RegisterType::GENERAL, "stack_addr");
                     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-                    
+
                     // li temp, stackOffset
                     auto liInst = RISCVInstruction::createPseudoLI(tempReg, stackOffset);
                     currentBB->addInstruction(liInst);
-                    
+
                     // add temp, sp, temp
                     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
                     currentBB->addInstruction(addInst);
-                    
+
                     // sw argReg, 0(temp)
                     auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SW, tempReg, argReg, 0);
                     currentBB->addInstruction(storeInst);
