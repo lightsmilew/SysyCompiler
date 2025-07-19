@@ -21,18 +21,23 @@ elif [ "$1" == "-build" ]; then
     make
     cd ../..
 elif [ "$1" == "-ir" ]; then
-    # 支持 -O0/-O1/-O2... 作为第二参数
-    opt_level="O0"
+    mkdir -p "$OUTPUT_DIR"
     if [[ "$2" =~ ^-O[0-9]+$ ]]; then
         opt_level="${2#-}"
+        for file in $INPUT_DIR/*.sy; do
+            filename=$(basename "$file")
+            output_prefix="$OUTPUT_DIR/${filename%.sy}"
+            echo "Processing $filename (IR debug mode, $opt_level)..."
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level}
+        done
+    else
+        for file in $INPUT_DIR/*.sy; do
+            filename=$(basename "$file")
+            output_prefix="$OUTPUT_DIR/${filename%.sy}"
+            echo "Processing $filename (IR debug mode, no opt_level)..."
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix"
+        done
     fi
-    mkdir -p "$OUTPUT_DIR"
-    for file in $INPUT_DIR/*.sy; do
-        filename=$(basename "$file")
-        output_prefix="$OUTPUT_DIR/${filename%.sy}"
-        echo "Processing $filename (IR debug mode, $opt_level)..."
-        ./myCompiler/build/my_compiler -debug "$file" "$OUTPUT_DIR/${filename%.sy}" -${opt_level}
-    done
 elif [ "$1" == "-riscv" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")

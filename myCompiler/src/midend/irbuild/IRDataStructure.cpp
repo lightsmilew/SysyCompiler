@@ -927,18 +927,20 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     operands.push_back(ptr);
     operands.insert(operands.end(), indices.begin(), indices.end());
     int dimensions = 0;
-    if(auto ptrType = dynamic_cast<PointerType *>(ptr->getType()))
+    if (auto ptrType = dynamic_cast<PointerType *>(ptr->getType()))
     {
-        auto elementType = dynamic_cast<ArrayType*>(ptrType->ElementType);
+        auto elementType = dynamic_cast<ArrayType *>(ptrType->ElementType);
         // 一层指针返回 1维
-        if(!elementType)dimensions=1;
+        if (!elementType)
+            dimensions = 1;
         // 数组类型的指针，+1是因为第一个索引是指针本身
-        else dimensions=elementType->getArrayIndices().size()+1; 
+        else
+            dimensions = elementType->getArrayIndices().size() + 1;
     }
     // 如果索引小于维度数，补齐为0
-    for(int i= indices.size(); i < dimensions; ++i)
+    for (int i = indices.size(); i < dimensions; ++i)
     {
-        operands.push_back(new ConstantInt(IntegerType::getInstance(),0)); // 补齐为0
+        operands.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 补齐为0
     }
     return operands;
 }
@@ -1284,30 +1286,32 @@ GlobalVariable *Module::getGlobalVariable(const string &name)
     return nullptr;
 }
 // Debug
-void Module::printBasicBlockInfo()
+string Module::getBasicBlockInfo()
 {
+    std::stringstream ss;
     int j = 0;
     for (int i = 13; i < Functions.size(); i++)
     {
-        std::cout << Functions[i]->getName() << ":" << std::endl;
+        ss << Functions[i]->getName() << ":" << std::endl;
         for (const auto &it : Functions[i]->BasicBlocks)
         {
-            std::cout << "BasicBlockSuccs " << j << ":" << std::endl;
-            std::cout << "                   Successors: ";
+            ss << "BasicBlockSuccs " << j << ":" << std::endl;
+            ss << "                   Successors: ";
             for (auto suc : it->getSuccessors())
             {
-                std::cout << suc->getName() << " ";
+                ss << suc->getName() << " ";
             }
-            std::cout << std::endl;
-            std::cout << "                   Predecessors: ";
+            ss << std::endl;
+            ss << "                   Predecessors: ";
             for (auto pre : it->getPredecessors())
             {
-                std::cout << pre->getName() << " ";
+                ss << pre->getName() << " ";
             }
-            std::cout << std::endl;
+            ss << std::endl;
             j++;
         }
     }
+    return ss.str();
 }
 std::string Module::toString() const
 {
