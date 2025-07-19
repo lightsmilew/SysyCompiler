@@ -509,21 +509,9 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
     // 生成函数结尾（恢复栈帧）
     generateFunctionEpilogue();
 
-    if (currentFunc->getName() == "main")
-    {
-        // li a0, 0
-        // call exit
-        auto liRetInst = RISCVInstruction::createPseudoLI(make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0), (int64_t)0);
-        currentBB->addInstruction(liRetInst);
-        auto callExitInst = RISCVInstruction::createPseudoCALL("exit");
-        currentBB->addInstruction(callExitInst);
-    }
-    else
-    {
-        // 对于其他函数，直接返回
-        auto retInst = RISCVInstruction::createPseudoRET();
-        currentBB->addInstruction(retInst);
-    }
+    // 对于其他函数，直接返回
+    auto retInst = RISCVInstruction::createPseudoRET();
+    currentBB->addInstruction(retInst);
 }
 
 void InstructionSelector::visitBranchInst(BranchInst *inst)
@@ -598,6 +586,39 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 
     // 4. 存储结果地址
     storeValueToStack(inst->getDest(), resultAddr, 8);
+
+    // 如果结果仍然是一个指针类型，将其存储到arrayInfoMap中
+    // 这样可以在后续指令中直接使用
+    if (inst->getDest()->getType()->isPointerTy())
+    {
+        string resultName = inst->getDest()->getName();
+        string sourceArrayName = inst->getPointerOperand()->getName();
+        auto ptrType = dynamic_cast<PointerType *>(inst->getDest()->getType());
+
+        ArrayInfo info;
+        auto sourceInfo = arrayInfoMap.find(sourceArrayName)->second;
+
+        info.location = sourceInfo.location;          // 继承源数组的位置
+        info.elementType = sourceInfo.elementType;    // 继承源数组的元素类型
+        info.dimensions = ptrType->getArrayIndices(); // 继承源数组的维度信息
+        info.totalSize = 0;                           // 结果地址不需要总大小
+
+        if (info.location == ArrayInfo::Location::GLOBAL)
+        {
+            info.globalLabel = sourceInfo.globalLabel; // 继承全局数组标签
+        }
+        else if (info.location == ArrayInfo::Location::STACK)
+        {
+            info.stackOffset = sourceInfo.stackOffset; // 继承栈数组偏移
+        }
+        else if (info.location == ArrayInfo::Location::PARAMETER)
+        {
+            info.stackOffset = sourceInfo.stackOffset; // 参数数组偏移
+        }
+
+        // 将结果数组信息添加到映射中
+        arrayInfoMap[resultName] = info;
+    }
 }
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)

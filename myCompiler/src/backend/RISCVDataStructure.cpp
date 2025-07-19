@@ -447,6 +447,8 @@ namespace RISCV
         int offset = calleeArgOffset;
         calleeToOffset[ArgNumber] = offset;
         calleeArgOffset += size;
+
+        return offset;
     }
     int StackFrame::getValueOffset(const string &valueName) const
     {
