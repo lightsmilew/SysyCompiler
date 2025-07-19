@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+using std::find;
 using std::shared_ptr;
 using std::string;
 using std::unordered_map;
@@ -471,7 +472,7 @@ namespace RISCV
 
         // 访问器
         const string &getName() const { return name; }
-        const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() const { return basicBlocks; }
+        const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() { return basicBlocks; }
         StackFrame &getStackFrame() { return stackFrame; }
 
         string toString() const;
