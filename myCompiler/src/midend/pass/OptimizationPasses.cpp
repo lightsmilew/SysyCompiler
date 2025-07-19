@@ -1181,5 +1181,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
+    else if(level==OptimizationLevel::O16)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+    }
     return pm;
 }

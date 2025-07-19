@@ -31,12 +31,41 @@ int main(int argc, const char *argv[])
     if (argc >= 2 && strcmp(argv[1], "-debug") == 0)
     {
         debugMode = true;
-        if (argc < 3)
+        if (argc < 4)
         {
-            cerr << "Usage: compiler -debug <input.sy>" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...]" << endl;
             return 1;
         }
         input_file = argv[2];
+        output_file = argv[3];
+        if (argc > 4)
+        {
+            if (strcmp(argv[4], "-O0") == 0)
+                opt_level = optimization::OptimizationLevel::O0;
+            else if (strcmp(argv[4], "-O1") == 0)
+                opt_level = optimization::OptimizationLevel::O1;
+            else if (strcmp(argv[4], "-O2") == 0)
+                opt_level = optimization::OptimizationLevel::O2;
+            else if (strcmp(argv[4], "-O10") == 0)
+                opt_level = optimization::OptimizationLevel::O10;
+            else if (strcmp(argv[4], "-O11") == 0)
+                opt_level = optimization::OptimizationLevel::O11;
+            else if (strcmp(argv[4], "-O12") == 0)
+                opt_level = optimization::OptimizationLevel::O12;
+            else if (strcmp(argv[4], "-O13") == 0)
+                opt_level = optimization::OptimizationLevel::O13;
+            else if (strcmp(argv[4], "-O14") == 0)
+                opt_level = optimization::OptimizationLevel::O14;
+            else if (strcmp(argv[4], "-O15") == 0)
+                opt_level = optimization::OptimizationLevel::O15;
+            else if (strcmp(argv[4], "-O16") == 0)
+                opt_level = optimization::OptimizationLevel::O16;
+            else
+            {
+                cerr << "Unknown optimization level: " << argv[4] << endl;
+                return 1;
+            }
+        }
     }
     else if (argc >= 5 && strcmp(argv[1], "-S") == 0 && strcmp(argv[2], "-o") == 0)
     {
@@ -163,7 +192,7 @@ int main(int argc, const char *argv[])
         default:
             opt_str = "O0";
         }
-        string after_ir_file = input_file + ".ir.opt" + opt_str;
+        string after_ir_file = output_file + ".ir.opt" + opt_str;
 
         // 优化前IR
         ofstream fout_before(before_ir_file);

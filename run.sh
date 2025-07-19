@@ -6,7 +6,7 @@
 #INPUT_DIR="test_cases/official_cases"
 #OUTPUT_DIR="test_cases/official_output"
 INPUT_DIR="case/functional"
-OUTPUT_DIR="case/functional"
+OUTPUT_DIR="case/functional/output"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -26,12 +26,12 @@ elif [ "$1" == "-ir" ]; then
     if [[ "$2" =~ ^-O[0-9]+$ ]]; then
         opt_level="${2#-}"
     fi
+    mkdir -p "$OUTPUT_DIR"
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
+        output_prefix="$OUTPUT_DIR/${filename%.sy}"
         echo "Processing $filename (IR debug mode, $opt_level)..."
-        ./myCompiler/build/my_compiler -debug "$file" -${opt_level}
-        mv "${file}.ir" "$OUTPUT_DIR/${filename%.sy}.ir"
-        mv "${file}.ir.opt.${opt_level}" "$OUTPUT_DIR/${filename%.sy}.ir.opt.${opt_level}"
+        ./myCompiler/build/my_compiler -debug "$file" "$OUTPUT_DIR/${filename%.sy}" -${opt_level}
     done
 elif [ "$1" == "-riscv" ]; then
     for file in $INPUT_DIR/*.sy; do
@@ -61,7 +61,7 @@ elif [ "$1" == "-qemu" ]; then
 elif [ "$1" == "-diff" ]; then
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file" .sy)
-        file1="$OUTPUT_DIR/${filename}.ir.optO"
+        file1="$OUTPUT_DIR/${filename}.ir.optO1"
         file2="$OUTPUT_DIR/${filename}.ir.optO11"
         if [ -f "$file1" ] && [ -f "$file2" ]; then
             line1=$(wc -l < "$file1")
