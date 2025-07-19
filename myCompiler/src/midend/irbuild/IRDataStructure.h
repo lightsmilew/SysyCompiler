@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <cstdint>
 #include <cstring>
-
+#include <set>
 using namespace ast;
 
 // 前向声明
@@ -699,10 +699,12 @@ public:
     Function *Parent;
     vector<BasicBlock *> Predecessors;
     vector<BasicBlock *> Successors;
-
+    //活跃变量
+    std::set<Value *> LiveIn;  // 活跃变量集合
+    std::set<Value *> LiveOut; // 活跃变量集合
     BasicBlock(const string &name = "", Function *parent = nullptr)
         : Value(VoidType::getInstance(), name), Parent(parent) {}
-
+    
     void addInstruction(unique_ptr<Instruction> inst);              // 添加指令到基本块
     void insertBeforeTerminator(unique_ptr<Instruction> inst);      // 在终结指令前插入指令
     void insert(unique_ptr<Instruction> inst, unsigned index);      // 插入指令
@@ -712,6 +714,10 @@ public:
     void removeSuccessor(BasicBlock *succ);                         // 移除后继基本块
     const vector<BasicBlock *> &getPredecessors() const;            // 获取前驱基本块
     const vector<BasicBlock *> &getSuccessors() const;              // 获取后继基本块
+    void setLiveIn(const std::set<Value *> &liveIn);                // 设置活跃变量集合
+    const std::set<Value *> &getLiveIn() const;                     // 获取活跃变量集合
+    void setLiveOut(const std::set<Value *> &liveOut);              // 设置活跃变量集合
+    const std::set<Value *> &getLiveOut() const;                    // 获取活跃变量集合
 
     Instruction *getTerminator();                       // 获取终结指令
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令

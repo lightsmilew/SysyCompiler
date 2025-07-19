@@ -1121,6 +1121,13 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
                 changed = true;
         }
     }
+    // 将liveIn和liveOut写回basicBlock
+    for (auto &bbPtr : bbs)
+    {
+        BasicBlock *bb = bbPtr.get();
+        bb->setLiveIn(liveIn[bb]);
+        bb->setLiveOut(liveOut[bb]);
+    }
     if (verbose)
     {
         std::cout << "Live Variable Analysis Pass:\n";
@@ -1130,10 +1137,10 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
             BasicBlock *bb = bbPtr.get();
             std::cout << "BB: " << bb->getName() << "\n";
             std::cout << "  liveIn: ";
-            for (auto *v : liveIn[bb])
+            for (auto *v : bb->getLiveIn())
                 std::cout << v->toRef() << " ";
             std::cout << "\n  liveOut: ";
-            for (auto *v : liveOut[bb])
+            for (auto *v : bb->getLiveOut())
                 std::cout << v->toRef() << " ";
             std::cout << "\n";
         }

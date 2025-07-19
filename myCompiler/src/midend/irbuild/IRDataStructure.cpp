@@ -1112,6 +1112,23 @@ const vector<BasicBlock *> &BasicBlock::getSuccessors() const
 {
     return Successors;
 }
+void BasicBlock::setLiveIn(const std::set<Value *> &liveIn)
+{
+    LiveIn = liveIn;
+
+} // 设置活跃变量集合
+const std::set<Value *> &BasicBlock::getLiveIn() const
+{
+    return LiveIn;
+} // 获取活跃变量集合
+void BasicBlock::setLiveOut(const std::set<Value *> &liveOut)
+{
+    LiveOut = liveOut;
+} // 设置活跃变量集合
+const std::set<Value *> &BasicBlock::getLiveOut() const
+{
+    return LiveOut;
+} // 获取活跃变量集合
 bool BasicBlock::hasTerminator()
 {
     Instruction *term = getTerminator();
