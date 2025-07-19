@@ -24,6 +24,19 @@ bool PassManager::runOnModule(Module *module)
     }
     return changed;
 }
+std::pair<unordered_map<BasicBlock *, std::set<Value *>>,
+          unordered_map<BasicBlock *, std::set<Value *>>>
+PassManager::getLiveSets() const
+{
+    for (const auto &pass : passes)
+    {
+        if (auto livePass = dynamic_cast<LiveVariableAnalysisPass *>(pass.get()))
+        {
+            return {livePass->liveIn, livePass->liveOut};
+        }
+    }
+    return {{}, {}}; // 如果没有找到，返回空集合
+}
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
@@ -807,6 +820,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            // 还要打印输出
+                            needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;
@@ -838,6 +853,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantFloat(FloatType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            // 还要打印输出
+                            needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
                             changed = true;
@@ -877,6 +894,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        // 还要打印输出
+                        needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
                         changed = true;
@@ -915,6 +934,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        // 还要打印输出
+                        needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
                         changed = true;
@@ -1132,18 +1153,18 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O2)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
 
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+    }
+    else if (level == OptimizationLevel::O2)
+    {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 消除phi
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     // 以下为调试内容
     else if (level == OptimizationLevel::O10)
@@ -1178,17 +1199,15 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
-    else if(level==OptimizationLevel::O16)
+    else if (level == OptimizationLevel::O16)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-
-        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<LiveVariableAnalysisPass>(verbose));
     }
     return pm;
 }
