@@ -780,5 +780,5 @@ public:
     string toString() const;
 
     // Debug输出
-    void printBasicBlockInfo(); // 输出基本块后继信息
+    string getBasicBlockInfo();                            // 输出基本块后继信息
 };

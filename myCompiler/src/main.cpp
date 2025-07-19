@@ -23,6 +23,7 @@ int main(int argc, const char *argv[])
     // 1. compiler -S -o testcase.s testcase.sy [-O1]
     // 2. compiler -debug testcase.sy
     bool debugMode = false;
+    bool optMode = false;
     string input_file, output_file;
     optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
     bool emit_riscv = false;
@@ -65,6 +66,7 @@ int main(int argc, const char *argv[])
                 cerr << "Unknown optimization level: " << argv[4] << endl;
                 return 1;
             }
+            optMode = true;
         }
     }
     else if (argc >= 5 && strcmp(argv[1], "-S") == 0 && strcmp(argv[2], "-o") == 0)
@@ -154,7 +156,7 @@ int main(int argc, const char *argv[])
     if (debugMode)
     {
         // 生成输出文件名
-        string before_ir_file = input_file + ".ir";
+        string before_ir_file = output_file + ".ir";
         // 优化级别字符串
         string opt_str;
         switch (opt_level)
@@ -202,20 +204,27 @@ int main(int argc, const char *argv[])
             return 1;
         }
         fout_before << ir_module->toString() << endl;
+        fout_before << ir_module->getBasicBlockInfo() << endl;
+        fout_before << irbuilder.getValueTableInEveryBlock() << endl;
         fout_before.close();
 
-        // 优化
-        pass_manager->runOnModule(ir_module.get());
-
-        // 优化后IR
-        ofstream fout_after(after_ir_file);
-        if (!fout_after)
+        if (optMode)
         {
-            cerr << "Cannot open output file: " << after_ir_file << endl;
-            return 1;
+            // 优化
+            pass_manager->runOnModule(ir_module.get());
+
+            // 优化后IR
+            ofstream fout_after(after_ir_file);
+            if (!fout_after)
+            {
+                cerr << "Cannot open output file: " << after_ir_file << endl;
+                return 1;
+            }
+            fout_after << ir_module->toString() << endl;
+            fout_after << ir_module->getBasicBlockInfo() << endl;
+            fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+            fout_after.close();
         }
-        fout_after << ir_module->toString() << endl;
-        fout_after.close();
 
         return 0;
     }
