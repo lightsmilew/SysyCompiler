@@ -1,13 +1,14 @@
 #!/bin/bash
-#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+PERFORMANCE_DIR="../compiler2023/公开样例与运行时库/performance"
 #INPUT_DIR="debug_cases"
 #OUTPUT_DIR="debug_cases"
 
-#INPUT_DIR="case/performance2025"
-#OUTPUT_DIR="case/performance2025"
-INPUT_DIR="case/functional"
-OUTPUT_DIR="case/functional"
+# INPUT_DIR="case/performance2025"
+# OUTPUT_DIR="case/performance2025"
+# INPUT_DIR="case/functional"
+# OUTPUT_DIR="case/functional"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -56,7 +57,7 @@ elif [ "$1" == "-riscv" ]; then
         done
     fi
 elif [ "$1" == "-transfer" ]; then
-        scp -P 2222 $INPUT_DIR/*.s $INPUT_DIR/*.in $INPUT_DIR/*.out  ubuntu@localhost:/home/ubuntu/riscv
+        scp -P 2222 $INPUT_DIR/*.s $INPUT_DIR/*.in $INPUT_DIR/*.out $PERFORMANCE_DIR/*.s $PERFORMANCE_DIR/*.in $PERFORMANCE_DIR/*.out ubuntu@localhost:/home/ubuntu/riscv
 elif [ "$1" == "-qemu" ]; then
     qemu-system-riscv64 \
       -machine virt \
