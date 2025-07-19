@@ -505,14 +505,15 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
         {
             retValue = createCast(retValue, expectedType, "return");
         }
-        // 如果是main函数要插入一条putint指令
-        if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
-        {
-            // 生成 putint 调用
-            Function *putintFunc = module->getFunction("putint");
-            Vector<Value *> args = {retValue};
-            createCall(putintFunc, args);
-        }
+        //不需要插入putint，测评机使用echo $?拿到返回值
+        // // 如果是main函数要插入一条putint指令
+        // if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
+        // {
+        //     // 生成 putint 调用
+        //     Function *putintFunc = module->getFunction("putint");
+        //     Vector<Value *> args = {retValue};
+        //     createCall(putintFunc, args);
+        // }
         createReturn(retValue);
     }
     else
