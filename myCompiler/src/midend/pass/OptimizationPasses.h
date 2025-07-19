@@ -35,6 +35,8 @@ namespace optimization
         void addPass(std::unique_ptr<Pass> pass);
         bool runOnModule(Module *module);
         void setVerbose(bool v) { verbose = v; }
+        std::pair<unordered_map<BasicBlock *, std::set<Value *>>,
+                  unordered_map<BasicBlock *, std::set<Value *>>> getLiveSets() const; //获取活跃变量
     };
 
     // 1. 死代码消除Pass
@@ -58,7 +60,8 @@ namespace optimization
         {
             std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
         };
-        std::unordered_map<std::pair<std::string, std::vector<std::string>>, Value *, ExpressionHash> exprMap;
+        std::unordered_map<std::pair<std::string, std::vector<std::string>>,
+                                Value *, ExpressionHash> exprMap;
 
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
