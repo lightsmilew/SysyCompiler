@@ -1,14 +1,14 @@
 #!/bin/bash
-INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-PERFORMANCE_DIR="../compiler2023/公开样例与运行时库/performance"
+#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#PERFORMANCE_DIR="../compiler2023/公开样例与运行时库/performance"
 #INPUT_DIR="debug_cases"
 #OUTPUT_DIR="debug_cases"
 
-# INPUT_DIR="case/performance2025"
-# OUTPUT_DIR="case/performance2025"
-# INPUT_DIR="case/functional"
-# OUTPUT_DIR="case/functional"
+#INPUT_DIR="case/final_performance"
+#OUTPUT_DIR="case/final_performance/output"
+ INPUT_DIR="case/functional"
+ OUTPUT_DIR="case/functional/output"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -24,20 +24,29 @@ elif [ "$1" == "-build" ]; then
     cd ../..
 elif [ "$1" == "-ir" ]; then
     mkdir -p "$OUTPUT_DIR"
+    info_flag=""
+    # 检查是否有 -info 参数（支持 -ir -info 或 -ir -O1 -info）
+    if [[ "$2" == "-info" ]]; then
+        info_flag="-info"
+        shift
+    fi
     if [[ "$2" =~ ^-O[0-9]+$ ]]; then
         opt_level="${2#-}"
+        if [[ "$3" == "-info" ]]; then
+            info_flag="-info"
+        fi
         for file in $INPUT_DIR/*.sy; do
             filename=$(basename "$file")
             output_prefix="$OUTPUT_DIR/${filename%.sy}"
-            echo "Processing $filename (IR debug mode, $opt_level)..."
-            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level}
+            echo "Processing $filename (IR debug mode, $opt_level $info_flag)..."
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level} $info_flag
         done
     else
         for file in $INPUT_DIR/*.sy; do
             filename=$(basename "$file")
             output_prefix="$OUTPUT_DIR/${filename%.sy}"
-            echo "Processing $filename (IR debug mode, no opt_level)..."
-            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix"
+            echo "Processing $filename (IR debug mode, no opt_level $info_flag)..."
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" $info_flag
         done
     fi
 elif [ "$1" == "-riscv" ]; then
