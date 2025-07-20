@@ -19,10 +19,7 @@ using namespace ir_builder;
 
 int main(int argc, const char *argv[])
 {
-    // 支持三种模式：
-    // 1. compiler -S -o testcase.s testcase.sy [-O1]
-    // 2. compiler testcase.sy -S -o testcase.s [-O1]
-    // 3. compiler -debug testcase.sy
+    // 支持三种模式，参数顺序和位置均可变
     bool debugMode = false;
     bool infoMode = false;
     bool optMode = false;
@@ -36,127 +33,102 @@ int main(int argc, const char *argv[])
         debugMode = true;
         if (argc < 4)
         {
-            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info]" << endl;
-            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-O0|-O1|...] [-info]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...]" << endl;
             return 1;
         }
         input_file = argv[2];
         output_file = argv[3];
-        if (argc > 4 && strcmp(argv[4], "-info") == 0)
+        for (int i = 4; i < argc; ++i)
         {
-            infoMode = true;
-        }
-        if (argc > 4)
-        {
-            if (strcmp(argv[4], "-O0") == 0)
-                opt_level = optimization::OptimizationLevel::O0;
-            else if (strcmp(argv[4], "-O1") == 0)
-                opt_level = optimization::OptimizationLevel::O1;
-            else if (strcmp(argv[4], "-O2") == 0)
-                opt_level = optimization::OptimizationLevel::O2;
-            else if (strcmp(argv[4], "-O10") == 0)
-                opt_level = optimization::OptimizationLevel::O10;
-            else if (strcmp(argv[4], "-O11") == 0)
-                opt_level = optimization::OptimizationLevel::O11;
-            else if (strcmp(argv[4], "-O12") == 0)
-                opt_level = optimization::OptimizationLevel::O12;
-            else if (strcmp(argv[4], "-O13") == 0)
-                opt_level = optimization::OptimizationLevel::O13;
-            else if (strcmp(argv[4], "-O14") == 0)
-                opt_level = optimization::OptimizationLevel::O14;
-            else if (strcmp(argv[4], "-O15") == 0)
-                opt_level = optimization::OptimizationLevel::O15;
-            else if (strcmp(argv[4], "-O16") == 0)
-                opt_level = optimization::OptimizationLevel::O16;
-            else
-            {
-                cerr << "Unknown optimization level: " << argv[4] << endl;
-                return 1;
-            }
-            if (argc > 5 && strcmp(argv[5], "-info") == 0)
-            {
+            if (strcmp(argv[i], "-info") == 0)
                 infoMode = true;
-            }
-            optMode = true;
-        }
-    }
-    // 兼容格式1：compiler -S -o testcase.s testcase.sy [-O1]
-    else if (argc >= 5 && strcmp(argv[1], "-S") == 0 && strcmp(argv[2], "-o") == 0)
-    {
-        emit_riscv = true;
-        output_file = argv[3];
-        input_file = argv[4];
-        if (argc > 5)
-        {
-            if (strcmp(argv[5], "-O0") == 0)
-                opt_level = optimization::OptimizationLevel::O0;
-            else if (strcmp(argv[5], "-O1") == 0)
-                opt_level = optimization::OptimizationLevel::O1;
-            else if (strcmp(argv[5], "-O2") == 0)
-                opt_level = optimization::OptimizationLevel::O2;
-            else if (strcmp(argv[5], "-O10") == 0)
-                opt_level = optimization::OptimizationLevel::O10;
-            else if (strcmp(argv[5], "-O11") == 0)
-                opt_level = optimization::OptimizationLevel::O11;
-            else if (strcmp(argv[5], "-O12") == 0)
-                opt_level = optimization::OptimizationLevel::O12;
-            else if (strcmp(argv[5], "-O13") == 0)
-                opt_level = optimization::OptimizationLevel::O13;
-            else if (strcmp(argv[5], "-O14") == 0)
-                opt_level = optimization::OptimizationLevel::O14;
-            else if (strcmp(argv[5], "-O15") == 0)
-                opt_level = optimization::OptimizationLevel::O15;
-            else if (strcmp(argv[5], "-O16") == 0)
-                opt_level = optimization::OptimizationLevel::O16;
-            else
+            else if (strncmp(argv[i], "-O", 2) == 0)
             {
-                cerr << "Unknown optimization level: " << argv[5] << endl;
-                return 1;
-            }
-        }
-    }
-    // 兼容格式2：compiler testcase.sy -S -o testcase.s [-O1]
-    else if (argc >= 5 && strcmp(argv[2], "-S") == 0 && strcmp(argv[3], "-o") == 0)
-    {
-        emit_riscv = true;
-        input_file = argv[1];
-        output_file = argv[4];
-        if (argc > 5)
-        {
-            if (strcmp(argv[5], "-O0") == 0)
-                opt_level = optimization::OptimizationLevel::O0;
-            else if (strcmp(argv[5], "-O1") == 0)
-                opt_level = optimization::OptimizationLevel::O1;
-            else if (strcmp(argv[5], "-O2") == 0)
-                opt_level = optimization::OptimizationLevel::O2;
-            else if (strcmp(argv[5], "-O10") == 0)
-                opt_level = optimization::OptimizationLevel::O10;
-            else if (strcmp(argv[5], "-O11") == 0)
-                opt_level = optimization::OptimizationLevel::O11;
-            else if (strcmp(argv[5], "-O12") == 0)
-                opt_level = optimization::OptimizationLevel::O12;
-            else if (strcmp(argv[5], "-O13") == 0)
-                opt_level = optimization::OptimizationLevel::O13;
-            else if (strcmp(argv[5], "-O14") == 0)
-                opt_level = optimization::OptimizationLevel::O14;
-            else if (strcmp(argv[5], "-O15") == 0)
-                opt_level = optimization::OptimizationLevel::O15;
-            else if (strcmp(argv[5], "-O16") == 0)
-                opt_level = optimization::OptimizationLevel::O16;
-            else
-            {
-                cerr << "Unknown optimization level: " << argv[5] << endl;
-                return 1;
+                string optstr = argv[i];
+                if (optstr == "-O0")
+                    opt_level = optimization::OptimizationLevel::O0;
+                else if (optstr == "-O1")
+                    opt_level = optimization::OptimizationLevel::O1;
+                else if (optstr == "-O2")
+                    opt_level = optimization::OptimizationLevel::O2;
+                else if (optstr == "-O10")
+                    opt_level = optimization::OptimizationLevel::O10;
+                else if (optstr == "-O11")
+                    opt_level = optimization::OptimizationLevel::O11;
+                else if (optstr == "-O12")
+                    opt_level = optimization::OptimizationLevel::O12;
+                else if (optstr == "-O13")
+                    opt_level = optimization::OptimizationLevel::O13;
+                else if (optstr == "-O14")
+                    opt_level = optimization::OptimizationLevel::O14;
+                else if (optstr == "-O15")
+                    opt_level = optimization::OptimizationLevel::O15;
+                else if (optstr == "-O16")
+                    opt_level = optimization::OptimizationLevel::O16;
+                else
+                {
+                    cerr << "Unknown optimization level: " << argv[i] << endl;
+                    return 1;
+                }
+                optMode = true;
             }
         }
     }
     else
     {
-        cerr << "Usage:\n"
-             << "  compiler -S -o <output.s> <input.sy> [-O0|-O1|-O2|...]\n"
-             << "  compiler <input.sy> -S -o <output.s> [-O0|-O1|-O2|...]\n"
-             << "  compiler -debug <input.sy>\n";
-        return 1;
+        // 自动识别输入/输出文件和参数
+        for (int i = 1; i < argc; ++i)
+        {
+            if (strcmp(argv[i], "-S") == 0)
+                emit_riscv = true;
+            else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
+                output_file = argv[++i];
+            else if (strncmp(argv[i], "-O", 2) == 0)
+            {
+                string optstr = argv[i];
+                if (optstr == "-O0")
+                    opt_level = optimization::OptimizationLevel::O0;
+                else if (optstr == "-O1")
+                    opt_level = optimization::OptimizationLevel::O1;
+                else if (optstr == "-O2")
+                    opt_level = optimization::OptimizationLevel::O2;
+                else if (optstr == "-O10")
+                    opt_level = optimization::OptimizationLevel::O10;
+                else if (optstr == "-O11")
+                    opt_level = optimization::OptimizationLevel::O11;
+                else if (optstr == "-O12")
+                    opt_level = optimization::OptimizationLevel::O12;
+                else if (optstr == "-O13")
+                    opt_level = optimization::OptimizationLevel::O13;
+                else if (optstr == "-O14")
+                    opt_level = optimization::OptimizationLevel::O14;
+                else if (optstr == "-O15")
+                    opt_level = optimization::OptimizationLevel::O15;
+                else if (optstr == "-O16")
+                    opt_level = optimization::OptimizationLevel::O16;
+                else
+                {
+                    cerr << "Unknown optimization level: " << argv[i] << endl;
+                    return 1;
+                }
+            }
+            // 源文件识别：以.sy结尾
+            else if (strlen(argv[i]) > 3 && strcmp(argv[i] + strlen(argv[i]) - 3, ".sy") == 0)
+                input_file = argv[i];
+            // 汇编文件识别：以.s结尾
+            else if (strlen(argv[i]) > 2 && strcmp(argv[i] + strlen(argv[i]) - 2, ".s") == 0)
+                output_file = argv[i];
+        }
+        if (!emit_riscv || input_file.empty() || output_file.empty())
+        {
+            cerr << "Usage:\n"
+                 << "  参数顺序可变，示例：\n"
+                 << "    compiler -S -o <output.s> <input.sy> [-O0|-O1|-O2|...]\n"
+                 << "    compiler <input.sy> -S -o <output.s> [-O0|-O1|-O2|...]\n"
+                 << "    compiler -o <output.s> -S <input.sy> [-O0|-O1|-O2|...]\n"
+                 << "    compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...]\n";
+            return 1;
+        }
     }
 
     ifstream f_stream(input_file);
@@ -205,7 +177,6 @@ int main(int argc, const char *argv[])
     {
         // 生成输出文件名
         string before_ir_file = output_file + ".ir";
-        // 优化级别字符串
         string opt_str;
         switch (opt_level)
         {
@@ -244,7 +215,6 @@ int main(int argc, const char *argv[])
         }
         string after_ir_file = output_file + ".ir.opt" + opt_str;
 
-        // 优化前IR
         ofstream fout_before(before_ir_file);
         if (!fout_before)
         {
@@ -257,15 +227,11 @@ int main(int argc, const char *argv[])
             fout_before << ir_module->getBasicBlockInfo() << endl;
             fout_before << irbuilder.getValueTableInEveryBlock() << endl;
         }
-
         fout_before.close();
 
         if (optMode)
         {
-            // 优化
             pass_manager->runOnModule(ir_module.get());
-
-            // 优化后IR
             ofstream fout_after(after_ir_file);
             if (!fout_after)
             {
@@ -280,7 +246,6 @@ int main(int argc, const char *argv[])
             }
             fout_after.close();
         }
-
         return 0;
     }
 
