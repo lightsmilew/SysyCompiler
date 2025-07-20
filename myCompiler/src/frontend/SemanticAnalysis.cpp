@@ -144,10 +144,12 @@ PrimaryDataType TypeCheckerVisitor::getExpressionType(shared_ptr<ExprNode> expr)
     {
       return PrimaryDataType::VOID;
     }
-    if (!symbol->isInitialized)
-    {
-      addError("Variable '" + lval->identifier + "' is not initialized before use");
-    }
+    //可以未初始化就使用
+    //这个时候默认为0，中端处理
+    // if (!symbol->isInitialized)
+    // {
+    //   addError("Variable '" + lval->identifier + "' is not initialized before use");
+    // }
     visitLValueExpr(lval);
     // 复用已经查找到的symbol，避免重复查找
     return symbol->type.baseType;
@@ -221,12 +223,13 @@ bool TypeCheckerVisitor::exprChecker(shared_ptr<ExprNode> expr, bool isConst)
     {
       return false; // 如果变量未找到，返回false
     }
-
-    if (!symbol->isInitialized && !inFunctionCall && !symbol->type.isArray())
-    {
-      addError("Variable '" + lval->identifier + "' is not initialized before use");
-      return false; // 如果变量未初始化，直接返回false}
-    }
+    //可以未初始化就使用
+    //这个时候默认为0，中端处理
+    // if (!symbol->isInitialized && !inFunctionCall && !symbol->type.isArray())
+    // {
+    //   addError("Variable '" + lval->identifier + "' is not initialized before use");
+    //   return false; // 如果变量未初始化，直接返回false}
+    // }
 
     // 复用已经查找到的symbol，避免重复查找
     // 变量不允许在常量表达式中出现

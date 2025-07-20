@@ -1141,8 +1141,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        // 不进行任何优化
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
@@ -1157,7 +1156,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O2)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
