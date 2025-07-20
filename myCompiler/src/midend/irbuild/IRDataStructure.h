@@ -700,8 +700,8 @@ public:
     vector<BasicBlock *> Predecessors;
     vector<BasicBlock *> Successors;
     //活跃变量
-    std::set<Value *> LiveIn;  // 活跃变量集合
-    std::set<Value *> LiveOut; // 活跃变量集合
+    std::set<std::string> LiveIn;  // 活跃变量集合
+    std::set<std::string> LiveOut; // 活跃变量集合
     BasicBlock(const string &name = "", Function *parent = nullptr)
         : Value(VoidType::getInstance(), name), Parent(parent) {}
     
@@ -714,10 +714,10 @@ public:
     void removeSuccessor(BasicBlock *succ);                         // 移除后继基本块
     const vector<BasicBlock *> &getPredecessors() const;            // 获取前驱基本块
     const vector<BasicBlock *> &getSuccessors() const;              // 获取后继基本块
-    void setLiveIn(const std::set<Value *> &liveIn);                // 设置活跃变量集合
-    const std::set<Value *> &getLiveIn() const;                     // 获取活跃变量集合
-    void setLiveOut(const std::set<Value *> &liveOut);              // 设置活跃变量集合
-    const std::set<Value *> &getLiveOut() const;                    // 获取活跃变量集合
+    void setLiveIn(const std::set<std::string> &liveIn);            // 设置活跃变量集合
+    const std::set<std::string > &getLiveIn() const;                // 获取活跃变量集合
+    void setLiveOut(const std::set<std::string> &liveOut);          // 设置活跃变量集合
+    const std::set<std::string > &getLiveOut() const;               // 获取活跃变量集合
 
     Instruction *getTerminator();                       // 获取终结指令
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令

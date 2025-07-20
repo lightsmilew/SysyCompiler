@@ -24,6 +24,16 @@ bool PassManager::runOnModule(Module *module)
     }
     return changed;
 }
+std::string PassManager::toString() const
+{
+    std::stringstream ss;
+    for (const auto &pass : passes)
+    {
+        ss << pass->getName() << ": \n"
+           << pass->toString() << "\n";
+    }
+    return ss.str();
+}
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
@@ -306,8 +316,6 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                 }
             }
         }
-        // 调试输出
-        // cout<<"Removed Instructions: "<<count<<endl;
     } while (localChanged);
     return changed;
 }
@@ -418,14 +426,17 @@ vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops
         }
     }
     // 调试输出
-
-    // for(auto &loop : loops)
-    // {
-    //     cout << "Loop Header: " << loop.header->getName() << ", Blocks: ";
-    //     for (auto *bb : loop.blocks)
-    //         cout << bb->getName() << " ";
-    //     cout << endl;
-    // }
+    if (verbose)
+    {
+        debugInfo << "Found " << loops.size() << " loops in function " << func->getName() << ":\n";
+        for (auto &loop : loops)
+        {
+            debugInfo << "Loop Header: " << loop.header->getName() << ", Blocks: ";
+            for (auto *bb : loop.blocks)
+                debugInfo << bb->getName() << " ";
+            debugInfo << "\n";
+        }
+    }
     return loops;
 }
 
@@ -992,6 +1003,8 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 pred->insertBeforeTerminator(std::move(copyInst));
             }
             // 从基本块中删除原来指令，phi对应value仍然保留
+            // 从所有phi的操作数中删除自己
+            phi->removeThisFromOperands();
             needToDelete.push_back(it->release());
             it = insts.erase(it);
             changed = true;
@@ -1027,12 +1040,12 @@ bool PhiEliminationPass::runOnFunction(Function *func)
 }
 
 // 活跃变量分析 Pass 实现
+// 修改 runOnFunction 实现
 bool LiveVariableAnalysisPass::runOnFunction(Function *func)
 {
     liveIn.clear();
     liveOut.clear();
 
-    // 初始化
     auto &bbs = func->getBasicBlocks();
     for (auto &bbPtr : bbs)
     {
@@ -1041,66 +1054,84 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
         liveOut[bb] = {};
     }
 
+    // 正确收集每个基本块的def和use集合
+    std::unordered_map<BasicBlock *, std::set<std::string>> defMap, useMap;
+    for (auto &bbPtr : bbs)
+    {
+        BasicBlock *bb = bbPtr.get();
+        std::set<std::string> def, use;
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            // 处理操作数
+            if (auto *call = dynamic_cast<CallInst *>(inst))
+            {
+                for (size_t i = 1; i < call->getNumOperands(); ++i)
+                {
+                    Value *op = call->getOperandByIndex(i);
+                    if (dynamic_cast<Constant *>(op))
+                        continue;
+                    std::string name = op->getName();
+                    if (def.count(name) == 0 && use.count(name) == 0)
+                        use.insert(name);
+                }
+            }
+            else
+            {
+                for (auto *op : inst->getOperands())
+                {
+                    if (dynamic_cast<Constant *>(op))
+                        continue;
+                    std::string name = op->getName();
+                    if (def.count(name) == 0 && use.count(name) == 0)
+                        use.insert(name);
+                }
+            }
+            // 处理定义
+            if (inst->hasResult())
+                def.insert(inst->getName());
+        }
+        defMap[bb] = def;
+        useMap[bb] = use;
+    }
+
+    if (verbose)
+    {
+        debugInfo << func->getName() << " Def/Use Sets:\n";
+        for (auto &bbPtr : bbs)
+        {
+            BasicBlock *bb = bbPtr.get();
+            debugInfo << "BB: " << bb->getName() << "\n";
+            debugInfo << "  Def: ";
+            for (auto &v : defMap[bb])
+                debugInfo << v << " ";
+            debugInfo << "\n  Use: ";
+            for (auto &v : useMap[bb])
+                debugInfo << v << " ";
+            debugInfo << "\n";
+        }
+    }
+
     bool changed = true;
     while (changed)
     {
         changed = false;
-        // 逆序遍历基本块更快收敛
         for (auto it = bbs.rbegin(); it != bbs.rend(); ++it)
         {
             BasicBlock *bb = it->get();
-            std::set<Value *> oldIn = liveIn[bb];
-            std::set<Value *> oldOut = liveOut[bb];
+            std::set<std::string> oldIn = liveIn[bb];
+            std::set<std::string> oldOut = liveOut[bb];
 
             // liveOut[bb] = 并集(succ的liveIn)
             liveOut[bb].clear();
             for (auto *succ : bb->getSuccessors())
-            {
                 liveOut[bb].insert(liveIn[succ].begin(), liveIn[succ].end());
-            }
 
-            // use/def集合
-            std::set<Value *> use, def;
-            for (auto &instPtr : bb->getInstructions())
+            // liveIn[bb] = use[bb] ∪ (liveOut[bb] - def[bb])
+            liveIn[bb] = useMap[bb];
+            for (auto &v : liveOut[bb])
             {
-                Instruction *inst = instPtr.get();
-                // def: 被定义的变量
-                if (inst->hasResult())
-                {
-                    def.insert(inst);
-                }
-                // use: 所有操作数，且未被def过
-                if (auto *call = dynamic_cast<CallInst *>(inst))
-                {
-                    // 跳过第一个操作数（函数名），只统计参数
-                    for (size_t i = 1; i < call->getNumOperands(); ++i)
-                    {
-                        Value *op = call->getOperandByIndex(i);
-                        // 跳过常量
-                        if (dynamic_cast<Constant *>(op))
-                            continue;
-                        if (def.count(op) == 0)
-                            use.insert(op);
-                    }
-                }
-                else
-                {
-                    for (auto *op : inst->getOperands())
-                    {
-                        // 跳过常量
-                        if (dynamic_cast<Constant *>(op))
-                            continue;
-                        if (def.count(op) == 0)
-                            use.insert(op);
-                    }
-                }
-            }
-
-            // liveIn[bb] = use ∪ (liveOut[bb] - def)
-            liveIn[bb] = use;
-            for (auto *v : liveOut[bb])
-            {
-                if (def.count(v) == 0)
+                if (defMap[bb].count(v) == 0)
                     liveIn[bb].insert(v);
             }
 
@@ -1108,7 +1139,6 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
                 changed = true;
         }
     }
-    // 将liveIn和liveOut写回basicBlock
     for (auto &bbPtr : bbs)
     {
         BasicBlock *bb = bbPtr.get();
@@ -1117,19 +1147,19 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
     }
     if (verbose)
     {
-        std::cout << "Live Variable Analysis Pass:\n";
-        // 调试输出
+        debugInfo << func->getName() << " Live Variable Analysis:\n";
+        debugInfo << "  Total Basic Blocks: " << bbs.size() << "\n";
         for (auto &bbPtr : bbs)
         {
             BasicBlock *bb = bbPtr.get();
-            std::cout << "BB: " << bb->getName() << "\n";
-            std::cout << "  liveIn: ";
-            for (auto *v : bb->getLiveIn())
-                std::cout << v->toRef() << " ";
-            std::cout << "\n  liveOut: ";
-            for (auto *v : bb->getLiveOut())
-                std::cout << v->toRef() << " ";
-            std::cout << "\n";
+            debugInfo << "BB: " << bb->getName() << "\n";
+            debugInfo << "  liveIn: ";
+            for (auto &v : liveIn[bb])
+                debugInfo << v << " ";
+            debugInfo << "\n  liveOut: ";
+            for (auto &v : liveOut[bb])
+                debugInfo << v << " ";
+            debugInfo << "\n";
         }
     }
     return false;

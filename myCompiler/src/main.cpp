@@ -215,22 +215,25 @@ int main(int argc, const char *argv[])
         }
         string after_ir_file = output_file + ".ir.opt" + opt_str;
 
-        ofstream fout_before(before_ir_file);
-        if (!fout_before)
+        if (!optMode)
         {
-            cerr << "Cannot open output file: " << before_ir_file << endl;
-            return 1;
+            ofstream fout_before(before_ir_file);
+            if (!fout_before)
+            {
+                cerr << "Cannot open output file: " << before_ir_file << endl;
+                return 1;
+            }
+            fout_before << ir_module->toString() << endl;
+            if (infoMode)
+            {
+                fout_before << ir_module->getBasicBlockInfo() << endl;
+                fout_before << irbuilder.getValueTableInEveryBlock() << endl;
+            }
+            fout_before.close();
         }
-        fout_before << ir_module->toString() << endl;
-        if (infoMode)
+        else
         {
-            fout_before << ir_module->getBasicBlockInfo() << endl;
-            fout_before << irbuilder.getValueTableInEveryBlock() << endl;
-        }
-        fout_before.close();
-
-        if (optMode)
-        {
+            pass_manager->setVerbose(true);
             pass_manager->runOnModule(ir_module.get());
             ofstream fout_after(after_ir_file);
             if (!fout_after)
@@ -241,8 +244,8 @@ int main(int argc, const char *argv[])
             fout_after << ir_module->toString() << endl;
             if (infoMode)
             {
-                fout_after << ir_module->getBasicBlockInfo() << endl;
-                fout_after << irbuilder.getValueTableInEveryBlock() << endl;
+                // 输出优化Pass调试信息
+                fout_after << pass_manager->toString() << endl;
             }
             fout_after.close();
         }

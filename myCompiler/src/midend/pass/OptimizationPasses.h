@@ -6,6 +6,7 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <sstream>
 
 namespace optimization
 {
@@ -14,12 +15,14 @@ namespace optimization
     class Pass
     {
     public:
-        vector<Value *> needToDelete; // 存储需要删除的值
         bool verbose;
+        vector<Value *> needToDelete; // 存储需要删除的值
+        std::stringstream debugInfo;  // 用于调试输出
         Pass(bool verbose = false) : verbose(verbose) {}
         virtual ~Pass() = default;
         virtual bool runOnFunction(Function *func) = 0;
-        virtual string getName() const = 0;
+        virtual std::string getName() const = 0;
+        std::string toString() const { return debugInfo.str(); } // 返回调试信息;
     };
 
     // Pass管理器
@@ -42,6 +45,8 @@ namespace optimization
                 pass->verbose = v;
             }
         }
+        // 输出调试信息
+        std::string toString() const;
     };
 
     // 1. 死代码消除Pass
@@ -126,8 +131,8 @@ namespace optimization
     {
     public:
         ConstantFoldingPass(bool verbose = false) : Pass(verbose) {}
-        std::string getName() const override { return "ConstantFoldingPass"; }
         bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ConstantFoldingPass"; }
     };
     // 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
     class PhiEliminationPass : public Pass
@@ -135,7 +140,7 @@ namespace optimization
     public:
         PhiEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        string getName() const override { return "PhiElimination"; }
+        std::string getName() const override { return "PhiElimination"; }
     };
     // 7. 活跃变量分析 Pass（Live Variable Analysis）
     // liveIn
@@ -150,7 +155,7 @@ namespace optimization
     {
     public:
         // 每个基本块的liveIn/liveOut集合
-        std::unordered_map<BasicBlock *, std::set<Value *>> liveIn, liveOut;
+        std::unordered_map<BasicBlock *, std::set<std::string>> liveIn, liveOut;
 
         LiveVariableAnalysisPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
