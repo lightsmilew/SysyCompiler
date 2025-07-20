@@ -70,9 +70,9 @@ namespace optimization
         {
             std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
         };
-        std::unordered_map<std::pair<std::string, std::vector<std::string>>,
-                           Value *, ExpressionHash>
-            exprMap;
+    // exprMap: key -> pair<inst, bb>
+    using ExprKey = std::pair<std::string, std::vector<std::string>>;
+    std::unordered_map<ExprKey, std::pair<Instruction*, BasicBlock*>, ExpressionHash> exprMap;
 
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
@@ -81,7 +81,10 @@ namespace optimization
 
     private:
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
-        bool canBeCommonSubexpression(Instruction *inst);
+        bool canBeCommonSubexpression(Instruction *inst,BasicBlock *bb);
+        bool isLoadFromInvariantAddress(Instruction *inst,BasicBlock *bb);
+        static bool dominates(BasicBlock *storeBB, BasicBlock *loadBB);
+        // 检查Load指令的地址是否只被唯一Store且无其他写
     };
 
     // 3. 循环不变代码外提Pass

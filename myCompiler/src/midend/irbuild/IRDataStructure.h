@@ -723,6 +723,7 @@ public:
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令
     bool hasTerminator();                               // 检查是否有终结指令
     bool containsByName(Instruction *inst) const;       // 判断是否包含特定指令(通过名称)
+    int getInstructionOrder(Instruction *inst) const;// 获取指令在基本块中的顺序
     string toString() const override;
 };
 

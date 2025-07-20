@@ -1143,6 +1143,17 @@ bool BasicBlock::containsByName(Instruction *inst) const
                            return i->getName() == name;
                        });
 }
+int BasicBlock::getInstructionOrder(Instruction *inst) const
+{
+    for (int i = 0; i < Instructions.size(); ++i)
+    {
+        if (Instructions[i].get() == inst)
+        {
+            return i;
+        }
+    }
+    return -1; // Not found
+}
 std::string BasicBlock::toString() const
 {
     std::stringstream ss;
