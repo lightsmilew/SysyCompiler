@@ -306,6 +306,13 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             // 数组用内存模型
             Value *alloca = createAlloca(varType);
             varToValue[node->identifier] = alloca;
+            // 这里增加一个空块用于后端写入数组初始化赋值
+            BasicBlock *arrayInitBlock = createBasicBlock(debugMode ? "array_init." + node->identifier : "");
+            BasicBlock *arrayInitEndBlock = createBasicBlock(debugMode ? "array_init_end." + node->identifier : "");
+            createBranch(arrayInitBlock);
+            setCurrentBlock(arrayInitBlock);
+            createBranch(arrayInitEndBlock);
+            setCurrentBlock(arrayInitEndBlock);
             if (node->initializer && !node->type.isConst())
             {
                 visitArrayInitExpr(node->initializer, varType, alloca);
