@@ -8,11 +8,13 @@ private:
     Function *irFunction; // 保存IR函数引用
     shared_ptr<RISCVFunction> currentFunc;
     shared_ptr<RISCVBasicBlock> currentBB;
-    unordered_map<string, shared_ptr<RISCVRegister>> registerMap; // IR值名字到寄存器的映射
-    vector<shared_ptr<RISCVRegister>> tempRegisters;              // temp寄存器
+    unordered_map<string, shared_ptr<RISCVRegister>> registerMap;  // IR值名字到寄存器的映射
+    vector<shared_ptr<RISCVRegister>> tempRegisters;               // temp寄存器
+    unordered_map<string, shared_ptr<RISCVRegister>> globalVarMap; // 全局变量映射
+    unordered_map<string, shared_ptr<RISCVRegister>> MoveArgMap;   // 临时寄存器到参数寄存器的映射
 
 public:
-    InstructionSelector() = default;
+    InstructionSelector() {}
     // 为函数生成指令
     void selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc);
 
@@ -41,4 +43,21 @@ private:
     shared_ptr<RISCVRegister> LiFloat(float floatValue);
     shared_ptr<RISCVRegister> LaGlobl(GlobalVariable *globlvar);
     shared_ptr<RISCVRegister> getTempReg();
+
+    // 参数传递解耦函数
+    void DealArgumentsInStart(); // 处理函数参数
+    unordered_map<string, shared_ptr<RISCVRegister>> *moveCallerArgsTwoPhase();
+    void move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap);
+    shared_ptr<RISCVRegister> getCallerArgReg(Argument *arg, size_t index);
+    shared_ptr<RISCVRegister> getArgReg(const string &argName);
+
+    // 数据流分析
+    // Step 1: 计算每个基本块的 USE 和 DEF 集合
+    // Step 2: 计算每个基本块的 liveIn 和 liveOut 集合
+    // Step 3: 基于 liveIn/liveOut 计算每个寄存器的活跃区间
+    // Step 4: 优化和合并重叠的活跃区间
+    void buildControlFlowGraph();
+    void computeBasicBlockUseDef();
+    void computeLiveInOut();
+    void computeLiveRanges();
 };

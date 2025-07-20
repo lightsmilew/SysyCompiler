@@ -1,5 +1,6 @@
 myCompiler/build/
 myCompiler/3rd_party/
+myCompiler/src/.antlr
 .vscode/
 debug_case/*
 case/**/*

@@ -201,31 +201,6 @@ namespace RISCV
         }
     }
 
-    bool RISCVInstruction::usesRegister(shared_ptr<RISCVRegister> reg) const
-    {
-        // 检查源操作数
-        for (size_t i = 1; i < operands.size(); ++i)
-        {
-            if (operands[i]->getType() == RISCVOperand::Type::REGISTER &&
-                *operands[i]->getReg() == *reg)
-                return true;
-            if (operands[i]->getType() == RISCVOperand::Type::MEMORY &&
-                *operands[i]->getReg() == *reg)
-                return true;
-        }
-        return false;
-    }
-
-    bool RISCVInstruction::definesRegister(shared_ptr<RISCVRegister> reg) const
-    {
-        // 检查目标操作数（通常是第一个操作数）
-        if (!operands.empty() &&
-            operands[0]->getType() == RISCVOperand::Type::REGISTER &&
-            *operands[0]->getReg() == *reg)
-            return true;
-        return false;
-    }
-
     string RISCVInstruction::toString() const
     {
         std::stringstream ss;
@@ -425,7 +400,7 @@ namespace RISCV
     // StackFrame 实现
     int StackFrame::getTotalSize() const
     {
-        return valueStackSize + raStackSize + argStackSize + saveArgs;
+        return valueStackSize + raStackSize + argStackSize;
     }
 
     int StackFrame::allocateValueSpace(const string &valueName, int size)
@@ -446,17 +421,6 @@ namespace RISCV
         return offset;
     }
 
-    int StackFrame::allocateCallerArgSpace(int ArgNumber, int size)
-    {
-        int offset = callerArgOffset;
-        callerToOffset[ArgNumber] = offset;
-        callerArgOffset += size;
-
-        saveArgs += size;
-
-        return offset;
-    }
-
     int StackFrame::allocateCalleeArgSpace(int ArgNumber, int size)
     {
         int offset = calleeArgOffset;
@@ -464,6 +428,11 @@ namespace RISCV
         calleeArgOffset += size;
 
         return offset;
+    }
+    int StackFrame::allocateRaSpace(int size)
+    {
+        raStackSize = size;
+        return 0;
     }
     int StackFrame::getValueOffset(const string &valueName) const
     {
@@ -475,17 +444,13 @@ namespace RISCV
         throw std::runtime_error("Value not found in stack frame");
     }
 
-    int StackFrame::getCallerArgOffset(int ArgNumber) const
+    int StackFrame::getCallerArgOffset(int ArgSize)
     {
-        auto it = callerToOffset.find(ArgNumber);
-        if (it != callerToOffset.end())
-        {
-            return it->second + valueStackSize + argStackSize;
-        }
-
-        // 如果没有就返回-1
-        return -1;
+        int offset = callerArgOffset;
+        callerArgOffset += ArgSize;
+        return offset + getAlignedSize();
     }
+
     int StackFrame::getCalleeArgOffset(int ArgNumber) const
     {
         auto it = calleeToOffset.find(ArgNumber);
@@ -852,4 +817,211 @@ namespace RISCV
         instr->operands = {make_shared<RISCVOperand>(name), make_shared<RISCVOperand>(offset), make_shared<RISCVOperand>(size)};
         return instr;
     }
+
+    // RISCVInstruction 活跃性分析方法实现
+
+    vector<shared_ptr<RISCVRegister>> RISCVInstruction::getUseRegisters() const
+    {
+        vector<shared_ptr<RISCVRegister>> useRegs;
+
+        switch (instrType)
+        {
+        case InstructionType::R_TYPE:
+            // R-Type: op rd, rs1, rs2 -> use: rs1, rs2
+            if (operands.size() >= 3)
+            {
+                if (isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+                if (isRegisterOperand(operands[2]))
+                {
+                    useRegs.push_back(operands[2]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::I_TYPE:
+            // I-Type: op rd, rs1, imm -> use: rs1
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::S_TYPE:
+            // S-Type: op rs2, imm(rs1) -> use: rs1, rs2
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[0]))
+                {
+                    useRegs.push_back(operands[0]->getReg());
+                }
+                if (isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::B_TYPE:
+            // B-Type: op rs1, rs2, label -> use: rs1, rs2
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[0]))
+                {
+                    useRegs.push_back(operands[0]->getReg());
+                }
+                if (isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::U_TYPE:
+            // U-Type: op rd, imm -> use: none
+            break;
+
+        case InstructionType::J_TYPE:
+            // J-Type: op rd, label -> use: none (except for JALR)
+            if (opcode == RISCVOpcode::JALR && operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::PSEUDO:
+            // 伪指令需要特殊处理
+            switch (opcode)
+            {
+            case RISCVOpcode::MV:
+            case RISCVOpcode::FMV_S:
+            case RISCVOpcode::FMV_W_X:
+            case RISCVOpcode::FMV_X_W:
+            case RISCVOpcode::FCVT_S_W:
+            case RISCVOpcode::FCVT_W_S:
+                // mv rd, rs -> use: rs
+                if (operands.size() >= 2 && isRegisterOperand(operands[1]))
+                {
+                    useRegs.push_back(operands[1]->getReg());
+                }
+                break;
+
+            case RISCVOpcode::LI:
+            case RISCVOpcode::LA:
+                // li rd, imm / la rd, label -> use: none
+                break;
+
+            case RISCVOpcode::CALL:
+                // call label -> use: none (参数寄存器的使用由调用约定处理)
+                break;
+
+            case RISCVOpcode::RET:
+                // ret -> use: ra (隐式)
+                // 这里可以添加对ra寄存器的使用，但通常由调用约定处理
+                break;
+
+            default:
+                // 其他伪指令按照操作数顺序处理（除第一个外都是use）
+                for (size_t i = 1; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]))
+                    {
+                        useRegs.push_back(operands[i]->getReg());
+                    }
+                }
+                break;
+            }
+            break;
+        }
+
+        return useRegs;
+    }
+
+    vector<shared_ptr<RISCVRegister>> RISCVInstruction::getDefRegisters() const
+    {
+        vector<shared_ptr<RISCVRegister>> defRegs;
+
+        switch (instrType)
+        {
+        case InstructionType::R_TYPE:
+        case InstructionType::I_TYPE:
+        case InstructionType::U_TYPE:
+            // R/I/U-Type: op rd, ... -> def: rd
+            if (!operands.empty() && isRegisterOperand(operands[0]))
+            {
+                defRegs.push_back(operands[0]->getReg());
+            }
+            break;
+
+        case InstructionType::S_TYPE:
+        case InstructionType::B_TYPE:
+            // S/B-Type: 不定义寄存器
+            break;
+
+        case InstructionType::J_TYPE:
+            // J-Type: jal rd, label -> def: rd
+            if (opcode == RISCVOpcode::JAL || opcode == RISCVOpcode::JALR)
+            {
+                if (!operands.empty() && isRegisterOperand(operands[0]))
+                {
+                    defRegs.push_back(operands[0]->getReg());
+                }
+            }
+            break;
+
+        case InstructionType::PSEUDO:
+            // 伪指令需要特殊处理
+            switch (opcode)
+            {
+            case RISCVOpcode::MV:
+            case RISCVOpcode::FMV_S:
+            case RISCVOpcode::FMV_W_X:
+            case RISCVOpcode::FMV_X_W:
+            case RISCVOpcode::FCVT_S_W:
+            case RISCVOpcode::FCVT_W_S:
+            case RISCVOpcode::LI:
+            case RISCVOpcode::LA:
+                // 这些指令定义第一个操作数
+                if (!operands.empty() && isRegisterOperand(operands[0]))
+                {
+                    defRegs.push_back(operands[0]->getReg());
+                }
+                break;
+
+            case RISCVOpcode::CALL:
+                // call指令隐式定义ra寄存器和调用约定寄存器
+                // 这里可以添加，但通常由调用约定处理
+                break;
+
+            case RISCVOpcode::RET:
+                // ret指令不定义寄存器
+                break;
+
+            default:
+                // 其他伪指令，如果第一个操作数是寄存器，则为定义
+                if (!operands.empty() && isRegisterOperand(operands[0]))
+                {
+                    defRegs.push_back(operands[0]->getReg());
+                }
+                break;
+            }
+            break;
+        }
+
+        return defRegs;
+    }
+
+    bool RISCVInstruction::isRegisterOperand(shared_ptr<RISCVOperand> operand) const
+    {
+        return operand && operand->getType() == RISCVOperand::Type::REGISTER;
+    }
+
 }
