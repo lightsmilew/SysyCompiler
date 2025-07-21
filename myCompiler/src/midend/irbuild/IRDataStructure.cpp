@@ -1112,20 +1112,20 @@ const vector<BasicBlock *> &BasicBlock::getSuccessors() const
 {
     return Successors;
 }
-void BasicBlock::setLiveIn(const std::set<Value *> &liveIn)
+void BasicBlock::setLiveIn(const std::set<std::string> &liveIn)
 {
     LiveIn = liveIn;
 
 } // 设置活跃变量集合
-const std::set<Value *> &BasicBlock::getLiveIn() const
+const std::set<std::string> &BasicBlock::getLiveIn() const
 {
     return LiveIn;
 } // 获取活跃变量集合
-void BasicBlock::setLiveOut(const std::set<Value *> &liveOut)
+void BasicBlock::setLiveOut(const std::set<std::string> &liveOut)
 {
     LiveOut = liveOut;
 } // 设置活跃变量集合
-const std::set<Value *> &BasicBlock::getLiveOut() const
+const std::set<std::string> &BasicBlock::getLiveOut() const
 {
     return LiveOut;
 } // 获取活跃变量集合
@@ -1142,6 +1142,17 @@ bool BasicBlock::containsByName(Instruction *inst) const
                        {
                            return i->getName() == name;
                        });
+}
+int BasicBlock::getInstructionOrder(Instruction *inst) const
+{
+    for (int i = 0; i < Instructions.size(); ++i)
+    {
+        if (Instructions[i].get() == inst)
+        {
+            return i;
+        }
+    }
+    return -1; // Not found
 }
 std::string BasicBlock::toString() const
 {

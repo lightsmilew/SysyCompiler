@@ -6,6 +6,7 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <sstream>
 
 namespace optimization
 {
@@ -14,12 +15,14 @@ namespace optimization
     class Pass
     {
     public:
-        vector<Value *> needToDelete; // 存储需要删除的值
         bool verbose;
+        vector<Value *> needToDelete; // 存储需要删除的值
+        std::stringstream debugInfo;  // 用于调试输出
         Pass(bool verbose = false) : verbose(verbose) {}
         virtual ~Pass() = default;
         virtual bool runOnFunction(Function *func) = 0;
-        virtual string getName() const = 0;
+        virtual std::string getName() const = 0;
+        std::string toString() const { return debugInfo.str(); } // 返回调试信息;
     };
 
     // Pass管理器
@@ -42,6 +45,8 @@ namespace optimization
                 pass->verbose = v;
             }
         }
+        // 输出调试信息
+        std::string toString() const;
     };
 
     // 1. 死代码消除Pass
@@ -65,9 +70,9 @@ namespace optimization
         {
             std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
         };
-        std::unordered_map<std::pair<std::string, std::vector<std::string>>,
-                           Value *, ExpressionHash>
-            exprMap;
+    // exprMap: key -> pair<inst, bb>
+    using ExprKey = std::pair<std::string, std::vector<std::string>>;
+    std::unordered_map<ExprKey, std::pair<Instruction*, BasicBlock*>, ExpressionHash> exprMap;
 
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
@@ -76,7 +81,10 @@ namespace optimization
 
     private:
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
-        bool canBeCommonSubexpression(Instruction *inst);
+        bool canBeCommonSubexpression(Instruction *inst,BasicBlock *bb);
+        bool isLoadFromInvariantAddress(Instruction *inst,BasicBlock *bb);
+        static bool dominates(BasicBlock *storeBB, BasicBlock *loadBB);
+        // 检查Load指令的地址是否只被唯一Store且无其他写
     };
 
     // 3. 循环不变代码外提Pass
@@ -126,8 +134,8 @@ namespace optimization
     {
     public:
         ConstantFoldingPass(bool verbose = false) : Pass(verbose) {}
-        std::string getName() const override { return "ConstantFoldingPass"; }
         bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ConstantFoldingPass"; }
     };
     // 6. phi 消除 Pass（SSA转回普通IR，消除phi指令）
     class PhiEliminationPass : public Pass
@@ -135,14 +143,14 @@ namespace optimization
     public:
         PhiEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        string getName() const override { return "PhiElimination"; }
+        std::string getName() const override { return "PhiElimination"; }
     };
     // 7. 活跃变量分析 Pass（Live Variable Analysis）
     // liveIn
     // 含义：在进入该基本块时，哪些变量是“活跃”的。
     // 解释：这些变量在该基本块及其后继中会被使用，但在本基本块内还没有被重新定义。
     // 用途：进入基本块前，这些变量的值必须是有效的（不能被覆盖或丢弃）。
-    // liveOut
+    // liveOut 
     // 含义：在离开该基本块时，哪些变量是“活跃”的。
     // 解释：这些变量在该基本块的后继基本块中会被使用。
     // 用途：离开基本块时，这些变量的值必须被保留，以便后继块使用。
@@ -150,7 +158,7 @@ namespace optimization
     {
     public:
         // 每个基本块的liveIn/liveOut集合
-        std::unordered_map<BasicBlock *, std::set<Value *>> liveIn, liveOut;
+        std::unordered_map<BasicBlock *, std::set<std::string>> liveIn, liveOut;
 
         LiveVariableAnalysisPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;

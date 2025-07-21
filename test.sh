@@ -46,6 +46,8 @@ test_programs() {
     }
 
     echo -e "\n===== 开始测试（超时阈值：${TIMEOUT_SECONDS}秒） ====="
+    failed_cases=()
+    > failure_case.log  # 清空或新建日志文件
     for file in "$INPUT_DIR"/*.s; do
         [ -f "$file" ] || continue
         filename=$(basename "$file" .s)
@@ -65,17 +67,13 @@ test_programs() {
             continue
         }
 
-        # 为每个用例生成独立的临时文件
         TMP_OUTPUT=$(mktemp)
         TMP_FILTERED=$(mktemp)
 
         echo -e "\n--- 测试 $filename ---"
-        # 运行程序并设置超时，把返回值直接追加到输出文件最后一行
         if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo \$? >> $TMP_OUTPUT"; then
             total_time=$(grep '^TOTAL:' "$TMP_OUTPUT" || echo "")
-            # 过滤 TOTAL 和 +Timer@ 行
             grep -v '^TOTAL:' "$TMP_OUTPUT" | grep -v '+Timer@' > "$TMP_FILTERED"
-            # 不需要再追加返回值，因为已经在最后一行
             diff -u "$expected_file" "$TMP_FILTERED" > /dev/null
             if [ $? -eq 0 ]; then
                 echo "✅ 测试通过"
@@ -83,22 +81,36 @@ test_programs() {
             else
                 echo "❌ 测试失败（差异如下）："
                 diff -u "$expected_file" "$TMP_FILTERED"
+                echo -e "\n--- 测试 $filename ---" >> failure_case.log
+                diff -u "$expected_file" "$TMP_FILTERED" >> failure_case.log
+                failed_cases+=("$filename")
             fi
         else
             if [ $? -eq 124 ]; then
                 echo "⏰ 测试超时（超过${TIMEOUT_SECONDS}秒），已中断"
+                echo -e "\n--- 测试 $filename ---" >> failure_case.log
+                echo "⏰ 测试超时（超过${TIMEOUT_SECONDS}秒），已中断" >> failure_case.log
             else
                 echo "❌ 程序异常退出（非超时）"
+                echo -e "\n--- 测试 $filename ---" >> failure_case.log
+                echo "❌ 程序异常退出（非超时）" >> failure_case.log
             fi
+            failed_cases+=("$filename")
         fi
 
         rm -f "$TMP_OUTPUT" "$TMP_FILTERED"
     done
 
     echo -e "\n===== 测试结束 ====="
+    if [ ${#failed_cases[@]} -eq 0 ]; then
+        echo "🎉 所有样例测试通过！"
+    else
+        echo "❌ 测试失败样例数量：${#failed_cases[@]}"
+        echo "失败编号：${failed_cases[@]}"
+        echo "详细失败信息已写入 failure_case.log"
+    fi
 }
 
-# 脚本入口
 # 脚本入口
 if [[ "$2" == "-assembles" || "$2" == "-test" ]]; then
     case "$2" in
