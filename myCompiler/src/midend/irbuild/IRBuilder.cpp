@@ -310,8 +310,10 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             BasicBlock *arrayInitBlock = createBasicBlock(debugMode ? "array_init." + node->identifier : "");
             BasicBlock *arrayInitEndBlock = createBasicBlock(debugMode ? "array_init_end." + node->identifier : "");
             createBranch(arrayInitBlock);
-            setCurrentBlock(arrayInitBlock);
-            createBranch(arrayInitEndBlock);
+            // setCurrentBlock(arrayInitBlock);
+            // createBranch(arrayInitEndBlock);
+            arrayInitBlock->addSuccessor(arrayInitEndBlock);
+            arrayInitEndBlock->addPredecessor(arrayInitBlock);
             setCurrentBlock(arrayInitEndBlock);
             if (node->initializer && !node->type.isConst())
             {
