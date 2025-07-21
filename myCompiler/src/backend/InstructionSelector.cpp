@@ -8,6 +8,7 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
 
     // 创建虚拟寄存器映射表
     registerMap.clear();
+    buildControlFlowGraph();
 
     // 处理函数体
     for (size_t i = 0; i < irFunc->BasicBlocks.size(); ++i)
@@ -30,7 +31,6 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
     }
 
     // 活跃变量分析
-    buildControlFlowGraph();
     computeBasicBlockUseDef();
     computeLiveInOut();
     computeLiveRanges();
@@ -225,11 +225,14 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     StackFrame stack = currentFunc->getStackFrame();
     stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize());
     auto imm = LiInt(stack.getValueOffset(inst->getName()));
+    currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
     auto addrReg = getOrCreateVirtualReg(inst->getDest());
 
     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, imm);
     currentBB->addInstruction(addInst);
+
+    InitAllocaArray(addrReg, inst->getAllocatedSize());
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
@@ -337,7 +340,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             {
                 // 如果是两阶段传递的参数，直接使用临时寄存器
                 auto tempReg = tempMoveArgMap[arg->getName()];
-                auto destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex], RISCV::RegisterType::GENERAL);
+                auto destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, tempReg);
                 currentBB->addInstruction(mvInst);
             }
@@ -345,7 +348,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             {
                 // 使用寄存器传递参数
                 auto argReg = getOrCreateVirtualReg(arg);
-                auto destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex], RISCV::RegisterType::GENERAL);
+                auto destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, argReg);
                 currentBB->addInstruction(mvInst);
             }
@@ -624,7 +627,7 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     auto srcReg = getOrCreateVirtualReg(inst->getSource());
 
     // 创建临时寄存器进行复制操作
-    RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::GENERAL;
+    RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     // 生成移动指令
@@ -725,7 +728,7 @@ void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISC
             if (floatArgIndex < 8)
             {
                 auto tempReg = registerMap[arg->getName()];
-                paramReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[floatArgIndex], RegisterType::FLOAT);
+                paramReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[floatArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, paramReg, tempReg);
                 currentBB->addInstruction(mvInst);
                 floatArgIndex++;
@@ -736,7 +739,7 @@ void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISC
             if (intArgIndex < 8)
             {
                 auto tempReg = registerMap[arg->getName()];
-                paramReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex], RegisterType::GENERAL);
+                paramReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, paramReg, tempReg);
                 currentBB->addInstruction(mvInst);
                 intArgIndex++;
@@ -765,7 +768,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         if (index < FLOAT_PARAM_REGS.size())
         {
             auto sourceReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[index], RegisterType::FLOAT);
-            auto reg = getArgReg(arg->getName());
+            auto reg = getArgReg(arg->getName(), RegisterType::FLOAT);
             auto FmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, reg, sourceReg);
             currentBB->addInstruction(FmvInst);
             return reg;
@@ -773,9 +776,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         else
         {
             // 超出范围，从栈上获取参数
-            auto offset = currentFunc->getStackFrame().getCallerArgOffset(4);
+            auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), 4);
             auto tempReg = LiInt(offset);
-            auto reg = getArgReg(arg->getName());
+            currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
+            auto reg = getArgReg(arg->getName(), RegisterType::FLOAT);
             auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, reg, tempReg, 0);
             currentBB->addInstruction(loadInst);
             return tempReg;
@@ -785,8 +789,8 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
     {
         if (index < INT_PARAM_REGS.size())
         {
-            auto sourceReg = make_shared<RISCVRegister>(INT_PARAM_REGS[index], RegisterType::GENERAL);
-            auto reg = getArgReg(arg->getName());
+            auto sourceReg = make_shared<RISCVRegister>(INT_PARAM_REGS[index]);
+            auto reg = getArgReg(arg->getName(), RegisterType::INT);
             auto MvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, reg, sourceReg);
             currentBB->addInstruction(MvInst);
             return reg;
@@ -795,9 +799,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         {
             // 超出范围，从栈上获取参数
             RISCVOpcode op = arg->getType()->isPointerTy() ? RISCVOpcode::LD : RISCVOpcode::LW;
-            auto offset = currentFunc->getStackFrame().getCallerArgOffset(arg->getType()->isPointerTy() ? 8 : 4);
+            auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), arg->getType()->isPointerTy() ? 8 : 4);
             auto tempReg = LiInt(offset);
-            auto reg = getArgReg(arg->getName());
+            currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
+            auto reg = getArgReg(arg->getName(), RegisterType::INT);
             auto loadInst = RISCVInstruction::createIType(op, reg, tempReg, 0);
             currentBB->addInstruction(loadInst);
             return tempReg;
@@ -831,7 +836,8 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     // 函数参数
     else if (auto arg = dynamic_cast<Argument *>(value))
     {
-        return getArgReg(arg->getName());
+        RegisterType regType = arg->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
+        return getArgReg(arg->getName(), regType);
     }
 
     // 变量
@@ -842,7 +848,8 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     }
     else
     {
-        auto virtualReg = make_shared<RISCVRegister>(RegisterType::VIRTUAL);
+        auto dataType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
+        auto virtualReg = make_shared<RISCVRegister>(dataType);
         registerMap[valueName] = virtualReg;
         return virtualReg;
     }
@@ -850,7 +857,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     return nullptr;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName)
+shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName, RegisterType regType)
 {
     // 获取当前函数的参数寄存器
     if (MoveArgMap.find(argName) != MoveArgMap.end())
@@ -859,7 +866,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName)
     }
     else
     {
-        auto tempReg = make_shared<RISCVRegister>(RegisterType::VIRTUAL);
+        auto tempReg = make_shared<RISCVRegister>(regType);
         MoveArgMap["temp"] = tempReg; // 临时寄存器到参数寄存器的映射
         return tempReg;
     }
@@ -867,7 +874,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName)
 
 shared_ptr<RISCVRegister> InstructionSelector::getTempReg()
 {
-    auto tempReg = make_shared<RISCVRegister>(RegisterType::VIRTUAL);
+    auto tempReg = make_shared<RISCVRegister>(RegisterType::INT);
     tempRegisters.push_back(tempReg);
     return tempReg;
 }
@@ -886,6 +893,7 @@ shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value)
 
     auto destReg = getTempReg();
     auto LiInst = RISCVInstruction::createPseudoLI(destReg, value);
+    currentLiInstruction = LiInst; // 保存当前的立即数指令
     currentBB->addInstruction(LiInst);
 
     return destReg;
@@ -904,4 +912,24 @@ shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue)
     currentBB->addInstruction(FmvInst);
 
     return destReg;
+}
+
+void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size)
+{
+    auto startReg = getTempReg();
+    auto CounterReg = LiInt(size / 4);
+    auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, startReg, addrReg);
+    currentBB->addInstruction(mvInst);
+
+    // loop 初始化数组为0
+    auto zeroReg = std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    auto nextBB = currentBB->getSuccessors()[0];
+    auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
+    nextBB->addInstruction(swInst);
+    auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
+    nextBB->addInstruction(addiInst);
+    auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 4);
+    nextBB->addInstruction(addiInst2);
+    auto bneInst = RISCVInstruction::createBType(RISCVOpcode::BNE, CounterReg, zeroReg, nextBB->getLabel());
+    nextBB->addInstruction(bneInst);
 }

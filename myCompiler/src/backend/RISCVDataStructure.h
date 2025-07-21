@@ -137,9 +137,8 @@ namespace RISCV
     // 寄存器类型枚举
     enum class RegisterType
     {
-        GENERAL, // 通用寄存器
-        FLOAT,   // 浮点寄存器
-        VIRTUAL  // 虚拟寄存器（寄存器分配前使用）
+        INT,
+        FLOAT,
     };
 
     // RISC-V寄存器类
@@ -225,9 +224,9 @@ namespace RISCV
 
     public:
         // 构造函数
-        RISCVRegister(PhysicalReg reg);                       // 物理寄存器
-        RISCVRegister(RegisterType type);                     // 虚拟寄存器
-        RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器，指定类型
+        RISCVRegister(PhysicalReg reg);   // 物理寄存器
+        RISCVRegister(RegisterType type); // 虚拟寄存器
+        // RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器指定类型
 
         // 访问器
         RegisterType getType() const { return type; }
@@ -342,12 +341,28 @@ namespace RISCV
         // 设置注释
         void setComment(const string &c) { comment = c; }
 
+        void setOffsetForLiInstruction(int64_t offset)
+        {
+            if (instrType == InstructionType::PSEUDO && opcode == RISCVOpcode::LI && operands.size() == 2)
+            {
+                // 假设第二个操作数是立即数
+                if (operands[1]->getType() == RISCVOperand::Type::IMMEDIATE)
+                {
+                    operands[1] = make_shared<RISCVOperand>(offset);
+                }
+            }
+        }
+
         // 活跃性分析：获取指令使用和定义的寄存器
         vector<shared_ptr<RISCVRegister>> getUseRegisters() const;
         vector<shared_ptr<RISCVRegister>> getDefRegisters() const;
 
         // 辅助函数：检查操作数是否为寄存器
         bool isRegisterOperand(shared_ptr<RISCVOperand> operand) const;
+
+        // 寄存器替换函数：用于溢出处理
+        void replaceUseRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
+        void replaceDefRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
 
         string toString() const;
     };
@@ -372,7 +387,7 @@ namespace RISCV
         int argStackSize;   // 传参预留的栈空间（ABI规范）
 
         unordered_map<string, int> valueToOffset;
-        unordered_map<int, int> callerToOffset;
+        unordered_map<string, int> callerToOffset;
         unordered_map<int, int> calleeToOffset;
 
         // 已分配的栈空间偏移（从0开始分配）
@@ -388,18 +403,19 @@ namespace RISCV
         // 分配栈空间并返回偏移量
         int allocateValueSpace(const string &valueName, int size = 4);
         int allocateCalleeArgSpace(int ArgNumber, int size = 4); // 为被调用函数参数分配空间
-        int allocateRaSpace(int size = 4);                       // 为返回地址分配空间
+        int allocateCallerArgSpace(const string &valueName, int size = 4);
+        int allocateRaSpace(int size = 4); // 为返回地址分配空间
 
         // 获取栈偏移量
         int getValueOffset(const string &valueName) const;
-        int getCallerArgOffset(int ArgSize);                      // 获取调用参数偏移
+        int getCallerArgOffset(const string &valueName) const;    // 获取调用参数偏移
         int getCalleeArgOffset(int ArgNumber) const;              // 获取被调用函数参数
         int getRaOffset() const { return getAlignedSize() - 4; }; // 获取返回地址偏移
 
         // 检查是否有分配的栈空间
         bool hasAllocation_value(const string &valueName) const;
-        bool hasAllocation_callerArg(int ArgNumber) const; // 检查调用参数是否有分配
-        bool hasAllocation_calleeArg(int ArgNumber) const; // 检查被调用
+        bool hasAllocation_callerArg(const string &valueName) const; // 检查调用参数是否有分配
+        bool hasAllocation_calleeArg(int ArgNumber) const;           // 检查被调用
     };
 
     // RISC-V基本块
@@ -427,6 +443,7 @@ namespace RISCV
         void addInstruction(shared_ptr<RISCVInstruction> instr);
         void insertInstruction(int index, shared_ptr<RISCVInstruction> instr);
         void removeInstruction(int index);
+        void setInstructions(const vector<shared_ptr<RISCVInstruction>> &instrs);
 
         // 访问器
         const string &getLabel() const { return label; }
@@ -643,6 +660,8 @@ namespace RISCV
         // 活跃性分析结果
         LivenessInfo livenessInfo;
 
+        unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset; // 用于溢出处理的指令
+
     public:
         RISCVFunction(const string &name, shared_ptr<RISCVModule> module);
 
@@ -658,6 +677,16 @@ namespace RISCV
         // 活跃性信息访问
         const LivenessInfo &getLivenessInfo() const { return livenessInfo; }
         LivenessInfo &getLivenessInfo() { return livenessInfo; }
+
+        // 获得用于溢出处理的指令
+        const unordered_map<string, shared_ptr<RISCVInstruction>> &getInstructionNeedReGetOffset() const
+        {
+            return instructionNeedReGetOffset;
+        }
+        void addInstructionNeedReGetOffset(string ArgName, shared_ptr<RISCVInstruction> instr)
+        {
+            instructionNeedReGetOffset[ArgName] = instr;
+        }
 
         string toString() const;
     };

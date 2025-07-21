@@ -9,20 +9,20 @@ namespace RISCV
 
     // RISCVRegister 实现
     RISCVRegister::RISCVRegister(PhysicalReg reg)
-        : type(reg < PhysicalReg::FT0 ? RegisterType::GENERAL : RegisterType::FLOAT),
+        : type(reg < PhysicalReg::FT0 ? RegisterType::INT : RegisterType::FLOAT),
           physicalReg(reg), virtualId(-1) {}
 
     RISCVRegister::RISCVRegister(RegisterType regType)
         : type(regType), physicalReg(PhysicalReg::ZERO), virtualId(nextVirtualId++) {}
 
-    RISCVRegister::RISCVRegister(PhysicalReg reg, RegisterType regType)
-        : type(regType), physicalReg(reg), virtualId(-1) {}
+    // RISCVRegister::RISCVRegister(PhysicalReg reg, RegisterType regType)
+    //     : type(regType), physicalReg(reg), virtualId(-1) {}
 
     string RISCVRegister::toString() const
     {
         if (isVirtual())
         {
-            return (type == RegisterType::GENERAL ? "vr" : "vf") + std::to_string(virtualId);
+            return (type == RegisterType::INT ? "vr" : "vf") + std::to_string(virtualId);
         }
 
         // 物理寄存器名称映射
@@ -429,6 +429,14 @@ namespace RISCV
 
         return offset;
     }
+    int StackFrame::allocateCallerArgSpace(const string &valueName, int size)
+    {
+        int offset = callerArgOffset;
+        callerToOffset[valueName] = offset;
+        callerArgOffset += size;
+
+        return offset;
+    }
     int StackFrame::allocateRaSpace(int size)
     {
         raStackSize = size;
@@ -441,14 +449,17 @@ namespace RISCV
         {
             return it->second + argStackSize;
         }
-        throw std::runtime_error("Value not found in stack frame");
+        return -1; // 如果没有找到，返回-1表示未分配
     }
 
-    int StackFrame::getCallerArgOffset(int ArgSize)
+    int StackFrame::getCallerArgOffset(const string &valueName) const
     {
-        int offset = callerArgOffset;
-        callerArgOffset += ArgSize;
-        return offset + getAlignedSize();
+        auto offset = callerToOffset.find(valueName);
+        if (offset != callerToOffset.end())
+        {
+            return offset->second + getAlignedSize();
+        }
+        return -1; // 如果没有找到，返回-1表示未分配
     }
 
     int StackFrame::getCalleeArgOffset(int ArgNumber) const
@@ -458,7 +469,7 @@ namespace RISCV
         {
             return it->second;
         }
-        throw std::runtime_error("Value not found in stack frame");
+        return -1; // 如果没有找到，返回-1表示未分配
     }
 
     bool StackFrame::hasAllocation_value(const string &valueName) const
@@ -471,9 +482,9 @@ namespace RISCV
         return calleeToOffset.find(ArgNumber) != calleeToOffset.end();
     }
 
-    bool StackFrame::hasAllocation_callerArg(int ArgNumber) const
+    bool StackFrame::hasAllocation_callerArg(const string &valueName) const
     {
-        return callerToOffset.find(ArgNumber) != callerToOffset.end();
+        return callerToOffset.find(valueName) != callerToOffset.end();
     }
 
     int StackFrame::getAlignedSize() const
@@ -502,6 +513,11 @@ namespace RISCV
     {
         if (index >= 0 && index < static_cast<int>(instructions.size()))
             instructions.erase(instructions.begin() + index);
+    }
+
+    void RISCVBasicBlock::setInstructions(const vector<shared_ptr<RISCVInstruction>> &instrs)
+    {
+        instructions = instrs;
     }
 
     string RISCVBasicBlock::toString() const
@@ -1024,4 +1040,147 @@ namespace RISCV
         return operand && operand->getType() == RISCVOperand::Type::REGISTER;
     }
 
+    // 寄存器替换函数实现
+    void RISCVInstruction::replaceUseRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg)
+    {
+        // 根据指令类型和操作码，替换使用的寄存器
+        switch (instrType)
+        {
+        case InstructionType::R_TYPE:
+            // R-Type: op rd, rs1, rs2 -> 替换 rs1, rs2
+            if (operands.size() >= 3)
+            {
+                if (isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
+                {
+                    operands[1] = make_shared<RISCVOperand>(newReg);
+                }
+                if (isRegisterOperand(operands[2]) && operands[2]->getReg() == oldReg)
+                {
+                    operands[2] = make_shared<RISCVOperand>(newReg);
+                }
+            }
+            break;
+
+        case InstructionType::I_TYPE:
+            // I-Type: op rd, rs1, imm -> 替换 rs1
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
+                {
+                    operands[1] = make_shared<RISCVOperand>(newReg);
+                }
+            }
+            break;
+
+        case InstructionType::S_TYPE:
+            // S-Type: op rs2, imm(rs1) -> 替换 rs1, rs2
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+                {
+                    operands[0] = make_shared<RISCVOperand>(newReg);
+                }
+                if (isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
+                {
+                    operands[1] = make_shared<RISCVOperand>(newReg);
+                }
+            }
+            break;
+
+        case InstructionType::B_TYPE:
+            // B-Type: op rs1, rs2, label -> 替换 rs1, rs2
+            if (operands.size() >= 2)
+            {
+                if (isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+                {
+                    operands[0] = make_shared<RISCVOperand>(newReg);
+                }
+                if (isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
+                {
+                    operands[1] = make_shared<RISCVOperand>(newReg);
+                }
+            }
+            break;
+
+        case InstructionType::J_TYPE:
+            // J-Type: op rd, label -> 不需要替换使用的寄存器
+            break;
+
+        case InstructionType::U_TYPE:
+            // U-Type: op rd, imm -> 不需要替换使用的寄存器
+            break;
+
+        case InstructionType::PSEUDO:
+            // 伪指令需要特殊处理
+            switch (opcode)
+            {
+            case RISCVOpcode::MV:
+            case RISCVOpcode::FMV_S:
+            case RISCVOpcode::FMV_W_X:
+            case RISCVOpcode::FMV_X_W:
+                // mv rd, rs -> 替换 rs
+                if (operands.size() >= 2 && isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
+                {
+                    operands[1] = make_shared<RISCVOperand>(newReg);
+                }
+                break;
+            default:
+                // 其他伪指令不处理
+                break;
+            }
+            break;
+        }
+    }
+
+    void RISCVInstruction::replaceDefRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg)
+    {
+        // 根据指令类型和操作码，替换定义的寄存器
+        switch (instrType)
+        {
+        case InstructionType::R_TYPE:
+        case InstructionType::I_TYPE:
+        case InstructionType::U_TYPE:
+            // 这些类型的指令都是定义第一个操作数 (rd)
+            if (operands.size() >= 1 && isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+            {
+                operands[0] = make_shared<RISCVOperand>(newReg);
+            }
+            break;
+
+        case InstructionType::J_TYPE:
+            // J-Type: op rd, label -> 替换 rd
+            if (operands.size() >= 1 && isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+            {
+                operands[0] = make_shared<RISCVOperand>(newReg);
+            }
+            break;
+
+        case InstructionType::S_TYPE:
+        case InstructionType::B_TYPE:
+            // 这些类型的指令不定义寄存器
+            break;
+
+        case InstructionType::PSEUDO:
+            // 伪指令需要特殊处理
+            switch (opcode)
+            {
+            case RISCVOpcode::MV:
+            case RISCVOpcode::FMV_S:
+            case RISCVOpcode::FMV_W_X:
+            case RISCVOpcode::FMV_X_W:
+            case RISCVOpcode::LI:
+            case RISCVOpcode::LA:
+                // 这些伪指令定义第一个操作数 (rd)
+                if (operands.size() >= 1 && isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+                {
+                    operands[0] = make_shared<RISCVOperand>(newReg);
+                }
+                break;
+            default:
+                // 其他伪指令不处理
+                break;
+            }
+            break;
+        }
+    }
 }

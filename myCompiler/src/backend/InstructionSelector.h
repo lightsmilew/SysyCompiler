@@ -12,6 +12,7 @@ private:
     vector<shared_ptr<RISCVRegister>> tempRegisters;               // temp寄存器
     unordered_map<string, shared_ptr<RISCVRegister>> globalVarMap; // 全局变量映射
     unordered_map<string, shared_ptr<RISCVRegister>> MoveArgMap;   // 临时寄存器到参数寄存器的映射
+    shared_ptr<RISCVInstruction> currentLiInstruction;             // 当前正在处理的指令
 
 public:
     InstructionSelector() {}
@@ -44,12 +45,15 @@ private:
     shared_ptr<RISCVRegister> LaGlobl(GlobalVariable *globlvar);
     shared_ptr<RISCVRegister> getTempReg();
 
+    // alloca需要初始化数组
+    void InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size);
+
     // 参数传递解耦函数
     void DealArgumentsInStart(); // 处理函数参数
     unordered_map<string, shared_ptr<RISCVRegister>> *moveCallerArgsTwoPhase();
     void move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap);
     shared_ptr<RISCVRegister> getCallerArgReg(Argument *arg, size_t index);
-    shared_ptr<RISCVRegister> getArgReg(const string &argName);
+    shared_ptr<RISCVRegister> getArgReg(const string &argName, RegisterType regType);
 
     // 数据流分析
     // Step 1: 计算每个基本块的 USE 和 DEF 集合

@@ -1,0 +1,663 @@
+#include "GraphColorRegisterAllocator.h"
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+
+using namespace RISCV;
+// ============================================================================
+// GraphColorRegisterAllocator 基础实现
+// ============================================================================
+
+// 可用的物理寄存器定义（与LinearScanRegisterAllocator保持一致）
+const vector<shared_ptr<RISCVRegister>>
+    GraphColorRegisterAllocator::availableGeneralRegs = {
+        // 临时寄存器 (caller-saved) - 优先使用
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T6),
+
+        // 参数寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7),
+
+        // 保存寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S9)};
+
+const vector<shared_ptr<RISCVRegister>>
+    GraphColorRegisterAllocator::availableFloatRegs = {
+        // 临时浮点寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT11),
+
+        // 浮点参数寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA7),
+
+        // 保存浮点寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS11)};
+
+// 主要接口：为函数分配寄存器
+void GraphColorRegisterAllocator::allocateRegisters(
+    shared_ptr<RISCVFunction> func)
+{
+  currentFunc = func;
+
+  // 最大重试次数，防止无限循环
+  const int MAX_SPILL_ITERATIONS = 10;
+  int spillIterations = 0;
+  bool needRestart = false;
+
+  do
+  {
+    // 清空所有数据结构
+    interferenceGraph = InterferenceGraph();
+    moveList = MoveList();
+    worklistManager.clear();
+    nodeStates.clear();
+    allocation.clear();
+    spilledRegs.clear();
+    while (!selectStack.empty())
+      selectStack.pop();
+
+    if (needRestart)
+    {
+      std::cout
+          << "\n=== Restarting allocation after spill handling (iteration "
+          << spillIterations << ") ===" << std::endl;
+    }
+    else
+    {
+      std::cout << "=== Graph Coloring Register Allocation ===" << std::endl;
+    }
+    std::cout << "Function: " << func->getName() << std::endl;
+
+    // 执行图染色算法的主要步骤
+    buildInterferenceGraph();
+    analyzeMoveInstructions();
+    initializeWorklists();
+
+    // 主要算法循环：简化、合并、冻结、溢出选择
+    while (!worklistManager.isEmpty())
+    {
+      if (!worklistManager.isEmpty(WorklistManager::WorklistType::SIMPLIFY))
+      {
+        // 执行简化阶段
+        performSimplification();
+      }
+      else if (!worklistManager.isEmpty(
+                   WorklistManager::WorklistType::FREEZE))
+      {
+        // 执行冻结阶段
+        performFreezing();
+      }
+      else if (!worklistManager.isEmpty(
+                   WorklistManager::WorklistType::SPILL))
+      {
+        // 执行溢出选择阶段
+        selectSpillCandidates();
+      }
+      else
+      {
+        // 尝试执行合并阶段
+        performCoalescing();
+
+        // 如果合并后仍然没有可处理的节点，则退出
+        if (worklistManager.isEmpty())
+        {
+          std::cout << "Error: No nodes in any worklist but "
+                       "worklistManager.isEmpty() returned false"
+                    << std::endl;
+          break;
+        }
+      }
+    }
+
+    // 执行着色阶段
+    assignColors();
+
+    // 如果有溢出的寄存器，需要处理溢出
+    needRestart = false;
+    if (!spilledRegs.empty())
+    {
+      std::cout << "Spilled registers detected, handling spills..."
+                << std::endl;
+      handleSpilledRegisters();
+
+      // 处理完溢出后，需要重新开始分配过程
+      spillIterations++;
+      needRestart = true;
+
+      if (spillIterations >= MAX_SPILL_ITERATIONS)
+      {
+        std::cout << "Warning: Maximum spill iterations reached ("
+                  << MAX_SPILL_ITERATIONS << "), stopping allocation"
+                  << std::endl;
+        needRestart = false;
+      }
+    }
+
+  } while (needRestart);
+
+  printStatistics();
+
+  // 验证最终的分配结果
+  validateAllocation();
+}
+
+// 辅助函数实现
+bool GraphColorRegisterAllocator::isPrecolored(
+    shared_ptr<RISCVRegister> reg) const
+{
+  return reg->isPhysical();
+}
+
+int GraphColorRegisterAllocator::getK(RegisterType type) const
+{
+  return type == RegisterType::INT ? K_GENERAL : K_FLOAT;
+}
+
+vector<shared_ptr<RISCVRegister>>
+GraphColorRegisterAllocator::getAvailableColors(RegisterType type) const
+{
+  return type == RegisterType::INT ? availableGeneralRegs : availableFloatRegs;
+}
+
+NodeState
+GraphColorRegisterAllocator::getNodeState(shared_ptr<RISCVRegister> reg) const
+{
+  auto it = nodeStates.find(reg);
+  return it != nodeStates.end() ? it->second : NodeState::INITIAL;
+}
+
+void GraphColorRegisterAllocator::setNodeState(shared_ptr<RISCVRegister> reg,
+                                               NodeState state)
+{
+  nodeStates[reg] = state;
+}
+
+void GraphColorRegisterAllocator::printStatistics()
+{
+  std::cout << "=== Graph Coloring Allocation Statistics ===" << std::endl;
+  std::cout << "Function: " << currentFunc->getName() << std::endl;
+  std::cout << "Interference graph nodes: "
+            << interferenceGraph.getNodes().size() << std::endl;
+  std::cout << "Move instructions: " << moveList.getAllMoves().size()
+            << std::endl;
+  std::cout << "Successfully allocated: " << allocation.size() << std::endl;
+  std::cout << "Spilled registers: " << spilledRegs.size() << std::endl;
+  std::cout << "===========================================" << std::endl;
+}
+
+// 初始化工作列表
+void GraphColorRegisterAllocator::initializeWorklists()
+{
+  std::cout << "Initializing worklists..." << std::endl;
+
+  // 对所有节点进行分类
+  for (auto reg : interferenceGraph.getNodes())
+  {
+    classifyNode(reg);
+  }
+
+  worklistManager.printWorklistSizes();
+}
+
+// 辅助函数：检查指令是否为move指令
+bool GraphColorRegisterAllocator::isMoveInstruction(
+    shared_ptr<RISCVInstruction> instr) const
+{
+  auto opcode = instr->getOpcode();
+  return opcode == RISCVOpcode::MV || opcode == RISCVOpcode::FMV_S ||
+         opcode == RISCVOpcode::FMV_W_X || opcode == RISCVOpcode::FMV_X_W;
+}
+
+// 节点分类函数实现
+void GraphColorRegisterAllocator::classifyNode(shared_ptr<RISCVRegister> reg)
+{
+  if (isPrecolored(reg))
+  {
+    setNodeState(reg, NodeState::PRECOLORED);
+    return;
+  }
+
+  int degree = interferenceGraph.getDegree(reg);
+  int K = getK(reg->getType());
+  bool moveRelated = moveList.isMoveRelated(reg);
+
+  if (degree < K)
+  {
+    if (moveRelated)
+    {
+      setNodeState(reg, NodeState::FREEZE_READY);
+      worklistManager.addToWorklist(reg, WorklistManager::WorklistType::FREEZE);
+    }
+    else
+    {
+      setNodeState(reg, NodeState::SIMPLIFY_READY);
+      worklistManager.addToWorklist(reg,
+                                    WorklistManager::WorklistType::SIMPLIFY);
+    }
+  }
+  else
+  {
+    setNodeState(reg, NodeState::SPILL_READY);
+    worklistManager.addToWorklist(reg, WorklistManager::WorklistType::SPILL);
+  }
+}
+
+// 动态重新分类单个节点
+void GraphColorRegisterAllocator::reclassifyNode(
+    shared_ptr<RISCVRegister> reg)
+{
+  // 跳过预着色寄存器和已经被移除的节点
+  if (isPrecolored(reg) || getNodeState(reg) == NodeState::COLORED)
+  {
+    return;
+  }
+
+  // 从当前工作列表中移除
+  worklistManager.removeFromWorklist(reg);
+
+  // 重新评估并分类
+  classifyNode(reg);
+
+  std::cout << "Reclassified node " << reg->toString()
+            << " (degree=" << interferenceGraph.getDegree(reg)
+            << ", move-related=" << moveList.isMoveRelated(reg) << ")"
+            << std::endl;
+}
+
+// 批量重新分类受影响的节点
+void GraphColorRegisterAllocator::reclassifyAffectedNodes(
+    const vector<shared_ptr<RISCVRegister>> &affectedNodes)
+{
+  std::cout << "Reclassifying " << affectedNodes.size() << " affected nodes..."
+            << std::endl;
+
+  for (auto reg : affectedNodes)
+  {
+    reclassifyNode(reg);
+  }
+
+  // 打印更新后的工作列表状态
+  worklistManager.printWorklistSizes();
+}
+
+// ============================================================================
+// 着色阶段算法实现
+// ============================================================================
+
+void GraphColorRegisterAllocator::assignColors()
+{
+  std::cout << "Performing coloring phase..." << std::endl;
+
+  // 清空分配结果
+  allocation.clear();
+  spilledRegs.clear();
+
+  // 为预着色寄存器设置分配（它们已经有固定的物理寄存器）
+  for (auto reg : interferenceGraph.getNodes())
+  {
+    if (isPrecolored(reg))
+    {
+      allocation[reg] = reg; // 预着色寄存器映射到自身
+    }
+  }
+
+  // 从栈中弹出节点并为其分配颜色
+  int coloredCount = 0;
+  int spilledCount = 0;
+
+  while (!selectStack.empty())
+  {
+    // 1. 从栈中弹出节点
+    auto reg = selectStack.top();
+    selectStack.pop();
+
+    std::cout << "Coloring node: " << reg->toString() << std::endl;
+
+    // 2. 获取可用的物理寄存器列表（颜色）
+    auto availableColors = getAvailableColors(reg->getType());
+    int K = getK(reg->getType());
+
+    // 3. 标记已被邻居使用的颜色
+    vector<bool> colorUsed(availableColors.size(), false);
+
+    for (auto neighbor : interferenceGraph.getNeighbors(reg))
+    {
+      auto it = allocation.find(neighbor);
+      if (it != allocation.end())
+      {
+        auto neighborColor = it->second;
+
+        // 找到邻居的颜色在可用颜色列表中的索引
+        for (size_t i = 0; i < availableColors.size(); i++)
+        {
+          if (availableColors[i]->getPhysicalReg() ==
+              neighborColor->getPhysicalReg())
+          {
+            colorUsed[i] = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // 4. 选择一个未被使用的颜色
+    shared_ptr<RISCVRegister> selectedColor = nullptr;
+    for (size_t i = 0; i < availableColors.size(); i++)
+    {
+      if (!colorUsed[i])
+      {
+        selectedColor = availableColors[i];
+        break;
+      }
+    }
+
+    // 5. 如果找到可用颜色，则分配；否则标记为溢出
+    if (selectedColor)
+    {
+      allocation[reg] = selectedColor;
+      coloredCount++;
+      std::cout << "  Assigned color: " << selectedColor->toString()
+                << std::endl;
+    }
+    else
+    {
+      spilledRegs.insert(reg);
+      spilledCount++;
+      std::cout << "  No available color, marked as spilled" << std::endl;
+    }
+  }
+
+  std::cout << "Coloring phase completed." << std::endl;
+  std::cout << "Successfully colored: " << coloredCount << " registers"
+            << std::endl;
+  std::cout << "Spilled: " << spilledCount << " registers" << std::endl;
+
+  // 验证着色结果
+  validateAllocation();
+}
+
+// 验证分配结果
+void GraphColorRegisterAllocator::validateAllocation()
+{
+  std::cout << "Validating register allocation..." << std::endl;
+
+  int errors = 0;
+
+  // 检查1：没有两个冲突的寄存器被分配相同的物理寄存器
+  for (auto reg1 : interferenceGraph.getNodes())
+  {
+    if (spilledRegs.find(reg1) != spilledRegs.end())
+    {
+      continue; // 跳过溢出的寄存器
+    }
+
+    auto it1 = allocation.find(reg1);
+    if (it1 == allocation.end())
+    {
+      std::cout << "Error: Register " << reg1->toString()
+                << " has no allocation" << std::endl;
+      errors++;
+      continue;
+    }
+
+    auto color1 = it1->second;
+
+    for (auto reg2 : interferenceGraph.getNeighbors(reg1))
+    {
+      if (spilledRegs.find(reg2) != spilledRegs.end())
+      {
+        continue; // 跳过溢出的寄存器
+      }
+
+      auto it2 = allocation.find(reg2);
+      if (it2 == allocation.end())
+      {
+        std::cout << "Error: Register " << reg2->toString()
+                  << " has no allocation" << std::endl;
+        errors++;
+        continue;
+      }
+
+      auto color2 = it2->second;
+
+      if (color1->getPhysicalReg() == color2->getPhysicalReg())
+      {
+        std::cout << "Error: Conflicting registers " << reg1->toString()
+                  << " and " << reg2->toString() << " assigned same color "
+                  << color1->toString() << std::endl;
+        errors++;
+      }
+    }
+  }
+
+  // 检查2：预着色寄存器保持原始分配
+  for (auto reg : interferenceGraph.getNodes())
+  {
+    if (isPrecolored(reg))
+    {
+      auto it = allocation.find(reg);
+      if (it == allocation.end() ||
+          it->second->getPhysicalReg() != reg->getPhysicalReg())
+      {
+        std::cout << "Error: Precolored register " << reg->toString()
+                  << " lost its original color" << std::endl;
+        errors++;
+      }
+    }
+  }
+
+  // 检查3：寄存器类型约束得到满足
+  for (auto reg : interferenceGraph.getNodes())
+  {
+    if (spilledRegs.find(reg) != spilledRegs.end())
+    {
+      continue; // 跳过溢出的寄存器
+    }
+
+    auto it = allocation.find(reg);
+    if (it != allocation.end())
+    {
+      auto color = it->second;
+      if (reg->getType() != color->getType())
+      {
+        std::cout << "Error: Register " << reg->toString() << " of type "
+                  << (reg->getType() == RegisterType::INT ? "INT" : "FLOAT")
+                  << " assigned color " << color->toString() << " of type "
+                  << (color->getType() == RegisterType::INT ? "INT" : "FLOAT")
+                  << std::endl;
+        errors++;
+      }
+    }
+  }
+
+  if (errors == 0)
+  {
+    std::cout << "Allocation validation passed successfully!" << std::endl;
+  }
+  else
+  {
+    std::cout << "Allocation validation failed with " << errors << " errors"
+              << std::endl;
+  }
+}
+
+// ============================================================================
+// 溢出处理阶段算法实现
+// ============================================================================
+void GraphColorRegisterAllocator::handleSpilledRegisters()
+{
+  std::cout << "Handling spilled registers..." << std::endl;
+
+  if (spilledRegs.empty())
+  {
+    std::cout << "No registers to spill, skipping." << std::endl;
+    return;
+  }
+
+  std::cout << "Total spilled registers: " << spilledRegs.size() << std::endl;
+
+  // 为每个溢出的寄存器在栈上分配空间
+  for (auto spilledReg : spilledRegs)
+  {
+    // 为溢出寄存器在栈上分配空间
+    string spillName = "spill_" + spilledReg->toString();
+    int spillSize = spilledReg->getType() == RegisterType::INT
+                        ? 4
+                        : 8; // INT类型4字节，FLOAT类型8字节
+
+    currentFunc->getStackFrame().allocateValueSpace(spillName, spillSize);
+    std::cout << "Allocated stack space for " << spilledReg->toString()
+              << " at offset "
+              << currentFunc->getStackFrame().getValueOffset(spillName)
+              << " with size " << spillSize << std::endl;
+  }
+
+  // 遍历所有基本块和指令，为溢出寄存器插入load/store代码
+  for (auto &bb : currentFunc->getBasicBlocks())
+  {
+    vector<shared_ptr<RISCVInstruction>> newInstructions;
+
+    for (auto instr : bb->getInstructions())
+    {
+      vector<shared_ptr<RISCVInstruction>> beforeInstr;
+      vector<shared_ptr<RISCVInstruction>> afterInstr;
+
+      // 检查指令是否使用了溢出寄存器
+      for (auto useReg : instr->getUseRegisters())
+      {
+        if (spilledRegs.find(useReg) != spilledRegs.end())
+        {
+          // 为使用的溢出寄存器创建临时寄存器
+          auto tempReg = make_shared<RISCVRegister>(useReg->getType());
+
+          // 获取溢出寄存器在栈上的偏移量
+          string spillName = "spill_" + useReg->toString();
+          int offset = currentFunc->getStackFrame().getValueOffset(spillName);
+
+          // 创建load指令，从栈上加载值到临时寄存器
+          RISCVOpcode loadOp;
+          if (useReg->getType() == RegisterType::INT)
+          {
+            loadOp = RISCVOpcode::LW; // 加载整数
+          }
+          else
+          {
+            loadOp = RISCVOpcode::FLW; // 加载浮点数
+          }
+
+          auto loadInstr = RISCVInstruction::createIType(
+              loadOp, tempReg,
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
+              offset);
+
+          beforeInstr.push_back(loadInstr);
+
+          // 替换指令中的寄存器引用
+          instr->replaceUseRegister(useReg, tempReg);
+        }
+      }
+
+      // 检查指令是否定义了溢出寄存器
+      for (auto defReg : instr->getDefRegisters())
+      {
+        if (spilledRegs.find(defReg) != spilledRegs.end())
+        {
+          // 为定义的溢出寄存器创建临时寄存器
+          auto tempReg = make_shared<RISCVRegister>(defReg->getType());
+
+          // 获取溢出寄存器在栈上的偏移量
+          string spillName = "spill_" + defReg->toString();
+          int offset = currentFunc->getStackFrame().getValueOffset(spillName);
+
+          // 替换指令中的寄存器引用
+          instr->replaceDefRegister(defReg, tempReg);
+
+          // 创建store指令，将临时寄存器的值存储到栈上
+          RISCVOpcode storeOp;
+          if (defReg->getType() == RegisterType::INT)
+          {
+            storeOp = RISCVOpcode::SW; // 存储整数
+          }
+          else
+          {
+            storeOp = RISCVOpcode::FSW; // 存储浮点数
+          }
+
+          auto storeInstr = RISCVInstruction::createSType(
+              storeOp, tempReg,
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
+              offset);
+
+          afterInstr.push_back(storeInstr);
+        }
+      }
+
+      // 构建新的指令序列
+      for (auto &beforeI : beforeInstr)
+      {
+        newInstructions.push_back(beforeI);
+      }
+
+      newInstructions.push_back(instr);
+
+      for (auto &afterI : afterInstr)
+      {
+        newInstructions.push_back(afterI);
+      }
+    }
+
+    // 用新的指令序列替换原来的指令序列
+    bb->setInstructions(newInstructions);
+  }
+  // 清空溢出寄存器集合，因为它们已经被处理
+  spilledRegs.clear();
+}

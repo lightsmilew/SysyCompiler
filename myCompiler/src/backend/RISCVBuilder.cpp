@@ -2,7 +2,7 @@
 #include <memory>
 #include "AssemblyEmitter.h"
 #include "InstructionSelector.h"
-#include "RegisterAllocator.h"
+#include "GraphColorRegisterAllocator.h"
 using namespace RISCV;
 
 shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irModule)
@@ -11,6 +11,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     initializeModule(irModule);
     generateInstructions();
     allocateRegisters();
+    reallocOffsetForInstructions();
     return riscvModule;
 }
 
@@ -170,7 +171,34 @@ void RISCVBuilder::allocateRegisters()
     // 为每个函数进行寄存器分配
     for (const auto &func : riscvModule->getFunctions())
     {
-        RegisterAllocator allocator;
+        GraphColorRegisterAllocator allocator;
         allocator.allocateRegisters(func);
+    }
+}
+
+void RISCVBuilder::reallocOffsetForInstructions()
+{
+    // 遍历所有函数，重新计算指令的偏移量
+    for (const auto &func : riscvModule->getFunctions())
+    {
+        auto &stackFrame = func->getStackFrame();
+        for (const auto &instrPair : func->getInstructionNeedReGetOffset())
+        {
+            const string &argName = instrPair.first;
+            shared_ptr<RISCVInstruction> instr = instrPair.second;
+
+            // 重新计算偏移量并更新指令
+            int offset = stackFrame.getValueOffset(argName);
+            if (offset != -1)
+            {
+                // 更新指令的偏移量
+                instr->setOffsetForLiInstruction(offset);
+            }
+            else
+            {
+                offset = stackFrame.getCallerArgOffset(argName);
+                instr->setOffsetForLiInstruction(offset);
+            }
+        }
     }
 }

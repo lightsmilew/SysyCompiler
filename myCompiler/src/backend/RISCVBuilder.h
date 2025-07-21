@@ -1,6 +1,6 @@
 #pragma once
-#include "../RISCVDataStructure.h"
-#include "../../midend/irbuild/IRDataStructure.h"
+#include "RISCVDataStructure.h"
+#include "../midend/irbuild/IRDataStructure.h"
 
 namespace RISCV
 {
@@ -29,5 +29,7 @@ namespace RISCV
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
         void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar);
+
+        void reallocOffsetForInstructions();
     };
 }
