@@ -4,7 +4,8 @@
 #include <cmath>
 
 using namespace RISCV;
-
+// 空集合，用于返回不存在节点的邻居
+const unordered_set<shared_ptr<RISCVRegister>, RegisterHash, RegisterEqual> InterferenceGraph::emptySet = {};
 // ============================================================================
 // InterferenceGraph 实现
 // ============================================================================
@@ -96,6 +97,7 @@ void InterferenceGraph::coalesceNodes(shared_ptr<RISCVRegister> reg1,
 
 void InterferenceGraph::printGraph() const
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "=== Interference Graph ===" << std::endl;
     std::cout << "Nodes: " << nodes.size() << std::endl;
 
@@ -109,4 +111,5 @@ void InterferenceGraph::printGraph() const
         std::cout << std::endl;
     }
     std::cout << "=========================" << std::endl;
+#endif
 }

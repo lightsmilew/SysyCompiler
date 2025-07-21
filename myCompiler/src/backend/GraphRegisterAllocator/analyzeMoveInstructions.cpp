@@ -7,8 +7,9 @@ using namespace RISCV;
 // Move指令分析
 void GraphColorRegisterAllocator::analyzeMoveInstructions()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Analyzing move instructions..." << std::endl;
-
+#endif
     int totalMoves = 0;
     int constrainedMoves = 0;
 
@@ -39,24 +40,29 @@ void GraphColorRegisterAllocator::analyzeMoveInstructions()
                         // 如果源和目标寄存器在冲突图中冲突，则标记为受限
                         moveList.constrainMoves(srcReg, dstReg);
                         constrainedMoves++;
-
+#ifdef DEBUG_REG_ALLOC
                         std::cout << "Constrained move detected: " << srcReg->toString()
                                   << " -> " << dstReg->toString() << std::endl;
+#endif
                     }
                 }
                 else
                 {
+#ifdef DEBUG_REG_ALLOC
                     // 处理特殊情况：可能是复杂的move指令
                     std::cout << "Complex move instruction with " << useRegs.size()
                               << " uses and " << defRegs.size() << " defs" << std::endl;
+#endif
                 }
             }
         }
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Move instruction analysis completed:" << std::endl;
     std::cout << "- Total move instructions found: " << totalMoves << std::endl;
     std::cout << "- Constrained moves: " << constrainedMoves << std::endl;
     std::cout << "- Available for coalescing: " << (totalMoves - constrainedMoves)
               << std::endl;
+#endif
 }

@@ -11,7 +11,9 @@ using namespace RISCV;
 
 void GraphColorRegisterAllocator::performSimplification()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Performing simplification phase..." << std::endl;
+#endif
 
     int simplifiedNodes = 0;
 
@@ -32,17 +34,21 @@ void GraphColorRegisterAllocator::performSimplification()
 
         if (degree >= K || moveRelated)
         {
+#ifdef DEBUG_REG_ALLOC
             std::cout << "Warning: Node " << reg->toString()
                       << " no longer satisfies simplification conditions (degree="
                       << degree << ", K=" << K << ", move-related=" << moveRelated
                       << ")" << std::endl;
+#endif
             // 重新分类节点
             classifyNode(reg);
             continue;
         }
 
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Simplifying node: " << reg->toString()
                   << " (degree=" << degree << ", K=" << K << ")" << std::endl;
+#endif
 
         // 2. 从冲突图中移除选中的节点并压入栈
         // 获取邻居列表的副本，因为removeNode会修改原始数据
@@ -57,8 +63,10 @@ void GraphColorRegisterAllocator::performSimplification()
         selectStack.push(reg);
         setNodeState(reg, NodeState::COLORED); // 标记为待着色状态
 
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Node " << reg->toString()
                   << " removed from graph and pushed to stack" << std::endl;
+#endif
 
         // 3. 更新被移除节点的所有邻居的度数（已由removeNode自动完成）
         // 4. 重新分类受影响的节点到相应工作列表
@@ -76,9 +84,11 @@ void GraphColorRegisterAllocator::performSimplification()
             int neighborK = getK(neighbor->getType());
             bool neighborMoveRelated = moveList.isMoveRelated(neighbor);
 
+#ifdef DEBUG_REG_ALLOC
             std::cout << "Updating neighbor " << neighbor->toString()
                       << " (new degree=" << newDegree << ", K=" << neighborK
                       << ", move-related=" << neighborMoveRelated << ")" << std::endl;
+#endif
 
             // 从当前工作列表中移除邻居节点
             worklistManager.removeFromWorklist(neighbor);
@@ -90,10 +100,13 @@ void GraphColorRegisterAllocator::performSimplification()
         simplifiedNodes++;
 
         // 打印当前工作列表状态
+#ifdef DEBUG_REG_ALLOC
         std::cout << "After simplifying " << reg->toString() << ":" << std::endl;
         worklistManager.printWorklistSizes();
+#endif
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Simplification phase completed." << std::endl;
     std::cout << "Total nodes simplified: " << simplifiedNodes << std::endl;
     std::cout << "Nodes in selection stack: " << selectStack.size() << std::endl;
@@ -105,6 +118,7 @@ void GraphColorRegisterAllocator::performSimplification()
             << "Warning: Simplification ended but simplify worklist is not empty!"
             << std::endl;
     }
+#endif
 }
 
 // ============================================================================
@@ -113,7 +127,9 @@ void GraphColorRegisterAllocator::performSimplification()
 
 void GraphColorRegisterAllocator::performCoalescing()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Performing coalescing phase..." << std::endl;
+#endif
 
     int coalescedPairs = 0;
     int constrainedPairs = 0;
@@ -133,25 +149,33 @@ void GraphColorRegisterAllocator::performCoalescing()
         auto reg1 = candidatePair.first;
         auto reg2 = candidatePair.second;
 
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Considering coalescing: " << reg1->toString() << " and "
                   << reg2->toString() << std::endl;
+#endif
 
         // 2. 实现 Briggs 保守启发式安全性检查
         if (canSafelyCoalesce(reg1, reg2))
         {
+#ifdef DEBUG_REG_ALLOC
             std::cout << "Coalescing is safe, executing merge..." << std::endl;
+#endif
 
             // 3. 执行节点合并操作，更新冲突图结构
             executeCoalescing(reg1, reg2);
             coalescedPairs++;
 
+#ifdef DEBUG_REG_ALLOC
             std::cout << "Successfully coalesced " << reg1->toString() << " and "
                       << reg2->toString() << std::endl;
+#endif
         }
         else
         {
+#ifdef DEBUG_REG_ALLOC
             std::cout << "Coalescing is not safe, marking moves as constrained"
                       << std::endl;
+#endif
 
             // 标记相关的move为受限
             moveList.constrainMoves(reg1, reg2);
@@ -159,12 +183,16 @@ void GraphColorRegisterAllocator::performCoalescing()
         }
 
         // 打印当前工作列表状态
+#ifdef DEBUG_REG_ALLOC
         worklistManager.printWorklistSizes();
+#endif
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Coalescing phase completed." << std::endl;
     std::cout << "Successfully coalesced pairs: " << coalescedPairs << std::endl;
     std::cout << "Constrained pairs: " << constrainedPairs << std::endl;
+#endif
 }
 
 // 选择合并候选节点对
@@ -219,14 +247,20 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
     // 基本检查：不能合并已经冲突的节点
     if (interferenceGraph.interferes(reg1, reg2))
     {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Cannot coalesce: nodes already interfere" << std::endl;
+#endif
+
         return false;
     }
 
     // 不能合并不同类型的寄存器
     if (reg1->getType() != reg2->getType())
     {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Cannot coalesce: different register types" << std::endl;
+#endif
+
         return false;
     }
 
@@ -240,9 +274,11 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
         bool canMerge = (reg1->getPhysicalReg() == reg2->getPhysicalReg());
         if (!canMerge)
         {
+#ifdef DEBUG_REG_ALLOC
             std::cout
                 << "Cannot coalesce: both precolored but different physical registers"
                 << std::endl;
+#endif
         }
         return canMerge;
     }
@@ -264,17 +300,22 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
             if (isPrecolored(neighbor) &&
                 neighbor->getPhysicalReg() == precoloredReg->getPhysicalReg())
             {
+#ifdef DEBUG_REG_ALLOC
                 std::cout << "Cannot coalesce: virtual register has a neighbor with "
                              "the same physical register"
                           << std::endl;
+#endif
                 return false;
             }
         }
 
-        // 对于虚拟寄存器的邻居，我们不需要额外检查
-        // 它们与预着色寄存器的冲突是正常的，不会影响可着色性
+// 对于虚拟寄存器的邻居，我们不需要额外检查
+// 它们与预着色寄存器的冲突是正常的，不会影响可着色性
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Safe to coalesce virtual register with precolored register"
                   << std::endl;
+#endif
+
         return true;
     }
 
@@ -306,9 +347,11 @@ bool GraphColorRegisterAllocator::briggsConservativeHeuristic(
 
     bool isSafe = significantNeighbors < K;
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Briggs heuristic: K=" << K
               << ", significant neighbors=" << significantNeighbors
               << ", safe=" << (isSafe ? "yes" : "no") << std::endl;
+#endif
 
     return isSafe;
 }
@@ -379,8 +422,10 @@ void GraphColorRegisterAllocator::executeCoalescing(
         }
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Merging " << mergeReg->toString() << " into "
               << keepReg->toString() << std::endl;
+#endif
 
     // 获取被合并节点的邻居列表（在修改图之前）
     auto mergeNeighbors = interferenceGraph.getNeighbors(mergeReg);
@@ -407,9 +452,11 @@ void GraphColorRegisterAllocator::executeCoalescing(
     // 重新分类所有受影响的邻居节点
     reclassifyAffectedNodes(affectedNodes);
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Coalescing completed. Kept node: " << keepReg->toString()
               << " (new degree=" << interferenceGraph.getDegree(keepReg) << ")"
               << std::endl;
+#endif
 }
 
 // ============================================================================
@@ -418,17 +465,23 @@ void GraphColorRegisterAllocator::executeCoalescing(
 
 void GraphColorRegisterAllocator::performFreezing()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Performing freezing phase..." << std::endl;
+#endif
 
     // 从冻结工作列表中获取一个节点
     auto reg = worklistManager.getNext(WorklistManager::WorklistType::FREEZE);
     if (!reg)
     {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "No nodes in freeze worklist" << std::endl;
+#endif
         return;
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Freezing node: " << reg->toString() << std::endl;
+#endif
 
     // 冻结与该节点相关的所有move指令
     moveList.freezeMoves(reg);
@@ -437,8 +490,10 @@ void GraphColorRegisterAllocator::performFreezing()
     setNodeState(reg, NodeState::SIMPLIFY_READY);
     worklistManager.addToWorklist(reg, WorklistManager::WorklistType::SIMPLIFY);
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Node " << reg->toString()
               << " frozen and moved to simplify worklist" << std::endl;
+#endif
     worklistManager.printWorklistSizes();
 }
 
@@ -448,31 +503,48 @@ void GraphColorRegisterAllocator::performFreezing()
 
 void GraphColorRegisterAllocator::selectSpillCandidates()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Performing spill candidate selection..." << std::endl;
+#endif
 
-    // 从溢出工作列表中获取一个节点
-    auto reg = worklistManager.getNext(WorklistManager::WorklistType::SPILL);
-    if (!reg)
+    shared_ptr<RISCVRegister> bestReg = nullptr;
+    double minCost = std::numeric_limits<double>::max();
+    for (auto reg : worklistManager.getAllNodes(WorklistManager::WorklistType::SPILL))
     {
-        std::cout << "No nodes in spill worklist" << std::endl;
+        double cost = calculateSpillCost(reg);
+        if (cost < minCost)
+        {
+            minCost = cost;
+            bestReg = reg;
+        }
+    }
+
+    if (!bestReg)
+    {
+#ifdef DEBUG_REG_ALLOC
+        std::cout << "No spill candidates found" << std::endl;
+#endif
         return;
     }
 
-    // 计算溢出代价
-    double spillCost = calculateSpillCost(reg);
-    std::cout << "Selected spill candidate: " << reg->toString()
-              << " with spill cost: " << spillCost << std::endl;
+#ifdef DEBUG_REG_ALLOC
+    std::cout << "Selected spill candidate: " << bestReg->toString()
+              << " with spill cost: " << minCost << std::endl;
+#endif
 
     // 将节点标记为可简化节点（暂时不实际溢出，只是将其简化）
-    setNodeState(reg, NodeState::SIMPLIFY_READY);
-    worklistManager.addToWorklist(reg, WorklistManager::WorklistType::SIMPLIFY);
+    worklistManager.removeFromWorklist(bestReg);
+    setNodeState(bestReg, NodeState::SIMPLIFY_READY);
+    worklistManager.addToWorklist(bestReg, WorklistManager::WorklistType::SIMPLIFY);
 
     // 记录这个节点是潜在的溢出候选
-    spilledRegs.insert(reg);
+    spilledRegs.insert(bestReg);
 
-    std::cout << "Node " << reg->toString()
+#ifdef DEBUG_REG_ALLOC
+    std::cout << "Node " << bestReg->toString()
               << " marked as potential spill and moved to simplify worklist"
               << std::endl;
+#endif
     worklistManager.printWorklistSizes();
 }
 
@@ -536,150 +608,5 @@ double GraphColorRegisterAllocator::calculateSpillCost(shared_ptr<RISCVRegister>
     double cost =
         (useCount + defCount) * std::pow(2, avgLoopDepth) / liveLength;
 
-    std::cout << "Spill cost calculation for " << reg->toString() << ":"
-              << std::endl;
-    std::cout << "- Use count: " << useCount << std::endl;
-    std::cout << "- Def count: " << defCount << std::endl;
-    std::cout << "- Avg loop depth: " << avgLoopDepth << std::endl;
-    std::cout << "- Live length: " << liveLength << std::endl;
-    std::cout << "- Calculated cost: " << cost << std::endl;
-
     return cost;
-}
-
-bool MoveList::canCoalesce(shared_ptr<RISCVRegister> reg1,
-                           shared_ptr<RISCVRegister> reg2) const
-{
-    auto it1 = regToMoves.find(reg1);
-    auto it2 = regToMoves.find(reg2);
-
-    if (it1 == regToMoves.end() || it2 == regToMoves.end())
-        return false;
-
-    // 查找连接这两个寄存器的move指令
-    for (int moveIndex1 : it1->second)
-    {
-        for (int moveIndex2 : it2->second)
-        {
-            if (moveIndex1 == moveIndex2)
-            {
-                const auto &move = moves[moveIndex1];
-                if (move.state == MoveState::WORKLIST_MOVES &&
-                    ((move.src == reg1 && move.dst == reg2) ||
-                     (move.src == reg2 && move.dst == reg1)))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-void MoveList::freezeMoves(shared_ptr<RISCVRegister> reg)
-{
-    auto it = regToMoves.find(reg);
-    if (it == regToMoves.end())
-        return;
-
-    for (int moveIndex : it->second)
-    {
-        if (moves[moveIndex].state == MoveState::WORKLIST_MOVES ||
-            moves[moveIndex].state == MoveState::ACTIVE_MOVES)
-        {
-            moves[moveIndex].state = MoveState::FROZEN;
-        }
-    }
-}
-
-void MoveList::coalesceMoves(shared_ptr<RISCVRegister> reg1,
-                             shared_ptr<RISCVRegister> reg2)
-{
-    auto it1 = regToMoves.find(reg1);
-    auto it2 = regToMoves.find(reg2);
-
-    if (it1 == regToMoves.end() || it2 == regToMoves.end())
-        return;
-
-    // 查找并标记相关的move为已合并
-    for (int moveIndex1 : it1->second)
-    {
-        for (int moveIndex2 : it2->second)
-        {
-            if (moveIndex1 == moveIndex2)
-            {
-                const auto &move = moves[moveIndex1];
-                if ((move.src == reg1 && move.dst == reg2) ||
-                    (move.src == reg2 && move.dst == reg1))
-                {
-                    moves[moveIndex1].state = MoveState::COALESCED;
-                }
-            }
-        }
-    }
-}
-
-void MoveList::constrainMoves(shared_ptr<RISCVRegister> reg1,
-                              shared_ptr<RISCVRegister> reg2)
-{
-    auto it1 = regToMoves.find(reg1);
-    auto it2 = regToMoves.find(reg2);
-
-    if (it1 == regToMoves.end() || it2 == regToMoves.end())
-        return;
-
-    // 查找并标记相关的move为受限
-    for (int moveIndex1 : it1->second)
-    {
-        for (int moveIndex2 : it2->second)
-        {
-            if (moveIndex1 == moveIndex2)
-            {
-                const auto &move = moves[moveIndex1];
-                if ((move.src == reg1 && move.dst == reg2) ||
-                    (move.src == reg2 && move.dst == reg1))
-                {
-                    moves[moveIndex1].state = MoveState::CONSTRAINED;
-                }
-            }
-        }
-    }
-}
-
-vector<int> MoveList::getRelatedMoves(shared_ptr<RISCVRegister> reg) const
-{
-    auto it = regToMoves.find(reg);
-    return it != regToMoves.end() ? it->second : vector<int>();
-}
-
-void MoveList::printMoves() const
-{
-    std::cout << "=== Move Instructions ===" << std::endl;
-    for (size_t i = 0; i < moves.size(); i++)
-    {
-        const auto &move = moves[i];
-        std::cout << i << ": " << move.src->toString() << " -> "
-                  << move.dst->toString();
-        std::cout << " (";
-        switch (move.state)
-        {
-        case MoveState::COALESCED:
-            std::cout << "COALESCED";
-            break;
-        case MoveState::CONSTRAINED:
-            std::cout << "CONSTRAINED";
-            break;
-        case MoveState::FROZEN:
-            std::cout << "FROZEN";
-            break;
-        case MoveState::WORKLIST_MOVES:
-            std::cout << "WORKLIST";
-            break;
-        case MoveState::ACTIVE_MOVES:
-            std::cout << "ACTIVE";
-            break;
-        }
-        std::cout << ")" << std::endl;
-    }
-    std::cout << "=========================" << std::endl;
 }

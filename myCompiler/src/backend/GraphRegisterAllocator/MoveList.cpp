@@ -145,6 +145,7 @@ vector<int> MoveList::getRelatedMoves(shared_ptr<RISCVRegister> reg) const
 
 void MoveList::printMoves() const
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "=== Move Instructions ===" << std::endl;
     for (size_t i = 0; i < moves.size(); i++)
     {
@@ -173,4 +174,5 @@ void MoveList::printMoves() const
         std::cout << ")" << std::endl;
     }
     std::cout << "=========================" << std::endl;
+#endif
 }

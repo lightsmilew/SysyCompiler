@@ -408,9 +408,9 @@ namespace RISCV
 
         // 获取栈偏移量
         int getValueOffset(const string &valueName) const;
-        int getCallerArgOffset(const string &valueName) const;    // 获取调用参数偏移
-        int getCalleeArgOffset(int ArgNumber) const;              // 获取被调用函数参数
-        int getRaOffset() const { return getAlignedSize() - 4; }; // 获取返回地址偏移
+        int getCallerArgOffset(const string &valueName) const;                           // 获取调用参数偏移
+        int getCalleeArgOffset(int ArgNumber) const;                                     // 获取被调用函数参数
+        int getRaOffset() const { return raStackSize > 0 ? getAlignedSize() - 4 : -1; }; // 获取返回地址偏移
 
         // 检查是否有分配的栈空间
         bool hasAllocation_value(const string &valueName) const;

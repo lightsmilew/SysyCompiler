@@ -1,8 +1,5 @@
 #include "RISCVBuilder.h"
 #include <memory>
-#include "AssemblyEmitter.h"
-#include "InstructionSelector.h"
-#include "GraphColorRegisterAllocator.h"
 using namespace RISCV;
 
 shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irModule)
@@ -44,6 +41,11 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
     // 初始化函数
     for (const auto &func : irModule->Functions)
     {
+        if (isLibraryFunction(func->getName()))
+        {
+            continue;
+        }
+
         auto riscvFunc = make_shared<RISCVFunction>(func->getName(), riscvModule);
         riscvModule->addFunction(riscvFunc);
 
@@ -158,6 +160,9 @@ void RISCVBuilder::generateInstructions()
     // 为每个函数生成指令
     for (const auto &func : irModule->Functions)
     {
+        if (isLibraryFunction(func->getName()))
+            continue;
+
         auto riscvFunc = riscvModule->getFunction(func->getName());
         if (!riscvFunc)
             continue;
@@ -201,4 +206,17 @@ void RISCVBuilder::reallocOffsetForInstructions()
             }
         }
     }
+}
+
+bool RISCVBuilder::isLibraryFunction(const string &funcName)
+{
+    // 检查是否是库函数 - 包括SysY运行时库函数
+    static const set<string> libFuncs = {
+        // 标准C库函数
+        "printf", "scanf", "malloc", "free", "memcpy", "strlen",
+        // SysY运行时库函数
+        "getint", "getch", "getfloat", "getarray", "getfarray",
+        "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
+        "starttime", "stoptime", "_sysy_starttime", "_sysy_stoptime"};
+    return libFuncs.count(funcName) > 0;
 }

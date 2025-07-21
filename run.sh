@@ -1,14 +1,14 @@
 #!/bin/bash
-#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
 #PERFORMANCE_DIR="../compiler2023/公开样例与运行时库/performance"
 #INPUT_DIR="debug_cases"
 #OUTPUT_DIR="debug_cases"
 
 #INPUT_DIR="case/final_performance"
 #OUTPUT_DIR="case/final_performance/output"
- INPUT_DIR="case/functional"
- OUTPUT_DIR="case/functional/output"
+#  INPUT_DIR="case/functional"
+#  OUTPUT_DIR="case/functional/output"
 
 
 if [ "$1" == "-rebuild" ]; then
@@ -96,4 +96,22 @@ elif [ "$1" == "-diff" ]; then
             echo "$filename: 缺少 $file1 或 $file2"
         fi
     done      
+elif [ "$1" == "-gdb" ]; then
+    for file in $INPUT_DIR/*.sy; do
+        filename=$(basename "$file")
+        echo -e "\n\033[1;34m==========================================\033[0m"
+        echo -e "\033[1;34m🔍 Processing: $filename\033[0m"
+        echo -e "\033[1;34m==========================================\033[0m"
+        # 直接显示编译器输出和错误信息
+        ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
+        status=$?
+        if [ $status -ne 0 ]; then
+            echo -e "\n\033[1;31m❌ ERROR OCCURRED WITH: $filename\033[0m"
+            echo -e "\033[1;31m==========================================\033[0m"
+            echo -e "\033[1;33m🔧 Running with GDB for debugging...\033[0m"
+            gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
+        else
+            echo -e "\033[1;32m✅ Successfully processed: $filename\033[0m"
+        fi
+    done
 fi

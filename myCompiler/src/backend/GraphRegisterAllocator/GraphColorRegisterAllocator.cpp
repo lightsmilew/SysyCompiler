@@ -105,6 +105,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
     while (!selectStack.empty())
       selectStack.pop();
 
+#ifdef DEBUG_REG_ALLOC
     if (needRestart)
     {
       std::cout
@@ -116,6 +117,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
       std::cout << "=== Graph Coloring Register Allocation ===" << std::endl;
     }
     std::cout << "Function: " << func->getName() << std::endl;
+#endif
 
     // 执行图染色算法的主要步骤
     buildInterferenceGraph();
@@ -150,9 +152,11 @@ void GraphColorRegisterAllocator::allocateRegisters(
         // 如果合并后仍然没有可处理的节点，则退出
         if (worklistManager.isEmpty())
         {
+#ifdef DEBUG_REG_ALLOC
           std::cout << "Error: No nodes in any worklist but "
                        "worklistManager.isEmpty() returned false"
                     << std::endl;
+#endif
           break;
         }
       }
@@ -165,8 +169,10 @@ void GraphColorRegisterAllocator::allocateRegisters(
     needRestart = false;
     if (!spilledRegs.empty())
     {
+#ifdef DEBUG_REG_ALLOC
       std::cout << "Spilled registers detected, handling spills..."
                 << std::endl;
+#endif
       handleSpilledRegisters();
 
       // 处理完溢出后，需要重新开始分配过程
@@ -175,19 +181,26 @@ void GraphColorRegisterAllocator::allocateRegisters(
 
       if (spillIterations >= MAX_SPILL_ITERATIONS)
       {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Warning: Maximum spill iterations reached ("
                   << MAX_SPILL_ITERATIONS << "), stopping allocation"
                   << std::endl;
+#endif
         needRestart = false;
       }
     }
 
   } while (needRestart);
 
+#ifdef DEBUG_REG_ALLOC
   printStatistics();
 
   // 验证最终的分配结果
   validateAllocation();
+#endif
+
+  // 应用分配结果到指令中
+  applyAllocation();
 }
 
 // 辅助函数实现
@@ -237,7 +250,9 @@ void GraphColorRegisterAllocator::printStatistics()
 // 初始化工作列表
 void GraphColorRegisterAllocator::initializeWorklists()
 {
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Initializing worklists..." << std::endl;
+#endif
 
   // 对所有节点进行分类
   for (auto reg : interferenceGraph.getNodes())
@@ -245,7 +260,9 @@ void GraphColorRegisterAllocator::initializeWorklists()
     classifyNode(reg);
   }
 
+#ifdef DEBUG_REG_ALLOC
   worklistManager.printWorklistSizes();
+#endif
 }
 
 // 辅助函数：检查指令是否为move指令
@@ -307,26 +324,32 @@ void GraphColorRegisterAllocator::reclassifyNode(
   // 重新评估并分类
   classifyNode(reg);
 
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Reclassified node " << reg->toString()
             << " (degree=" << interferenceGraph.getDegree(reg)
             << ", move-related=" << moveList.isMoveRelated(reg) << ")"
             << std::endl;
+#endif
 }
 
 // 批量重新分类受影响的节点
 void GraphColorRegisterAllocator::reclassifyAffectedNodes(
     const vector<shared_ptr<RISCVRegister>> &affectedNodes)
 {
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Reclassifying " << affectedNodes.size() << " affected nodes..."
             << std::endl;
+#endif
 
   for (auto reg : affectedNodes)
   {
     reclassifyNode(reg);
   }
 
+#ifdef DEBUG_REG_ALLOC
   // 打印更新后的工作列表状态
   worklistManager.printWorklistSizes();
+#endif
 }
 
 // ============================================================================
@@ -335,7 +358,9 @@ void GraphColorRegisterAllocator::reclassifyAffectedNodes(
 
 void GraphColorRegisterAllocator::assignColors()
 {
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Performing coloring phase..." << std::endl;
+#endif
 
   // 清空分配结果
   allocation.clear();
@@ -360,7 +385,9 @@ void GraphColorRegisterAllocator::assignColors()
     auto reg = selectStack.top();
     selectStack.pop();
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Coloring node: " << reg->toString() << std::endl;
+#endif
 
     // 2. 获取可用的物理寄存器列表（颜色）
     auto availableColors = getAvailableColors(reg->getType());
@@ -405,21 +432,27 @@ void GraphColorRegisterAllocator::assignColors()
     {
       allocation[reg] = selectedColor;
       coloredCount++;
+#ifdef DEBUG_REG_ALLOC
       std::cout << "  Assigned color: " << selectedColor->toString()
                 << std::endl;
+#endif
     }
     else
     {
       spilledRegs.insert(reg);
       spilledCount++;
+#ifdef DEBUG_REG_ALLOC
       std::cout << "  No available color, marked as spilled" << std::endl;
+#endif
     }
   }
 
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Coloring phase completed." << std::endl;
   std::cout << "Successfully colored: " << coloredCount << " registers"
             << std::endl;
   std::cout << "Spilled: " << spilledCount << " registers" << std::endl;
+#endif
 
   // 验证着色结果
   validateAllocation();
@@ -428,7 +461,9 @@ void GraphColorRegisterAllocator::assignColors()
 // 验证分配结果
 void GraphColorRegisterAllocator::validateAllocation()
 {
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Validating register allocation..." << std::endl;
+#endif
 
   int errors = 0;
 
@@ -443,8 +478,10 @@ void GraphColorRegisterAllocator::validateAllocation()
     auto it1 = allocation.find(reg1);
     if (it1 == allocation.end())
     {
+#ifdef DEBUG_REG_ALLOC
       std::cout << "Error: Register " << reg1->toString()
                 << " has no allocation" << std::endl;
+#endif
       errors++;
       continue;
     }
@@ -461,8 +498,10 @@ void GraphColorRegisterAllocator::validateAllocation()
       auto it2 = allocation.find(reg2);
       if (it2 == allocation.end())
       {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Error: Register " << reg2->toString()
                   << " has no allocation" << std::endl;
+#endif
         errors++;
         continue;
       }
@@ -471,9 +510,11 @@ void GraphColorRegisterAllocator::validateAllocation()
 
       if (color1->getPhysicalReg() == color2->getPhysicalReg())
       {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Error: Conflicting registers " << reg1->toString()
                   << " and " << reg2->toString() << " assigned same color "
                   << color1->toString() << std::endl;
+#endif
         errors++;
       }
     }
@@ -488,8 +529,10 @@ void GraphColorRegisterAllocator::validateAllocation()
       if (it == allocation.end() ||
           it->second->getPhysicalReg() != reg->getPhysicalReg())
       {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Error: Precolored register " << reg->toString()
                   << " lost its original color" << std::endl;
+#endif
         errors++;
       }
     }
@@ -509,11 +552,13 @@ void GraphColorRegisterAllocator::validateAllocation()
       auto color = it->second;
       if (reg->getType() != color->getType())
       {
+#ifdef DEBUG_REG_ALLOC
         std::cout << "Error: Register " << reg->toString() << " of type "
                   << (reg->getType() == RegisterType::INT ? "INT" : "FLOAT")
                   << " assigned color " << color->toString() << " of type "
                   << (color->getType() == RegisterType::INT ? "INT" : "FLOAT")
                   << std::endl;
+#endif
         errors++;
       }
     }
@@ -521,12 +566,16 @@ void GraphColorRegisterAllocator::validateAllocation()
 
   if (errors == 0)
   {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Allocation validation passed successfully!" << std::endl;
+#endif
   }
   else
   {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Allocation validation failed with " << errors << " errors"
               << std::endl;
+#endif
   }
 }
 
@@ -535,15 +584,21 @@ void GraphColorRegisterAllocator::validateAllocation()
 // ============================================================================
 void GraphColorRegisterAllocator::handleSpilledRegisters()
 {
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Handling spilled registers..." << std::endl;
+#endif
 
   if (spilledRegs.empty())
   {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "No registers to spill, skipping." << std::endl;
+#endif
     return;
   }
 
+#ifdef DEBUG_REG_ALLOC
   std::cout << "Total spilled registers: " << spilledRegs.size() << std::endl;
+#endif
 
   // 为每个溢出的寄存器在栈上分配空间
   for (auto spilledReg : spilledRegs)
@@ -555,10 +610,12 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
                         : 8; // INT类型4字节，FLOAT类型8字节
 
     currentFunc->getStackFrame().allocateValueSpace(spillName, spillSize);
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Allocated stack space for " << spilledReg->toString()
               << " at offset "
               << currentFunc->getStackFrame().getValueOffset(spillName)
               << " with size " << spillSize << std::endl;
+#endif
   }
 
   // 遍历所有基本块和指令，为溢出寄存器插入load/store代码
@@ -660,4 +717,79 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
   }
   // 清空溢出寄存器集合，因为它们已经被处理
   spilledRegs.clear();
+}
+// ============================================================================
+// 应用分配结果
+// ============================================================================
+void GraphColorRegisterAllocator::applyAllocation()
+{
+#ifdef DEBUG_REG_ALLOC
+  std::cout << "Applying register allocation to instructions..." << std::endl;
+#endif
+
+  int replacedCount = 0;
+  int totalVirtualRegs = 0;
+
+  // 遍历所有基本块和指令
+  for (auto &bb : currentFunc->getBasicBlocks())
+  {
+    for (auto &instr : bb->getInstructions())
+    {
+      // 处理使用的寄存器
+      auto useRegs = instr->getUseRegisters();
+      for (auto &useReg : useRegs)
+      {
+        if (useReg->isVirtual())
+        {
+          totalVirtualRegs++;
+          auto it = allocation.find(useReg);
+          if (it != allocation.end())
+          {
+            // 替换虚拟寄存器为分配的物理寄存器
+            instr->replaceUseRegister(useReg, it->second);
+            replacedCount++;
+          }
+          else
+          {
+#ifdef DEBUG_REG_ALLOC
+            std::cout << "Warning: Virtual register " << useReg->toString()
+                      << " used in " << instr->toString()
+                      << " has no allocation" << std::endl;
+#endif
+          }
+        }
+      }
+
+      // 处理定义的寄存器
+      auto defRegs = instr->getDefRegisters();
+      for (auto &defReg : defRegs)
+      {
+        if (defReg->isVirtual())
+        {
+          totalVirtualRegs++;
+          auto it = allocation.find(defReg);
+          if (it != allocation.end())
+          {
+            // 替换虚拟寄存器为分配的物理寄存器
+            instr->replaceDefRegister(defReg, it->second);
+            replacedCount++;
+          }
+          else
+          {
+#ifdef DEBUG_REG_ALLOC
+            std::cout << "Warning: Virtual register " << defReg->toString()
+                      << " defined in " << instr->toString()
+                      << " has no allocation" << std::endl;
+#endif
+          }
+        }
+      }
+    }
+  }
+
+#ifdef DEBUG_REG_ALLOC
+  std::cout << "Register allocation applied: replaced " << replacedCount
+            << " out of " << totalVirtualRegs << " virtual register references"
+            << std::endl;
+#endif
 }

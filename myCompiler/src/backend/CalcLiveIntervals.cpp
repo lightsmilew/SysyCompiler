@@ -41,7 +41,11 @@ void InstructionSelector::computeBasicBlockUseDef()
             {
                 useSet.insert(reg);
             }
-            defSet.insert(instr->getDefRegisters().begin(), instr->getDefRegisters().end());
+
+            for (const auto &reg : instr->getDefRegisters())
+            {
+                defSet.insert(reg);
+            }
         }
         bb->setUse(useSet);
         bb->setDef(defSet);

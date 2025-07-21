@@ -9,7 +9,9 @@ using namespace RISCV;
 // 构建冲突图
 void GraphColorRegisterAllocator::buildInterferenceGraph()
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Building interference graph..." << std::endl;
+#endif
 
     const auto &livenessInfo = currentFunc->getLivenessInfo();
 
@@ -39,10 +41,12 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
     // 但我们需要确保虚拟寄存器不会与已占用的物理寄存器冲突
     addPrecoloredInterferences();
 
-    // 4. 实现冲突图的调试输出功能
+// 4. 实现冲突图的调试输出功能
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Interference graph construction completed." << std::endl;
     std::cout << "Total nodes: " << interferenceGraph.getNodes().size()
               << std::endl;
+#endif
 
     // 统计不同类型寄存器的数量
     int generalCount = 0, floatCount = 0, precoloredCount = 0, virtualCount = 0;
@@ -66,11 +70,13 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
     // 每条边被计算了两次（无向图），所以除以2
     totalEdges /= 2;
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "General registers: " << generalCount << std::endl;
     std::cout << "Float registers: " << floatCount << std::endl;
     std::cout << "Precolored registers: " << precoloredCount << std::endl;
     std::cout << "Virtual registers: " << virtualCount << std::endl;
     std::cout << "Total interference edges: " << totalEdges << std::endl;
+#endif
 
     // 可选：打印详细的冲突图信息（调试时使用）
     if (interferenceGraph.getNodes().size() <= 20) // 只在节点数较少时打印详细信息
@@ -143,6 +149,8 @@ void GraphColorRegisterAllocator::addPrecoloredInterferences()
         }
     }
 
+#ifdef DEBUG_REG_ALLOC
     std::cout << "Added precolored interferences for " << usedPhysicalRegs.size()
               << " actually used physical registers" << std::endl;
+#endif
 }

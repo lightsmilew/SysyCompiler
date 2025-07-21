@@ -92,11 +92,13 @@ size_t WorklistManager::getSize(WorklistType type) const
 
 void WorklistManager::printWorklistSizes() const
 {
+#ifdef DEBUG_REG_ALLOC
     std::cout << "=== Worklist Sizes ===" << std::endl;
     std::cout << "SIMPLIFY: " << getSize(WorklistType::SIMPLIFY) << std::endl;
     std::cout << "FREEZE: " << getSize(WorklistType::FREEZE) << std::endl;
     std::cout << "SPILL: " << getSize(WorklistType::SPILL) << std::endl;
     std::cout << "======================" << std::endl;
+#endif
 }
 
 void WorklistManager::clear()

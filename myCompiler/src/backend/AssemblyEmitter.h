@@ -1,3 +1,4 @@
+#pragma once
 #include "RISCVBuilder.h"
 using namespace RISCV;
 
@@ -11,5 +12,6 @@ private:
     string emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &globals);
     string emitFunction(shared_ptr<RISCVFunction> func);
     string emitBasicBlock(shared_ptr<RISCVBasicBlock> bb);
-    bool isLibraryFunction(const string &funcName);
+    string getPrologue(const StackFrame &stack);
+    string getEpilogue(const StackFrame &stack);
 };

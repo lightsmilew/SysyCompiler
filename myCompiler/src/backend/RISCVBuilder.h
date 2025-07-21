@@ -1,6 +1,10 @@
 #pragma once
 #include "RISCVDataStructure.h"
 #include "../midend/irbuild/IRDataStructure.h"
+#include "AssemblyEmitter.h"
+#include "InstructionSelector.h"
+#include "GraphRegisterAllocator/GraphColorRegisterAllocator.h"
+using std::set;
 
 namespace RISCV
 {
@@ -31,5 +35,6 @@ namespace RISCV
         void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar);
 
         void reallocOffsetForInstructions();
+        bool isLibraryFunction(const string &funcName);
     };
 }
