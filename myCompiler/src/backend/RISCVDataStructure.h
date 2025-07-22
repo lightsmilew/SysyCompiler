@@ -238,6 +238,28 @@ namespace RISCV
 
         string toString() const;
         bool operator==(const RISCVRegister &other) const;
+
+        struct RegisterHash
+        {
+            size_t operator()(const std::shared_ptr<RISCV::RISCVRegister> &reg) const
+            {
+                if (reg->isPhysical())
+                    return std::hash<int>()(static_cast<int>(reg->getPhysicalReg())) ^ std::hash<int>()(static_cast<int>(reg->getType()));
+                else
+                    return std::hash<int>()(reg->getVirtualId()) ^ std::hash<int>()(static_cast<int>(reg->getType()));
+            }
+        };
+
+        struct RegisterEqual
+        {
+            bool operator()(const std::shared_ptr<RISCV::RISCVRegister> &lhs,
+                            const std::shared_ptr<RISCV::RISCVRegister> &rhs) const
+            {
+                if (!lhs || !rhs)
+                    return false;
+                return *lhs == *rhs; // 用你自定义的 operator==
+            }
+        };
     };
 
     // 操作数类
@@ -431,10 +453,10 @@ namespace RISCV
         vector<shared_ptr<RISCVBasicBlock>> successors;   // 后继基本块
 
         // 活跃变量分析结果
-        unordered_set<shared_ptr<RISCVRegister>> use; // 在定义前使用的寄存器
-        unordered_set<shared_ptr<RISCVRegister>> def; // 在基本块中定义的寄存器
-        unordered_set<shared_ptr<RISCVRegister>> liveIn;
-        unordered_set<shared_ptr<RISCVRegister>> liveOut;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> use; // 在定义前使用的寄存器
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> def; // 在基本块中定义的寄存器
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> liveIn;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> liveOut;
 
     public:
         RISCVBasicBlock(const string &label, shared_ptr<RISCVFunction> func);
@@ -473,14 +495,14 @@ namespace RISCV
         const vector<shared_ptr<RISCVBasicBlock>> &getSuccessors() const { return successors; }
 
         // 活跃变量分析
-        const unordered_set<shared_ptr<RISCVRegister>> &getLiveIn() const { return liveIn; }
-        const unordered_set<shared_ptr<RISCVRegister>> &getLiveOut() const { return liveOut; }
-        void setLiveIn(const unordered_set<shared_ptr<RISCVRegister>> &live) { liveIn = live; }
-        void setLiveOut(const unordered_set<shared_ptr<RISCVRegister>> &live) { liveOut = live; }
-        const unordered_set<shared_ptr<RISCVRegister>> &getUse() const { return use; }
-        const unordered_set<shared_ptr<RISCVRegister>> &getDef() const { return def; }
-        void setUse(const unordered_set<shared_ptr<RISCVRegister>> &useSet) { use = useSet; }
-        void setDef(const unordered_set<shared_ptr<RISCVRegister>> &defSet) { def = defSet; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getLiveIn() const { return liveIn; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getLiveOut() const { return liveOut; }
+        void setLiveIn(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveIn = live; }
+        void setLiveOut(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveOut = live; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getUse() const { return use; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getDef() const { return def; }
+        void setUse(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &useSet) { use = useSet; }
+        void setDef(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &defSet) { def = defSet; }
 
         string toString() const;
     };
@@ -560,13 +582,18 @@ namespace RISCV
     struct LivenessInfo
     {
         // 每个寄存器的多段活跃区间
-        unordered_map<shared_ptr<RISCVRegister>, vector<LiveRange>> liveRanges;
+        unordered_map<
+            shared_ptr<RISCVRegister>,
+            vector<LiveRange>,
+            RISCVRegister::RegisterHash,
+            RISCVRegister::RegisterEqual>
+            liveRanges;
 
         // 每个寄存器的所有使用点
-        unordered_map<shared_ptr<RISCVRegister>, vector<int>> usePoints;
+        unordered_map<shared_ptr<RISCVRegister>, vector<int>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> usePoints;
 
         // 每个寄存器的所有定义点
-        unordered_map<shared_ptr<RISCVRegister>, vector<int>> defPoints;
+        unordered_map<shared_ptr<RISCVRegister>, vector<int>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> defPoints;
 
         // 总指令数
         int totalInstructions;

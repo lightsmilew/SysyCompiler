@@ -1,4 +1,3 @@
-
 #include "GraphColorRegisterAllocator.h"
 #include <algorithm>
 #include <iostream>

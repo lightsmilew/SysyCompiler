@@ -20,6 +20,10 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
 
     // 创建虚拟寄存器映射表
     registerMap.clear();
+    tempRegisters.clear();
+    globalVarMap.clear();
+    MoveArgMap.clear();
+
     buildControlFlowGraph();
 
     // 处理函数体
@@ -290,6 +294,7 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     }
 
     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
+    currentBB->addInstruction(addInst);
 }
 
 void InstructionSelector::visitCallInst(CallInst *inst)
@@ -901,6 +906,7 @@ shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
     auto globReg = getTempReg();
     globalVarMap[globlvar->getName()] = globReg;
     auto laInst = RISCVInstruction::createPseudoLA(globReg, globlvar->getName());
+    currentBB->addInstruction(laInst);
 
     return globReg;
 }

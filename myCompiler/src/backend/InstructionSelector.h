@@ -15,6 +15,11 @@ private:
     unordered_map<string, shared_ptr<RISCVRegister>> MoveArgMap;   // 临时寄存器到参数寄存器的映射
     shared_ptr<RISCVInstruction> currentLiInstruction;             // 当前正在处理的指令
 
+    bool isTempReg(shared_ptr<RISCVRegister> reg) const
+    {
+        return find(tempRegisters.begin(), tempRegisters.end(), reg) != tempRegisters.end();
+    }
+
 public:
     InstructionSelector() {}
     // 为函数生成指令

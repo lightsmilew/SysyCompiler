@@ -31,8 +31,8 @@ void InstructionSelector::computeBasicBlockUseDef()
 {
     for (auto &bb : currentFunc->getBasicBlocks())
     {
-        unordered_set<shared_ptr<RISCVRegister>> useSet;
-        unordered_set<shared_ptr<RISCVRegister>> defSet;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> useSet;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> defSet;
 
         for (const auto &instr : bb->getInstructions())
         {
@@ -60,12 +60,14 @@ void InstructionSelector::computeLiveInOut()
         changed = false;
         for (auto &bb : currentFunc->getBasicBlocks())
         {
-            unordered_set<shared_ptr<RISCVRegister>> newLiveIn;
-            unordered_set<shared_ptr<RISCVRegister>> newLiveOut;
+            unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> newLiveIn;
+            unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> newLiveOut;
 
             // 计算 LiveOut
             for (const auto &succ : bb->getSuccessors())
             {
+                if (succ == bb)
+                    continue; // 避免自循环
                 const auto &succLiveIn = succ->getLiveIn();
                 newLiveOut.insert(succLiveIn.begin(), succLiveIn.end());
             }
@@ -73,16 +75,11 @@ void InstructionSelector::computeLiveInOut()
             // 计算 LiveIn
             const auto &use = bb->getUse();
             const auto &def = bb->getDef();
-            for (const auto &reg : use)
+            newLiveIn = use;
+            for (const auto &reg : newLiveOut)
             {
-                if (newLiveOut.find(reg) == newLiveOut.end())
-                {
+                if (def.find(reg) == def.end())
                     newLiveIn.insert(reg);
-                }
-            }
-            for (const auto &reg : def)
-            {
-                newLiveOut.erase(reg);
             }
 
             // 检查是否有变化
