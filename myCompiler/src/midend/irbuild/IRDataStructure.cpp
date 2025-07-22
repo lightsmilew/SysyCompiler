@@ -1353,13 +1353,12 @@ GlobalVariable *Module::getGlobalVariable(const string &name)
 string Module::getBasicBlockInfo()
 {
     std::stringstream ss;
-    int j = 0;
     for (int i = 13; i < Functions.size(); i++)
     {
         ss << Functions[i]->getName() << ":" << std::endl;
         for (const auto &it : Functions[i]->BasicBlocks)
         {
-            ss << "BasicBlockSuccs " << j << ":" << std::endl;
+            ss << "BasicBlockSuccs " << it->getName() << ":" << std::endl;
             ss << "                   Successors: ";
             for (auto suc : it->getSuccessors())
             {
@@ -1372,7 +1371,6 @@ string Module::getBasicBlockInfo()
                 ss << pre->getName() << " ";
             }
             ss << std::endl;
-            j++;
         }
     }
     return ss.str();

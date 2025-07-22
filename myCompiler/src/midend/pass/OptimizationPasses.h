@@ -65,25 +65,27 @@ namespace optimization
     // 2. 公共子表达式消除Pass
     class CommonSubexpressionEliminationPass : public Pass
     {
+    using ExprKey = std::pair<std::string, std::vector<std::string>>;
     private:
         struct ExpressionHash
         {
-            std::size_t operator()(const std::pair<std::string, std::vector<std::string>> &expr) const;
+            std::size_t operator()(const ExprKey &expr) const;
         };
-    // exprMap: key -> pair<inst, bb>
-    using ExprKey = std::pair<std::string, std::vector<std::string>>;
-    std::unordered_map<ExprKey, std::pair<Instruction*, BasicBlock*>, ExpressionHash> exprMap;
 
+    std::unordered_map<ExprKey, std::pair<Instruction*, BasicBlock*>, ExpressionHash> exprMap;
+    std::unordered_map<BasicBlock*, std::unordered_set<BasicBlock*>> dom;
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "CommonSubexpressionElimination"; }
 
     private:
+        std::unordered_map<BasicBlock*, BasicBlock*> idom;
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
         bool canBeCommonSubexpression(Instruction *inst,BasicBlock *bb);
-        bool isLoadFromInvariantAddress(Instruction *inst,BasicBlock *bb);
-        static bool dominates(BasicBlock *storeBB, BasicBlock *loadBB);
+        bool CanLoadCSE(Instruction *inst,BasicBlock *bb);
+        bool dominates(BasicBlock *dom, BasicBlock *node);
+        std::unordered_map<BasicBlock*, BasicBlock*>computeIDom_LengauerTarjan(Function* func);
         // 检查Load指令的地址是否只被唯一Store且无其他写
     };
 
@@ -128,6 +130,8 @@ namespace optimization
         int inlineCount = 0;
         bool shouldInline(Function *callee);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
+        //debug
+        void verifyCFG(Function *func);
     };
     // 5. 常量折叠 Pass（将常量表达式计算为常量值）函数内联时会产生常量二元表达式
     class ConstantFoldingPass : public Pass

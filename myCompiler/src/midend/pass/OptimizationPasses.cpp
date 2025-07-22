@@ -1,4 +1,5 @@
 #include "OptimizationPasses.h"
+#include "Lengauer-Tarjan.h"
 #include <iostream>
 #include <stack>
 using namespace std;
@@ -171,6 +172,8 @@ bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
+    idom.clear();
+    idom = computeIDom_LengauerTarjan(func);
     bool changed = false;
     bool localChanged;
     // 递归消除
@@ -195,9 +198,22 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                 {
                     // 只有原表达式所在基本块支配当前基本块时才可消除
                     BasicBlock *defBB = found->second.second;
+                    //  load特判
+                    //  如果查到的load在本load之前的块则跳过(load仅支持同基本块消除)
+                    if (inst->getOpcode() == Opcode::Load && defBB != bb.get())
+                    {
+                        ++it;
+                        continue;
+                    }
                     if (defBB == bb.get() || dominates(defBB, bb.get()))
                     {
                         inst->replaceAllUsesWith(found->second.first);
+                        if (verbose)
+                        {
+                            debugInfo << inst->toString() << " replaced with "
+                                      << found->second.first->toString() << " in "
+                                      << bb->getName() << endl;
+                        }
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -238,7 +254,7 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
 {
     if (inst->getOpcode() == Opcode::Load)
     {
-        return isLoadFromInvariantAddress(inst, bb);
+        return CanLoadCSE(inst, bb);
     }
     // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
     for (auto *v : inst->getOperands())
@@ -251,74 +267,103 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     // 只处理无副作用的二元运算和getelementptr,不包括Store Call Ret Br
     return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr) && !inst->mayHaveSideEffects();
 }
-// 判断storeBB是否支配loadBB（所有到loadBB的路径都经过storeBB）
-bool CommonSubexpressionEliminationPass::dominates(BasicBlock *storeBB, BasicBlock *loadBB)
+// 返回每个BB的直接支配者
+std::unordered_map<BasicBlock *, BasicBlock *>
+CommonSubexpressionEliminationPass::computeIDom_LengauerTarjan(Function *func)
 {
-    if (storeBB == loadBB)
-        return true;
-    std::unordered_set<BasicBlock *> visited;
-    std::stack<BasicBlock *> stk;
-    stk.push(storeBB->Parent->getEntryBlock());
-    while (!stk.empty())
+    auto &bbs = func->getBasicBlocks();
+    if (bbs.empty())
+        return {};
+
+    LTContext ctx;
+    BasicBlock *entry = bbs[0].get();
+    ctx.N = 0;
+    dfsLT(entry, ctx);
+
+    std::vector<BasicBlock *> vertex = ctx.vertex;
+    int n = vertex.size();
+    std::unordered_map<BasicBlock *, BasicBlock *> idom;
+
+    // 1. 计算semi-dominator
+    for (int i = n - 1; i >= 1; --i)
     {
-        BasicBlock *cur = stk.top();
-        stk.pop();
-        if (cur == storeBB)
-            continue; // storeBB之后的路径才有可能到loadBB
-        if (!visited.insert(cur).second)
-            continue;
-        if (cur == loadBB)
-            return false; // 有路径未经过storeBB就到loadBB
-        for (auto *succ : cur->getSuccessors())
+        BasicBlock *w = vertex[i];
+        for (auto *v : ctx.pred[w])
         {
-            stk.push(succ);
+            BasicBlock *u = eval(v, ctx);
+            if (ctx.semi[u] < ctx.semi[w])
+                ctx.semi[w] = ctx.semi[u];
+        }
+        ctx.idom[w] = vertex[ctx.semi[w] - 1]; // 初始设置为 semi[w] 的节点
+        ctx.bucket[vertex[ctx.semi[w] - 1]].push_back(w);
+        ctx.ancestor[w] = ctx.parent[w];
+        if (ctx.parent[w])
+        { // 防止入口块 parent 为 nullptr
+            for (auto *v : ctx.bucket[ctx.parent[w]])
+            {
+                BasicBlock *u = eval(v, ctx);
+                ctx.idom[v] = (ctx.semi[u] < ctx.semi[v]) ? u : ctx.parent[w];
+            }
+            ctx.bucket[ctx.parent[w]].clear();
         }
     }
-    return true;
+    // 2. 显式计算idom
+    for (int i = 1; i < n; ++i)
+    {
+        BasicBlock *w = vertex[i];
+        if (ctx.idom[w] != vertex[ctx.semi[w] - 1])
+            ctx.idom[w] = ctx.idom[ctx.idom[w]];
+    }
+    ctx.idom[entry] = nullptr;
+
+    // 3. 输出
+    std::unordered_map<BasicBlock *, BasicBlock *> result;
+    for (auto &p : ctx.idom)
+        if (p.first)
+            result[p.first] = p.second;
+    return result;
 }
-bool CommonSubexpressionEliminationPass::isLoadFromInvariantAddress(Instruction *inst, BasicBlock *bb)
+// 判断storeBB是否支配loadBB（所有到loadBB的路径都经过storeBB）
+bool CommonSubexpressionEliminationPass::dominates(BasicBlock *dom, BasicBlock *node)
 {
-    Value *addr = dynamic_cast<LoadInst *>(inst)->getPointer();
+    if (dom == node)
+        return true;
+    while (node && idom.count(node))
+    {
+        node = idom[node];
+        if (node == dom)
+            return true;
+    }
+    return false;
+}
+// 修改load指令CSE处理，跨基本块暂时不做，难度太高
+bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, BasicBlock *bb)
+{
+    // 只允许同一基本块内的load做CSE，且store和load之间没有其他store
+    auto *loadInst = dynamic_cast<LoadInst *>(inst);
+    if (!loadInst)
+        return false;
+    Value *addr = loadInst->getPointer();
     if (!addr)
         return false;
 
-    // 1. 找到唯一的store及其所在基本块和顺序
-    StoreInst *uniqueStore = nullptr;
-    BasicBlock *storeBB = nullptr;
-    int storePos = -1;
+    int loadPos = bb->getInstructionOrder(inst);
+    int lastStorePos = -1;
     int storeCount = 0;
-    for (auto &basicblock : bb->Parent->getBasicBlocks())
+    auto &insts = bb->getInstructions();
+    for (size_t i = 0; i < insts.size(); ++i)
     {
-        for (auto &instPtr : basicblock->getInstructions())
+        if (auto *store = dynamic_cast<StoreInst *>(insts[i].get()))
         {
-            Instruction *it = instPtr.get();
-            if (auto storeInst = dynamic_cast<StoreInst *>(it))
+            if (store->getPointer() == addr)
             {
-                if (storeInst->getPointer() == addr)
-                {
-                    storeCount++;
-                    uniqueStore = storeInst;
-                    storeBB = basicblock.get();
-                    storePos = basicblock->getInstructionOrder(it);
-                }
+                storeCount++;
+                lastStorePos = i;
             }
         }
     }
-    if (storeCount != 1 || !uniqueStore || !storeBB)
-        return false;
-
-    // 2. 判断store是否在load之前
-    if (storeBB == bb)
-    {
-        // 同一基本块，比较顺序
-        int loadPos = bb->getInstructionOrder(inst);
-        return storePos < loadPos;
-    }
-    else
-    {
-        // 不同基本块，判断storeBB是否支配bb
-        return dominates(storeBB, bb);
-    }
+    // 只允许唯一一次store，且store在load之前
+    return storeCount == 1 && lastStorePos < loadPos;
 }
 
 // 哈希函数，用于表达式键的哈希表
@@ -582,6 +627,9 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                         it = insts.erase(it);
                         changed = true;
                         localChanged = true;
+                        // debug
+                        if (verbose)
+                            verifyCFG(caller);
                         break; // 退出当前基本块循环，重新获取bbs
                     }
                     else
@@ -624,54 +672,12 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
     int num = 0;
     string suffix = getsuffix();
 
-    // 单基本块分支
-    // if (callee->getBasicBlocks().size() == 1)
-    // {
-    //     BasicBlock *calleeBB = callee->getBasicBlocks()[0].get();
-    //     // 复制指令并插入到调用点后
-    //     auto &insts = bb->getInstructions();
-    //     std::vector<std::unique_ptr<Instruction>> newInsts;
-    //     for (auto &instCallee : calleeBB->getInstructions())
-    //     {
-    //         // 跳过Return
-    //         if (dynamic_cast<ReturnInst *>(instCallee.get()))
-    //             continue;
-    //         Instruction *newInst = instCallee->cloneWithRename(valueMap, suffix);
-    //         // 替换操作数为映射后的
-    //         for (size_t i = 0; i < newInst->getOperands().size(); ++i)
-    //         {
-    //             Value *op = newInst->getOperands()[i];
-    //             if (valueMap.count(op))
-    //                 newInst->setOperandByIndex(i, valueMap[op]);
-    //         }
-    //         valueMap[instCallee.get()] = newInst;
-    //         newInsts.push_back(std::unique_ptr<Instruction>(newInst));
-    //         num++;
-    //     }
-    //     // 处理返回值
-    //     for (auto &instCallee : calleeBB->getInstructions())
-    //     {
-    //         if (auto *ret = dynamic_cast<ReturnInst *>(instCallee.get()))
-    //         {
-    //             if (call->hasReturnValue() && ret->getReturnValue())
-    //             {
-    //                 call->replaceAllUsesWith(valueMap[ret->getReturnValue()]);
-    //             }
-    //         }
-    //     }
-    //     // 插入到调用点后
-    //     insts.insert(insts.begin() + insertPos + 1,
-    //                  std::make_move_iterator(newInsts.begin()),
-    //                  std::make_move_iterator(newInsts.end()));
-    //     return num;
-    // }
-    // 多个基本块走下面分支
     // 复制所有基本块，建立映射
     std::unordered_map<BasicBlock *, BasicBlock *> bbMap;
     std::vector<BasicBlock *> calleeBBs;
     for (auto &bbCallee : callee->getBasicBlocks())
     {
-        auto *newBB = new BasicBlock(bbCallee->getName() + suffix, caller);
+        auto *newBB = new BasicBlock(bbCallee->getName() + "_" + suffix, caller);
         bbMap[bbCallee.get()] = newBB;
         calleeBBs.push_back(bbCallee.get());
     }
@@ -780,7 +786,7 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
     insts.erase(insts.begin() + insertPos + 1, insts.end());
 
     // 新建call后基本块
-    auto *afterBB = new BasicBlock(bb->getName() + "_after" + suffix, caller);
+    auto *afterBB = new BasicBlock(bb->getName() + "_" + "_after" + suffix, caller);
     for (auto &instPtr : afterCallInsts)
     {
         afterBB->addInstruction(std::move(instPtr));
@@ -880,6 +886,51 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
     bbs.insert(bbIt, std::make_move_iterator(newBBPtrs.begin()), std::make_move_iterator(newBBPtrs.end()));
 
     return num;
+}
+void FunctionInliningPass::verifyCFG(Function *func)
+{
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        // 检查后继
+        for (auto *succ : bb->getSuccessors())
+        {
+            bool found = false;
+            for (auto *pred : succ->getPredecessors())
+            {
+                if (pred == bb)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                debugInfo << "CFG Error: " << bb->getName()
+                          << " is successor of " << succ->getName()
+                          << " but not in its predecessors.\n";
+            }
+        }
+        // 检查前驱
+        for (auto *pred : bb->getPredecessors())
+        {
+            bool found = false;
+            for (auto *succ : pred->getSuccessors())
+            {
+                if (succ == bb)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                debugInfo << "CFG Error: " << bb->getName()
+                          << " is predecessor of " << pred->getName()
+                          << " but not in its successors.\n";
+            }
+        }
+    }
 }
 // 常量折叠实现
 bool ConstantFoldingPass::runOnFunction(Function *func)
@@ -1343,11 +1394,13 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O15)
     {
-        
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     else if (level == OptimizationLevel::O16)
     {
-
     }
     return pm;
 }
