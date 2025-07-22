@@ -232,6 +232,27 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationPass::getExpressionKey(Instruction *inst)
 {
     std::vector<std::string> ops;
+    // 如果是getelementptr指令，特殊处理，补的0不需要添加
+    if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
+    {
+        for (int i = 0; i < gep->getNumOperands() - gep->num_addedzero; i++)
+        {
+            auto *op = gep->getOperandByIndex(i);
+            if (auto *ci = dynamic_cast<ConstantInt *>(op))
+            {
+                ops.push_back("int:" + std::to_string(ci->Value));
+            }
+            else if (auto *cf = dynamic_cast<ConstantFloat *>(op))
+            {
+                ops.push_back("float:" + std::to_string(cf->Value));
+            }
+            else
+            {
+                ops.push_back("var:" + op->getName());
+            }
+        }
+        return {inst->getOpcodeName(), ops};
+    }
     for (auto *v : inst->getOperands())
     {
         if (auto *ci = dynamic_cast<ConstantInt *>(v))
@@ -426,6 +447,12 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                                        { return ptr.get() == inst; });
                 if (it != insts.end())
                 {
+                    if (verbose)
+                    {
+                        debugInfo << "Moved invariant instruction: " << inst->toString()
+                                  << " from " << fromBB->getName() << " to preheader "
+                                  << preheader->getName() << "\n";
+                    }
                     std::unique_ptr<Instruction> movedInst = std::move(*it);
                     it = insts.erase(it);
                     // 将指令插入到 preheader 的末尾(终结指令之前)
@@ -441,6 +468,8 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 }
 bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
 {
+    // 修改这里 phi指令不外提
+    // 且操作数是phi指令也不能外提
     // copy指令不能外提，因为是由合流产生
     return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load && inst->getOpcode() != Opcode::Copy;
 }
@@ -1332,6 +1361,61 @@ bool LiveVariableAnalysisPass::runOnFunction(Function *func)
     }
     return false;
 }
+bool GEPExpansionPass ::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
+            {
+                if (gep->getNumOperands() < 5)
+                {
+                    // 如果GEP指令的操作数少于5个，直接跳过
+                    ++it;
+                    continue;
+                }
+                auto indices = gep->getIndices();
+                vector<unique_ptr<Instruction>> newgepInsts;
+                auto pointer = gep->getPointerOperand();
+                std::string basename = gep->getName();
+                int size = indices.size() - gep->num_addedzero;
+                for (int i = 0; i < size; i++)
+                {
+                    auto newgep = std::make_unique<GetElementPtrInst>(pointer, vector<Value *>{indices[i]}, basename + "_gep" + std::to_string(i));
+                    newgepInsts.push_back(std::move(newgep));
+                    // 更新指针操作数
+                    pointer = newgepInsts.back().get();
+                }
+                // 插入新GEP指令到当前基本块
+                it = insts.insert(it, std::make_move_iterator(newgepInsts.begin()), std::make_move_iterator(newgepInsts.end()));
+                // 跳过新插入的GEP
+                std::advance(it, size);
+                Instruction *lastNewGEP = prev(it, 1)->get(); // 获取最后一个新插入的GEP指令
+                // 替换原GEP的所有使用
+                gep->replaceAllUsesWith(lastNewGEP);
+                // 删除原来的GEP指令
+                needToDelete.push_back(it->release());
+                it = insts.erase(it);
+                changed = true;
+                if (verbose)
+                {
+                    debugInfo << "GEP Expansion: Replaced GEP " << gep->getName() << " with "
+                              << indices.size() << " new GEP instructions in " << bb->getName() << "\n";
+                }
+            }
+            else
+            {
+                ++it; // 如果不是GEP，继续下一个指令
+            }
+        }
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -1346,8 +1430,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -1395,8 +1480,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O15)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     else if (level == OptimizationLevel::O16)

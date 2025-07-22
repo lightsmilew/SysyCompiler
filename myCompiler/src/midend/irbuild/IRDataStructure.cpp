@@ -942,6 +942,7 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     {
         operands.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 补齐为0
     }
+    num_addedzero = dimensions - indices.size(); // 记录补齐的0的数量
     return operands;
 }
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)

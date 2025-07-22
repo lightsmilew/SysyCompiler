@@ -119,7 +119,7 @@ namespace ir_builder
                                const Vector<std::shared_ptr<ast::InitExprNode>> &flat_inits,
                                size_t &flat_idx);                                               // 用于支持嵌套和平铺赋值
         Vector<shared_ptr<ast::InitExprNode>> getChildrenAtCurrentLevel(shared_ptr<ast::InitExprNode> node);
-        void addPhiForVars();
+        void addPhiForVars(vector<std::string> &BlockVariantVars);           // 添加Phi指令用于变量合流
         void addPhiIncomings(BasicBlock *block);
         int getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node); // 获取AST表达式的常量值
         bool isConstVars(string name);                                       // 判断一个变量是否为const修饰变量
@@ -128,10 +128,17 @@ namespace ir_builder
         bool isBlockNewDeclaredVar(const String &varName) const;             // 是否为块内新定义变量
         int getArrayDims(string varName);
         Value *getConstantArrayValueByIndices(Constant *constant,
-                                              const Vector<int> &indices) const;          // 获取数组维度数量
-        Type *convertASTTypeToIRType(const ast::DataType &astType, bool isFunctionParam); // AST类型转换IR类型
-        Value *createCast(Value *value, Type *targetType, string statement);              // 生成类型强制转换指令 statement用于调试定位
-        Value *convertToBool(Value *value);                                               // 转换为布尔值
+                                              const Vector<int> &indices) const;             // 获取数组维度数量
+        Type *convertASTTypeToIRType(const ast::DataType &astType, bool isFunctionParam);    // AST类型转换IR类型
+        Value *createCast(Value *value, Type *targetType, string statement);                 // 生成类型强制转换指令 statement用于调试定位
+        Value *convertToBool(Value *value);                                                  // 转换为布尔值
+        vector<std::string> findBlockVariantVars(std::shared_ptr<ast::StmtNode> node);       // 扫描一遍语句寻找循环改变量
+        void findBlockVariantVarsImp(std::shared_ptr<ast::StmtNode> node,
+                                      std::vector<std::string>& BlockVariantVars,
+                                      std::vector<std::string>& newdeclaredVars);            // 辅助函数
+        void findInBlockImp(std::shared_ptr<ast::StmtNode> node,
+                                      std::vector<std::string>& BlockVariantVars,
+                                      std::vector<std::string>& newdeclaredVars);            // 在当前块内查找循环改变量
         // 作用域管理(符号表压栈与弹出)
         void PushVarsStack(); // 作用域管理压栈(包括符号表和新定义变量列表)
         void PopVarsStack();  // 作用域管理弹栈(包括符号表和新定义变量列表)

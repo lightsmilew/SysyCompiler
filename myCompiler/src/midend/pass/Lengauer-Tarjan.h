@@ -27,7 +27,7 @@ namespace optimization
         {
             if (!ctx.semi.count(w))
             {
-                ctx.parent[w] = v; // 修正为指针
+                ctx.parent[w] = v;
                 dfsLT(w, ctx);
             }
             ctx.pred[w].push_back(v);

@@ -651,6 +651,7 @@ public:
 class GetElementPtrInst : public Instruction
 {
 public:
+    int num_addedzero; // 用于记录补的0的个数
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
                       constructOperands(ptr, indices), name) {}
@@ -662,8 +663,8 @@ public:
     string toString() const override;
 
 private:
-    static vector<Value *> constructOperands(Value *ptr, const vector<Value *> &indices);
-    static Type *calculateResultType(Value *ptr, const vector<Value *> &indices);
+    vector<Value *> constructOperands(Value *ptr, const vector<Value *> &indices);
+    Type *calculateResultType(Value *ptr, const vector<Value *> &indices);
 };
 
 // ===== CastInst Implementation =====

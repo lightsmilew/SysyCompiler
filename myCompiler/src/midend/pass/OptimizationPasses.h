@@ -168,6 +168,14 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "LiveVariableAnalysis"; }
     };
+    // 8.展开getelementptr
+    class GEPExpansionPass : public Pass
+    {
+    public:
+        GEPExpansionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "GEPExpansion"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {
