@@ -1,36 +1,36 @@
-#include "InstructionSelector.h"
+#include "CalcLiveIntervals.h"
+#include "RISCVBuilder.h"
 #include <iostream>
-
 using namespace std;
 
-void InstructionSelector::buildControlFlowGraph()
+vector<shared_ptr<RISCVBasicBlock>> getPostOrder(shared_ptr<RISCVFunction> currentFunc)
 {
-    // 遍历IR函数的所有基本块，构建RISC-V基本块的前驱后继关系
-    for (size_t i = 0; i < irFunction->BasicBlocks.size(); ++i)
+    vector<shared_ptr<RISCVBasicBlock>> postOrder;
+    unordered_set<shared_ptr<RISCVBasicBlock>> visited;
+
+    function<void(shared_ptr<RISCVBasicBlock>)> dfs = [&](shared_ptr<RISCVBasicBlock> bb)
     {
-        auto irBB = irFunction->BasicBlocks[i].get();
-        auto riscvBB = currentFunc->getBasicBlock(irBB->getName());
+        if (visited.find(bb) != visited.end())
+            return;
+        visited.insert(bb);
 
-        if (!riscvBB)
-            continue;
-
-        // 获取IR基本块的后继，并在RISC-V基本块中建立相应关系
-        const auto &irSuccessors = irBB->getSuccessors();
-        for (auto irSuccBB : irSuccessors)
+        for (auto succ : bb->getSuccessors())
         {
-            auto riscvSuccBB = currentFunc->getBasicBlock(irSuccBB->getName());
-            if (riscvSuccBB)
-            {
-                // 建立后继关系
-                riscvBB->addSuccessor(riscvSuccBB);
-                // 建立前驱关系
-                riscvSuccBB->addPredecessor(riscvBB);
-            }
+            dfs(succ);
         }
+        postOrder.push_back(bb);
+    };
+
+    // 从入口基本块开始
+    if (!currentFunc->getBasicBlocks().empty())
+    {
+        dfs(currentFunc->getBasicBlocks()[0]);
     }
+
+    return postOrder;
 }
 
-void InstructionSelector::computeBasicBlockUseDef()
+void computeBasicBlockUseDef(shared_ptr<RISCVFunction> currentFunc)
 {
     for (auto &bb : currentFunc->getBasicBlocks())
     {
@@ -58,9 +58,9 @@ void InstructionSelector::computeBasicBlockUseDef()
     }
 }
 
-void InstructionSelector::computeLiveInOut()
+void computeLiveInOut(shared_ptr<RISCVFunction> currentFunc)
 {
-    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder();
+    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
 
     bool changed;
     do
@@ -107,13 +107,13 @@ void InstructionSelector::computeLiveInOut()
     } while (changed);
 }
 
-void InstructionSelector::computeLiveRanges()
+void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc)
 {
     auto &livenessInfo = currentFunc->getLivenessInfo();
     livenessInfo.clear();
 
     // 1. 获取逆后序的基本块列表
-    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder();
+    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
 
     // 编号每条指令
     unordered_map<shared_ptr<RISCVInstruction>, int> instrIndex;
@@ -227,31 +227,4 @@ void InstructionSelector::computeLiveRanges()
             }
         }
     }
-}
-
-vector<shared_ptr<RISCVBasicBlock>> InstructionSelector::getPostOrder()
-{
-    vector<shared_ptr<RISCVBasicBlock>> postOrder;
-    unordered_set<shared_ptr<RISCVBasicBlock>> visited;
-
-    function<void(shared_ptr<RISCVBasicBlock>)> dfs = [&](shared_ptr<RISCVBasicBlock> bb)
-    {
-        if (visited.find(bb) != visited.end())
-            return;
-        visited.insert(bb);
-
-        for (auto succ : bb->getSuccessors())
-        {
-            dfs(succ);
-        }
-        postOrder.push_back(bb);
-    };
-
-    // 从入口基本块开始
-    if (!currentFunc->getBasicBlocks().empty())
-    {
-        dfs(currentFunc->getBasicBlocks()[0]);
-    }
-
-    return postOrder;
 }

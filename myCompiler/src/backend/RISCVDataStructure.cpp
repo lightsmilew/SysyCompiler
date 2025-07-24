@@ -1194,6 +1194,8 @@ namespace RISCV
             case RISCVOpcode::FMV_S:
             case RISCVOpcode::FMV_W_X:
             case RISCVOpcode::FMV_X_W:
+            case RISCVOpcode::FCVT_S_W:
+            case RISCVOpcode::FCVT_W_S:
                 // mv rd, rs -> 替换 rs
                 if (operands.size() >= 2 && isRegisterOperand(operands[1]) && operands[1]->getReg() == oldReg)
                 {
@@ -1244,6 +1246,8 @@ namespace RISCV
             case RISCVOpcode::FMV_S:
             case RISCVOpcode::FMV_W_X:
             case RISCVOpcode::FMV_X_W:
+            case RISCVOpcode::FCVT_S_W:
+            case RISCVOpcode::FCVT_W_S:
             case RISCVOpcode::LI:
             case RISCVOpcode::LA:
                 // 这些伪指令定义第一个操作数 (rd)

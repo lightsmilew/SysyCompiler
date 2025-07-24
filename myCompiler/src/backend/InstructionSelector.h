@@ -73,11 +73,32 @@ private:
     // Step 2: 计算每个基本块的 liveIn 和 liveOut 集合
     // Step 3: 基于 liveIn/liveOut 计算每个寄存器的活跃区间
     // Step 4: 优化和合并重叠的活跃区间
-    void buildControlFlowGraph();
-    void computeBasicBlockUseDef();
-    void computeLiveInOut();
-    void computeLiveRanges();
-    vector<shared_ptr<RISCVBasicBlock>> getPostOrder();
+    void buildControlFlowGraph()
+    {
+        // 遍历IR函数的所有基本块，构建RISC-V基本块的前驱后继关系
+        for (size_t i = 0; i < irFunction->BasicBlocks.size(); ++i)
+        {
+            auto irBB = irFunction->BasicBlocks[i].get();
+            auto riscvBB = currentFunc->getBasicBlock(irBB->getName());
+
+            if (!riscvBB)
+                continue;
+
+            // 获取IR基本块的后继，并在RISC-V基本块中建立相应关系
+            const auto &irSuccessors = irBB->getSuccessors();
+            for (auto irSuccBB : irSuccessors)
+            {
+                auto riscvSuccBB = currentFunc->getBasicBlock(irSuccBB->getName());
+                if (riscvSuccBB)
+                {
+                    // 建立后继关系
+                    riscvBB->addSuccessor(riscvSuccBB);
+                    // 建立前驱关系
+                    riscvSuccBB->addPredecessor(riscvBB);
+                }
+            }
+        }
+    }
 
     void printAllLiveRanges(const RISCV::LivenessInfo &livenessInfo)
     {

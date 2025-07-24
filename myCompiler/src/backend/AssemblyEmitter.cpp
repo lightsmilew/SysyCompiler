@@ -48,8 +48,6 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
     ss << ".globl " << func->getName() << "\n";
     ss << func->getName() << ":\n";
 
-    ss << getPrologue(func->getStackFrame());
-
     // 生成每个基本块
     for (const auto &bb : func->getBasicBlocks())
     {
@@ -67,6 +65,11 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     if (bb->getLabel() != bb->getParentFunc()->getName())
     {
         ss << bb->getLabel() << ":\n";
+
+        if (bb->getLabel() == "prologue_" + bb->getParentFunc()->getName())
+        {
+            ss << getPrologue(bb->getParentFunc()->getStackFrame());
+        }
     }
 
     // 遍历指令，特殊处理RET指令
@@ -96,17 +99,15 @@ string AssemblyEmitter::getPrologue(const StackFrame &stack)
     // 1. 调整栈指针（分配栈空间）
     if (stackSize > 0)
     {
-        ss << "    li t0, " << stackSize << "\n";
-        ss << "    sub sp, sp, t0\n";
+        ss << "        li t0, " << stackSize << "\n";
+        ss << "        sub sp, sp, t0\n";
     }
 
-    // 2. 保存返回地址（ra）
-    int raOffset = stack.getRaOffset();
-    if (raOffset == stackSize - 4)
+    if (stack.raStackSize)
     {
-        ss << "    subi t0, to, -4\n";
-        ss << "    add t0, sp, t0\n"; // 确保sp指向正确位置
-        ss << "    sd ra, 0(t0)\n";   // 保存ra寄存器到栈顶
+        ss << "        addi t0, t0, -4\n";
+        ss << "        add t0, sp, t0\n"; // 确保sp指向正确位置
+        ss << "        sd ra, 0(t0)\n";   // 保存ra寄存器到栈顶
     }
 
     return ss.str();
@@ -118,22 +119,23 @@ string AssemblyEmitter::getEpilogue(const StackFrame &stack)
     auto stackSize = stack.getAlignedSize();
 
     // 2. 恢复返回地址（ra）
-    int raOffset = stack.getRaOffset();
-    if (raOffset == stackSize - 4)
+    if (stack.raStackSize)
     {
-        ss << "    li t0, " << raOffset << "\n";
-        ss << "    add t1, sp, t0\n"; // 确
-        ss << "    ld ra, 0(t1)\n";   // 恢复ra寄存器
+        ss << "        li t0, " << stack.getRaOffset() << "\n";
+        ss << "        add t1, sp, t0\n"; // 确保sp指向正确位置
+        ss << "        ld ra, 0(t1)\n";   // 恢复ra寄存器
     }
     else
     {
         // 3. 释放栈空间（恢复sp）
         if (stackSize > 0)
         {
-            ss << "    addi t0, t0, 4\n"; // 恢复栈指针
-            ss << "    add sp, sp, t0\n";
+            ss << "        addi t0, t0, 4\n"; // 恢复栈指针
+            ss << "        add sp, sp, t0\n";
         }
 
         return ss.str();
     }
+
+    return ss.str();
 }

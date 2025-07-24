@@ -88,9 +88,6 @@ void GraphColorRegisterAllocator::allocateRegisters(
 {
   currentFunc = func;
 
-  // 最大重试次数，防止无限循环
-  const int MAX_SPILL_ITERATIONS = 10;
-  int spillIterations = 0;
   bool needRestart = false;
 
   do
@@ -171,21 +168,13 @@ void GraphColorRegisterAllocator::allocateRegisters(
 #endif
       handleSpilledRegisters();
 
+      computeBasicBlockUseDef(currentFunc);
+      computeLiveInOut(currentFunc);
+      computeLiveRanges(currentFunc);
+
       // 处理完溢出后，需要重新开始分配过程
-      spillIterations++;
       needRestart = true;
-
-      if (spillIterations >= MAX_SPILL_ITERATIONS)
-      {
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Warning: Maximum spill iterations reached ("
-                  << MAX_SPILL_ITERATIONS << "), stopping allocation"
-                  << std::endl;
-#endif
-        needRestart = false;
-      }
     }
-
   } while (needRestart);
 
 #ifdef DEBUG_REG_ALLOC

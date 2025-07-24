@@ -59,9 +59,9 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
     }
 
     // 活跃变量分析
-    computeBasicBlockUseDef();
-    computeLiveInOut();
-    computeLiveRanges();
+    computeBasicBlockUseDef(currentFunc);
+    computeLiveInOut(currentFunc);
+    computeLiveRanges(currentFunc);
     // printAllLiveRanges(currentFunc->getLivenessInfo());
 }
 
@@ -251,7 +251,7 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
 
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
-    StackFrame stack = currentFunc->getStackFrame();
+    auto &stack = currentFunc->getStackFrame();
     stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize()); // 分配空间
     auto imm = LiInt(stack.getValueOffset(inst->getName()), true);
     currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
@@ -333,7 +333,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     int floatArgIndex = 0;
     int argNum = 0;
     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-    auto stack = currentFunc->getStackFrame();
+    auto &stack = currentFunc->getStackFrame();
     stack.allocateRaSpace();
 
     // 处理超出寄存器范围的参数（通过栈传递）
@@ -736,7 +736,16 @@ unordered_map<string, shared_ptr<RISCVRegister>> InstructionSelector::moveCaller
     // 为每个参数创建一个临时寄存器
     for (size_t i = 0; i < callerArgs.size(); i++)
     {
-        tempRegs.push_back(getTempReg());
+        if (callerArgs[i]->getType()->isFloatTy())
+        {
+            // 浮点参数使用浮点临时寄存器
+            tempRegs.push_back(getTempFloatReg());
+        }
+        else
+        {
+            // 整数/指针参数使用整数临时寄存器
+            tempRegs.push_back(getTempReg());
+        }
     }
 
     // 将参数移动到临时寄存器

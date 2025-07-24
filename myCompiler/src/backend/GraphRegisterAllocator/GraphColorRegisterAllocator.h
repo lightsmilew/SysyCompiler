@@ -1,6 +1,7 @@
 #pragma once
 #include "../RISCVBuilder.h"
 #include "../RISCVDataStructure.h"
+#include "../CalcLiveIntervals.h"
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -306,7 +307,7 @@ namespace RISCV
     // 可用寄存器
     static const vector<shared_ptr<RISCVRegister>> availableGeneralRegs;
     static const vector<shared_ptr<RISCVRegister>> availableFloatRegs;
-    static const int K_GENERAL = 24; // 可用通用寄存器数量
+    static const int K_GENERAL = 25; // 可用通用寄存器数量
     static const int K_FLOAT = 32;   // 可用浮点寄存器数量
 
     // 算法阶段
