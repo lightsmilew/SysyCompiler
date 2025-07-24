@@ -186,14 +186,6 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     varToValue = varToValueStack.top();
     varToValueStack.pop();
     // 只在 isRestore 为真时写回外层变量
-    // if(debugMode)
-    // {
-    //     std::cout<<"Block Debug Info, line: " << node->line << std::endl;
-    //     for(auto it:innerVarToValue)
-    //     {
-    //         std::cout << "Block variable: " << it.first << ", Value: " << it.second->toRef() <<",is NewDeclaredVar:"+std::to_string(isBlockNewDeclaredVar(it.first))+", line:" << node->line << std::endl;
-    //     }
-    // }
     if (isRestore)
     {
         for (const auto &name : outerVars)
@@ -201,10 +193,6 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
             if (innerVarToValue.count(name) && !isBlockNewDeclaredVar(name))
             {
                 varToValue[name] = innerVarToValue[name];
-                // if(debugMode)
-                // {
-                //     std::cout << "Restoring variable: " << name << " to outer scope with :" << innerVarToValue[name]->toRef() << ", line:" << node->line << std::endl;
-                // }
             }
         }
         // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
@@ -410,6 +398,9 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     setCurrentBlock(thenBlock);
     // 进入新作用域
     PushVarsStack();
+    auto thenVariantVars = findBlockVariantVars(node->then_body);
+    vector<std::string> elseVariantVars;
+
     visitStatement(node->then_body, false);
     // 恢复作用域
     PopVarsStack();
@@ -422,6 +413,9 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
         setCurrentBlock(elseBlock);
         // 进入新作用域
         PushVarsStack();
+        // 这里需要扫描一遍else.body，获取循环改变量，用于phi插入
+        elseVariantVars = findBlockVariantVars(node->else_body);
+        // 访问 else 分支
         visitStatement(node->else_body, false);
         // 恢复作用域
         PopVarsStack();
@@ -436,7 +430,10 @@ void IRBuilder::visitIfElseStmt(std::shared_ptr<ast::IfElseStmtNode> node)
     if (mergeBlock->getPredecessors().empty())
         return;
     // 生成phi占位
-    addPhiForVars();
+    std::unordered_set<std::string> VariantVarsSet(thenVariantVars.begin(), thenVariantVars.end());
+    VariantVarsSet.insert(elseVariantVars.begin(), elseVariantVars.end());
+    std::vector<std::string> mergeVars(VariantVarsSet.begin(), VariantVarsSet.end());
+    addPhiForVars(mergeVars);
     // 插入phi输入
     addPhiIncomings(currentBlock);
 }
@@ -448,9 +445,11 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     BasicBlock *condBlock = createBasicBlock(condblock_name);
     // 生成phi占位
     auto tmpblock = currentBlock;
+    // 这里需要扫描一遍while.body，获取循环改变量，用于phi插入
     setCurrentBlock(condBlock);
     // 更新当前块的变量映射,原因为condblock是第一块
-    addPhiForVars();
+    auto LoopVariantVars = findBlockVariantVars(node->body);
+    addPhiForVars(LoopVariantVars);
     setCurrentBlock(tmpblock);
     // while.body
     string bodyblock_name = debugMode ? "while.body." + std::to_string(node->line) : "";
@@ -515,15 +514,6 @@ void IRBuilder::visitReturnStmt(std::shared_ptr<ast::ReturnStmtNode> node)
         {
             retValue = createCast(retValue, expectedType, "return");
         }
-        // 不需要插入putint，测评机使用echo $?拿到返回值
-        //  // 如果是main函数要插入一条putint指令
-        //  if (currentFunction->getName() == "main" && expectedType->isIntegerTy())
-        //  {
-        //      // 生成 putint 调用
-        //      Function *putintFunc = module->getFunction("putint");
-        //      Vector<Value *> args = {retValue};
-        //      createCall(putintFunc, args);
-        //  }
         createReturn(retValue);
     }
     else
@@ -805,16 +795,17 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
             // 如果是常量数组，直接返回对应的值
             indices.push_back(constantInt->Value);
         }
-        // 如果是常量数组且下标全是常量，获取指定value直接返回
+        // 如果是常量数组且下标全是常量或者是常量全局变量（全局变量用内存模型），获取指定value直接返回
         if (isAllConstant)
         {
-            auto ConstantValue = getConstantArrayValueByIndices(constVarToValue[node->identifier], indices);
-            if (!ConstantValue)
+            auto groundType= dynamic_cast<PointerType *>(ptr->getType())->ElementType;
+            if(groundType->isArrayTy())
             {
-                throw std::runtime_error("ConstantArray is a nullptr,line : " + std::to_string(node->line));
+                // 如果是数组类型，获取底层类型
+                groundType = static_cast<ArrayType *>(groundType)->getGroundElementType();
             }
-            // 如果是常量数组或者常量全局变量（全局变量用内存模型），直接返回对应的值
-            return ConstantValue;
+            return  getConstantArrayValueByIndices(groundType,
+                                                   constVarToValue[node->identifier], indices);
         }
     }
     // 处理数组索引
@@ -949,19 +940,6 @@ void IRBuilder::visitArrayInitExpr(std::shared_ptr<ast::InitExprNode> node, Type
     size_t depth = getInitExprMaxDepth(node);
     // 展平所有叶子节点，用于底层赋值
     flattenInitList(node, flat_inits, arrayindices, arrayindices.size() - depth);
-    // if(debugMode)
-    // {
-    //     std::cout<<"begin at dimension: "<<arrayindices.size()-depth<<",line: "<<node->line<<std::endl;
-    //     std::cout<< "Flattened init list size: " << flat_inits.size() <<",line : "+std::to_string(node->line)<< std::endl;
-    //     for(size_t i = 0; i < flat_inits.size(); ++i) {
-    //         if (flat_inits[i]) {
-    //             std::cout << " ptr ";
-    //         } else {
-    //             std::cout << " nullptr" ;
-    //         }
-    //     }
-    //     std::cout<<std::endl;
-    // }
     // 计算数组总元素个数（支持多维）
     auto arrayType = dynamic_cast<ArrayType *>(targetType);
     size_t totalElements = arrayType ? arrayType->getArrayLength() : 1;
@@ -1034,7 +1012,7 @@ void IRBuilder::flattenInitList(
         }
     }
 
-    // 补零
+    // 中间补零
     int remain = dim_len - filled;
     for (int i = 0; i < remain; ++i)
     {
@@ -1078,9 +1056,9 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
         {
             val = visitExpression(flat_inits[flat_idx]->singleInitVal);
         }
+        //末尾补零
         else
         {
-            // 判断元素类型
             if (targetType->isFloatTy())
             {
                 val = new ConstantFloat(FloatType::getInstance(), 0.0f);
@@ -1116,11 +1094,11 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
 // 用于数组初始化 递归返回一个ConstantArray
 Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node, ArrayType *arrayType)
 {
-    if(node->multiInitVal.empty())
+    if (node->multiInitVal.empty())
     {
         // 如果没有初始化值，返回 nullptr
         // 这时为{}初始化，代表没有初值
-        return nullptr; 
+        return nullptr;
     }
     // 1. 展平所有叶子节点
     std::vector<size_t> dims = arrayType->getArrayIndices();
@@ -1283,9 +1261,28 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         auto it = constVarToValue.find(lval->identifier);
         if (it == constVarToValue.end())
             return nullptr; // 如果没有找到常量变量，返回 nullptr
-        // 如果是空指针，代表是{}初始化
-        if(!it->second)
-            return new ConstantInt(IntegerType::getInstance(), 0); 
+        // 如果是空指针，代表是{}初始化,判断是int还是float
+        if (!it->second)
+        {
+            auto ptr=varToValue.find(lval->identifier)->second;
+            auto groundType = dynamic_cast<PointerType *>(ptr->getType())->ElementType;
+            if(groundType->isArrayTy())
+            {
+                // 如果是数组类型，获取底层类型
+                groundType = static_cast<ArrayType *>(groundType)->getGroundElementType();
+            }
+            if(groundType->isIntegerTy())
+            {
+                // 如果是整数类型，返回一个常量0
+                return new ConstantInt(IntegerType::getInstance(), 0);
+            }
+            else if(groundType->isFloatTy())
+            {
+                // 如果是浮点数类型，返回一个常量0.0
+                return new ConstantFloat(FloatType::getInstance(), 0.0f);
+            }
+            return nullptr; // 其他类型返回 nullptr
+        }
         if (auto constInt = dynamic_cast<ConstantInt *>(it->second))
         {
             return constInt;
@@ -1929,10 +1926,68 @@ bool IRBuilder::hasTerminatorInst(BasicBlock *block)
         return result;
     }
 }
-void IRBuilder::addPhiForVars()
+vector<std::string> IRBuilder::findBlockVariantVars(std::shared_ptr<ast::StmtNode> node)
 {
+    std::vector<std::string> blockInvariantVars;
+    std::vector<std::string> newDeclaredVars;
+    findBlockVariantVarsImp(node, blockInvariantVars, newDeclaredVars);
+    return blockInvariantVars;
+}
+void IRBuilder::findBlockVariantVarsImp(std::shared_ptr<ast::StmtNode> node, std::vector<std::string> &BlockVariantVars, std::vector<std::string> &newDeclaredVars)
+{
+    if (!node)
+        return;
+    if (auto declNode = std::dynamic_pointer_cast<ast::DeclStmtNode>(node))
+    {
+        auto find = varToValue.find(declNode->identifier);
+        if (find != varToValue.end())
+        {
+            // 如果变量已经存在，说明是重复声明
+            newDeclaredVars.push_back(declNode->identifier);
+            return;
+        }
+    }
+    else if (auto assignNode = std::dynamic_pointer_cast<ast::AssignStmtNode>(node))
+    {
+        auto findVarsTable = varToValue.find(assignNode->lvalue->identifier);
+        auto findInNewVars = std::find(newDeclaredVars.begin(), newDeclaredVars.end(), assignNode->lvalue->identifier);
+        auto findInBlockVariant = std::find(BlockVariantVars.begin(), BlockVariantVars.end(), assignNode->lvalue->identifier);
+        if (findVarsTable != varToValue.end() && findInNewVars == newDeclaredVars.end() && findInBlockVariant == BlockVariantVars.end())
+        {
+            // 如果变量已经存在且不是新声明的变量，说明是循环变元
+            BlockVariantVars.push_back(assignNode->lvalue->identifier);
+        }
+    }
+    else if (auto ifNode = std::dynamic_pointer_cast<ast::IfElseStmtNode>(node))
+    {
+        findBlockVariantVarsImp(ifNode->then_body, BlockVariantVars, newDeclaredVars);
+        if (ifNode->else_body)
+            findBlockVariantVarsImp(ifNode->else_body, BlockVariantVars, newDeclaredVars);
+    }
+    else if (auto whileNode = std::dynamic_pointer_cast<ast::WhileStmtNode>(node))
+    {
+        findBlockVariantVarsImp(whileNode->body, BlockVariantVars, newDeclaredVars);
+    }
+    else if (auto blockNode = std::dynamic_pointer_cast<ast::BlockStmtNode>(node))
+    {
+        // 这里复制一份newDeclaredVars，避免递归时修改原有的变量列表
+        std::vector<std::string> newDeclaredVarsCopy = newDeclaredVars;
+        for (auto &stmt : blockNode->stmts)
+        {
+            findBlockVariantVarsImp(stmt, BlockVariantVars, newDeclaredVarsCopy);
+        }
+    }
+}
+void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
+{
+
     for (const auto &[name, value] : varToValue)
     {
+        if (BlockVariantVars.empty() || std::find(BlockVariantVars.begin(), BlockVariantVars.end(), name) == BlockVariantVars.end())
+        {
+            // 如果是循环不变量，直接跳过
+            continue;
+        }
         // 普通变量,全局变量不生成phi
         if (!(value->getType()->isPointerTy() || value->getType()->isArrayTy() || isConstVars(name)))
         {
@@ -1966,7 +2021,7 @@ void IRBuilder::addPhiIncomings(BasicBlock *block)
 }
 bool IRBuilder::isConstantValue(Value *value)
 {
-    // 只处理int float常量
+    // 只处理int float常量 
     if (dynamic_cast<ConstantInt *>(value) || dynamic_cast<ConstantFloat *>(value))
     {
         return true;
@@ -2011,15 +2066,20 @@ int IRBuilder::getArrayDims(string varName)
     }
     return dims;
 }
-Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant, const Vector<int> &indices) const
+Value *IRBuilder::getConstantArrayValueByIndices(Type *elementType, Constant *constant, const Vector<int> &indices) const
 {
-    //常量为空则代表const数组初始化表达式为{}
-    if(!constant)
+    // 常量为空则代表const数组初始化表达式为{}
+    if (!constant)
     {
-        return new ConstantInt(IntegerType::getInstance(), 0); // 如果常量为空，返回一个默认的零值
+        if(elementType->isIntegerTy())
+            return new ConstantInt(IntegerType::getInstance(), 0); // 如果常量为空，返回一个默认的零值
+        else if(elementType->isFloatTy())
+            return new ConstantFloat(FloatType::getInstance(), 0.0f); // 如果常量为空，返回一个默认的零值
+        else
+            throw std::runtime_error("Unsupported element type for empty constant array");
     }
     if (indices.empty())
-        return constant; // 如果没有索引，直接返回常量
+        return constant; // 如果没有索引，直接返回常量，此时代表全局常量普通变量
     auto constArray = dynamic_cast<ConstantArray *>(constant);
     if (!constArray)
     {
@@ -2046,7 +2106,8 @@ Value *IRBuilder::getConstantArrayValueByIndices(Constant *constant, const Vecto
             throw std::runtime_error("Indexing into non-array element in constant array");
         }
     }
-    return nullptr; // 理论上不会到这里
+    throw std::runtime_error("Unexpected end of constant array indexing");
+    //不会到这里
 }
 void IRBuilder::PushVarsStack()
 {

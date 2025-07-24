@@ -488,7 +488,7 @@ public:
     Predicate Pred;
 
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
+        : Instruction(IntegerType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
 
     Predicate getPredicate() const { return Pred; }                 // 获取比较谓词
@@ -559,14 +559,15 @@ class CallInst : public Instruction
 public:
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
 
-    Function *getCalledFunction() const; // 获取被调用的函数
+    Function *getCalledFunction() const;       // 获取被调用的函数
 
     vector<Value *> getArguments() const;      // 获取函数参数
     vector<Value *> getIntArguments() const;   // 获取int类型参数
     vector<Value *> getFloatArguments() const; // 获取float类型参数
     vector<Value *> getPtrArguments() const;   // 获取指针类型参数
     bool hasReturnValue() const { return !getType()->isVoidTy(); }
-    Value *getDest() const { return const_cast<CallInst *>(this); }
+
+    Value *getDest() const; // 如果是void类型 返回空指针
     string toString() const override;
 
 private:
@@ -581,9 +582,7 @@ public:
     ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {} // 无返回值
     ReturnInst(Value *retVal)                                           // 有返回值
         : Instruction(VoidType::getInstance(), Opcode::Ret,
-                      vector<Value *>{retVal})
-    {
-    }
+                      vector<Value *>{retVal}){}
 
     Value *getReturnValue() const // 获取返回值
     {
@@ -651,6 +650,7 @@ public:
 class GetElementPtrInst : public Instruction
 {
 public:
+    int num_addedzero; // 用于记录补的0的个数
     GetElementPtrInst(Value *ptr, const vector<Value *> &indices, const string &name = "")
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
                       constructOperands(ptr, indices), name) {}
@@ -662,8 +662,8 @@ public:
     string toString() const override;
 
 private:
-    static vector<Value *> constructOperands(Value *ptr, const vector<Value *> &indices);
-    static Type *calculateResultType(Value *ptr, const vector<Value *> &indices);
+    vector<Value *> constructOperands(Value *ptr, const vector<Value *> &indices);
+    Type *calculateResultType(Value *ptr, const vector<Value *> &indices);
 };
 
 // ===== CastInst Implementation =====
@@ -699,31 +699,31 @@ public:
     Function *Parent;
     vector<BasicBlock *> Predecessors;
     vector<BasicBlock *> Successors;
-    //活跃变量
+    // 活跃变量
     std::set<std::string> LiveIn;  // 活跃变量集合
     std::set<std::string> LiveOut; // 活跃变量集合
     BasicBlock(const string &name = "", Function *parent = nullptr)
         : Value(VoidType::getInstance(), name), Parent(parent) {}
-    
-    void addInstruction(unique_ptr<Instruction> inst);              // 添加指令到基本块
-    void insertBeforeTerminator(unique_ptr<Instruction> inst);      // 在终结指令前插入指令
-    void insert(unique_ptr<Instruction> inst, unsigned index);      // 插入指令
-    void addPredecessor(BasicBlock *pred);                          // 添加前驱基本块
-    void removePredecessor(BasicBlock *pred);                       // 移除前驱基本块
-    void addSuccessor(BasicBlock *succ);                            // 添加后继基本块
-    void removeSuccessor(BasicBlock *succ);                         // 移除后继基本块
-    const vector<BasicBlock *> &getPredecessors() const;            // 获取前驱基本块
-    const vector<BasicBlock *> &getSuccessors() const;              // 获取后继基本块
-    void setLiveIn(const std::set<std::string> &liveIn);            // 设置活跃变量集合
-    const std::set<std::string > &getLiveIn() const;                // 获取活跃变量集合
-    void setLiveOut(const std::set<std::string> &liveOut);          // 设置活跃变量集合
-    const std::set<std::string > &getLiveOut() const;               // 获取活跃变量集合
+
+    void addInstruction(unique_ptr<Instruction> inst);         // 添加指令到基本块
+    void insertBeforeTerminator(unique_ptr<Instruction> inst); // 在终结指令前插入指令
+    void insert(unique_ptr<Instruction> inst, unsigned index); // 插入指令
+    void addPredecessor(BasicBlock *pred);                     // 添加前驱基本块
+    void removePredecessor(BasicBlock *pred);                  // 移除前驱基本块
+    void addSuccessor(BasicBlock *succ);                       // 添加后继基本块
+    void removeSuccessor(BasicBlock *succ);                    // 移除后继基本块
+    const vector<BasicBlock *> &getPredecessors() const;       // 获取前驱基本块
+    const vector<BasicBlock *> &getSuccessors() const;         // 获取后继基本块
+    void setLiveIn(const std::set<std::string> &liveIn);       // 设置活跃变量集合
+    const std::set<std::string> &getLiveIn() const;            // 获取活跃变量集合
+    void setLiveOut(const std::set<std::string> &liveOut);     // 设置活跃变量集合
+    const std::set<std::string> &getLiveOut() const;           // 获取活跃变量集合
 
     Instruction *getTerminator();                       // 获取终结指令
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令
     bool hasTerminator();                               // 检查是否有终结指令
     bool containsByName(Instruction *inst) const;       // 判断是否包含特定指令(通过名称)
-    int getInstructionOrder(Instruction *inst) const;// 获取指令在基本块中的顺序
+    int getInstructionOrder(Instruction *inst) const;   // 获取指令在基本块中的顺序
     string toString() const override;
 };
 
@@ -787,5 +787,5 @@ public:
     string toString() const;
 
     // Debug输出
-    string getBasicBlockInfo();                            // 输出基本块后继信息
+    string getBasicBlockInfo(); // 输出基本块后继信息
 };

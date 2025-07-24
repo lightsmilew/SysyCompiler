@@ -755,6 +755,14 @@ vector<Value *> CallInst::getPtrArguments() const
     }
     return args;
 }
+Value *CallInst::getDest() const
+{
+   if(!hasReturnValue())
+    {
+        return nullptr; // 如果没有返回值，返回nullptr
+    }
+    return const_cast<CallInst *>(this); // 否则返回自身
+}
 std::string CallInst::toString() const
 {
     std::stringstream ss;
@@ -942,6 +950,7 @@ vector<Value *> GetElementPtrInst::constructOperands(Value *ptr, const vector<Va
     {
         operands.push_back(new ConstantInt(IntegerType::getInstance(), 0)); // 补齐为0
     }
+    num_addedzero = dimensions - indices.size(); // 记录补齐的0的数量
     return operands;
 }
 Type *GetElementPtrInst::calculateResultType(Value *ptr, const vector<Value *> &indices)
