@@ -4,6 +4,78 @@
 
 namespace RISCV
 {
+    // 可用的物理寄存器定义（与LinearScanRegisterAllocator保持一致）
+    const vector<shared_ptr<RISCVRegister>> availableGeneralRegs = {
+        // 临时寄存器 (caller-saved) - 优先使用
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T6),
+
+        // 参数寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7),
+
+        // 保存寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S9)};
+
+    const vector<shared_ptr<RISCVRegister>> availableFloatRegs = {
+        // 临时浮点寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT11),
+
+        // 浮点参数寄存器 (caller-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA7),
+
+        // 保存浮点寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS11)};
+
     // 静态变量初始化
     int RISCVRegister::nextVirtualId = 0;
 
@@ -988,7 +1060,11 @@ namespace RISCV
             {
                 if (!operands.empty() && isRegisterOperand(operands[0]))
                 {
-                    defRegs.push_back(operands[0]->getReg());
+                    auto reg = operands[0]->getReg();
+                    if (!reg->isPhysical())
+                    {
+                        defRegs.push_back(reg);
+                    }
                 }
             }
             break;
@@ -1013,8 +1089,8 @@ namespace RISCV
                 break;
 
             case RISCVOpcode::CALL:
-                // call指令隐式定义ra寄存器和调用约定寄存器
-                // 这里可以添加，但通常由调用约定处理
+                defRegs.insert(defRegs.end(), availableFloatRegs.begin(), availableFloatRegs.end());
+                defRegs.insert(defRegs.end(), availableGeneralRegs.begin(), availableGeneralRegs.end());
                 break;
 
             case RISCVOpcode::RET:

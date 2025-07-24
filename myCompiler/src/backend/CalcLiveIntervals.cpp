@@ -1,4 +1,7 @@
 #include "InstructionSelector.h"
+#include <iostream>
+
+using namespace std;
 
 void InstructionSelector::buildControlFlowGraph()
 {
@@ -36,15 +39,18 @@ void InstructionSelector::computeBasicBlockUseDef()
 
         for (const auto &instr : bb->getInstructions())
         {
-            // 遍历指令，更新 use 和 def 集合
+            // 先处理 use：只加入未被本块内 def 过的寄存器
             for (const auto &reg : instr->getUseRegisters())
             {
-                useSet.insert(reg);
+                if (defSet.find(reg) == defSet.end())
+                    useSet.insert(reg);
             }
 
+            // 再处理 def：只记录第一次定义的寄存器
             for (const auto &reg : instr->getDefRegisters())
             {
-                defSet.insert(reg);
+                if (defSet.find(reg) == defSet.end())
+                    defSet.insert(reg);
             }
         }
         bb->setUse(useSet);
@@ -54,11 +60,13 @@ void InstructionSelector::computeBasicBlockUseDef()
 
 void InstructionSelector::computeLiveInOut()
 {
+    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder();
+
     bool changed;
     do
     {
         changed = false;
-        for (auto &bb : currentFunc->getBasicBlocks())
+        for (auto bb : postOrder)
         {
             unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> newLiveIn;
             unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> newLiveOut;
@@ -67,15 +75,21 @@ void InstructionSelector::computeLiveInOut()
             for (const auto &succ : bb->getSuccessors())
             {
                 if (succ == bb)
-                    continue; // 避免自循环
+                    continue;
                 const auto &succLiveIn = succ->getLiveIn();
-                newLiveOut.insert(succLiveIn.begin(), succLiveIn.end());
+                for (const auto &reg : succLiveIn)
+                {
+                    newLiveOut.insert(reg);
+                }
             }
 
             // 计算 LiveIn
             const auto &use = bb->getUse();
             const auto &def = bb->getDef();
-            newLiveIn = use;
+            for (const auto &reg : use)
+            {
+                newLiveIn.insert(reg);
+            }
             for (const auto &reg : newLiveOut)
             {
                 if (def.find(reg) == def.end())
@@ -98,150 +112,146 @@ void InstructionSelector::computeLiveRanges()
     auto &livenessInfo = currentFunc->getLivenessInfo();
     livenessInfo.clear();
 
-    // 首先为每个基本块分配指令编号
-    unordered_map<shared_ptr<RISCVBasicBlock>, int> blockStartInstr;
-    unordered_map<shared_ptr<RISCVBasicBlock>, int> blockEndInstr;
-    int totalInstrNum = 0;
+    // 1. 获取逆后序的基本块列表
+    vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder();
 
-    // 计算每个基本块的指令编号范围
-    for (auto &bb : currentFunc->getBasicBlocks())
+    // 编号每条指令
+    unordered_map<shared_ptr<RISCVInstruction>, int> instrIndex;
+    int instrNum = 0;
+    for (auto it = postOrder.rbegin(); it != postOrder.rend(); ++it)
     {
-        blockStartInstr[bb] = totalInstrNum;
-        totalInstrNum += bb->getInstructions().size();
-        blockEndInstr[bb] = totalInstrNum - 1;
-    }
-    livenessInfo.totalInstructions = totalInstrNum;
+        auto bb = *it;
+        if (bb->getInstructions().empty())
+            continue;
 
-    // 辅助函数：延长或添加新的活跃区间
+        // 记录每条指令的索引
+        for (const auto &instr : bb->getInstructions())
+        {
+            instrIndex[instr] = instrNum++;
+        }
+    }
+    livenessInfo.totalInstructions = instrNum;
+
+    // 区间合并工具
     auto extendOrAddRange = [&](shared_ptr<RISCVRegister> reg, int start, int end)
     {
-        if (livenessInfo.liveRanges.find(reg) == livenessInfo.liveRanges.end())
-        {
-            livenessInfo.liveRanges[reg] = vector<LiveRange>();
-        }
-
+        if (start > end)
+            return;
         auto &ranges = livenessInfo.liveRanges[reg];
-
-        // 如果没有现有区间，或者新区间与最后一个区间不相邻/重叠，则添加新区间
-        if (ranges.empty() || ranges.back().start > end + 1)
+        vector<int> toMerge;
+        int newStart = start, newEnd = end;
+        for (int i = 0; i < ranges.size(); i++)
         {
-            ranges.push_back(LiveRange(start, end));
+            const auto &range = ranges[i];
+            if (newStart <= range.end + 1 && newEnd >= range.start - 1)
+            {
+                toMerge.push_back(i);
+                newStart = std::min(newStart, range.start);
+                newEnd = std::max(newEnd, range.end);
+            }
+        }
+        if (toMerge.empty())
+        {
+            ranges.push_back(LiveRange(newStart, newEnd));
         }
         else
         {
-            // 扩展现有区间
-            ranges.back().start = std::min(ranges.back().start, start);
-            ranges.back().end = std::max(ranges.back().end, end);
+            LiveRange mergedRange(newStart, newEnd);
+            for (int i = toMerge.size() - 1; i >= 0; i--)
+                ranges.erase(ranges.begin() + toMerge[i]);
+            ranges.push_back(mergedRange);
         }
     };
 
-    // 辅助函数：在指定位置截断活跃区间
-    auto truncateRangeAt = [&](shared_ptr<RISCVRegister> reg, int instrPos)
+    auto truncateRangeAt = [&](shared_ptr<RISCVRegister> reg, int defPos)
     {
-        if (livenessInfo.liveRanges.find(reg) == livenessInfo.liveRanges.end())
-        {
-            return;
-        }
-
         auto &ranges = livenessInfo.liveRanges[reg];
-        for (auto &range : ranges)
+        vector<LiveRange> newRanges;
+
+        for (const auto &range : ranges)
         {
-            if (range.contains(instrPos))
+            if (range.end < defPos)
             {
-                // 如果区间包含定义点，在定义点处截断
-                if (range.start < instrPos)
-                {
-                    range.end = instrPos - 1;
-                }
-                else
-                {
-                    // 如果定义点就是区间开始，移除这个区间
-                    range.start = range.end + 1; // 标记为无效区间
-                }
+                // 完全在定义点之前，保留
+                newRanges.push_back(range);
             }
-        }
-
-        // 移除无效区间
-        ranges.erase(std::remove_if(ranges.begin(), ranges.end(),
-                                    [](const LiveRange &r)
-                                    { return r.start > r.end; }),
-                     ranges.end());
-    };
-
-    // for 基本块 in 逆序排列的基本块列表
-    auto &basicBlocks = currentFunc->getBasicBlocks();
-    for (int bbIndex = basicBlocks.size() - 1; bbIndex >= 0; --bbIndex)
-    {
-        auto bb = basicBlocks[bbIndex];
-        int blockStart = blockStartInstr[bb];
-        int blockEnd = blockEndInstr[bb];
-
-        // for 变量 in 基本块的LiveOut集合中变量
-        for (auto reg : bb->getLiveOut())
-        {
-            // 延长原有Range或添加新Range(block开始，block结束)
-            extendOrAddRange(reg, blockStart, blockEnd);
-        }
-
-        // for 指令 in 基本块的逆序排列的指令列表
-        const auto &instructions = bb->getInstructions();
-        for (int instrIndex = instructions.size() - 1; instrIndex >= 0; --instrIndex)
-        {
-            auto instr = instructions[instrIndex];
-            int instrPos = blockStart + instrIndex;
-
-            // if (指令存在定值)
-            auto defRegs = instr->getDefRegisters();
-            for (auto reg : defRegs)
+            else if (range.start > defPos)
             {
-                // 将被定值的变量的range在此处截断
-                truncateRangeAt(reg, instrPos);
-                // 记录定义点
-                livenessInfo.defPoints[reg].push_back(instrPos);
-            }
-
-            // for 操作数 in 指令
-            auto useRegs = instr->getUseRegisters();
-            for (auto reg : useRegs)
-            {
-                // 延长原有Range或添加新Range(block开始，指令位置)
-                extendOrAddRange(reg, blockStart, instrPos);
-                // 记录使用点
-                livenessInfo.usePoints[reg].push_back(instrPos);
-            }
-        }
-    }
-
-    // 对所有寄存器的活跃区间进行排序和合并
-    for (auto &[reg, ranges] : livenessInfo.liveRanges)
-    {
-        if (ranges.empty())
-            continue;
-
-        // 按起始位置排序
-        std::sort(ranges.begin(), ranges.end());
-
-        // 合并重叠或相邻的区间
-        vector<LiveRange> mergedRanges;
-        mergedRanges.push_back(ranges[0]);
-
-        for (size_t i = 1; i < ranges.size(); ++i)
-        {
-            auto &current = ranges[i];
-            auto &last = mergedRanges.back();
-
-            if (current.start <= last.end + 1)
-            {
-                // 合并区间
-                last.end = std::max(last.end, current.end);
+                // 完全在定义点之后，保留
+                newRanges.push_back(range);
             }
             else
             {
-                // 添加新区间
-                mergedRanges.push_back(current);
+                if (range.end > defPos)
+                {
+                    newRanges.push_back(LiveRange(defPos + 1, range.end));
+                }
             }
         }
 
-        ranges = mergedRanges;
+        ranges = newRanges;
+    };
+
+    // 主算法：逆序遍历基本块
+    for (auto bb : postOrder)
+    {
+        if (bb->getInstructions().empty())
+            continue;
+        int bbStart = instrIndex[bb->getInstructions().front()];
+        int bbEnd = instrIndex[bb->getInstructions().back()];
+
+        // Step 1: 对LiveOut的变量，延长区间到整个块
+        for (const auto &reg : bb->getLiveOut())
+        {
+            extendOrAddRange(reg, bbStart, bbEnd);
+        }
+
+        // Step 2: 逆序遍历指令
+        for (auto it = bb->getInstructions().rbegin(); it != bb->getInstructions().rend(); ++it)
+        {
+            auto instr = *it;
+            int pos = instrIndex[instr];
+
+            // 先处理def，截断区间：移除该reg的所有区间（即后续use不会再延长到更前面）
+            for (const auto &defReg : instr->getDefRegisters())
+            {
+                truncateRangeAt(defReg, pos);
+                livenessInfo.defPoints[defReg].push_back(pos);
+            }
+
+            // 再处理use，延长区间到块头-当前指令
+            for (const auto &useReg : instr->getUseRegisters())
+            {
+                extendOrAddRange(useReg, bbStart, pos);
+                livenessInfo.usePoints[useReg].push_back(pos);
+            }
+        }
     }
+}
+
+vector<shared_ptr<RISCVBasicBlock>> InstructionSelector::getPostOrder()
+{
+    vector<shared_ptr<RISCVBasicBlock>> postOrder;
+    unordered_set<shared_ptr<RISCVBasicBlock>> visited;
+
+    function<void(shared_ptr<RISCVBasicBlock>)> dfs = [&](shared_ptr<RISCVBasicBlock> bb)
+    {
+        if (visited.find(bb) != visited.end())
+            return;
+        visited.insert(bb);
+
+        for (auto succ : bb->getSuccessors())
+        {
+            dfs(succ);
+        }
+        postOrder.push_back(bb);
+    };
+
+    // 从入口基本块开始
+    if (!currentFunc->getBasicBlocks().empty())
+    {
+        dfs(currentFunc->getBasicBlocks()[0]);
+    }
+
+    return postOrder;
 }

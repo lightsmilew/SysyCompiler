@@ -14,18 +14,21 @@ void WorklistManager::addToWorklist(shared_ptr<RISCVRegister> reg,
     // 如果寄存器已经在某个工作列表中，先移除
     removeFromWorklist(reg);
 
-    worklists[type].push(reg);
+    worklists[type].push_back(reg);
     regToWorklist[reg] = type;
 }
 
 void WorklistManager::removeFromWorklist(shared_ptr<RISCVRegister> reg)
 {
     auto it = regToWorklist.find(reg);
+
     if (it != regToWorklist.end())
     {
+        auto type = it->second;
         regToWorklist.erase(it);
-        // 注意：这里不从queue中移除，因为queue不支持随机删除
-        // 在getNext时会检查寄存器是否仍在映射中
+        auto &worklist = worklists[type];
+        worklist.erase(
+            remove(worklist.begin(), worklist.end(), reg), worklist.end());
     }
 }
 
@@ -33,18 +36,10 @@ shared_ptr<RISCVRegister> WorklistManager::getNext(WorklistType type)
 {
     auto &worklist = worklists[type];
 
-    while (!worklist.empty())
+    if (!worklist.empty())
     {
         auto reg = worklist.front();
-        worklist.pop();
-
-        // 检查寄存器是否仍在此工作列表中
-        auto it = regToWorklist.find(reg);
-        if (it != regToWorklist.end() && it->second == type)
-        {
-            regToWorklist.erase(it);
-            return reg;
-        }
+        return reg;
     }
 
     return nullptr;

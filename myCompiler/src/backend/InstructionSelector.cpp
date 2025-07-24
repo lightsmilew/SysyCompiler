@@ -13,6 +13,21 @@ const vector<RISCVRegister::PhysicalReg> FLOAT_PARAM_REGS = {
     RISCVRegister::PhysicalReg::FA4, RISCVRegister::PhysicalReg::FA5,
     RISCVRegister::PhysicalReg::FA6, RISCVRegister::PhysicalReg::FA7};
 
+// RISC-V 临时寄存器映射常量
+const vector<RISCVRegister::PhysicalReg> INT_TEMP_REGS = {
+    RISCVRegister::PhysicalReg::T0, RISCVRegister::PhysicalReg::T1,
+    RISCVRegister::PhysicalReg::T2, RISCVRegister::PhysicalReg::T3,
+    RISCVRegister::PhysicalReg::T4, RISCVRegister::PhysicalReg::T5,
+    RISCVRegister::PhysicalReg::T6};
+
+const vector<RISCVRegister::PhysicalReg> FLOAT_TEMP_REGS = {
+    RISCVRegister::PhysicalReg::FT0, RISCVRegister::PhysicalReg::FT1,
+    RISCVRegister::PhysicalReg::FT2, RISCVRegister::PhysicalReg::FT3,
+    RISCVRegister::PhysicalReg::FT4, RISCVRegister::PhysicalReg::FT5,
+    RISCVRegister::PhysicalReg::FT6, RISCVRegister::PhysicalReg::FT7,
+    RISCVRegister::PhysicalReg::FT8, RISCVRegister::PhysicalReg::FT9,
+    RISCVRegister::PhysicalReg::FT10, RISCVRegister::PhysicalReg::FT11};
+
 void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc)
 {
     currentFunc = func;
@@ -26,18 +41,15 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
 
     buildControlFlowGraph();
 
+    currentBB = func->getBasicBlocks().front(); // 从第一个基本块开始处理
+    DealArgumentsInStart();
+
     // 处理函数体
     for (size_t i = 0; i < irFunc->BasicBlocks.size(); ++i)
     {
         auto irBB = irFunc->BasicBlocks[i].get();
         auto riscvBB = func->getBasicBlock(irBB->getName());
         currentBB = riscvBB;
-
-        // 在函数入口基本块的开始处调用 moveCalleeArgs
-        if (i == 0)
-        {
-            DealArgumentsInStart();
-        }
 
         // 遍历基本块中的所有指令
         for (auto &irInstr : irBB->Instructions)
@@ -50,6 +62,7 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
     computeBasicBlockUseDef();
     computeLiveInOut();
     computeLiveRanges();
+    // printAllLiveRanges(currentFunc->getLivenessInfo());
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
@@ -239,8 +252,8 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
     StackFrame stack = currentFunc->getStackFrame();
-    stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize());
-    auto imm = LiInt(stack.getValueOffset(inst->getName()));
+    stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize()); // 分配空间
+    auto imm = LiInt(stack.getValueOffset(inst->getName()), true);
     currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
     auto addrReg = getOrCreateVirtualReg(inst->getDest());
 
@@ -255,10 +268,10 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
     auto baseAddr = getOrCreateVirtualReg(inst->getPointerOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
-    auto offsetReg = LiInt(1);
-    auto totalOffsetReg = LiInt(0);
-    auto tmpReg = getTempReg();
-    auto strideReg = getTempReg();
+    auto offsetReg = LiInt(1, true);
+    auto totalOffsetReg = LiInt(0, true);
+    auto tmpReg = getTempReg(true);
+    auto strideReg = getTempReg(true);
 
     auto indices = inst->getIndices();
     auto stridePtr = inst->getArrayStride();
@@ -392,7 +405,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                 stack.allocateCalleeArgSpace(argNum);
                 int offset = stack.getCalleeArgOffset(argNum);
 
-                auto tempReg = getTempReg();
+                auto tempReg = getTempReg(true);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
                 currentBB->addInstruction(liInst);
                 auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
@@ -406,7 +419,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                 stack.allocateCalleeArgSpace(argNum, isPtr ? 8 : 4);
                 int offset = stack.getCalleeArgOffset(argNum);
 
-                auto tempReg = getTempReg();
+                auto tempReg = getTempReg(true);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
                 currentBB->addInstruction(liInst);
                 auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
@@ -791,7 +804,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         {
             auto sourceReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[index]);
             auto reg = getArgReg(arg->getName(), RegisterType::FLOAT);
-            auto FmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, reg, sourceReg);
+            auto FmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, reg, sourceReg);
             currentBB->addInstruction(FmvInst);
             return reg;
         }
@@ -799,8 +812,11 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         {
             // 超出范围，从栈上获取参数
             auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), 4);
-            auto tempReg = LiInt(offset);
+            auto tempReg = LiInt(offset, true);
             currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg);
+            currentBB->addInstruction(addInst);
+            // 从栈上加载浮点数参数
             auto reg = getArgReg(arg->getName(), RegisterType::FLOAT);
             auto loadInst = RISCVInstruction::createIType(RISCVOpcode::FLW, reg, tempReg, 0);
             currentBB->addInstruction(loadInst);
@@ -822,8 +838,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
             // 超出范围，从栈上获取参数
             RISCVOpcode op = arg->getType()->isPointerTy() ? RISCVOpcode::LD : RISCVOpcode::LW;
             auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), arg->getType()->isPointerTy() ? 8 : 4);
-            auto tempReg = LiInt(offset);
+            auto tempReg = LiInt(offset, true);
             currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg);
+            currentBB->addInstruction(addInst);
             auto reg = getArgReg(arg->getName(), RegisterType::INT);
             auto loadInst = RISCVInstruction::createIType(op, reg, tempReg, 0);
             currentBB->addInstruction(loadInst);
@@ -837,11 +855,11 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     // 立即数
     if (auto constantIntValue = dynamic_cast<ConstantInt *>(value))
     {
-        return LiInt(constantIntValue->Value);
+        return LiInt(constantIntValue->Value, true);
     }
     else if (auto constantFloatValue = dynamic_cast<ConstantFloat *>(value))
     {
-        return LiFloat(constantFloatValue->Value);
+        return LiFloat(constantFloatValue->Value, true);
     }
     // 全局变量
     else if (auto globlVar = dynamic_cast<GlobalVariable *>(value))
@@ -888,15 +906,44 @@ shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName, 
     }
     else
     {
-        auto tempReg = make_shared<RISCVRegister>(regType);
-        MoveArgMap["temp"] = tempReg; // 临时寄存器到参数寄存器的映射
+        auto tempReg = regType == RegisterType::INT ? getTempReg() : getTempFloatReg();
+        MoveArgMap[argName] = tempReg; // 临时寄存器到参数寄存器的映射
         return tempReg;
     }
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::getTempReg()
+shared_ptr<RISCVRegister> InstructionSelector::getTempReg(bool isPhysical)
 {
+    if (isPhysical)
+    {
+        return getTempPhysicalReg();
+    }
+
     auto tempReg = make_shared<RISCVRegister>(RegisterType::INT);
+    return tempReg;
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getTempFloatReg(bool isPhysical)
+{
+    if (isPhysical)
+    {
+        return getTempPhysicalFloatReg();
+    }
+
+    auto tempReg = make_shared<RISCVRegister>(RegisterType::FLOAT);
+    return tempReg;
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getTempPhysicalReg()
+{
+    auto tempReg = make_shared<RISCVRegister>(INT_TEMP_REGS[tempRegCount++ % INT_TEMP_REGS.size()]);
+    tempRegisters.push_back(tempReg);
+    return tempReg;
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::getTempPhysicalFloatReg()
+{
+    auto tempReg = make_shared<RISCVRegister>(FLOAT_TEMP_REGS[tempFloatRegCount++ % FLOAT_TEMP_REGS.size()]);
     tempRegisters.push_back(tempReg);
     return tempReg;
 }
@@ -911,10 +958,10 @@ shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
     return globReg;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value)
+shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value, bool isPhysical)
 {
 
-    auto destReg = getTempReg();
+    auto destReg = getTempReg(isPhysical);
     auto LiInst = RISCVInstruction::createPseudoLI(destReg, value);
     currentLiInstruction = LiInst; // 保存当前的立即数指令
     currentBB->addInstruction(LiInst);
@@ -922,15 +969,15 @@ shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value)
     return destReg;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue)
+shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue, bool isPhysical)
 {
-    auto tmpReg = getTempReg();
+    auto tmpReg = getTempReg(isPhysical);
     uint32_t hexValue;
     memcpy(&hexValue, &floatValue, sizeof(floatValue));
     auto LiInst = RISCVInstruction::createPseudoLI(tmpReg, hexValue);
     currentBB->addInstruction(LiInst);
 
-    auto destReg = getTempReg();
+    auto destReg = getTempFloatReg(isPhysical);
     auto FmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, destReg, tmpReg);
     currentBB->addInstruction(FmvInst);
 
@@ -939,8 +986,8 @@ shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue)
 
 void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size)
 {
-    auto startReg = getTempReg();
-    auto CounterReg = LiInt(size / 4);
+    auto startReg = getTempReg(true);
+    auto CounterReg = LiInt(size / 4, true);
     auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, startReg, addrReg);
     currentBB->addInstruction(mvInst);
 

@@ -14,6 +14,7 @@ void MoveList::addMove(shared_ptr<RISCVRegister> src,
 {
     int moveIndex = moves.size();
     moves.emplace_back(src, dst, instr);
+    moves.back().state = MoveState::WORKLIST_MOVES;
 
     // 建立寄存器到move的映射
     regToMoves[src].push_back(moveIndex);
@@ -175,4 +176,87 @@ void MoveList::printMoves() const
     }
     std::cout << "=========================" << std::endl;
 #endif
+}
+
+// 检查是否还有可以处理的move指令（状态为WORKLIST_MOVES）
+bool MoveList::hasWorklistMoves() const
+{
+    for (const auto &move : moves)
+    {
+        if (move.state == MoveState::WORKLIST_MOVES)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 检查MoveList是否完全为空（用于你的循环条件）
+bool MoveList::isEmpty() const
+{
+    return hasWorklistMoves() == false;
+}
+
+// 获取下一个可处理的move（用于合并阶段）
+std::pair<shared_ptr<RISCVRegister>, shared_ptr<RISCVRegister>> MoveList::getNextWorklistMove()
+{
+    for (auto &move : moves)
+    {
+        if (move.state == MoveState::WORKLIST_MOVES)
+        {
+            return std::make_pair(move.src, move.dst);
+        }
+    }
+    return std::make_pair(nullptr, nullptr);
+}
+
+// 将指定的move标记为已处理（从WORKLIST_MOVES移除）
+void MoveList::markMoveAsProcessed(shared_ptr<RISCVRegister> src, shared_ptr<RISCVRegister> dst, MoveState newState)
+{
+    for (auto &move : moves)
+    {
+        if (move.src == src && move.dst == dst && move.state == MoveState::WORKLIST_MOVES)
+        {
+            move.state = newState;
+            break;
+        }
+    }
+}
+
+// 获取工作列表中move的数量（用于调试）
+size_t MoveList::getWorklistMoveCount() const
+{
+    size_t count = 0;
+    for (const auto &move : moves)
+    {
+        if (move.state == MoveState::WORKLIST_MOVES)
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+// 调试输出工作列表中的move
+void MoveList::printWorklistMoves() const
+{
+    std::cout << "Worklist moves (" << getWorklistMoveCount() << "):" << std::endl;
+    for (const auto &move : moves)
+    {
+        if (move.state == MoveState::WORKLIST_MOVES)
+        {
+            std::cout << "  " << move.src->toString() << " -> " << move.dst->toString() << std::endl;
+        }
+    }
+}
+MoveState MoveList::getMoveState(shared_ptr<RISCVInstruction> instr)
+{
+    for (const auto &move : moves)
+    {
+        if (move.instruction == instr)
+        {
+            return move.state;
+        }
+    }
+    return MoveState::WORKLIST_MOVES; // 默认返回工作列表状态
 }

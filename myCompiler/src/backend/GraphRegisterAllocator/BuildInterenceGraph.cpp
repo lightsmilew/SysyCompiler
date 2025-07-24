@@ -22,6 +22,7 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
 
         // 添加寄存器节点到冲突图
         interferenceGraph.addNode(reg);
+        readInterferenceGraph.addNode(reg);
 
         // 处理预着色寄存器（物理寄存器）
         if (isPrecolored(reg))
@@ -34,11 +35,6 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
     // 按寄存器类型分别构建冲突图
     buildInterferencesByType(RegisterType::INT);
     buildInterferencesByType(RegisterType::FLOAT);
-
-    // 3. 添加预着色寄存器之间的冲突边
-    // 预着色寄存器（物理寄存器）之间通常不冲突，除非它们是同一个寄存器
-    // 但我们需要确保虚拟寄存器不会与已占用的物理寄存器冲突
-    addPrecoloredInterferences();
 
 // 4. 实现冲突图的调试输出功能
 #ifdef DEBUG_REG_ALLOC
@@ -75,13 +71,17 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
     std::cout << "Precolored registers: " << precoloredCount << std::endl;
     std::cout << "Virtual registers: " << virtualCount << std::endl;
     std::cout << "Total interference edges: " << totalEdges << std::endl;
-#endif
 
     // 可选：打印详细的冲突图信息（调试时使用）
-    if (interferenceGraph.getNodes().size() <= 20) // 只在节点数较少时打印详细信息
-    {
-        interferenceGraph.printGraph();
-    }
+    interferenceGraph.printGraph();
+#endif
+}
+
+bool isZeroOrSpRegister(shared_ptr<RISCVRegister> reg)
+{
+    return (reg->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO ||
+            reg->getPhysicalReg() == RISCVRegister::PhysicalReg::SP) &&
+           reg->isPhysical();
 }
 
 // 按寄存器类型构建冲突关系
@@ -94,7 +94,7 @@ void GraphColorRegisterAllocator::buildInterferencesByType(RegisterType type)
     for (const auto &regRangesPair : livenessInfo.liveRanges)
     {
         auto reg = regRangesPair.first;
-        if (reg->getType() == type)
+        if (reg->getType() == type && !isZeroOrSpRegister(reg))
         {
             registersOfType.push_back(reg);
         }
@@ -112,44 +112,8 @@ void GraphColorRegisterAllocator::buildInterferencesByType(RegisterType type)
             if (livenessInfo.interferes(reg1, reg2))
             {
                 interferenceGraph.addEdge(reg1, reg2);
+                readInterferenceGraph.addEdge(reg1, reg2);
             }
         }
     }
-}
-
-// 添加预着色寄存器之间的冲突边
-void GraphColorRegisterAllocator::addPrecoloredInterferences()
-{
-    // 收集实际在函数中使用的物理寄存器（预着色寄存器）
-    vector<shared_ptr<RISCVRegister>> usedPhysicalRegs;
-
-    for (auto reg : interferenceGraph.getNodes())
-    {
-        if (isPrecolored(reg))
-        {
-            usedPhysicalRegs.push_back(reg);
-        }
-    }
-
-    // 只对实际使用的物理寄存器进行处理
-    // 同类型的物理寄存器之间互相冲突（因为它们不能同时被分配给不同的虚拟寄存器）
-    for (size_t i = 0; i < usedPhysicalRegs.size(); i++)
-    {
-        for (size_t j = i + 1; j < usedPhysicalRegs.size(); j++)
-        {
-            auto reg1 = usedPhysicalRegs[i];
-            auto reg2 = usedPhysicalRegs[j];
-
-            // 只有同类型的物理寄存器才会冲突
-            if (reg1->getType() == reg2->getType())
-            {
-                interferenceGraph.addEdge(reg1, reg2);
-            }
-        }
-    }
-
-#ifdef DEBUG_REG_ALLOC
-    std::cout << "Added precolored interferences for " << usedPhysicalRegs.size()
-              << " actually used physical registers" << std::endl;
-#endif
 }

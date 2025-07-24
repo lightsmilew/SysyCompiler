@@ -15,7 +15,7 @@
 // 定义 DEBUG_REG_ALLOC 以启用寄存器分配器的详细输出
 // #define DEBUG_REG_ALLOC
 
-using std::queue;
+using std::deque;
 using std::shared_ptr;
 using std::stack;
 using std::unordered_map;
@@ -153,8 +153,22 @@ namespace RISCV
       {
       }
     };
-
     // Move指令管理
+    // 检查是否还有可以处理的move指令（状态为WORKLIST_MOVES）
+    bool hasWorklistMoves() const;
+
+    // 检查MoveList是否完全为空（用于你的循环条件）
+    bool isEmpty() const;
+
+    // 获取下一个可处理的move（用于合并阶段）
+    std::pair<shared_ptr<RISCVRegister>, shared_ptr<RISCVRegister>> getNextWorklistMove();
+
+    // 将指定的move标记为已处理（从WORKLIST_MOVES移除）
+    void markMoveAsProcessed(shared_ptr<RISCVRegister> src, shared_ptr<RISCVRegister> dst, MoveState newState);
+
+    // 获取工作列表中move的数量（用于调试）
+    size_t getWorklistMoveCount() const;
+    void printWorklistMoves() const;
     void addMove(shared_ptr<RISCVRegister> src, shared_ptr<RISCVRegister> dst,
                  shared_ptr<RISCVInstruction> instr);
 
@@ -173,6 +187,7 @@ namespace RISCV
     // 获取相关的move指令
     vector<int> getRelatedMoves(shared_ptr<RISCVRegister> reg) const;
     const vector<MoveInstruction> &getAllMoves() const { return moves; }
+    MoveState getMoveState(shared_ptr<RISCVInstruction> instr);
 
     // 调试输出
     void printMoves() const;
@@ -218,10 +233,44 @@ namespace RISCV
     vector<shared_ptr<RISCVRegister>> getAllNodes(WorklistType type) const;
 
   private:
-    unordered_map<WorklistType, queue<shared_ptr<RISCVRegister>>> worklists;
+    unordered_map<WorklistType, deque<shared_ptr<RISCVRegister>>> worklists;
     unordered_map<shared_ptr<RISCVRegister>, WorklistType, RegisterHash,
                   RegisterEqual>
         regToWorklist;
+  };
+
+  struct CoalescingPair
+  {
+    shared_ptr<RISCVRegister> keep, merge;
+    CoalescingPair(shared_ptr<RISCVRegister> k, shared_ptr<RISCVRegister> m)
+        : keep(k), merge(m) {}
+  };
+
+  struct CoalescingManager
+  {
+    vector<CoalescingPair> pairs; // 存储合并对
+
+    // 添加合并对
+    void addPair(shared_ptr<RISCVRegister> keep,
+                 shared_ptr<RISCVRegister> merge)
+    {
+      pairs.emplace_back(keep, merge);
+    }
+
+    void clear()
+    {
+      pairs.clear();
+    }
+
+    shared_ptr<RISCVRegister> getKeepRegister(shared_ptr<RISCVRegister> reg) const
+    {
+      for (const auto &pair : pairs)
+      {
+        if (pair.merge == reg)
+          return pair.keep;
+      }
+      return nullptr; // 如果没有找到，返回nullptr
+    }
   };
 
   // 图染色寄存器分配器主类
@@ -235,8 +284,10 @@ namespace RISCV
     // 核心数据结构
     shared_ptr<RISCVFunction> currentFunc;
     InterferenceGraph interferenceGraph;
+    InterferenceGraph readInterferenceGraph;
     MoveList moveList;
     WorklistManager worklistManager;
+    CoalescingManager coalescingManager;
 
     // 节点状态管理
     unordered_map<shared_ptr<RISCVRegister>, NodeState, RegisterHash,
@@ -292,14 +343,13 @@ namespace RISCV
     void reclassifyAffectedNodes(
         const vector<shared_ptr<RISCVRegister>> &affectedNodes);
     void buildInterferencesByType(RegisterType type);
-    void addPrecoloredInterferences();
     bool isMoveInstruction(shared_ptr<RISCVInstruction> instr) const;
     bool isPrecolored(shared_ptr<RISCVRegister> reg) const;
     int getK(RegisterType type) const;
     vector<shared_ptr<RISCVRegister>> getAvailableColors(RegisterType type) const;
     NodeState getNodeState(shared_ptr<RISCVRegister> reg) const;
     void setNodeState(shared_ptr<RISCVRegister> reg, NodeState state);
-
+    shared_ptr<RISCVRegister> findFinalReplacement(const shared_ptr<RISCVRegister> &reg);
     // 调试和统计
     void printStatistics();
     void validateAllocation();

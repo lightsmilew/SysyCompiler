@@ -15,10 +15,14 @@ private:
     unordered_map<string, shared_ptr<RISCVRegister>> MoveArgMap;   // 临时寄存器到参数寄存器的映射
     shared_ptr<RISCVInstruction> currentLiInstruction;             // 当前正在处理的指令
 
-    bool isTempReg(shared_ptr<RISCVRegister> reg) const
+    bool isTempRegOrZero(shared_ptr<RISCVRegister> reg) const
     {
-        return find(tempRegisters.begin(), tempRegisters.end(), reg) != tempRegisters.end();
+        return find(tempRegisters.begin(), tempRegisters.end(), reg) != tempRegisters.end() ||
+               reg->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO && reg->isPhysical();
     }
+
+    int tempRegCount = 0;
+    int tempFloatRegCount = 0;
 
 public:
     InstructionSelector() {}
@@ -46,10 +50,13 @@ private:
 
     // 获取虚拟寄存器
     shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value);
-    shared_ptr<RISCVRegister> LiInt(int intValue);
-    shared_ptr<RISCVRegister> LiFloat(float floatValue);
+    shared_ptr<RISCVRegister> LiInt(int intValue, bool isPhysical = false);
+    shared_ptr<RISCVRegister> LiFloat(float floatValue, bool isPhysical = false);
     shared_ptr<RISCVRegister> LaGlobl(GlobalVariable *globlvar);
-    shared_ptr<RISCVRegister> getTempReg();
+    shared_ptr<RISCVRegister> getTempReg(bool isPhysical = false);
+    shared_ptr<RISCVRegister> getTempFloatReg(bool isPhysical = false);
+    shared_ptr<RISCVRegister> getTempPhysicalReg();
+    shared_ptr<RISCVRegister> getTempPhysicalFloatReg();
 
     // alloca需要初始化数组
     void InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size);
@@ -70,4 +77,63 @@ private:
     void computeBasicBlockUseDef();
     void computeLiveInOut();
     void computeLiveRanges();
+    vector<shared_ptr<RISCVBasicBlock>> getPostOrder();
+
+    void printAllLiveRanges(const RISCV::LivenessInfo &livenessInfo)
+    {
+        // std::cout << "==== Live use and def information ====" << std::endl;
+        // for (const auto &[reg, uses] : livenessInfo.usePoints)
+        // {
+        //     std::cout << reg->toString() << " uses: ";
+        //     for (int use : uses)
+        //     {
+        //         std::cout << use << " ";
+        //     }
+        //     std::cout << std::endl;
+        // }
+        // for (const auto &[reg, defs] : livenessInfo.defPoints)
+        // {
+        //     std::cout << reg->toString() << " defs: ";
+        //     for (int def : defs)
+        //     {
+        //         std::cout << def << " ";
+        //     }
+        //     std::cout << std::endl;
+        // }
+        // std::cout << "Total instructions: " << livenessInfo.totalInstructions << std::endl;
+        // std::cout << "======================================" << std::endl;
+        // // livein和liveout信息
+        // std::cout << "==== Basic Block Live In/Out Information ====" << std::endl;
+        // for (const auto &bb : currentFunc->getBasicBlocks())
+        // {
+        //     std::cout << "Basic Block: " << bb->getLabel() << std::endl;
+        //     std::cout << "  Live In: ";
+        //     for (const auto &reg : bb->getLiveIn())
+        //     {
+        //         std::cout << reg->toString() << " ";
+        //     }
+        //     std::cout << std::endl;
+        //     std::cout << "  Live Out: ";
+        //     for (const auto &reg : bb->getLiveOut())
+        //     {
+        //         std::cout << reg->toString() << " ";
+        //     }
+        //     std::cout << std::endl;
+        // }
+        // std::cout << "======================================" << std::endl;
+        // 打印所有寄存器的活跃区间
+        std::cout << "==== All Register Live Ranges ====" << std::endl;
+        for (const auto &[reg, ranges] : livenessInfo.liveRanges)
+        {
+            if (!reg)
+                continue;
+            std::cout << reg->toString() << ": ";
+            for (const auto &range : ranges)
+            {
+                std::cout << "[" << range.start << ", " << range.end << "] ";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << "==================================" << std::endl;
+    }
 };

@@ -7,7 +7,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     this->irModule = irModule;
     initializeModule(irModule);
     generateInstructions();
-    // allocateRegisters();
+    allocateRegisters();
     reallocOffsetForInstructions();
     return riscvModule;
 }
@@ -50,7 +50,8 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         riscvModule->addFunction(riscvFunc);
 
         // 为函数添加prologue基本块
-        riscvFunc->addBasicBlock(make_shared<RISCVBasicBlock>("prologue_" + func->getName(), riscvFunc));
+        auto prologueBB = make_shared<RISCVBasicBlock>("prologue_" + func->getName(), riscvFunc);
+        riscvFunc->addBasicBlock(prologueBB);
 
         // 为每个IR基本块创建对应的RISC-V基本块
         for (const auto &bb : func->BasicBlocks)
@@ -58,6 +59,8 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
             auto riscvBB = make_shared<RISCVBasicBlock>(bb->getName(), riscvFunc);
             riscvFunc->addBasicBlock(riscvBB);
         }
+
+        prologueBB->addSuccessor(riscvFunc->getBasicBlocks()[1]); // 将prologue连接到第一个基本块
     }
 }
 

@@ -32,24 +32,6 @@ void GraphColorRegisterAllocator::performSimplification()
         int K = getK(reg->getType());
         bool moveRelated = moveList.isMoveRelated(reg);
 
-        if (degree >= K || moveRelated)
-        {
-#ifdef DEBUG_REG_ALLOC
-            std::cout << "Warning: Node " << reg->toString()
-                      << " no longer satisfies simplification conditions (degree="
-                      << degree << ", K=" << K << ", move-related=" << moveRelated
-                      << ")" << std::endl;
-#endif
-            // 重新分类节点
-            classifyNode(reg);
-            continue;
-        }
-
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Simplifying node: " << reg->toString()
-                  << " (degree=" << degree << ", K=" << K << ")" << std::endl;
-#endif
-
         // 2. 从冲突图中移除选中的节点并压入栈
         // 获取邻居列表的副本，因为removeNode会修改原始数据
         auto neighbors = interferenceGraph.getNeighbors(reg);
@@ -58,42 +40,26 @@ void GraphColorRegisterAllocator::performSimplification()
 
         // 移除节点（这会自动更新所有邻居的度数）
         interferenceGraph.removeNode(reg);
+        worklistManager.removeFromWorklist(reg);
+
+#ifdef DEBUG_REG_ALLOC
+        std::cout << "Removing node: " << reg->toString()
+                  << " (degree=" << degree
+                  << ", move-related=" << moveRelated << ")"
+                  << " Neighbors: " << neighborList.size() << std::endl;
+        for (const auto &neighbor : neighborList)
+        {
+            std::cout << neighbor->toString() << " ";
+        }
+        std::cout << std::endl;
+#endif
 
         // 将节点压入选择栈
         selectStack.push(reg);
         setNodeState(reg, NodeState::COLORED); // 标记为待着色状态
 
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Node " << reg->toString()
-                  << " removed from graph and pushed to stack" << std::endl;
-#endif
-
-        // 3. 更新被移除节点的所有邻居的度数（已由removeNode自动完成）
-        // 4. 重新分类受影响的节点到相应工作列表
         for (auto neighbor : neighborList)
         {
-            // 跳过预着色寄存器和已经被移除的节点
-            if (isPrecolored(neighbor) ||
-                getNodeState(neighbor) == NodeState::COLORED)
-            {
-                continue;
-            }
-
-            // 获取邻居的新度数
-            int newDegree = interferenceGraph.getDegree(neighbor);
-            int neighborK = getK(neighbor->getType());
-            bool neighborMoveRelated = moveList.isMoveRelated(neighbor);
-
-#ifdef DEBUG_REG_ALLOC
-            std::cout << "Updating neighbor " << neighbor->toString()
-                      << " (new degree=" << newDegree << ", K=" << neighborK
-                      << ", move-related=" << neighborMoveRelated << ")" << std::endl;
-#endif
-
-            // 从当前工作列表中移除邻居节点
-            worklistManager.removeFromWorklist(neighbor);
-
-            // 重新分类邻居节点
             classifyNode(neighbor);
         }
 
@@ -129,70 +95,36 @@ void GraphColorRegisterAllocator::performCoalescing()
 {
 #ifdef DEBUG_REG_ALLOC
     std::cout << "Performing coalescing phase..." << std::endl;
+    moveList.printWorklistMoves();
 #endif
 
-    int coalescedPairs = 0;
-    int constrainedPairs = 0;
+    // 获取下一个可处理的move
+    auto candidatePair = moveList.getNextWorklistMove();
 
-    // 持续尝试合并直到没有更多可合并的节点对
-    while (true)
+    if (!candidatePair.first || !candidatePair.second)
     {
-        // 1. 选择 move-related 的节点对作为合并候选
-        auto candidatePair = selectCoalescingCandidate();
-
-        if (!candidatePair.first || !candidatePair.second)
-        {
-            // 没有更多可合并的候选
-            break;
-        }
-
-        auto reg1 = candidatePair.first;
-        auto reg2 = candidatePair.second;
-
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Considering coalescing: " << reg1->toString() << " and "
-                  << reg2->toString() << std::endl;
-#endif
-
-        // 2. 实现 Briggs 保守启发式安全性检查
-        if (canSafelyCoalesce(reg1, reg2))
-        {
-#ifdef DEBUG_REG_ALLOC
-            std::cout << "Coalescing is safe, executing merge..." << std::endl;
-#endif
-
-            // 3. 执行节点合并操作，更新冲突图结构
-            executeCoalescing(reg1, reg2);
-            coalescedPairs++;
-
-#ifdef DEBUG_REG_ALLOC
-            std::cout << "Successfully coalesced " << reg1->toString() << " and "
-                      << reg2->toString() << std::endl;
-#endif
-        }
-        else
-        {
-#ifdef DEBUG_REG_ALLOC
-            std::cout << "Coalescing is not safe, marking moves as constrained"
-                      << std::endl;
-#endif
-
-            // 标记相关的move为受限
-            moveList.constrainMoves(reg1, reg2);
-            constrainedPairs++;
-        }
-
-        // 打印当前工作列表状态
-#ifdef DEBUG_REG_ALLOC
-        worklistManager.printWorklistSizes();
-#endif
+        return;
     }
 
+    auto reg1 = candidatePair.first;
+    auto reg2 = candidatePair.second;
+
+    // 检查是否可以安全合并
+    if (canSafelyCoalesce(reg1, reg2))
+    {
+        // 执行合并
+        executeCoalescing(reg1, reg2);
+
 #ifdef DEBUG_REG_ALLOC
-    std::cout << "Coalescing phase completed." << std::endl;
-    std::cout << "Successfully coalesced pairs: " << coalescedPairs << std::endl;
-    std::cout << "Constrained pairs: " << constrainedPairs << std::endl;
+        std::cout << "Successfully coalesced " << reg1->toString() << " and "
+                  << reg2->toString() << std::endl;
 #endif
+    }
+    else
+    {
+        // 标记move为受限
+        moveList.markMoveAsProcessed(reg1, reg2, MoveState::CONSTRAINED);
+    }
 }
 
 // 选择合并候选节点对
@@ -247,20 +179,12 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
     // 基本检查：不能合并已经冲突的节点
     if (interferenceGraph.interferes(reg1, reg2))
     {
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Cannot coalesce: nodes already interfere" << std::endl;
-#endif
-
         return false;
     }
 
     // 不能合并不同类型的寄存器
     if (reg1->getType() != reg2->getType())
     {
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Cannot coalesce: different register types" << std::endl;
-#endif
-
         return false;
     }
 
@@ -272,14 +196,6 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
     {
         // 两个都是预着色寄存器，只有当它们是同一个寄存器时才能合并
         bool canMerge = (reg1->getPhysicalReg() == reg2->getPhysicalReg());
-        if (!canMerge)
-        {
-#ifdef DEBUG_REG_ALLOC
-            std::cout
-                << "Cannot coalesce: both precolored but different physical registers"
-                << std::endl;
-#endif
-        }
         return canMerge;
     }
 
@@ -300,22 +216,12 @@ bool GraphColorRegisterAllocator::canSafelyCoalesce(
             if (isPrecolored(neighbor) &&
                 neighbor->getPhysicalReg() == precoloredReg->getPhysicalReg())
             {
-#ifdef DEBUG_REG_ALLOC
-                std::cout << "Cannot coalesce: virtual register has a neighbor with "
-                             "the same physical register"
-                          << std::endl;
-#endif
                 return false;
             }
         }
 
-// 对于虚拟寄存器的邻居，我们不需要额外检查
-// 它们与预着色寄存器的冲突是正常的，不会影响可着色性
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "Safe to coalesce virtual register with precolored register"
-                  << std::endl;
-#endif
-
+        // 对于虚拟寄存器的邻居，我们不需要额外检查
+        // 它们与预着色寄存器的冲突是正常的，不会影响可着色性
         return true;
     }
 
@@ -437,8 +343,11 @@ void GraphColorRegisterAllocator::executeCoalescing(
     // 更新move指令状态
     moveList.coalesceMoves(reg1, reg2);
 
+    coalescingManager.addPair(keepReg, mergeReg);
+
     // 在冲突图中执行合并
     interferenceGraph.coalesceNodes(keepReg, mergeReg);
+    readInterferenceGraph.coalesceNodes(keepReg, mergeReg);
 
     // 标记被合并的节点状态
     setNodeState(mergeReg, NodeState::COALESCED);
@@ -473,9 +382,6 @@ void GraphColorRegisterAllocator::performFreezing()
     auto reg = worklistManager.getNext(WorklistManager::WorklistType::FREEZE);
     if (!reg)
     {
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "No nodes in freeze worklist" << std::endl;
-#endif
         return;
     }
 
@@ -521,9 +427,6 @@ void GraphColorRegisterAllocator::selectSpillCandidates()
 
     if (!bestReg)
     {
-#ifdef DEBUG_REG_ALLOC
-        std::cout << "No spill candidates found" << std::endl;
-#endif
         return;
     }
 
@@ -552,40 +455,40 @@ void GraphColorRegisterAllocator::selectSpillCandidates()
 double GraphColorRegisterAllocator::calculateSpillCost(shared_ptr<RISCVRegister> reg)
 {
     // 获取寄存器的使用和定义次数
+
     int useCount = 0;
     int defCount = 0;
-    double avgLoopDepth = 1.0; // 默认循环深度为1
+    double loopDepthSum = 0.0;
+    int loopDepthCount = 0;
 
-    // 遍历所有基本块和指令，统计寄存器的使用和定义次数
+    // 遍历所有基本块和指令，统计寄存器的使用和定义次数及循环深度
     for (auto &bb : currentFunc->getBasicBlocks())
     {
-        // 获取基本块的循环深度（如果有循环分析信息）
-        // 这里简化处理，实际应该从循环分析中获取
-        double bbLoopDepth = 1.0;
-
+        double bbLoopDepth = 1.0; // 实际应从循环分析获取
         for (auto &instr : bb->getInstructions())
         {
-            // 检查使用
             for (auto useReg : instr->getUseRegisters())
             {
                 if (useReg == reg)
                 {
                     useCount++;
-                    avgLoopDepth = std::max(avgLoopDepth, bbLoopDepth);
+                    loopDepthSum += bbLoopDepth;
+                    loopDepthCount++;
                 }
             }
-
-            // 检查定义
             for (auto defReg : instr->getDefRegisters())
             {
                 if (defReg == reg)
                 {
                     defCount++;
-                    avgLoopDepth = std::max(avgLoopDepth, bbLoopDepth);
+                    loopDepthSum += bbLoopDepth;
+                    loopDepthCount++;
                 }
             }
         }
     }
+
+    double avgLoopDepth = loopDepthCount ? (loopDepthSum / loopDepthCount) : 1.0;
 
     // 获取寄存器的活跃长度
     const auto &livenessInfo = currentFunc->getLivenessInfo();
@@ -600,13 +503,8 @@ double GraphColorRegisterAllocator::calculateSpillCost(shared_ptr<RISCVRegister>
         }
     }
 
-    // 避免除以零
-    liveLength = std::max(1, liveLength);
-
-    // 计算溢出代价：使用频率越高、循环深度越深，溢出代价越高
-    // 活跃长度越长，溢出代价相对较低（因为占用寄存器时间长）
-    double cost =
-        (useCount + defCount) * std::pow(2, avgLoopDepth) / liveLength;
+    // 分母加1，避免除以零并平滑极端情况
+    double cost = (useCount + defCount) * std::pow(2, avgLoopDepth) / (liveLength + 1);
 
     return cost;
 }

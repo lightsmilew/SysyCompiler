@@ -358,7 +358,7 @@ namespace RISCV
             return opcode;
         }
         InstructionType getInstrType() const { return instrType; }
-        const vector<shared_ptr<RISCVOperand>> &getOperands() const { return operands; }
+        vector<shared_ptr<RISCVOperand>> &getOperands() { return operands; }
 
         // 设置注释
         void setComment(const string &c) { comment = c; }
@@ -469,7 +469,7 @@ namespace RISCV
 
         // 访问器
         const string &getLabel() const { return label; }
-        const vector<shared_ptr<RISCVInstruction>> &getInstructions() const { return instructions; }
+        vector<shared_ptr<RISCVInstruction>> &getInstructions() { return instructions; }
         shared_ptr<RISCVFunction> getParentFunc() const { return parentFunc; }
 
         // 控制流图管理

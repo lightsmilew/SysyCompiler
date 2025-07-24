@@ -97,11 +97,13 @@ void GraphColorRegisterAllocator::allocateRegisters(
   {
     // 清空所有数据结构
     interferenceGraph = InterferenceGraph();
+    readInterferenceGraph = InterferenceGraph();
     moveList = MoveList();
     worklistManager.clear();
     nodeStates.clear();
     allocation.clear();
     spilledRegs.clear();
+    coalescingManager.clear();
     while (!selectStack.empty())
       selectStack.pop();
 
@@ -125,12 +127,17 @@ void GraphColorRegisterAllocator::allocateRegisters(
     initializeWorklists();
 
     // 主要算法循环：简化、合并、冻结、溢出选择
-    while (!worklistManager.isEmpty())
+    while (!worklistManager.isEmpty() || !moveList.isEmpty())
     {
       if (!worklistManager.isEmpty(WorklistManager::WorklistType::SIMPLIFY))
       {
         // 执行简化阶段
         performSimplification();
+      }
+      else if (!moveList.isEmpty())
+      {
+        // 尝试执行合并阶段
+        performCoalescing();
       }
       else if (!worklistManager.isEmpty(
                    WorklistManager::WorklistType::FREEZE))
@@ -146,19 +153,8 @@ void GraphColorRegisterAllocator::allocateRegisters(
       }
       else
       {
-        // 尝试执行合并阶段
-        performCoalescing();
-
-        // 如果合并后仍然没有可处理的节点，则退出
-        if (worklistManager.isEmpty())
-        {
-#ifdef DEBUG_REG_ALLOC
-          std::cout << "Error: No nodes in any worklist but "
-                       "worklistManager.isEmpty() returned false"
-                    << std::endl;
-#endif
-          break;
-        }
+        // 如果没有可处理的节点，退出循环
+        break;
       }
     }
 
@@ -270,8 +266,7 @@ bool GraphColorRegisterAllocator::isMoveInstruction(
     shared_ptr<RISCVInstruction> instr) const
 {
   auto opcode = instr->getOpcode();
-  return opcode == RISCVOpcode::MV || opcode == RISCVOpcode::FMV_S ||
-         opcode == RISCVOpcode::FMV_W_X || opcode == RISCVOpcode::FMV_X_W;
+  return opcode == RISCVOpcode::MV || opcode == RISCVOpcode::FMV_S;
 }
 
 // 节点分类函数实现
@@ -367,7 +362,7 @@ void GraphColorRegisterAllocator::assignColors()
   spilledRegs.clear();
 
   // 为预着色寄存器设置分配（它们已经有固定的物理寄存器）
-  for (auto reg : interferenceGraph.getNodes())
+  for (auto reg : readInterferenceGraph.getNodes())
   {
     if (isPrecolored(reg))
     {
@@ -396,7 +391,7 @@ void GraphColorRegisterAllocator::assignColors()
     // 3. 标记已被邻居使用的颜色
     vector<bool> colorUsed(availableColors.size(), false);
 
-    for (auto neighbor : interferenceGraph.getNeighbors(reg))
+    for (auto neighbor : readInterferenceGraph.getNeighbors(reg))
     {
       auto it = allocation.find(neighbor);
       if (it != allocation.end())
@@ -468,7 +463,7 @@ void GraphColorRegisterAllocator::validateAllocation()
   int errors = 0;
 
   // 检查1：没有两个冲突的寄存器被分配相同的物理寄存器
-  for (auto reg1 : interferenceGraph.getNodes())
+  for (auto reg1 : readInterferenceGraph.getNodes())
   {
     if (spilledRegs.find(reg1) != spilledRegs.end())
     {
@@ -488,7 +483,7 @@ void GraphColorRegisterAllocator::validateAllocation()
 
     auto color1 = it1->second;
 
-    for (auto reg2 : interferenceGraph.getNeighbors(reg1))
+    for (auto reg2 : readInterferenceGraph.getNeighbors(reg1))
     {
       if (spilledRegs.find(reg2) != spilledRegs.end())
       {
@@ -521,7 +516,7 @@ void GraphColorRegisterAllocator::validateAllocation()
   }
 
   // 检查2：预着色寄存器保持原始分配
-  for (auto reg : interferenceGraph.getNodes())
+  for (auto reg : readInterferenceGraph.getNodes())
   {
     if (isPrecolored(reg))
     {
@@ -539,7 +534,7 @@ void GraphColorRegisterAllocator::validateAllocation()
   }
 
   // 检查3：寄存器类型约束得到满足
-  for (auto reg : interferenceGraph.getNodes())
+  for (auto reg : readInterferenceGraph.getNodes())
   {
     if (spilledRegs.find(reg) != spilledRegs.end())
     {
@@ -605,9 +600,7 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
   {
     // 为溢出寄存器在栈上分配空间
     string spillName = "spill_" + spilledReg->toString();
-    int spillSize = spilledReg->getType() == RegisterType::INT
-                        ? 4
-                        : 8; // INT类型4字节，FLOAT类型8字节
+    int spillSize = 8; // 无法获得大小，先用最大的8
 
     currentFunc->getStackFrame().allocateValueSpace(spillName, spillSize);
 #ifdef DEBUG_REG_ALLOC
@@ -644,11 +637,11 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
           RISCVOpcode loadOp;
           if (useReg->getType() == RegisterType::INT)
           {
-            loadOp = RISCVOpcode::LW; // 加载整数
+            loadOp = RISCVOpcode::LD; // 加载整数
           }
           else
           {
-            loadOp = RISCVOpcode::FLW; // 加载浮点数
+            loadOp = RISCVOpcode::FLD; // 加载浮点数
           }
 
           auto loadInstr = RISCVInstruction::createIType(
@@ -682,11 +675,11 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
           RISCVOpcode storeOp;
           if (defReg->getType() == RegisterType::INT)
           {
-            storeOp = RISCVOpcode::SW; // 存储整数
+            storeOp = RISCVOpcode::SD; // 存储整数
           }
           else
           {
-            storeOp = RISCVOpcode::FSW; // 存储浮点数
+            storeOp = RISCVOpcode::FSD; // 存储浮点数
           }
 
           auto storeInstr = RISCVInstruction::createSType(
@@ -730,6 +723,47 @@ void GraphColorRegisterAllocator::applyAllocation()
   int replacedCount = 0;
   int totalVirtualRegs = 0;
 
+  // 遍历所有基本块和指令，替换合并的寄存器
+  for (auto &bb : currentFunc->getBasicBlocks())
+  {
+    auto &instrs = bb->getInstructions();
+
+    for (auto it = instrs.begin(); it != instrs.end();)
+    {
+      auto instr = *it;
+
+      // 检查指令是否为move指令
+      if (isMoveInstruction(instr))
+      {
+        // 如果是move指令，检查是否需要合并
+        if (moveList.getMoveState(instr) == MoveState::COALESCED)
+        {
+          it = instrs.erase(it); // 删除move指令
+          continue;              // 跳过当前迭代，直接处理下一个指令
+        }
+      }
+
+      for (auto &useReg : instr->getUseRegisters())
+      {
+        if (auto keepReg = findFinalReplacement(useReg))
+        {
+          // 如果有keep寄存器，替换为keep寄存器
+          instr->replaceUseRegister(useReg, keepReg);
+        }
+      }
+
+      for (auto &defReg : instr->getDefRegisters())
+      {
+        if (auto keepReg = findFinalReplacement(defReg))
+        {
+          // 如果有keep寄存器，替换为keep寄存器
+          instr->replaceDefRegister(defReg, keepReg);
+        }
+      }
+
+      ++it;
+    }
+  }
   // 遍历所有基本块和指令
   for (auto &bb : currentFunc->getBasicBlocks())
   {
@@ -792,4 +826,28 @@ void GraphColorRegisterAllocator::applyAllocation()
             << " out of " << totalVirtualRegs << " virtual register references"
             << std::endl;
 #endif
+}
+
+shared_ptr<RISCVRegister> GraphColorRegisterAllocator::findFinalReplacement(const shared_ptr<RISCVRegister> &reg)
+{
+  // 递归/循环查找最终代表（如 a->b->c，返回c）
+  shared_ptr<RISCVRegister> cur = reg;
+  std::unordered_set<shared_ptr<RISCVRegister>> visited;
+  while (true)
+  {
+    // coalescingManager.getKeepRegister 返回 nullptr 或最终代表
+    auto next = coalescingManager.getKeepRegister(cur);
+    if (!next || next == cur)
+    {
+      break;
+    }
+    // 防止环
+    if (visited.count(next))
+    {
+      break;
+    }
+    visited.insert(cur);
+    cur = next;
+  }
+  return cur;
 }
