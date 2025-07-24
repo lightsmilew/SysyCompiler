@@ -1514,7 +1514,8 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
             }
             else
                 r = static_cast<ConstantFloat *>(rhs)->Value;
-            float res = 0.0f;
+            int res = 0;
+            // 直接计算结果
             switch (op)
             {
             case BinaryOp::Lt:
@@ -1538,7 +1539,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
             default:
                 throw std::runtime_error("Unsupported op in const float expr");
             }
-            return new ConstantFloat(FloatType::getInstance(), res);
+            return new ConstantInt(IntegerType::getInstance(), res);
         }
         auto fcmp = std::make_unique<FCmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = fcmp.get();
