@@ -755,6 +755,14 @@ vector<Value *> CallInst::getPtrArguments() const
     }
     return args;
 }
+Value *CallInst::getDest() const
+{
+   if(!hasReturnValue())
+    {
+        return nullptr; // 如果没有返回值，返回nullptr
+    }
+    return const_cast<CallInst *>(this); // 否则返回自身
+}
 std::string CallInst::toString() const
 {
     std::stringstream ss;
