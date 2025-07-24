@@ -176,6 +176,14 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "GEPExpansion"; }
     };
+    // 9.链式加法转乘法
+    class AddChainReductionPass : public Pass
+    {
+    public:
+        AddChainReductionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "AddChainReduction"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

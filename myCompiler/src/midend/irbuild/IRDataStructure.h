@@ -488,7 +488,7 @@ public:
     Predicate Pred;
 
     FCmpInst(Predicate pred, Value *lhs, Value *rhs, const string &name = "")
-        : Instruction(FloatType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
+        : Instruction(IntegerType::getInstance(), Opcode::FCmp, vector<Value *>{lhs, rhs}, name),
           Pred(pred) {}
 
     Predicate getPredicate() const { return Pred; }                 // 获取比较谓词

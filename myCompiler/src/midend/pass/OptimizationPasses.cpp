@@ -1416,6 +1416,78 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
     }
     return changed;
 }
+bool AddChainReductionPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        // 用下标逆序遍历，避免迭代器失效
+        for (int i = insts.size() - 1; i >= 0; --i)
+        {
+            Instruction *inst = insts[i].get();
+            if (inst && inst->getOpcode() == Opcode::Add)
+            {
+                Value *lhs = inst->getOperands()[0];
+                Value *rhs = inst->getOperands()[1];
+                int chainLen = 1;
+                Value *base = nullptr;
+                Instruction *cur = inst;
+                std::vector<Instruction *> chainInsts = {cur};
+                while (auto *prevAdd = dynamic_cast<BinaryOperator *>(lhs))
+                {
+                    if (prevAdd->getOpcode() != Opcode::Add)
+                        break;
+                    Value *prevLhs = prevAdd->getOperands()[0];
+                    Value *prevRhs = prevAdd->getOperands()[1];
+                    if (prevLhs == rhs && prevRhs == rhs)
+                    {
+                        chainLen++;
+                        chainInsts.push_back(prevAdd);
+                        lhs = prevLhs;
+                    }
+                    else if (prevRhs == rhs)
+                    {
+                        chainLen++;
+                        chainInsts.push_back(prevAdd);
+                        lhs = prevLhs;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                if (chainLen > 1 && rhs)
+                {
+                    base = rhs;
+                    auto *mulInst = new BinaryOperator(Opcode::Mul, base, new ConstantInt(IntegerType::getInstance(), chainLen + 1), inst->getName() + "_mul");
+                    // 在链式加法最后一条指令的后面插入
+                    insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                    inst->replaceAllUsesWith(mulInst);
+                    needToDelete.push_back(insts[i].release());
+                    insts.erase(insts.begin() + i);
+                    changed = true;
+                    // 删除链上的所有 add
+                    for (auto *chainInst : chainInsts)
+                    {
+                        if (chainInst != inst)
+                        {
+                            auto chainIt = std::find_if(insts.begin(), insts.end(),
+                                                        [chainInst](const std::unique_ptr<Instruction> &ptr)
+                                                        { return ptr.get() == chainInst; });
+                            if (chainIt != insts.end())
+                            {
+                                needToDelete.push_back(chainIt->release());
+                                insts.erase(chainIt);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -1423,18 +1495,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // // 消除phi
-        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        // 下面用于测试提交
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        
     }
     else if (level == OptimizationLevel::O1)
     {
@@ -1482,9 +1545,16 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O14)
     {
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<LiveVariableAnalysisPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LiveVariableAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     else if (level == OptimizationLevel::O15)
     {
@@ -1494,6 +1564,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O16)
     {
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
     return pm;
 }
