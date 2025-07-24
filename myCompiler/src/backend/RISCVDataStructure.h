@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+using std::find;
 using std::shared_ptr;
 using std::string;
 using std::unordered_map;
@@ -136,9 +137,8 @@ namespace RISCV
     // 寄存器类型枚举
     enum class RegisterType
     {
-        GENERAL, // 通用寄存器
-        FLOAT,   // 浮点寄存器
-        VIRTUAL  // 虚拟寄存器（寄存器分配前使用）
+        INT,
+        FLOAT,
     };
 
     // RISC-V寄存器类
@@ -224,9 +224,9 @@ namespace RISCV
 
     public:
         // 构造函数
-        RISCVRegister(PhysicalReg reg);                       // 物理寄存器
-        RISCVRegister(RegisterType type);                     // 虚拟寄存器
-        RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器，指定类型
+        RISCVRegister(PhysicalReg reg);   // 物理寄存器
+        RISCVRegister(RegisterType type); // 虚拟寄存器
+        // RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器指定类型
 
         // 访问器
         RegisterType getType() const { return type; }
@@ -238,6 +238,28 @@ namespace RISCV
 
         string toString() const;
         bool operator==(const RISCVRegister &other) const;
+
+        struct RegisterHash
+        {
+            size_t operator()(const std::shared_ptr<RISCV::RISCVRegister> &reg) const
+            {
+                if (reg->isPhysical())
+                    return std::hash<int>()(static_cast<int>(reg->getPhysicalReg())) ^ std::hash<int>()(static_cast<int>(reg->getType()));
+                else
+                    return std::hash<int>()(reg->getVirtualId()) ^ std::hash<int>()(static_cast<int>(reg->getType()));
+            }
+        };
+
+        struct RegisterEqual
+        {
+            bool operator()(const std::shared_ptr<RISCV::RISCVRegister> &lhs,
+                            const std::shared_ptr<RISCV::RISCVRegister> &rhs) const
+            {
+                if (!lhs || !rhs)
+                    return false;
+                return *lhs == *rhs; // 用你自定义的 operator==
+            }
+        };
     };
 
     // 操作数类
@@ -336,14 +358,33 @@ namespace RISCV
             return opcode;
         }
         InstructionType getInstrType() const { return instrType; }
-        const vector<shared_ptr<RISCVOperand>> &getOperands() const { return operands; }
+        vector<shared_ptr<RISCVOperand>> &getOperands() { return operands; }
 
         // 设置注释
         void setComment(const string &c) { comment = c; }
 
-        // 检查寄存器使用
-        bool usesRegister(shared_ptr<RISCVRegister> reg) const;
-        bool definesRegister(shared_ptr<RISCVRegister> reg) const;
+        void setOffsetForLiInstruction(int64_t offset)
+        {
+            if (instrType == InstructionType::PSEUDO && opcode == RISCVOpcode::LI && operands.size() == 2)
+            {
+                // 假设第二个操作数是立即数
+                if (operands[1]->getType() == RISCVOperand::Type::IMMEDIATE)
+                {
+                    operands[1] = make_shared<RISCVOperand>(offset);
+                }
+            }
+        }
+
+        // 活跃性分析：获取指令使用和定义的寄存器
+        vector<shared_ptr<RISCVRegister>> getUseRegisters() const;
+        vector<shared_ptr<RISCVRegister>> getDefRegisters() const;
+
+        // 辅助函数：检查操作数是否为寄存器
+        bool isRegisterOperand(shared_ptr<RISCVOperand> operand) const;
+
+        // 寄存器替换函数：用于溢出处理
+        void replaceUseRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
+        void replaceDefRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
 
         string toString() const;
     };
@@ -352,8 +393,6 @@ namespace RISCV
     // 高地址 (函数入口时的 sp)
     // +------------------+ <- sp (函数入口)
     // | raStackSize      | ← 保存返回地址 ra 寄存器
-    // +------------------+
-    // | saveArgs 区域    | ← 保存caller参数寄存器(a0-a7, fa0-fa7)
     // +------------------+
     // | valueStackSize   | ← 局部变量、临时值、alloca等
     // +------------------+
@@ -366,10 +405,9 @@ namespace RISCV
         int valueStackSize; // 所有Value（局部变量、临时值、参数等）的栈空间
         int raStackSize;    // ra寄存器需要的栈空间（ABI规范）
         int argStackSize;   // 传参预留的栈空间（ABI规范）
-        int saveArgs;       // 保存调用参数的寄存器空间
 
         unordered_map<string, int> valueToOffset;
-        unordered_map<int, int> callerToOffset;
+        unordered_map<string, int> callerToOffset;
         unordered_map<int, int> calleeToOffset;
 
         // 已分配的栈空间偏移（从0开始分配）
@@ -377,26 +415,27 @@ namespace RISCV
         int calleeArgOffset;
         int callerArgOffset;
 
-        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), saveArgs(0), valueOffset(0), calleeArgOffset(0), callerArgOffset(0) {}
+        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), valueOffset(0), calleeArgOffset(0), callerArgOffset(0) {}
 
         int getTotalSize() const;
         int getAlignedSize() const;
 
         // 分配栈空间并返回偏移量
         int allocateValueSpace(const string &valueName, int size = 4);
-        int allocateCallerArgSpace(int ArgNumber, int size = 4); // 为调用参数分配空间
         int allocateCalleeArgSpace(int ArgNumber, int size = 4); // 为被调用函数参数分配空间
+        int allocateCallerArgSpace(const string &valueName, int size = 4);
+        int allocateRaSpace(int size = 4); // 为返回地址分配空间
 
         // 获取栈偏移量
         int getValueOffset(const string &valueName) const;
-        int getCallerArgOffset(int ArgNumber) const;              // 获取调用参数偏移
-        int getCalleeArgOffset(int ArgNumber) const;              // 获取被调用函数参数
-        int getRaOffset() const { return getAlignedSize() - 4; }; // 获取返回地址偏移
+        int getCallerArgOffset(const string &valueName) const;                           // 获取调用参数偏移
+        int getCalleeArgOffset(int ArgNumber) const;                                     // 获取被调用函数参数
+        int getRaOffset() const { return raStackSize > 0 ? getAlignedSize() - 4 : -1; }; // 获取返回地址偏移
 
         // 检查是否有分配的栈空间
         bool hasAllocation_value(const string &valueName) const;
-        bool hasAllocation_callerArg(int ArgNumber) const; // 检查调用参数是否有分配
-        bool hasAllocation_calleeArg(int ArgNumber) const; // 检查被调用
+        bool hasAllocation_callerArg(const string &valueName) const; // 检查调用参数是否有分配
+        bool hasAllocation_calleeArg(int ArgNumber) const;           // 检查被调用
     };
 
     // RISC-V基本块
@@ -407,9 +446,15 @@ namespace RISCV
         shared_ptr<RISCVFunction> parentFunc;
         vector<shared_ptr<RISCVInstruction>> instructions;
 
+        // 控制流图信息
+        vector<shared_ptr<RISCVBasicBlock>> predecessors; // 前驱基本块
+        vector<shared_ptr<RISCVBasicBlock>> successors;   // 后继基本块
+
         // 活跃变量分析结果
-        unordered_set<shared_ptr<RISCVRegister>> liveIn;
-        unordered_set<shared_ptr<RISCVRegister>> liveOut;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> use; // 在定义前使用的寄存器
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> def; // 在基本块中定义的寄存器
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> liveIn;
+        unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> liveOut;
 
     public:
         RISCVBasicBlock(const string &label, shared_ptr<RISCVFunction> func);
@@ -418,17 +463,44 @@ namespace RISCV
         void addInstruction(shared_ptr<RISCVInstruction> instr);
         void insertInstruction(int index, shared_ptr<RISCVInstruction> instr);
         void removeInstruction(int index);
+        void setInstructions(const vector<shared_ptr<RISCVInstruction>> &instrs);
 
         // 访问器
         const string &getLabel() const { return label; }
-        const vector<shared_ptr<RISCVInstruction>> &getInstructions() const { return instructions; }
+        vector<shared_ptr<RISCVInstruction>> &getInstructions() { return instructions; }
         shared_ptr<RISCVFunction> getParentFunc() const { return parentFunc; }
 
+        // 控制流图管理
+        void addPredecessor(shared_ptr<RISCVBasicBlock> pred) { predecessors.push_back(pred); } // 添加前驱基本块
+        void removePredecessor(shared_ptr<RISCVBasicBlock> pred)
+        {
+            auto it = find(predecessors.begin(), predecessors.end(), pred);
+            if (it != predecessors.end())
+            {
+                predecessors.erase(it);
+            }
+        }
+        void addSuccessor(shared_ptr<RISCVBasicBlock> succ) { successors.push_back(succ); } // 添加后继基本块
+        void removeSuccessor(shared_ptr<RISCVBasicBlock> succ)
+        {
+            auto it = find(successors.begin(), successors.end(), succ);
+            if (it != successors.end())
+            {
+                successors.erase(it);
+            }
+        } // 移除后继基本块
+        const vector<shared_ptr<RISCVBasicBlock>> &getPredecessors() const { return predecessors; }
+        const vector<shared_ptr<RISCVBasicBlock>> &getSuccessors() const { return successors; }
+
         // 活跃变量分析
-        const unordered_set<shared_ptr<RISCVRegister>> &getLiveIn() const { return liveIn; }
-        const unordered_set<shared_ptr<RISCVRegister>> &getLiveOut() const { return liveOut; }
-        void setLiveIn(const unordered_set<shared_ptr<RISCVRegister>> &live) { liveIn = live; }
-        void setLiveOut(const unordered_set<shared_ptr<RISCVRegister>> &live) { liveOut = live; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getLiveIn() const { return liveIn; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getLiveOut() const { return liveOut; }
+        void setLiveIn(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveIn = live; }
+        void setLiveOut(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveOut = live; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getUse() const { return use; }
+        const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getDef() const { return def; }
+        void setUse(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &useSet) { use = useSet; }
+        void setDef(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &defSet) { def = defSet; }
 
         string toString() const;
     };
@@ -460,6 +532,147 @@ namespace RISCV
         string toString() const;
     };
 
+    // 活跃区间定义
+    struct LiveRange
+    {
+        int start;
+        int end;
+
+        LiveRange(int s, int e) : start(s), end(e) {}
+
+        // 检查两个区间是否重叠
+        bool overlaps(const LiveRange &other) const
+        {
+            return !(end < other.start || other.end < start);
+        }
+
+        // 检查指令点是否在区间内
+        bool contains(int instrNum) const
+        {
+            return instrNum >= start && instrNum <= end;
+        }
+
+        // 区间长度
+        int length() const
+        {
+            return end - start + 1;
+        }
+
+        // 合并两个相邻或重叠的区间
+        static LiveRange merge(const LiveRange &a, const LiveRange &b)
+        {
+            return LiveRange(std::min(a.start, b.start), std::max(a.end, b.end));
+        }
+
+        // 比较操作符
+        bool operator<(const LiveRange &other) const
+        {
+            return start < other.start;
+        }
+
+        bool operator==(const LiveRange &other) const
+        {
+            return start == other.start && end == other.end;
+        }
+    };
+
+    // 活跃性分析信息
+    struct LivenessInfo
+    {
+        // 每个寄存器的多段活跃区间
+        unordered_map<
+            shared_ptr<RISCVRegister>,
+            vector<LiveRange>,
+            RISCVRegister::RegisterHash,
+            RISCVRegister::RegisterEqual>
+            liveRanges;
+
+        // 每个寄存器的所有使用点
+        unordered_map<shared_ptr<RISCVRegister>, vector<int>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> usePoints;
+
+        // 每个寄存器的所有定义点
+        unordered_map<shared_ptr<RISCVRegister>, vector<int>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> defPoints;
+
+        // 总指令数
+        int totalInstructions;
+
+        LivenessInfo() : totalInstructions(0) {}
+
+        // 获取寄存器的所有活跃区间
+        const vector<LiveRange> &getLiveRanges(shared_ptr<RISCVRegister> reg) const
+        {
+            static vector<LiveRange> empty;
+            auto it = liveRanges.find(reg);
+            return it != liveRanges.end() ? it->second : empty;
+        }
+
+        // 检查两个寄存器是否冲突
+        bool interferes(shared_ptr<RISCVRegister> reg1, shared_ptr<RISCVRegister> reg2) const
+        {
+            auto it1 = liveRanges.find(reg1);
+            auto it2 = liveRanges.find(reg2);
+
+            if (it1 == liveRanges.end() || it2 == liveRanges.end())
+            {
+                return false;
+            }
+
+            // 检查任意两个区间是否重叠
+            for (const auto &range1 : it1->second)
+            {
+                for (const auto &range2 : it2->second)
+                {
+                    if (range1.overlaps(range2))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 检查寄存器在指定指令点是否活跃
+        bool isLiveAt(shared_ptr<RISCVRegister> reg, int instrNum) const
+        {
+            auto it = liveRanges.find(reg);
+            if (it == liveRanges.end())
+                return false;
+
+            for (const auto &range : it->second)
+            {
+                if (range.contains(instrNum))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 获取寄存器的总活跃长度
+        int getTotalLiveLength(shared_ptr<RISCVRegister> reg) const
+        {
+            auto it = liveRanges.find(reg);
+            if (it == liveRanges.end())
+                return 0;
+
+            int total = 0;
+            for (const auto &range : it->second)
+            {
+                total += range.length();
+            }
+            return total;
+        }
+
+        // 清空所有信息
+        void clear()
+        {
+            liveRanges.clear();
+            usePoints.clear();
+            defPoints.clear();
+            totalInstructions = 0;
+        }
+    };
+
     // RISC-V函数
     class RISCVFunction
     {
@@ -468,6 +681,11 @@ namespace RISCV
         shared_ptr<RISCVModule> parentModule;
         vector<shared_ptr<RISCVBasicBlock>> basicBlocks;
         StackFrame stackFrame;
+
+        // 活跃性分析结果
+        LivenessInfo livenessInfo;
+
+        unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset; // 用于溢出处理的指令
 
     public:
         RISCVFunction(const string &name, shared_ptr<RISCVModule> module);
@@ -478,8 +696,22 @@ namespace RISCV
 
         // 访问器
         const string &getName() const { return name; }
-        const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() const { return basicBlocks; }
+        const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() { return basicBlocks; }
         StackFrame &getStackFrame() { return stackFrame; }
+
+        // 活跃性信息访问
+        const LivenessInfo &getLivenessInfo() const { return livenessInfo; }
+        LivenessInfo &getLivenessInfo() { return livenessInfo; }
+
+        // 获得用于溢出处理的指令
+        const unordered_map<string, shared_ptr<RISCVInstruction>> &getInstructionNeedReGetOffset() const
+        {
+            return instructionNeedReGetOffset;
+        }
+        void addInstructionNeedReGetOffset(string ArgName, shared_ptr<RISCVInstruction> instr)
+        {
+            instructionNeedReGetOffset[ArgName] = instr;
+        }
 
         string toString() const;
     };

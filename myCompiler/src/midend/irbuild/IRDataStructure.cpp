@@ -611,7 +611,7 @@ int AllocaInst::getAllocatedSize() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
     {
-        return arrayType->getArrayLength();
+        return arrayType->getArrayLength() * 4;
     }
     // 非数组类型的分配大小为1
     return 1;

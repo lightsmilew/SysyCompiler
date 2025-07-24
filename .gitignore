@@ -1,9 +1,10 @@
 myCompiler/build/
 myCompiler/3rd_party/
+myCompiler/src/.antlr
+myCompiler/src/backend/linerScan/
 .vscode/
 debug_case/*
 case/**/*
 ubuntu-24.04.2-preinstalled-server-riscv64.img
 ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
 test_cases
-SysY/myCompiler/src/.antlr/

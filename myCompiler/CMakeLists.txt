@@ -17,26 +17,28 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 
 # 使用 GLOB_RECURSE 模式递归查找 src 目录下所有的 .cpp 文件
-# file(GLOB_RECURSE SRC "src/*.cpp")
-file(GLOB FRONTEND_SRC "src/frontend/*.cpp")
-file(GLOB GENERATE_SRC "src/frontend/generate/*.cpp")
-file(GLOB COMMON_SRC "src/common/*.cpp")
-# 查找irbuild源文件
-file(GLOB IR_BUILDER_SRC "src/midend/irbuild/*.cpp")
-# 查找中端pass源文件
-file(GLOB IR_PASS_SRC "src/midend/pass/*.cpp")
-# 查找后端源文件
-file(GLOB BACKEND_SRC "src/backend/*.cpp")
+file(GLOB_RECURSE SRC "src/*.cpp")
+# file(GLOB FRONTEND_SRC "src/frontend/*.cpp")
+# file(GLOB GENERATE_SRC "src/frontend/generate/*.cpp")
+# file(GLOB COMMON_SRC "src/common/*.cpp")
+# # 查找irbuild源文件
+# file(GLOB IR_BUILDER_SRC "src/midend/irbuild/*.cpp")
+# # 查找中端pass源文件
+# file(GLOB IR_PASS_SRC "src/midend/pass/*.cpp")
+# # 查找后端源文件
+# file(GLOB BACKEND_SRC "src/backend/*.cpp")
 set(SRC
-    ${FRONTEND_SRC}
-    ${GENERATE_SRC}
-    ${COMMON_SRC}
-    # 添加中端处理的源文件
-    ${IR_BUILDER_SRC}
-    ${IR_PASS_SRC}
-    ${BACKEND_SRC}
+    # ${FRONTEND_SRC}
+    # ${GENERATE_SRC}
+    # ${COMMON_SRC}
+    # # 添加中端处理的源文件
+    # ${IR_BUILDER_SRC}
+    # ${IR_PASS_SRC}
+    # ${BACKEND_SRC}
     # 添加其他源文件
-    src/main.cpp
+
+    # src/main.cpp
+    ${SRC}
 )
 
 # 添加项目的 src 目录到头文件搜索路径

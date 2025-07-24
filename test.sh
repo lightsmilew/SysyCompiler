@@ -22,17 +22,17 @@ assemble() {
         echo "Assembling $filename...."
 
         ${CROSS_COMPILE}as -g "$file" -o "$OUTPUT_DIR/${filename}.o" || {
-            echo "❌ 汇编 $filename 失败"
+            echo " 汇编 $filename 失败"
             continue
         }
 
         ${CROSS_COMPILE}gcc -static -g "$OUTPUT_DIR/${filename}.o" -L. -lsysy_riscv -lc -lgcc -o "$OUTPUT_DIR/${filename}" || {
-            echo "❌ 链接 $filename 失败"
+            echo " 链接 $filename 失败"
             continue
         }
 
         chmod +x "$OUTPUT_DIR/${filename}"
-        echo "✅ $filename 编译完成"
+        echo " $filename 编译完成"
     done
     rm -f "$OUTPUT_DIR"/*.o
 }
@@ -41,7 +41,7 @@ assemble() {
 # 测试功能（支持超时和输出过滤）
 test_programs() {
     [ -d "$OUTPUT_DIR" ] || {
-        echo "❌ 未找到编译目录 $OUTPUT_DIR，请先执行 ./test.sh $INPUT_DIR -assembles"
+        echo " 未找到编译目录 $OUTPUT_DIR，请先执行 ./test.sh $INPUT_DIR -assembles"
         return 1
     }
 
@@ -54,7 +54,7 @@ test_programs() {
         exe="$OUTPUT_DIR/$filename"
 
         [ -x "$exe" ] || {
-            echo "❌ 跳过 $filename：未找到可执行文件"
+            echo " 跳过 $filename：未找到可执行文件"
             continue
         }
 
@@ -63,7 +63,7 @@ test_programs() {
 
         expected_file="$INPUT_DIR/$filename.out"
         [ -f "$expected_file" ] || {
-            echo "⚠️ 跳过 $filename：未找到预期输出文件"
+            echo " 跳过 $filename：未找到预期输出文件"
             continue
         }
 
@@ -76,10 +76,10 @@ test_programs() {
             grep -v '^TOTAL:' "$TMP_OUTPUT" | grep -v '+Timer@' > "$TMP_FILTERED"
             diff -u "$expected_file" "$TMP_FILTERED" > /dev/null
             if [ $? -eq 0 ]; then
-                echo "✅ 测试通过"
+                echo " 测试通过"
                 [ -n "$total_time" ] && echo "  $total_time"
             else
-                echo "❌ 测试失败（差异如下）："
+                echo " 测试失败（差异如下）："
                 diff -u "$expected_file" "$TMP_FILTERED"
                 echo -e "\n--- 测试 $filename ---" >> failure_case.log
                 diff -u "$expected_file" "$TMP_FILTERED" >> failure_case.log
@@ -87,13 +87,13 @@ test_programs() {
             fi
         else
             if [ $? -eq 124 ]; then
-                echo "⏰ 测试超时（超过${TIMEOUT_SECONDS}秒），已中断"
+                echo " 测试超时（超过${TIMEOUT_SECONDS}秒），已中断"
                 echo -e "\n--- 测试 $filename ---" >> failure_case.log
-                echo "⏰ 测试超时（超过${TIMEOUT_SECONDS}秒），已中断" >> failure_case.log
+                echo " 测试超时（超过${TIMEOUT_SECONDS}秒），已中断" >> failure_case.log
             else
-                echo "❌ 程序异常退出（非超时）"
+                echo " 程序异常退出（非超时）"
                 echo -e "\n--- 测试 $filename ---" >> failure_case.log
-                echo "❌ 程序异常退出（非超时）" >> failure_case.log
+                echo " 程序异常退出（非超时）" >> failure_case.log
             fi
             failed_cases+=("$filename")
         fi
@@ -103,9 +103,9 @@ test_programs() {
 
     echo -e "\n===== 测试结束 ====="
     if [ ${#failed_cases[@]} -eq 0 ]; then
-        echo "🎉 所有样例测试通过！"
+        echo " 所有样例测试通过！"
     else
-        echo "❌ 测试失败样例数量：${#failed_cases[@]}"
+        echo " 测试失败样例数量：${#failed_cases[@]}"
         echo "失败编号：${failed_cases[@]}"
         echo "详细失败信息已写入 failure_case.log"
     fi
