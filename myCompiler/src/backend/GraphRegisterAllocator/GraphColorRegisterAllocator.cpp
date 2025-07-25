@@ -92,6 +92,19 @@ void GraphColorRegisterAllocator::allocateRegisters(
   int spillIterations = 0;
   do
   {
+
+    for (auto &bb : currentFunc->getBasicBlocks())
+    {
+      bb->setLiveIn({});  // 清空LiveIn信息
+      bb->setLiveOut({}); // 清空LiveOut信息
+    }
+    auto &livenessInfo = currentFunc->getLivenessInfo();
+    livenessInfo.clear();
+
+    computeBasicBlockUseDef(currentFunc);
+    computeLiveInOut(currentFunc);
+    computeLiveRanges(currentFunc);
+
     // 清空所有数据结构
     interferenceGraph = InterferenceGraph();
     readInterferenceGraph = InterferenceGraph();
@@ -164,10 +177,6 @@ void GraphColorRegisterAllocator::allocateRegisters(
     {
 
       handleSpilledRegisters();
-
-      computeBasicBlockUseDef(currentFunc);
-      computeLiveInOut(currentFunc);
-      computeLiveRanges(currentFunc);
 
       // 处理完溢出后，需要重新开始分配过程
       needRestart = true;
@@ -693,8 +702,6 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
 
     // 用新的指令序列替换原来的指令序列
     bb->setInstructions(newInstructions);
-    bb->setLiveIn({});  // 清空LiveIn信息
-    bb->setLiveOut({}); // 清空LiveOut信息
   }
   // 清空溢出寄存器集合，因为它们已经被处理
   spilledRegs.clear();
@@ -948,7 +955,6 @@ namespace RISCV
   void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc)
   {
     auto &livenessInfo = currentFunc->getLivenessInfo();
-    livenessInfo.clear();
 
     // 1. 获取逆后序的基本块列表
     vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
