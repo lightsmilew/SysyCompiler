@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <functional>
+#include <fstream>
 using namespace RISCV;
 // ============================================================================
 // GraphColorRegisterAllocator 基础实现
@@ -90,6 +91,16 @@ void GraphColorRegisterAllocator::allocateRegisters(
 
   bool needRestart = false;
   int spillIterations = 0;
+  #ifdef DEBUG_REG_ALLOC
+  // 把初始代码写入文件用于比对
+   std::string initialCodeFile = "initial_code_" + func->getName() + ".s";
+   std::ofstream initialCodeStream(initialCodeFile);
+   if (initialCodeStream.is_open())
+   {
+     initialCodeStream << func->toString();
+     initialCodeStream.close();
+   }
+  #endif
   do
   {
 
