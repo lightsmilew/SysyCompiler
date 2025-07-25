@@ -215,11 +215,9 @@ bool RISCVBuilder::isLibraryFunction(const string &funcName)
 {
     // 检查是否是库函数 - 包括SysY运行时库函数
     static const set<string> libFuncs = {
-        // 标准C库函数
-        "printf", "scanf", "malloc", "free", "memcpy", "strlen",
         // SysY运行时库函数
         "getint", "getch", "getfloat", "getarray", "getfarray",
         "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
-        "starttime", "stoptime", "_sysy_starttime", "_sysy_stoptime"};
+        "_sysy_starttime", "_sysy_stoptime"};
     return libFuncs.count(funcName) > 0;
 }

@@ -58,11 +58,6 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
         }
     }
 
-    // 活跃变量分析
-    computeBasicBlockUseDef(currentFunc);
-    computeLiveInOut(currentFunc);
-    computeLiveRanges(currentFunc);
-    // printAllLiveRanges(currentFunc->getLivenessInfo());
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来

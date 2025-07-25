@@ -1,7 +1,6 @@
 #pragma once
 #include "../RISCVBuilder.h"
 #include "../RISCVDataStructure.h"
-#include "../CalcLiveIntervals.h"
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -355,5 +354,8 @@ namespace RISCV
     void printStatistics();
     void validateAllocation();
   };
-
+  vector<shared_ptr<RISCVBasicBlock>> getPostOrder(shared_ptr<RISCVFunction> currentFunc);
+  void computeBasicBlockUseDef(shared_ptr<RISCVFunction> currentFunc);
+  void computeLiveInOut(shared_ptr<RISCVFunction> currentFunc);
+  void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc);
 } // namespace RISCV

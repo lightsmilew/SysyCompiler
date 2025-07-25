@@ -1495,12 +1495,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // 消除phi
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O1)
-    {
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // // 消除phi
+        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
@@ -1508,6 +1505,25 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
+    }
+    else if (level == OptimizationLevel::O1)
+    {
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        // pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {

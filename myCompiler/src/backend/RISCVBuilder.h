@@ -4,7 +4,6 @@
 #include "AssemblyEmitter.h"
 #include "InstructionSelector.h"
 #include "GraphRegisterAllocator/GraphColorRegisterAllocator.h"
-#include "CalcLiveIntervals.h"
 using std::set;
 
 namespace RISCV

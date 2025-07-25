@@ -671,6 +671,24 @@ namespace RISCV
             defPoints.clear();
             totalInstructions = 0;
         }
+        std::string toString() const
+        {
+            std::ostringstream oss;
+            for (const auto &pair : liveRanges)
+            {
+                const auto &reg = pair.first;
+                const auto &ranges = pair.second;
+
+                oss << "Register: " << reg->toString() << "\n";
+                oss << "Live Ranges:\n";
+                for (const auto &range : ranges)
+                {
+                    oss << "  [" << range.start << ", " << range.end << "]\n";
+                }
+            }
+            oss << "Total Instructions: " << totalInstructions << "\n";
+            return oss.str();
+        }
     };
 
     // RISC-V函数
