@@ -699,6 +699,7 @@ namespace RISCV
         shared_ptr<RISCVModule> parentModule;
         vector<shared_ptr<RISCVBasicBlock>> basicBlocks;
         StackFrame stackFrame;
+        vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs; // 被调用函数使用的保存寄存器
 
         // 活跃性分析结果
         LivenessInfo livenessInfo;
@@ -729,6 +730,18 @@ namespace RISCV
         void addInstructionNeedReGetOffset(string ArgName, shared_ptr<RISCVInstruction> instr)
         {
             instructionNeedReGetOffset[ArgName] = instr;
+        }
+
+        void addUsedCalleeSavedReg(shared_ptr<RISCVRegister> reg);
+
+        const vector<shared_ptr<RISCVRegister>> &getUsedCalleeSavedRegs() const
+        {
+            return usedCalleeSavedRegs;
+        }
+
+        void clearUsedCalleeSavedRegs()
+        {
+            usedCalleeSavedRegs.clear();
         }
 
         string toString() const;

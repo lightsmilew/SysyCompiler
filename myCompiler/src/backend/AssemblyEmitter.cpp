@@ -43,6 +43,13 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
 {
     stringstream ss;
 
+    // 保存usedCalleeSavedRegs
+    auto usedCalleeSavedRegs = func->getUsedCalleeSavedRegs();
+    if (!usedCalleeSavedRegs.empty())
+    {
+        func->getStackFrame().allocateValueSpace("usedCalleeSavedRegs", usedCalleeSavedRegs.size() * 8);
+    }
+
     // 函数标签
     ss << "\n";
     ss << ".globl " << func->getName() << "\n";
@@ -68,7 +75,7 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
 
         if (bb->getLabel() == "prologue_" + bb->getParentFunc()->getName())
         {
-            ss << getPrologue(bb->getParentFunc()->getStackFrame());
+            ss << getPrologue(bb->getParentFunc());
         }
     }
 
@@ -77,7 +84,7 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     {
         if (inst->getOpcode() == RISCVOpcode::RET)
         {
-            ss << getEpilogue(bb->getParentFunc()->getStackFrame());
+            ss << getEpilogue(bb->getParentFunc());
 
             // 3. 执行RET指令（必须在恢复后）
             ss << "    " << inst->toString() << "\n";
@@ -91,9 +98,11 @@ string AssemblyEmitter::emitBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     return ss.str();
 }
 
-string AssemblyEmitter::getPrologue(const StackFrame &stack)
+string AssemblyEmitter::getPrologue(const shared_ptr<RISCVFunction> func)
 {
     stringstream ss;
+
+    auto stack = func->getStackFrame();
     auto stackSize = stack.getAlignedSize();
 
     // 1. 调整栈指针（分配栈空间）
@@ -110,12 +119,25 @@ string AssemblyEmitter::getPrologue(const StackFrame &stack)
         ss << "        sd ra, 0(t0)\n";   // 保存ra寄存器到栈顶
     }
 
+    if (func->getUsedCalleeSavedRegs().size() > 0)
+    {
+        auto offset = stack.getValueOffset("usedCalleeSavedRegs");
+        ss << "        li t0, " << offset << "\n";
+        ss << "        add t1, sp, t0\n"; // 确保sp指向正确位置
+        // 保存被调用函数使用的保存寄存器
+        for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
+        {
+            ss << "        sd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+        }
+    }
+
     return ss.str();
 }
 
-string AssemblyEmitter::getEpilogue(const StackFrame &stack)
+string AssemblyEmitter::getEpilogue(const shared_ptr<RISCVFunction> func)
 {
     stringstream ss;
+    auto stack = func->getStackFrame();
     auto stackSize = stack.getAlignedSize();
 
     // 2. 恢复返回地址（ra）
@@ -133,8 +155,19 @@ string AssemblyEmitter::getEpilogue(const StackFrame &stack)
             ss << "        addi t0, t0, 4\n"; // 恢复栈指针
             ss << "        add sp, sp, t0\n";
         }
+    }
 
-        return ss.str();
+    // 恢复被调用函数使用的保存寄存器
+    if (func->getUsedCalleeSavedRegs().size() > 0)
+    {
+        auto offset = stack.getValueOffset("usedCalleeSavedRegs");
+        ss << "        li t0, " << offset << "\n";
+        ss << "        add t1, sp, t0\n"; // 确
+        // 恢复被调用函数使用的保存寄存器
+        for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
+        {
+            ss << "        ld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+        }
     }
 
     return ss.str();

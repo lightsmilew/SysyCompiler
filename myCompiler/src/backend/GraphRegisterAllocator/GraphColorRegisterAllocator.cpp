@@ -125,6 +125,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
     allocation.clear();
     spilledRegs.clear();
     coalescingManager.clear();
+    currentFunc->clearUsedCalleeSavedRegs();
     while (!selectStack.empty())
       selectStack.pop();
 
@@ -433,6 +434,8 @@ void GraphColorRegisterAllocator::assignColors()
     if (selectedColor)
     {
       allocation[reg] = selectedColor;
+      currentFunc->addUsedCalleeSavedReg(selectedColor);
+
       coloredCount++;
 #ifdef DEBUG_REG_ALLOC
       std::cout << "  Assigned color: " << selectedColor->toString()
