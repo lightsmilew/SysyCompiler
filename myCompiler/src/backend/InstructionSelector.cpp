@@ -57,7 +57,6 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
             visitInstruction(irInstr.get());
         }
     }
-
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
@@ -868,14 +867,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     // 全局变量
     else if (auto globlVar = dynamic_cast<GlobalVariable *>(value))
     {
-        // 如果是常量全局变量，直接返回对应寄存器
-        if (globalVarMap.find(globlVar->getName()) != globalVarMap.end())
-        {
-            return globalVarMap[globlVar->getName()];
-        }
-        else
-
-            return LaGlobl(globlVar);
+        return LaGlobl(globlVar);
     }
     // 函数参数
     else if (auto arg = dynamic_cast<Argument *>(value))
@@ -954,7 +946,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getTempPhysicalFloatReg()
 
 shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
 {
-    auto globReg = getTempReg();
+    auto globReg = getTempReg(true);
     globalVarMap[globlvar->getName()] = globReg;
     auto laInst = RISCVInstruction::createPseudoLA(globReg, globlvar->getName());
     currentBB->addInstruction(laInst);
