@@ -91,16 +91,16 @@ void GraphColorRegisterAllocator::allocateRegisters(
 
   bool needRestart = false;
   int spillIterations = 0;
-  #ifdef DEBUG_REG_ALLOC
+#ifdef DEBUG_REG_ALLOC
   // 把初始代码写入文件用于比对
-   std::string initialCodeFile = "initial_code_" + func->getName() + ".s";
-   std::ofstream initialCodeStream(initialCodeFile);
-   if (initialCodeStream.is_open())
-   {
-     initialCodeStream << func->toString();
-     initialCodeStream.close();
-   }
-  #endif
+  std::string initialCodeFile = "initial_code_" + func->getName() + ".s";
+  std::ofstream initialCodeStream(initialCodeFile);
+  if (initialCodeStream.is_open())
+  {
+    initialCodeStream << func->toString();
+    initialCodeStream.close();
+  }
+#endif
   do
   {
 
@@ -738,17 +738,6 @@ void GraphColorRegisterAllocator::applyAllocation()
     {
       auto instr = *it;
 
-      // 检查指令是否为move指令
-      if (isMoveInstruction(instr))
-      {
-        // 如果是move指令，检查是否需要合并
-        if (moveList.getMoveState(instr) == MoveState::COALESCED)
-        {
-          it = instrs.erase(it); // 删除move指令
-          continue;              // 跳过当前迭代，直接处理下一个指令
-        }
-      }
-
       for (auto &useReg : instr->getUseRegisters())
       {
         if (auto keepReg = findFinalReplacement(useReg))
@@ -764,6 +753,20 @@ void GraphColorRegisterAllocator::applyAllocation()
         {
           // 如果有keep寄存器，替换为keep寄存器
           instr->replaceDefRegister(defReg, keepReg);
+        }
+      }
+
+      // 检查指令是否为move指令
+      if (isMoveInstruction(instr))
+      {
+
+        auto dest = instr->getDefRegisters().front();
+        auto src = instr->getUseRegisters().front();
+        // 如果是move指令，检查是否需要合并
+        if (moveList.getMoveState(instr) == MoveState::COALESCED && dest == src)
+        {
+          it = instrs.erase(it); // 删除move指令
+          continue;              // 跳过当前迭代，直接处理下一个指令
         }
       }
 
