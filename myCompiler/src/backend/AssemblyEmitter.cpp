@@ -114,7 +114,7 @@ string AssemblyEmitter::getPrologue(const shared_ptr<RISCVFunction> func)
 
     if (stack.raStackSize)
     {
-        ss << "        addi t0, t0, -4\n";
+        ss << "        addi t0, t0, -8\n";
         ss << "        add t0, sp, t0\n"; // 确保sp指向正确位置
         ss << "        sd ra, 0(t0)\n";   // 保存ra寄存器到栈顶
     }
