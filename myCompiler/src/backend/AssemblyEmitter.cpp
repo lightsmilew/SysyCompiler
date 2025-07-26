@@ -43,13 +43,6 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
 {
     stringstream ss;
 
-    // 保存usedCalleeSavedRegs
-    auto usedCalleeSavedRegs = func->getUsedCalleeSavedRegs();
-    if (!usedCalleeSavedRegs.empty())
-    {
-        func->getStackFrame().allocateValueSpace("usedCalleeSavedRegs", usedCalleeSavedRegs.size() * 8);
-    }
-
     // 函数标签
     ss << "\n";
     ss << ".globl " << func->getName() << "\n";

@@ -190,6 +190,12 @@ void RISCVBuilder::reallocOffsetForInstructions()
     for (const auto &func : riscvModule->getFunctions())
     {
         auto &stackFrame = func->getStackFrame();
+        auto usedCalleeSavedRegs = func->getUsedCalleeSavedRegs();
+        if (!usedCalleeSavedRegs.empty())
+        {
+            func->getStackFrame().allocateValueSpace("usedCalleeSavedRegs", usedCalleeSavedRegs.size() * 8);
+        }
+
         for (const auto &instrPair : func->getInstructionNeedReGetOffset())
         {
             const string &argName = instrPair.first;
