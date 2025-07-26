@@ -1164,6 +1164,24 @@ namespace RISCV
         }
       }
     }
+
+    for (auto bb : postOrder)
+    {
+      for (auto instr : bb->getInstructions())
+      {
+        if (instr->getOpcode() == RISCVOpcode::CALL)
+        {
+          for (auto &reg : CallerSavedGeneralRegs)
+          {
+            livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
+          }
+          for (auto &reg : CallerSavedFloatRegs)
+          {
+            livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
+          }
+        }
+      }
+    }
   }
 
   void printLiveRanges(shared_ptr<RISCVFunction> currentFunc)

@@ -697,6 +697,35 @@ namespace RISCV
             oss << "Total Instructions: " << totalInstructions << "\n";
             return oss.str();
         }
+
+        void addLiveRange(shared_ptr<RISCVRegister> reg, int start, int end)
+        {
+            if (start > end)
+                return;
+
+            auto it = liveRanges.find(reg);
+            if (it != liveRanges.end())
+            {
+                // 如果寄存器已经有活跃区间，尝试合并
+                auto &ranges = it->second;
+                for (auto &range : ranges)
+                {
+                    if (range.overlaps(LiveRange(start, end)))
+                    {
+                        // 合并区间
+                        range = LiveRange::merge(range, LiveRange(start, end));
+                        return;
+                    }
+                }
+                // 如果没有重叠，直接添加新的区间
+                ranges.push_back(LiveRange(start, end));
+            }
+            else
+            {
+                // 首次插入
+                liveRanges[reg] = {LiveRange(start, end)};
+            }
+        }
     };
 
     // RISC-V函数

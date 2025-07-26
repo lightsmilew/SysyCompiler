@@ -736,14 +736,17 @@ namespace RISCV
 
     void RISCVFunction::addUsedCalleeSavedReg(shared_ptr<RISCVRegister> reg)
     {
-        // 检查是否已在 usedCalleeSavedRegs
-        if (std::find(usedCalleeSavedRegs.begin(), usedCalleeSavedRegs.end(), reg) == usedCalleeSavedRegs.end())
+        // 检查是否已在 usedCalleeSavedRegs（内容相等）
+        auto alreadyIn = std::any_of(usedCalleeSavedRegs.begin(), usedCalleeSavedRegs.end(), [&](const shared_ptr<RISCVRegister> &r)
+                                     { return r->isPhysical() && reg->isPhysical() && r->getPhysicalReg() == reg->getPhysicalReg(); });
+        if (!alreadyIn)
         {
-            // 检查是否在 caller-saved 列表
-            bool isCallerSavedGeneral = std::find(CalleeSavedGeneralRegs.begin(), CalleeSavedGeneralRegs.end(), reg) != CallerSavedGeneralRegs.end();
-            bool isCallerSavedFloat = std::find(CalleeSavedFloatRegs.begin(), CalleeSavedFloatRegs.end(), reg) != CallerSavedFloatRegs.end();
-
-            if (!isCallerSavedGeneral && !isCallerSavedFloat)
+            // 检查是否在 callee-saved 列表（内容相等）
+            bool isCalleeSavedGeneral = std::any_of(CalleeSavedGeneralRegs.begin(), CalleeSavedGeneralRegs.end(), [&](const shared_ptr<RISCVRegister> &r)
+                                                    { return r->isPhysical() && reg->isPhysical() && r->getPhysicalReg() == reg->getPhysicalReg(); });
+            bool isCalleeSavedFloat = std::any_of(CalleeSavedFloatRegs.begin(), CalleeSavedFloatRegs.end(), [&](const shared_ptr<RISCVRegister> &r)
+                                                  { return r->isPhysical() && reg->isPhysical() && r->getPhysicalReg() == reg->getPhysicalReg(); });
+            if (isCalleeSavedGeneral || isCalleeSavedFloat)
             {
                 usedCalleeSavedRegs.push_back(reg);
             }
@@ -1102,8 +1105,6 @@ namespace RISCV
                 break;
 
             case RISCVOpcode::CALL:
-                defRegs.insert(defRegs.end(), CallerSavedFloatRegs.begin(), CallerSavedFloatRegs.end());
-                defRegs.insert(defRegs.end(), CallerSavedGeneralRegs.begin(), CallerSavedGeneralRegs.end());
                 break;
 
             case RISCVOpcode::RET:

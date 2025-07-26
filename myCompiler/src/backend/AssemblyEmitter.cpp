@@ -127,7 +127,15 @@ string AssemblyEmitter::getPrologue(const shared_ptr<RISCVFunction> func)
         // 保存被调用函数使用的保存寄存器
         for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
         {
-            ss << "        sd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            if (func->getUsedCalleeSavedRegs()[i]->getType() == RegisterType::FLOAT)
+            {
+                ss << "        fsd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            }
+            else
+            {
+                // 确保是整数寄存器
+                ss << "        sd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            }
         }
     }
 
@@ -166,7 +174,14 @@ string AssemblyEmitter::getEpilogue(const shared_ptr<RISCVFunction> func)
         // 恢复被调用函数使用的保存寄存器
         for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
         {
-            ss << "        ld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            if (func->getUsedCalleeSavedRegs()[i]->getType() == RegisterType::FLOAT)
+            {
+                ss << "        fld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            }
+            else
+            {
+                ss << "        ld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
+            }
         }
     }
 
