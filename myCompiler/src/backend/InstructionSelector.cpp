@@ -328,7 +328,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     int argNum = 0;
     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
     auto &stack = currentFunc->getStackFrame();
-    stack.allocateRaSpace();
+    stack.allocateRaSpace(8);
 
     // 处理超出寄存器范围的参数（通过栈传递）
     for (auto arg : arguments)
