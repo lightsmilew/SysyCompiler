@@ -402,40 +402,41 @@ namespace RISCV
 
     struct StackFrame
     {
-        int valueStackSize; // 所有Value（局部变量、临时值、参数等）的栈空间
-        int raStackSize;    // ra寄存器需要的栈空间（ABI规范）
-        int argStackSize;   // 传参预留的栈空间（ABI规范）
+        int valueStackSize;  // 所有Value（局部变量、临时值、参数等）的栈空间
+        int raStackSize;     // ra寄存器需要的栈空间（ABI规范）
+        int argStackSize;    // 传参预留的栈空间（ABI规范）
+        int maxArgStackSize; // 最大参数栈空间（用于函数调用）
 
         unordered_map<string, int> valueToOffset;
         unordered_map<string, int> callerToOffset;
-        unordered_map<int, int> calleeToOffset;
+        unordered_map<string, unordered_map<int, int>> calleeToOffset; // 被调用函数参数偏移
 
         // 已分配的栈空间偏移（从0开始分配）
         int valueOffset;
         int calleeArgOffset;
         int callerArgOffset;
 
-        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), valueOffset(0), calleeArgOffset(0), callerArgOffset(0) {}
+        StackFrame() : valueStackSize(0), raStackSize(0), argStackSize(0), maxArgStackSize(0), valueOffset(0), calleeArgOffset(0), callerArgOffset(0) {}
 
         int getTotalSize() const;
         int getAlignedSize() const;
 
         // 分配栈空间并返回偏移量
         int allocateValueSpace(const string &valueName, int size = 4);
-        int allocateCalleeArgSpace(int ArgNumber, int size = 4); // 为被调用函数参数分配空间
+        int allocateCalleeArgSpace(const string &calleeName, int ArgNumber, int size = 4); // 为被调用函数参数分配空间
         int allocateCallerArgSpace(const string &valueName, int size = 4);
         int allocateRaSpace(int size = 4); // 为返回地址分配空间
 
         // 获取栈偏移量
         int getValueOffset(const string &valueName) const;
         int getCallerArgOffset(const string &valueName) const;                           // 获取调用参数偏移
-        int getCalleeArgOffset(int ArgNumber) const;                                     // 获取被调用函数参数
+        int getCalleeArgOffset(const string &calleeName, int ArgNumber) const;           // 获取被调用函数参数
         int getRaOffset() const { return raStackSize > 0 ? getAlignedSize() - 8 : -1; }; // 获取返回地址偏移
 
         // 检查是否有分配的栈空间
         bool hasAllocation_value(const string &valueName) const;
-        bool hasAllocation_callerArg(const string &valueName) const; // 检查调用参数是否有分配
-        bool hasAllocation_calleeArg(int ArgNumber) const;           // 检查被调用
+        bool hasAllocation_callerArg(const string &valueName) const;                 // 检查调用参数是否有分配
+        bool hasAllocation_calleeArg(const string &callerName, int ArgNumber) const; // 检查被调用
     };
 
     // RISC-V基本块

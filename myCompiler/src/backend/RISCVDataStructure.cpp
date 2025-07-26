@@ -469,7 +469,7 @@ namespace RISCV
     // StackFrame 实现
     int StackFrame::getTotalSize() const
     {
-        return valueStackSize + raStackSize + argStackSize;
+        return valueStackSize + raStackSize + maxArgStackSize;
     }
 
     int StackFrame::allocateValueSpace(const string &valueName, int size)
@@ -490,14 +490,35 @@ namespace RISCV
         return offset;
     }
 
-    int StackFrame::allocateCalleeArgSpace(int ArgNumber, int size)
+    int StackFrame::allocateCalleeArgSpace(const string &calleeName, int ArgNumber, int size)
     {
-        int offset = calleeArgOffset;
-        calleeToOffset[ArgNumber] = offset;
-        calleeArgOffset += size;
-        argStackSize += size; // 更新参数栈大小
-
-        return offset;
+        if (calleeToOffset.find(calleeName) == calleeToOffset.end())
+        {
+            calleeToOffset[calleeName] = unordered_map<int, int>();
+            calleeToOffset[calleeName][ArgNumber] = 0;
+            argStackSize = size; // 初始化参数栈大小
+            maxArgStackSize = std::max(maxArgStackSize, argStackSize);
+            calleeArgOffset = size; // 初始化被调用函数参数偏移
+            return 0;               // 初始分配返回0偏移
+        }
+        else
+        {
+            auto &argOffsets = calleeToOffset[calleeName];
+            if (argOffsets.find(ArgNumber) != argOffsets.end())
+            {
+                // 已经分配过，返回现有偏移
+                return argOffsets[ArgNumber];
+            }
+            else
+            {
+                int offset = calleeArgOffset;
+                argOffsets[ArgNumber] = offset;
+                calleeArgOffset += size;
+                argStackSize += size; // 更新参数栈大小
+                maxArgStackSize = std::max(maxArgStackSize, argStackSize);
+                return offset;
+            }
+        }
     }
     int StackFrame::allocateCallerArgSpace(const string &valueName, int size)
     {
@@ -517,7 +538,7 @@ namespace RISCV
         auto it = valueToOffset.find(valueName);
         if (it != valueToOffset.end())
         {
-            return it->second + argStackSize;
+            return it->second + maxArgStackSize;
         }
         return -1; // 如果没有找到，返回-1表示未分配
     }
@@ -532,12 +553,16 @@ namespace RISCV
         return -1; // 如果没有找到，返回-1表示未分配
     }
 
-    int StackFrame::getCalleeArgOffset(int ArgNumber) const
+    int StackFrame::getCalleeArgOffset(const string &callerName, int ArgNumber) const
     {
-        auto it = calleeToOffset.find(ArgNumber);
+        auto it = calleeToOffset.find(callerName);
         if (it != calleeToOffset.end())
         {
-            return it->second;
+            auto argIt = it->second.find(ArgNumber);
+            if (argIt != it->second.end())
+            {
+                return argIt->second;
+            }
         }
         return -1; // 如果没有找到，返回-1表示未分配
     }
@@ -547,9 +572,14 @@ namespace RISCV
         return valueToOffset.find(valueName) != valueToOffset.end();
     }
 
-    bool StackFrame::hasAllocation_calleeArg(int ArgNumber) const
+    bool StackFrame::hasAllocation_calleeArg(const string &callerName, int ArgNumber) const
     {
-        return calleeToOffset.find(ArgNumber) != calleeToOffset.end();
+        auto it = calleeToOffset.find(callerName);
+        if (it != calleeToOffset.end())
+        {
+            return it->second.find(ArgNumber) != it->second.end();
+        }
+        return false;
     }
 
     bool StackFrame::hasAllocation_callerArg(const string &valueName) const

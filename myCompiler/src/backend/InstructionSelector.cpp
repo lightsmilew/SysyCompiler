@@ -396,8 +396,8 @@ void InstructionSelector::visitCallInst(CallInst *inst)
 
             if (isFloat)
             {
-                stack.allocateCalleeArgSpace(argNum);
-                int offset = stack.getCalleeArgOffset(argNum);
+                stack.allocateCalleeArgSpace(inst->getName(), argNum);
+                int offset = stack.getCalleeArgOffset(inst->getName(), argNum);
 
                 auto tempReg = getTempReg(true);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
@@ -410,8 +410,8 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             else
             {
                 bool isPtr = arg->getType()->isPointerTy();
-                stack.allocateCalleeArgSpace(argNum, isPtr ? 8 : 4);
-                int offset = stack.getCalleeArgOffset(argNum);
+                stack.allocateCalleeArgSpace(inst->getName(), argNum, isPtr ? 8 : 4);
+                int offset = stack.getCalleeArgOffset(inst->getName(), argNum);
 
                 auto tempReg = getTempReg(true);
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
