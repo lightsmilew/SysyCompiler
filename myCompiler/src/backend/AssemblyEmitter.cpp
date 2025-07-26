@@ -173,12 +173,12 @@ string AssemblyEmitter::getEpilogue(const shared_ptr<RISCVFunction> func)
         ss << "        li t0, " << stack.getRaOffset() << "\n";
         ss << "        add t1, sp, t0\n";
         ss << "        ld ra, 0(t1)\n";
-    }
-
-    // 3. 释放栈空间（恢复sp）
-    if (stackSize > 0)
-    {
         ss << "        addi t0, t0, 8\n";
+        ss << "        add sp, sp, t0\n";
+    }
+    else if (stackSize > 0)
+    {
+        ss << "        li t0, " << stackSize << "\n";
         ss << "        add sp, sp, t0\n";
     }
 
