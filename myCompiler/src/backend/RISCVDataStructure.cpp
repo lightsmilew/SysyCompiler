@@ -5,8 +5,36 @@
 namespace RISCV
 {
     // 可用的物理寄存器定义（与LinearScanRegisterAllocator保持一致）
+    const vector<shared_ptr<RISCVRegister>> CalleeSavedGeneralRegs = {
+        // 保存寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S9)};
+
+    const vector<shared_ptr<RISCVRegister>> CalleeSavedFloatRegs = {
+        // 保存浮点寄存器 (callee-saved)
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS11)};
+
     const vector<shared_ptr<RISCVRegister>> CallerSavedGeneralRegs = {
-        // 临时寄存器 (caller-saved) - 优先使用
+        // 临时寄存器 (caller-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T1),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T2),
@@ -14,8 +42,6 @@ namespace RISCV
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T4),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T5),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T6),
-
-        // 参数寄存器 (caller-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A1),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A2),
@@ -24,7 +50,6 @@ namespace RISCV
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A5),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A6),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7)};
-
     const vector<shared_ptr<RISCVRegister>> CallerSavedFloatRegs = {
         // 临时浮点寄存器 (caller-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0),
@@ -39,8 +64,6 @@ namespace RISCV
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT9),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT10),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT11),
-
-        // 浮点参数寄存器 (caller-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA1),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA2),
@@ -717,8 +740,8 @@ namespace RISCV
         if (std::find(usedCalleeSavedRegs.begin(), usedCalleeSavedRegs.end(), reg) == usedCalleeSavedRegs.end())
         {
             // 检查是否在 caller-saved 列表
-            bool isCallerSavedGeneral = std::find(CallerSavedGeneralRegs.begin(), CallerSavedGeneralRegs.end(), reg) != CallerSavedGeneralRegs.end();
-            bool isCallerSavedFloat = std::find(CallerSavedFloatRegs.begin(), CallerSavedFloatRegs.end(), reg) != CallerSavedFloatRegs.end();
+            bool isCallerSavedGeneral = std::find(CalleeSavedGeneralRegs.begin(), CalleeSavedGeneralRegs.end(), reg) != CallerSavedGeneralRegs.end();
+            bool isCallerSavedFloat = std::find(CalleeSavedFloatRegs.begin(), CalleeSavedFloatRegs.end(), reg) != CallerSavedFloatRegs.end();
 
             if (!isCallerSavedGeneral && !isCallerSavedFloat)
             {
