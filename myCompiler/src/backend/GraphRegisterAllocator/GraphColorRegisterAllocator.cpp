@@ -735,8 +735,8 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
           }
 
           auto storeInstr = RISCVInstruction::createSType(
-              storeOp, tempReg,
-              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
+              storeOp,
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg,
               offset);
 
           afterInstr.push_back(storeInstr);
@@ -1048,25 +1048,6 @@ namespace RISCV
   void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc)
   {
     auto &livenessInfo = currentFunc->getLivenessInfo();
-
-    for (auto &bb : currentFunc->getBasicBlocks())
-    {
-      for (auto instr : bb->getInstructions())
-      {
-        if (instr->getOpcode() == RISCVOpcode::CALL)
-        {
-          // bb的LiveOut包含所有callee-saved寄存器
-          for (const auto &reg : CallerSavedGeneralRegs)
-          {
-            bb->addLiveOut(reg);
-          }
-          for (const auto &reg : CallerSavedFloatRegs)
-          {
-            bb->addLiveOut(reg);
-          }
-        }
-      }
-    }
 
     // 1. 获取逆后序的基本块列表
     vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
