@@ -495,6 +495,7 @@ namespace RISCV
         int offset = calleeArgOffset;
         calleeToOffset[ArgNumber] = offset;
         calleeArgOffset += size;
+        argStackSize += size; // 更新参数栈大小
 
         return offset;
     }
