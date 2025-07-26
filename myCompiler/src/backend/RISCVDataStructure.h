@@ -497,6 +497,14 @@ namespace RISCV
         const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getLiveOut() const { return liveOut; }
         void setLiveIn(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveIn = live; }
         void setLiveOut(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &live) { liveOut = live; }
+        void addLiveIn(shared_ptr<RISCVRegister> reg)
+        {
+            liveIn.insert(reg);
+        }
+        void addLiveOut(shared_ptr<RISCVRegister> reg)
+        {
+            liveOut.insert(reg);
+        }
         const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getUse() const { return use; }
         const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &getDef() const { return def; }
         void setUse(const unordered_set<shared_ptr<RISCVRegister>, RISCVRegister::RegisterHash, RISCVRegister::RegisterEqual> &useSet) { use = useSet; }

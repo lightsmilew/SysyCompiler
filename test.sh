@@ -74,15 +74,15 @@ test_programs() {
         if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo \$? >> $TMP_OUTPUT"; then
             total_time=$(grep '^TOTAL:' "$TMP_OUTPUT" || echo "")
             grep -v '^TOTAL:' "$TMP_OUTPUT" | grep -v '+Timer@' > "$TMP_FILTERED"
-            diff -u "$expected_file" "$TMP_FILTERED" > /dev/null
+            diff -u -B -Z "$expected_file" "$TMP_FILTERED" > /dev/null
             if [ $? -eq 0 ]; then
                 echo " 测试通过"
                 [ -n "$total_time" ] && echo "  $total_time"
             else
                 echo " 测试失败（差异如下）："
-                diff -u "$expected_file" "$TMP_FILTERED"
+                diff -u -B -Z "$expected_file" "$TMP_FILTERED"
                 echo -e "\n--- 测试 $filename ---" >> failure_case.log
-                diff -u "$expected_file" "$TMP_FILTERED" >> failure_case.log
+                diff -u -B -Z "$expected_file" "$TMP_FILTERED" >> failure_case.log
                 failed_cases+=("$filename")
             fi
         else

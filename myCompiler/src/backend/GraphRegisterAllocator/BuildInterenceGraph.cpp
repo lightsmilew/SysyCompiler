@@ -115,5 +115,24 @@ void GraphColorRegisterAllocator::buildInterferencesByType(RegisterType type)
                 readInterferenceGraph.addEdge(reg1, reg2);
             }
         }
+
+        if (type == RegisterType::INT)
+        {
+            // Obtain a shared_ptr<RISCVRegister> for PhysicalReg::A0
+            auto a0Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0);
+            interferenceGraph.addEdge(
+                registersOfType[i], a0Reg);
+            readInterferenceGraph.addEdge(
+                registersOfType[i], a0Reg);
+        }
+        else if (type == RegisterType::FLOAT)
+        {
+            // Obtain a shared_ptr<RISCVRegister> for PhysicalReg::FA0
+            auto fa0Reg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0);
+            interferenceGraph.addEdge(
+                registersOfType[i], fa0Reg);
+            readInterferenceGraph.addEdge(
+                registersOfType[i], fa0Reg);
+        }
     }
 }

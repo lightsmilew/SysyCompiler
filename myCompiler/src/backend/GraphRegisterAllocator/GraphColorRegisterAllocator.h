@@ -13,7 +13,7 @@
 
 // 调试输出控制宏
 // 定义 DEBUG_REG_ALLOC 以启用寄存器分配器的详细输出
-// #define DEBUG_REG_ALLOC
+#define DEBUG_REG_ALLOC
 
 using std::deque;
 using std::shared_ptr;
@@ -358,4 +358,5 @@ namespace RISCV
   void computeBasicBlockUseDef(shared_ptr<RISCVFunction> currentFunc);
   void computeLiveInOut(shared_ptr<RISCVFunction> currentFunc);
   void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc);
+  void printLiveRanges(shared_ptr<RISCVFunction> currentFunc);
 } // namespace RISCV

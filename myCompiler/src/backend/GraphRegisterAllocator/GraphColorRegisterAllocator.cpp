@@ -83,6 +83,46 @@ const vector<shared_ptr<RISCVRegister>>
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS10),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS11)};
 
+const vector<shared_ptr<RISCVRegister>> CallerSavedGeneralRegs = {
+    // 临时寄存器 (caller-saved)
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T0),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T1),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T2),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T3),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T4),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T5),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::T6),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A0),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A1),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A2),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A3),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A4),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A5),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A6),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::A7)};
+const vector<shared_ptr<RISCVRegister>> CallerSavedFloatRegs = {
+    // 临时浮点寄存器 (caller-saved)
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT0),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT1),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT2),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT3),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT4),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT5),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT6),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT7),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT8),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT9),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT10),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT11),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA1),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA2),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA3),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA4),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA5),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA6),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA7)};
+
 // 主要接口：为函数分配寄存器
 void GraphColorRegisterAllocator::allocateRegisters(
     shared_ptr<RISCVFunction> func)
@@ -115,6 +155,9 @@ void GraphColorRegisterAllocator::allocateRegisters(
     computeBasicBlockUseDef(currentFunc);
     computeLiveInOut(currentFunc);
     computeLiveRanges(currentFunc);
+#ifdef DEBUG_REG_ALLOC
+    printLiveRanges(currentFunc);
+#endif
 
     // 清空所有数据结构
     interferenceGraph = InterferenceGraph();
@@ -766,7 +809,7 @@ void GraphColorRegisterAllocator::applyAllocation()
         auto dest = instr->getDefRegisters().front();
         auto src = instr->getUseRegisters().front();
         // 如果是move指令，检查是否需要合并
-        if (moveList.getMoveState(instr) == MoveState::COALESCED && dest == src)
+        if (dest == src)
         {
           it = instrs.erase(it); // 删除move指令
           continue;              // 跳过当前迭代，直接处理下一个指令
@@ -914,6 +957,21 @@ namespace RISCV
           if (defSet.find(reg) == defSet.end())
             defSet.insert(reg);
         }
+
+#ifdef DEBUG_REG_ALLOC
+        std::cout << "BB: " << bb->getLabel() << ", Instr: " << instr->toString() << std::endl;
+        std::cout << "  Use: ";
+        for (const auto &useReg : instr->getUseRegisters())
+        {
+          std::cout << useReg->toString() << " ";
+        }
+        std::cout << "\n  Def: ";
+        for (const auto &defReg : instr->getDefRegisters())
+        {
+          std::cout << defReg->toString() << " ";
+        }
+        std::cout << std::endl;
+#endif
       }
       bb->setUse(useSet);
       bb->setDef(defSet);
@@ -967,11 +1025,48 @@ namespace RISCV
         }
       }
     } while (changed);
+
+#ifdef DEBUG_REG_ALLOC
+    std::cout << "Live In/Out computed for function: " << currentFunc->getName() << std::endl;
+    for (const auto &bb : currentFunc->getBasicBlocks())
+    {
+      std::cout << "BB: " << bb->getLabel() << ", Live In: ";
+      for (const auto &reg : bb->getLiveIn())
+      {
+        std::cout << reg->toString() << " ";
+      }
+      std::cout << ", Live Out: ";
+      for (const auto &reg : bb->getLiveOut())
+      {
+        std::cout << reg->toString() << " ";
+      }
+      std::cout << std::endl;
+    }
+#endif
   }
 
   void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc)
   {
     auto &livenessInfo = currentFunc->getLivenessInfo();
+
+    for (auto &bb : currentFunc->getBasicBlocks())
+    {
+      for (auto instr : bb->getInstructions())
+      {
+        if (instr->getOpcode() == RISCVOpcode::CALL)
+        {
+          // bb的LiveOut包含所有callee-saved寄存器
+          for (const auto &reg : CallerSavedGeneralRegs)
+          {
+            bb->addLiveOut(reg);
+          }
+          for (const auto &reg : CallerSavedFloatRegs)
+          {
+            bb->addLiveOut(reg);
+          }
+        }
+      }
+    }
 
     // 1. 获取逆后序的基本块列表
     vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
@@ -1090,4 +1185,20 @@ namespace RISCV
     }
   }
 
+  void printLiveRanges(shared_ptr<RISCVFunction> currentFunc)
+  {
+    auto &livenessInfo = currentFunc->getLivenessInfo();
+    std::cout << "Live Ranges for function: " << currentFunc->getName() << std::endl;
+    for (const auto &pair : livenessInfo.liveRanges)
+    {
+      const auto &reg = pair.first;
+      const auto &ranges = pair.second;
+      std::cout << reg->toString() << ": ";
+      for (const auto &range : ranges)
+      {
+        std::cout << "[" << range.start << ", " << range.end << "] ";
+      }
+      std::cout << std::endl;
+    }
+  }
 }
