@@ -273,7 +273,7 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     // 处理每个维度的索引
     for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
     {
-        auto indexReg = getOrCreateVirtualReg(indices[i]);
+        auto indexReg = getOrCreateVirtualReg(indices[i], false);
 
         // totalOffset += offset * index * 4
         auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
@@ -853,16 +853,16 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
     }
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *value)
+shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *value, bool isPhysical)
 {
     // 立即数
     if (auto constantIntValue = dynamic_cast<ConstantInt *>(value))
     {
-        return LiInt(constantIntValue->Value, true);
+        return LiInt(constantIntValue->Value, isPhysical);
     }
     else if (auto constantFloatValue = dynamic_cast<ConstantFloat *>(value))
     {
-        return LiFloat(constantFloatValue->Value, true);
+        return LiFloat(constantFloatValue->Value, isPhysical);
     }
     // 全局变量
     else if (auto globlVar = dynamic_cast<GlobalVariable *>(value))
