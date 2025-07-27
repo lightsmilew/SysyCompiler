@@ -485,6 +485,10 @@ void IRBuilder::visitWhileStmt(std::shared_ptr<ast::WhileStmtNode> node)
     addPhiIncomings(currentBlock);
     // 设置当前块为循环结束块
     setCurrentBlock(exitBlock);
+    // 这里插入是因为循环结束块前驱有可能不止while.cond
+    // 因为如果循环体内有break就会来到while.exit，所以也要合流
+    addPhiForVars(LoopVariantVars);
+    addPhiIncomings(currentBlock);
 }
 void IRBuilder::visitBreakStmt(std::shared_ptr<ast::BreakStmtNode> node)
 {
