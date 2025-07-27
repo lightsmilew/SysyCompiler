@@ -681,6 +681,7 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
         {
           // 为使用的溢出寄存器创建临时寄存器
           auto tempReg = make_shared<RISCVRegister>(useReg->getType());
+          auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
 
           // 获取溢出寄存器在栈上的偏移量
           string spillName = "spill_" + useReg->toString();
@@ -697,10 +698,15 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
             loadOp = RISCVOpcode::FLD; // 加载浮点数
           }
 
+          auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
+          beforeInstr.push_back(liInstr);
+          auto addInst = RISCVInstruction::createRType(
+              RISCVOpcode::ADD, addrReg,
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
+          beforeInstr.push_back(addInst);
           auto loadInstr = RISCVInstruction::createIType(
               loadOp, tempReg,
-              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP),
-              offset);
+              addrReg, 0); // 偏移量为0，因为addrReg已经包含了偏移量,
 
           beforeInstr.push_back(loadInstr);
           // 替换指令中的寄存器引用
@@ -715,6 +721,7 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
         {
           // 为定义的溢出寄存器创建临时寄存器
           auto tempReg = make_shared<RISCVRegister>(defReg->getType());
+          auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
 
           // 获取溢出寄存器在栈上的偏移量
           string spillName = "spill_" + defReg->toString();
@@ -734,10 +741,16 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
             storeOp = RISCVOpcode::FSD; // 存储浮点数
           }
 
+          auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
+          beforeInstr.push_back(liInstr);
+          auto addInst = RISCVInstruction::createRType(
+              RISCVOpcode::ADD, addrReg,
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
+          beforeInstr.push_back(addInst);
           auto storeInstr = RISCVInstruction::createSType(
               storeOp,
-              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg,
-              offset);
+              addrReg, tempReg,
+              0);
 
           afterInstr.push_back(storeInstr);
         }
