@@ -180,7 +180,7 @@ void RISCVBuilder::allocateRegisters()
     for (const auto &func : riscvModule->getFunctions())
     {
         GraphColorRegisterAllocator allocator;
-        allocator.allocateRegisters(func);
+        allocator.allocateRegisters(func, irModule);
     }
 }
 
