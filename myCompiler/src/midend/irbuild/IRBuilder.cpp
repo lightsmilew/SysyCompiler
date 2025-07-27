@@ -1515,7 +1515,6 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
             else
                 r = static_cast<ConstantFloat *>(rhs)->Value;
             int res = 0;
-            // 直接计算结果
             switch (op)
             {
             case BinaryOp::Lt:
