@@ -166,11 +166,6 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
 // 这里的isRestore可以删除
 void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRestore)
 {
-    // 记录外层变量名
-    std::unordered_set<String> outerVars;
-    for (auto &[name, _] : varToValue)
-        outerVars.insert(name);
-
     // 进入新作用域
     PushVarsStack();
     // 访问 block 内所有语句
@@ -182,24 +177,41 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     }
     // 恢复作用域
     // 这里不能调用PopVarsStack，因为需要将当前块内新声明的变量写回外层作用域
-    auto innerVarToValue = varToValue;
     varToValue = varToValueStack.top();
     varToValueStack.pop();
+    auto outerneedToWriteBackVarToValue = needToWriteBackVarToValueStack.top();
+    needToWriteBackVarToValueStack.pop();
     // 只在 isRestore 为真时写回外层变量
     if (isRestore)
     {
-        for (const auto &name : outerVars)
+        // 将当前块内非新声明的变量写回外层作用域
+        for(auto [varName, value] : needToWriteBackVarToValue)
         {
-            if (innerVarToValue.count(name) && !isBlockNewDeclaredVar(name))
-            {
-                varToValue[name] = innerVarToValue[name];
-            }
+            varToValue[varName] = value;
+            // if(debugMode)
+            // {
+            //     std::cout << "Write back variable: " << varName << " to outer scope with value: " << value->toRef() << "\n";
+            // }
         }
         // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
         basicBlockVarToValue[currentBlock] = varToValue;
     }
-    NewDeclaredVarsInBlock = NewDeclaredVarsInBlockStack.top();
-    NewDeclaredVarsInBlockStack.pop();
+    // 恢复当前块新声明的变量列表和需要写回的变量列表
+    newDeclaredVarsInBlock = newDeclaredVarsInBlockStack.top();
+    newDeclaredVarsInBlockStack.pop();
+    // 如果不是新定义的变量，则将需要写回的变量恢复到外层作用域
+    if (isRestore)
+    {
+        for(auto [varName, value] : needToWriteBackVarToValue)
+        {
+            if (!isBlockNewDeclaredVar(varName))
+            {
+                // 如果不是新声明的变量，则将其写回外层needToWriteBackVarToValue
+                outerneedToWriteBackVarToValue[varName] = value;
+            }
+        }
+    }
+    needToWriteBackVarToValue = outerneedToWriteBackVarToValue;
 }
 
 void IRBuilder::visitStatement(std::shared_ptr<ast::StmtNode> node, bool isRestore)
@@ -248,7 +260,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     // 如果当前已经定义了同名变量，则记录，退出作用域时不将该变量的ssa值写出
     if (varToValue.count(node->identifier))
     {
-        NewDeclaredVarsInBlock.push_back(node->identifier);
+        newDeclaredVarsInBlock.push_back(node->identifier);
     }
     // 检查数组维度是否合法
     if (varType->isArrayTy())
@@ -370,6 +382,15 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
         // 如果是标量变量，直接更新SSA值
         varToValue[node->lvalue->identifier] = rvalue;
         basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
+        if(!isBlockNewDeclaredVar(node->lvalue->identifier))
+        {
+            // 如果不是新声明的变量，添加到需要写回的变量映射
+            needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
+        }
+        // if(debugMode)
+        // {
+        //     std::cout << "AssignStmt: " << node->lvalue->identifier << " = " << rvalue->toRef() << ",line: " << node->line << std::endl;
+        // }
     }
 }
 
@@ -631,9 +652,9 @@ Value *IRBuilder::visitBinaryExpr(std::shared_ptr<ast::BinaryExprNode> node)
     case BinaryOp::Ge:
     case BinaryOp::Eq:
     case BinaryOp::Ne:
-        return createComparison(node->op, lhs, rhs);
+        return createComparison(node->op, lhs, rhs, node->line);
     default:
-        return createBinaryOp(node->op, lhs, rhs);
+        return createBinaryOp(node->op, lhs, rhs, node->line);
     }
 }
 
@@ -654,13 +675,13 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         Value *lhs = visitExpression(node->left);
 
         // 将 lhs 转换为布尔值
-        Value *lhsCond = convertToBool(lhs);
+        Value *lhsCond = convertToBool(lhs, node->line);
         createCondBranch(lhsCond, rhsBlock, mergeBlock);
 
         // RHS 块
         setCurrentBlock(rhsBlock);
         Value *rhs = visitExpression(node->right);
-        Value *rhsCond = convertToBool(rhs);
+        Value *rhsCond = convertToBool(rhs, node->line);
         createBranch(mergeBlock);
         BasicBlock *rhsEndBlock = currentBlock;
 
@@ -686,13 +707,13 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         Value *lhs = visitExpression(node->left);
 
         // 将 lhs 转换为布尔值
-        Value *lhsCond = convertToBool(lhs);
+        Value *lhsCond = convertToBool(lhs, node->line);
         createCondBranch(lhsCond, mergeBlock, rhsBlock);
 
         // RHS 块
         setCurrentBlock(rhsBlock);
         Value *rhs = visitExpression(node->right);
-        Value *rhsCond = convertToBool(rhs);
+        Value *rhsCond = convertToBool(rhs, node->line);
         createBranch(mergeBlock);
         BasicBlock *rhsEndBlock = currentBlock;
 
@@ -759,7 +780,7 @@ Value *IRBuilder::visitUnaryExpr(std::shared_ptr<ast::UnaryExprNode> node)
         }
     }
     // 如果操作数不是常数，直接创建一元操作指令
-    return createUnaryOp(node->op, operand);
+    return createUnaryOp(node->op, operand, node->line);
 }
 
 Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
@@ -802,14 +823,14 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         // 如果是常量数组且下标全是常量或者是常量全局变量（全局变量用内存模型），获取指定value直接返回
         if (isAllConstant)
         {
-            auto groundType= dynamic_cast<PointerType *>(ptr->getType())->ElementType;
-            if(groundType->isArrayTy())
+            auto groundType = dynamic_cast<PointerType *>(ptr->getType())->ElementType;
+            if (groundType->isArrayTy())
             {
                 // 如果是数组类型，获取底层类型
                 groundType = static_cast<ArrayType *>(groundType)->getGroundElementType();
             }
-            return  getConstantArrayValueByIndices(groundType,
-                                                   constVarToValue[node->identifier], indices);
+            return getConstantArrayValueByIndices(groundType,
+                                                  constVarToValue[node->identifier], indices);
         }
     }
     // 处理数组索引
@@ -1060,7 +1081,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
         {
             val = visitExpression(flat_inits[flat_idx]->singleInitVal);
         }
-        //末尾补零
+        // 末尾补零
         else
         {
             if (targetType->isFloatTy())
@@ -1268,19 +1289,19 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
         // 如果是空指针，代表是{}初始化,判断是int还是float
         if (!it->second)
         {
-            auto ptr=varToValue.find(lval->identifier)->second;
+            auto ptr = varToValue.find(lval->identifier)->second;
             auto groundType = dynamic_cast<PointerType *>(ptr->getType())->ElementType;
-            if(groundType->isArrayTy())
+            if (groundType->isArrayTy())
             {
                 // 如果是数组类型，获取底层类型
                 groundType = static_cast<ArrayType *>(groundType)->getGroundElementType();
             }
-            if(groundType->isIntegerTy())
+            if (groundType->isIntegerTy())
             {
                 // 如果是整数类型，返回一个常量0
                 return new ConstantInt(IntegerType::getInstance(), 0);
             }
-            else if(groundType->isFloatTy())
+            else if (groundType->isFloatTy())
             {
                 // 如果是浮点数类型，返回一个常量0.0
                 return new ConstantFloat(FloatType::getInstance(), 0.0f);
@@ -1361,7 +1382,7 @@ void IRBuilder::setCurrentBlock(BasicBlock *block)
 }
 
 // ===== 指令生成辅助 =====
-Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
+Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int line)
 {
     Opcode opcode;
     bool isFloat = lhs->getType()->isFloatTy();
@@ -1427,6 +1448,10 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
             default:
                 throw std::runtime_error("Unsupported op in const int expr");
             }
+            // if (debugMode)
+            // {
+            //     std::cout << "Constant int expr: " << l << " " << toString(op) << " " << r << " = " << res << ",line: " << line << std::endl;
+            // }
             return new ConstantInt(IntegerType::getInstance(), res);
         }
         else if (isFloat)
@@ -1462,6 +1487,10 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
             default:
                 throw std::runtime_error("Unsupported op in const float expr");
             }
+            // if (debugMode)
+            // {
+            //     std::cout << "Constant float expr: " << l << " " << toString(op) << " " << r << " = " << res << ",line: " << line << std::endl;
+            // }
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
@@ -1472,7 +1501,7 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs)
     return result;
 }
 
-Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
+Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs, int line)
 {
     bool isFloat = lhs->getType()->isFloatTy();
 
@@ -1624,7 +1653,7 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs)
     }
 }
 
-Value *IRBuilder::createUnaryOp(ast::UnaryOp op, Value *operand)
+Value *IRBuilder::createUnaryOp(ast::UnaryOp op, Value *operand, int line)
 {
     switch (op)
     {
@@ -1642,7 +1671,7 @@ Value *IRBuilder::createUnaryOp(ast::UnaryOp op, Value *operand)
         {
             zero = new ConstantInt(IntegerType::getInstance(), 0);
         }
-        return createBinaryOp(BinaryOp::Sub, zero, operand);
+        return createBinaryOp(BinaryOp::Sub, zero, operand, line);
     }
     case UnaryOp::Not:
     {
@@ -1656,7 +1685,7 @@ Value *IRBuilder::createUnaryOp(ast::UnaryOp op, Value *operand)
         {
             zero = new ConstantInt(IntegerType::getInstance(), 0);
         }
-        return createComparison(BinaryOp::Eq, operand, zero);
+        return createComparison(BinaryOp::Eq, operand, zero, line);
     }
     default:
         throw std::runtime_error("Invalid unary operator");
@@ -1878,7 +1907,7 @@ Value *IRBuilder::createCast(Value *value, Type *targetType, string statement)
     return result;
 }
 
-Value *IRBuilder::convertToBool(Value *value)
+Value *IRBuilder::convertToBool(Value *value,int line)
 {
     // 将值转换为布尔值（非零为真，零为假）
     Value *zero;
@@ -1894,8 +1923,8 @@ Value *IRBuilder::convertToBool(Value *value)
     {
         throw std::runtime_error("Cannot convert to bool");
     }
-
-    return createComparison(BinaryOp::Ne, value, zero);
+    // 这里不需要调试
+    return createComparison(BinaryOp::Ne, value, zero, line);
 }
 
 Vector<shared_ptr<ast::InitExprNode>> IRBuilder::getChildrenAtCurrentLevel(
@@ -2025,7 +2054,7 @@ void IRBuilder::addPhiIncomings(BasicBlock *block)
 }
 bool IRBuilder::isConstantValue(Value *value)
 {
-    // 只处理int float常量 
+    // 只处理int float常量
     if (dynamic_cast<ConstantInt *>(value) || dynamic_cast<ConstantFloat *>(value))
     {
         return true;
@@ -2075,9 +2104,9 @@ Value *IRBuilder::getConstantArrayValueByIndices(Type *elementType, Constant *co
     // 常量为空则代表const数组初始化表达式为{}
     if (!constant)
     {
-        if(elementType->isIntegerTy())
+        if (elementType->isIntegerTy())
             return new ConstantInt(IntegerType::getInstance(), 0); // 如果常量为空，返回一个默认的零值
-        else if(elementType->isFloatTy())
+        else if (elementType->isFloatTy())
             return new ConstantFloat(FloatType::getInstance(), 0.0f); // 如果常量为空，返回一个默认的零值
         else
             throw std::runtime_error("Unsupported element type for empty constant array");
@@ -2111,27 +2140,32 @@ Value *IRBuilder::getConstantArrayValueByIndices(Type *elementType, Constant *co
         }
     }
     throw std::runtime_error("Unexpected end of constant array indexing");
-    //不会到这里
+    // 不会到这里
 }
 void IRBuilder::PushVarsStack()
 {
     // 进入新作用域
     varToValueStack.push(varToValue);
-    NewDeclaredVarsInBlockStack.push(NewDeclaredVarsInBlock);
+    newDeclaredVarsInBlockStack.push(newDeclaredVarsInBlock);
+    needToWriteBackVarToValueStack.push(needToWriteBackVarToValue);
     // 清空当前块新声明的变量列表
-    NewDeclaredVarsInBlock.clear();
+    newDeclaredVarsInBlock.clear();
+    // 清空需要写回的变量列表
+    needToWriteBackVarToValue.clear();
 }
 void IRBuilder::PopVarsStack()
 {
     // 恢复作用域
     varToValue = varToValueStack.top();
     varToValueStack.pop();
-    NewDeclaredVarsInBlock = NewDeclaredVarsInBlockStack.top();
-    NewDeclaredVarsInBlockStack.pop();
+    newDeclaredVarsInBlock = newDeclaredVarsInBlockStack.top();
+    newDeclaredVarsInBlockStack.pop();
+    needToWriteBackVarToValue = needToWriteBackVarToValueStack.top();
+    needToWriteBackVarToValueStack.pop();
 }
 bool IRBuilder::isBlockNewDeclaredVar(const String &varName) const
 {
-    return std::find(NewDeclaredVarsInBlock.begin(), NewDeclaredVarsInBlock.end(), varName) != NewDeclaredVarsInBlock.end();
+    return std::find(newDeclaredVarsInBlock.begin(), newDeclaredVarsInBlock.end(), varName) != newDeclaredVarsInBlock.end();
 }
 
 string IRBuilder::getValueTableInEveryBlock()

@@ -3,7 +3,41 @@
 // 测试
 namespace ast
 {
-
+    // 非成员函数：将 BinaryOp 转为字符串
+    std::string toString(BinaryOp op)
+    {
+        switch (op)
+        {
+        case BinaryOp::Add:
+            return "+";
+        case BinaryOp::Sub:
+            return "-";
+        case BinaryOp::Mul:
+            return "*";
+        case BinaryOp::Div:
+            return "/";
+        case BinaryOp::Mod:
+            return "%";
+        case BinaryOp::Lt:
+            return "<";
+        case BinaryOp::Gt:
+            return ">";
+        case BinaryOp::Le:
+            return "<=";
+        case BinaryOp::Ge:
+            return ">=";
+        case BinaryOp::Eq:
+            return "==";
+        case BinaryOp::Ne:
+            return "!=";
+        case BinaryOp::And:
+            return "&&";
+        case BinaryOp::Or:
+            return "||";
+        default:
+            return "unknown";
+        }
+    }
     // Helper function to print indent
     void print_indent(std::ostream &out, unsigned indent)
     {

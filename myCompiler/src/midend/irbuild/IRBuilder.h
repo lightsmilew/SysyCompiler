@@ -15,13 +15,16 @@ namespace ir_builder
         BasicBlock *currentBlock;       // 当前基本块
 
         // === 符号表管理 ===
-        std::unordered_map<String, Constant *> constVarToValue;      // 常量符号表
-        std::unordered_map<String, Value *> varToValue;              // AST变量名到IR Value的映射 当前符号表
-        std::vector<String> NewDeclaredVarsInBlock;                  // 当前基本块内新声明的变量列表 用于作用域嵌套管理
-        std::stack<std::vector<String>> NewDeclaredVarsInBlockStack; // 块内新定义符号栈，用于嵌套作用域管理变量写回
+        std::unordered_map<String, Constant *> constVarToValue;          // 常量符号表
+        std::unordered_map<String, Value *> needToWriteBackVarToValue;   // 需要写回的变量映射
+        std::stack<std::unordered_map<String, 
+                        Value *>> needToWriteBackVarToValueStack;        // 需要写回的变量栈
+        std::vector<String> newDeclaredVarsInBlock;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
+        std::stack<std::vector<String>> newDeclaredVarsInBlockStack;     // 块内新定义符号栈，用于嵌套作用域管理变量写回
         std::unordered_map<BasicBlock *,
                            std::unordered_map<String, Value *>>
             basicBlockVarToValue;                                        // 基本块到变量映射 用于作用域嵌套管理
+        std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
         std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
@@ -92,9 +95,9 @@ namespace ir_builder
         void setCurrentBlock(BasicBlock *block);                                         // 设置当前基本块
 
         // 指令生成辅助
-        Value *createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs);                        // 产生二元操作指令
-        Value *createComparison(ast::BinaryOp op, Value *lhs, Value *rhs);                      // 产生比较指令
-        Value *createUnaryOp(ast::UnaryOp op, Value *operand);                                  // 产生一元操作指令(转为二元操作)
+        Value *createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs,int line);               // 产生二元操作指令
+        Value *createComparison(ast::BinaryOp op, Value *lhs, Value *rhs,int line);             // 产生比较指令
+        Value *createUnaryOp(ast::UnaryOp op, Value *operand,int line);                         // 产生一元操作指令(转为二元操作)
         Value *createGetElementPtr(Value *ptr, const Vector<Value *> &indices);                 // 获取指针的元素地址
         Value *createLoad(Value *ptr);                                                          // 从指针加载值
         void createStore(Value *value, Value *ptr);                                             // 将值存储到指针地址
@@ -132,7 +135,7 @@ namespace ir_builder
                                               const Vector<int> &indices) const;             // 获取数组维度数量
         Type *convertASTTypeToIRType(const ast::DataType &astType, bool isFunctionParam);    // AST类型转换IR类型
         Value *createCast(Value *value, Type *targetType, string statement);                 // 生成类型强制转换指令 statement用于调试定位
-        Value *convertToBool(Value *value);                                                  // 转换为布尔值
+        Value *convertToBool(Value *value,int line);                                         // 转换为布尔值
         vector<std::string> findBlockVariantVars(std::shared_ptr<ast::StmtNode> node);       // 扫描一遍语句寻找循环改变量
         void findBlockVariantVarsImp(std::shared_ptr<ast::StmtNode> node,
                                       std::vector<std::string>& BlockVariantVars,
