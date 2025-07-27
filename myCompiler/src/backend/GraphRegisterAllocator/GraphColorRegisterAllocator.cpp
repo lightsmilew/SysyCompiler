@@ -125,7 +125,7 @@ const vector<shared_ptr<RISCVRegister>> CallerSavedFloatRegs = {
 
 // 主要接口：为函数分配寄存器
 void GraphColorRegisterAllocator::allocateRegisters(
-    shared_ptr<RISCVFunction> func)
+    shared_ptr<RISCVFunction> func, shared_ptr<Module> irModule)
 {
   currentFunc = func;
 
@@ -154,7 +154,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
 
     computeBasicBlockUseDef(currentFunc);
     computeLiveInOut(currentFunc);
-    computeLiveRanges(currentFunc);
+    computeLiveRanges(currentFunc, irModule);
 #ifdef DEBUG_REG_ALLOC
     printLiveRanges(currentFunc);
 #endif
@@ -1057,7 +1057,7 @@ namespace RISCV
 #endif
   }
 
-  void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc)
+  void computeLiveRanges(shared_ptr<RISCVFunction> currentFunc, shared_ptr<Module> module)
   {
     auto &livenessInfo = currentFunc->getLivenessInfo();
 
@@ -1167,9 +1167,39 @@ namespace RISCV
           truncateRangeAt(defReg, pos);
           livenessInfo.defPoints[defReg].push_back(pos);
         }
+        // 这里显式把参数寄存器加入 use 集合，确保活跃分析正确
+        auto useRegs = instr->getUseRegisters();
+        if (instr->getOpcode() == RISCVOpcode::CALL)
+        {
+          auto func = module->getFunction(instr->getOperands()[0]->toString());
+          int intArgCount = 0;
+          int floatArgCount = 0;
+          for (const auto &arg : func->getArguments())
+          {
+            if (arg->getType()->isIntegerTy() || arg->getType()->isPointerTy())
+            {
+              if (intArgCount < 8)
+              {
+                useRegs.push_back(
+                    make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
+                        static_cast<int>(RISCVRegister::PhysicalReg::A0) + intArgCount)));
+                intArgCount++;
+              }
+            }
+            else if (arg->getType()->isFloatTy())
+            {
+              if (floatArgCount < 8)
+              {
+                useRegs.push_back(make_shared<RISCVRegister>(static_cast<RISCVRegister::PhysicalReg>(
+                    static_cast<int>(RISCVRegister::PhysicalReg::FA0) + floatArgCount)));
+                floatArgCount++;
+              }
+            }
+          }
+        }
 
         // 再处理use，延长区间到块头-当前指令
-        for (const auto &useReg : instr->getUseRegisters())
+        for (const auto &useReg : useRegs)
         {
           extendOrAddRange(useReg, bbStart, pos);
           livenessInfo.usePoints[useReg].push_back(pos);
