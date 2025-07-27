@@ -343,8 +343,7 @@ void GraphColorRegisterAllocator::classifyNode(shared_ptr<RISCVRegister> reg)
     else
     {
       setNodeState(reg, NodeState::SIMPLIFY_READY);
-      worklistManager.addToWorklist(reg,
-                                    WorklistManager::WorklistType::SIMPLIFY);
+      worklistManager.addToWorklist(reg, WorklistManager::WorklistType::SIMPLIFY);
     }
   }
   else
