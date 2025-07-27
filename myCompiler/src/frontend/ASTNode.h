@@ -76,7 +76,8 @@ namespace ast
     And, // &&
     Or   // ||
   };
-
+  // 非成员函数：将 BinaryOp 转为字符串
+  std::string toString(BinaryOp op);
   // 基础数据类型枚举
   enum class PrimaryDataType
   {
