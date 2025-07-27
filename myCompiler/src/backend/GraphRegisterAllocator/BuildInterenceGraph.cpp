@@ -109,7 +109,10 @@ void GraphColorRegisterAllocator::buildInterferencesByType(RegisterType type)
             auto reg2 = registersOfType[j];
 
             // 使用LivenessInfo的interferes方法检查冲突
-            if (livenessInfo.interferes(reg1, reg2))
+            // 所有寄存器都与A0冲突
+            if (livenessInfo.interferes(reg1, reg2) ||
+                reg1->getPhysicalReg() == RISCVRegister::PhysicalReg::A0 ||
+                reg2->getPhysicalReg() == RISCVRegister::PhysicalReg::A0)
             {
                 interferenceGraph.addEdge(reg1, reg2);
                 readInterferenceGraph.addEdge(reg1, reg2);

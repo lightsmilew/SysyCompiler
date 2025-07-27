@@ -444,7 +444,7 @@ namespace RISCV
         }
         else if ((instrType == InstructionType::I_TYPE) &&
                  (opcode == RISCVOpcode::LW || opcode == RISCVOpcode::LH || opcode == RISCVOpcode::LB ||
-                  opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU || opcode == RISCVOpcode::FLW || opcode == RISCVOpcode::LD) &&
+                  opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU || opcode == RISCVOpcode::FLW || opcode == RISCVOpcode::LD || opcode == RISCVOpcode::FLD) &&
                  operands.size() >= 3)
         {
             // I-Type内存加载: lw rd, offset(rs1)
