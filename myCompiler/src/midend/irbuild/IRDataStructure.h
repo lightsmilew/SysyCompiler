@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <set>
+#include <limits>
 using namespace ast;
 
 // 前向声明
@@ -288,7 +289,13 @@ public:
 
     ConstantFloat(FloatType *ty, float val) : Constant(ty), Value(val) {}
 
-    string toString() const override { return to_string(Value); }
+    string toString() const override
+    {
+        // 16进制表示
+        std::ostringstream oss;
+        oss << std::hexfloat << std::setprecision(std::numeric_limits<float>::max_digits10) << Value;
+        return oss.str();
+    }
 };
 
 // ===== ConstantString Implementation =====
@@ -559,7 +566,7 @@ class CallInst : public Instruction
 public:
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
 
-    Function *getCalledFunction() const;       // 获取被调用的函数
+    Function *getCalledFunction() const; // 获取被调用的函数
 
     vector<Value *> getArguments() const;      // 获取函数参数
     vector<Value *> getIntArguments() const;   // 获取int类型参数
@@ -582,7 +589,9 @@ public:
     ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {} // 无返回值
     ReturnInst(Value *retVal)                                           // 有返回值
         : Instruction(VoidType::getInstance(), Opcode::Ret,
-                      vector<Value *>{retVal}){}
+                      vector<Value *>{retVal})
+    {
+    }
 
     Value *getReturnValue() const // 获取返回值
     {
