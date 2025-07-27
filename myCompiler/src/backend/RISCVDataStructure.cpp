@@ -382,6 +382,10 @@ namespace RISCV
                 return "flw";
             case RISCVOpcode::FSW:
                 return "fsw";
+            case RISCVOpcode::FLD:
+                return "fld";
+            case RISCVOpcode::FSD:
+                return "fsd";
             case RISCVOpcode::LUI:
                 return "lui";
             case RISCVOpcode::AUIPC:
