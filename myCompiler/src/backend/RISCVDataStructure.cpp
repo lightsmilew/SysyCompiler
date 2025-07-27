@@ -467,6 +467,12 @@ namespace RISCV
         if (!comment.empty())
             ss << "  # " << comment;
 
+        if (opcode == RISCVOpcode::FCVT_W_S)
+        {
+            // 特殊处理浮点转换指令
+            ss << ", rtz"; // 添加向零舍入的注释
+        }
+
         return ss.str();
     }
 
