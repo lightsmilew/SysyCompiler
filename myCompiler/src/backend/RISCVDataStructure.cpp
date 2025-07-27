@@ -490,6 +490,11 @@ namespace RISCV
             return valueToOffset[valueName];
         }
 
+        // 8字节对齐：如果分配8字节，当前偏移需8对齐
+        if (size == 8)
+        {
+            valueOffset = (valueOffset + 7) & ~7;
+        }
         int offset = valueOffset;
         valueToOffset[valueName] = offset;
         valueOffset += size;
@@ -505,11 +510,17 @@ namespace RISCV
         if (calleeToOffset.find(calleeName) == calleeToOffset.end())
         {
             calleeToOffset[calleeName] = unordered_map<int, int>();
-            calleeToOffset[calleeName][ArgNumber] = 0;
+            // 8字节对齐：如果分配8字节，当前偏移需8对齐
+            if (size == 8)
+            {
+                calleeArgOffset = (calleeArgOffset + 7) & ~7;
+            }
+            calleeToOffset[calleeName][ArgNumber] = calleeArgOffset;
             argStackSize = size; // 初始化参数栈大小
             maxArgStackSize = std::max(maxArgStackSize, argStackSize);
-            calleeArgOffset = size; // 初始化被调用函数参数偏移
-            return 0;               // 初始分配返回0偏移
+            int retOffset = calleeArgOffset;
+            calleeArgOffset += size; // 初始化被调用函数参数偏移
+            return retOffset;        // 初始分配返回偏移
         }
         else
         {
@@ -521,6 +532,11 @@ namespace RISCV
             }
             else
             {
+                // 8字节对齐：如果分配8字节，当前偏移需8对齐
+                if (size == 8)
+                {
+                    calleeArgOffset = (calleeArgOffset + 7) & ~7;
+                }
                 int offset = calleeArgOffset;
                 argOffsets[ArgNumber] = offset;
                 calleeArgOffset += size;
@@ -532,6 +548,11 @@ namespace RISCV
     }
     int StackFrame::allocateCallerArgSpace(const string &valueName, int size)
     {
+        // 8字节对齐：如果分配8字节，当前偏移需8对齐
+        if (size == 8)
+        {
+            callerArgOffset = (callerArgOffset + 7) & ~7;
+        }
         int offset = callerArgOffset;
         callerToOffset[valueName] = offset;
         callerArgOffset += size;
@@ -600,8 +621,8 @@ namespace RISCV
     int StackFrame::getAlignedSize() const
     {
         int total = getTotalSize();
-        // 16字节对齐
-        return (total + 15) & ~15;
+        // 8字节对齐
+        return (total + 7) & ~7;
     }
 
     // RISCVBasicBlock 实现
