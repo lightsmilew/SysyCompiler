@@ -88,8 +88,10 @@ namespace ir_builder
                            Value *targetPtr);                                            // 处理数组初始化
         Constant *evaluateConstantArray(std::shared_ptr<ast::InitExprNode> node,
                                         ArrayType *arrayType);                           // 常量数组求值
-        Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node);             // 编译时常量表达式求值
-
+        Constant *evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node,
+                                            Type *targetType);                           // 常量表达式求值(有截断功能)
+        Constant *evaluateConstantExprImp(std::shared_ptr<ast::ExprNode> node);          // 编译时常量表达式求值中间函数
+        
         // 基本块管理
         BasicBlock *createBasicBlock(const String &name = "");                           // 创建基本块
         void setCurrentBlock(BasicBlock *block);                                         // 设置当前基本块

@@ -185,7 +185,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     if (isRestore)
     {
         // 将当前块内非新声明的变量写回外层作用域
-        for(auto [varName, value] : needToWriteBackVarToValue)
+        for (auto [varName, value] : needToWriteBackVarToValue)
         {
             varToValue[varName] = value;
             // if(debugMode)
@@ -202,7 +202,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
     // 如果不是新定义的变量，则将需要写回的变量恢复到外层作用域
     if (isRestore)
     {
-        for(auto [varName, value] : needToWriteBackVarToValue)
+        for (auto [varName, value] : needToWriteBackVarToValue)
         {
             if (!isBlockNewDeclaredVar(varName))
             {
@@ -287,7 +287,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             else
             {
                 // 经过静态检查，这里必定是常量，不用判空
-                initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+                initializer = evaluateConstantExpr(node->initializer->singleInitVal, varType);
             }
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
@@ -310,8 +310,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             BasicBlock *arrayInitBlock = createBasicBlock(debugMode ? "array_init." + node->identifier : "");
             BasicBlock *arrayInitEndBlock = createBasicBlock(debugMode ? "array_init_end." + node->identifier : "");
             createBranch(arrayInitBlock);
-            // setCurrentBlock(arrayInitBlock);
-            // createBranch(arrayInitEndBlock);
+
             arrayInitBlock->addSuccessor(arrayInitEndBlock);
             arrayInitEndBlock->addPredecessor(arrayInitBlock);
             setCurrentBlock(arrayInitEndBlock);
@@ -337,7 +336,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             else if (node->initializer && node->type.isConst())
             {
                 // 经过静态检查，这里必定是常量，不用判空
-                Constant *initializer = evaluateConstantExpr(node->initializer->singleInitVal);
+                Constant *initializer = evaluateConstantExpr(node->initializer->singleInitVal, varType);
                 initValue = initializer;
                 constVarToValue[node->identifier] = initializer;
             }
@@ -382,7 +381,7 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
         // 如果是标量变量，直接更新SSA值
         varToValue[node->lvalue->identifier] = rvalue;
         basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
-        if(!isBlockNewDeclaredVar(node->lvalue->identifier))
+        if (!isBlockNewDeclaredVar(node->lvalue->identifier))
         {
             // 如果不是新声明的变量，添加到需要写回的变量映射
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
@@ -806,7 +805,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         bool isAllConstant = true;
         for (int i = 0; i < node->indices.size(); ++i)
         {
-            auto indexValue = evaluateConstantExpr(node->indices[i]);
+            auto indexValue = evaluateConstantExpr(node->indices[i], IntegerType::getInstance());
             if (!indexValue)
             {
                 isAllConstant = false;
@@ -941,8 +940,14 @@ Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprN
 Value *IRBuilder::visitScalarInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
 {
     if (node->singleInitVal)
-    {
-        return visitExpression(node->singleInitVal);
+    {   
+        Value *result= visitExpression(node->singleInitVal);
+        // 如果类型不匹配，进行类型转换
+        if (result->getType() != targetType)
+        {
+            result = createCast(result, targetType, "scalar init");
+        }
+        return result;
     }
     else
     {
@@ -1080,6 +1085,12 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
         if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal)
         {
             val = visitExpression(flat_inits[flat_idx]->singleInitVal);
+            Type *groundType = targetType->isArrayTy() ? static_cast<ArrayType *>(targetType)->getGroundElementType() : targetType;
+            // 如果类型不匹配，进行类型转换
+            if (val->getType() != groundType)
+            {
+                val = createCast(val, groundType, "init expr"); 
+            }
         }
         // 末尾补零
         else
@@ -1146,11 +1157,13 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
         }
         else
         {
+
+            auto groundType = static_cast<ArrayType *>(arrTy)->getGroundElementType();
             for (int i = 0; i < len; ++i)
             {
                 if (flat_idx < flat_inits.size() && flat_inits[flat_idx] && flat_inits[flat_idx]->singleInitVal)
                 {
-                    elements.push_back(evaluateConstantExpr(flat_inits[flat_idx]->singleInitVal));
+                    elements.push_back(evaluateConstantExpr(flat_inits[flat_idx]->singleInitVal, groundType));
                 }
                 else if (elemTy->isIntegerTy())
                 {
@@ -1167,7 +1180,29 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     };
     return buildArray(arrayType, 0);
 }
-Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
+Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node, Type *targetType)
+{
+    Constant *result = evaluateConstantExprImp(node);
+    if (!result)
+        return nullptr; // 如果结果是 nullptr，直接返回
+                        // 如果结果类型和目标类型不一致，进行类型转换
+    if (auto constantfloat = dynamic_cast<ConstantFloat *>(result))
+    {
+        if (targetType->isIntegerTy())
+        {
+            result = new ConstantInt(IntegerType::getInstance(), (int)constantfloat->Value);
+        }
+    }
+    else if (auto constantInt = dynamic_cast<ConstantInt *>(result))
+    {
+        if (targetType->isFloatTy())
+        {
+            result = new ConstantFloat(FloatType::getInstance(), (float)constantInt->Value);
+        }
+    }
+    return result;
+}
+Constant *IRBuilder::evaluateConstantExprImp(std::shared_ptr<ast::ExprNode> node)
 {
     if (!node)
         throw std::runtime_error("Null expression in constant evaluation,line: " + std::to_string(node->line));
@@ -1183,8 +1218,8 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     // 常量二元表达式
     else if (auto binExpr = std::dynamic_pointer_cast<ast::BinaryExprNode>(node))
     {
-        auto lhs = evaluateConstantExpr(binExpr->left);
-        auto rhs = evaluateConstantExpr(binExpr->right);
+        auto lhs = evaluateConstantExprImp(binExpr->left);
+        auto rhs = evaluateConstantExprImp(binExpr->right);
         if (!lhs || !rhs)
             return nullptr; // 如果有一个子表达式不是常量，返回 nullptr
         // 这里只处理 int/float 常量
@@ -1242,7 +1277,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
     }
     else if (auto uval = std::dynamic_pointer_cast<ast::UnaryExprNode>(node))
     {
-        auto operand = evaluateConstantExpr(uval->operand);
+        auto operand = evaluateConstantExprImp(uval->operand);
         if (!operand)
             return nullptr; // 如果操作数不是常量，返回 nullptr
         if (operand->getType()->isIntegerTy())
@@ -1341,7 +1376,7 @@ Constant *IRBuilder::evaluateConstantExpr(std::shared_ptr<ast::ExprNode> node)
 }
 int IRBuilder::getExpressionConstantValue(std::shared_ptr<ast::ExprNode> node)
 {
-    auto value = evaluateConstantExpr(node);
+    auto value = evaluateConstantExprImp(node);
     if (!value)
     {
         throw std::runtime_error("Expression is not constant,line: " + std::to_string(node->line));
@@ -1898,7 +1933,7 @@ Value *IRBuilder::createCast(Value *value, Type *targetType, string statement)
     // 不支持的类型转换
     else
     {
-        throw std::runtime_error("Unsupported type conversion in creatcast:" + to_string(srcType->getTypeID()) + " to " + to_string(targetType->getTypeID()) + " in: " + statement);
+        throw std::runtime_error("Unsupported type conversion in createCast:" + to_string(srcType->getTypeID()) + " to " + to_string(targetType->getTypeID()) + " in: " + statement);
     }
 
     auto castInst = std::make_unique<CastInst>(castOp, value, targetType, getNextTempName());
@@ -1907,7 +1942,7 @@ Value *IRBuilder::createCast(Value *value, Type *targetType, string statement)
     return result;
 }
 
-Value *IRBuilder::convertToBool(Value *value,int line)
+Value *IRBuilder::convertToBool(Value *value, int line)
 {
     // 将值转换为布尔值（非零为真，零为假）
     Value *zero;
