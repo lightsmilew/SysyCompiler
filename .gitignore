@@ -8,3 +8,4 @@ case/**/*
 ubuntu-24.04.2-preinstalled-server-riscv64.img
 ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
 test_cases
+libsysy_riscv.a

@@ -446,7 +446,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     }
 
     // 5. 回复caller参数寄存器
-    move2RestoreArgs(tempMoveArgMap);
+    move2RestoreArgs(tempMoveArgMap, inst->getCalledFunction()->getName());
 }
 
 void InstructionSelector::visitReturnInst(ReturnInst *inst)
@@ -755,7 +755,7 @@ unordered_map<string, shared_ptr<RISCVRegister>> InstructionSelector::moveCaller
 
     return tempMoveArgMap; // 返回临时寄存器映射
 }
-void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap)
+void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap, const string &funcName)
 {
     // 1. 解析 IR Function 的形参列表
     const auto &arguments = irFunction->getArguments();
@@ -781,6 +781,7 @@ void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISC
                 auto tempReg = registerMap[arg->getName()];
                 paramReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[floatArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, paramReg, tempReg);
+                currentFunc->addMoveInstructionAfterCall(funcName, mvInst);
                 currentBB->addInstruction(mvInst);
                 floatArgIndex++;
             }
@@ -792,6 +793,7 @@ void InstructionSelector::move2RestoreArgs(unordered_map<string, shared_ptr<RISC
                 auto tempReg = registerMap[arg->getName()];
                 paramReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, paramReg, tempReg);
+                currentFunc->addMoveInstructionAfterCall(funcName, mvInst);
                 currentBB->addInstruction(mvInst);
                 intArgIndex++;
             }

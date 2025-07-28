@@ -64,7 +64,7 @@ private:
     // 参数传递解耦函数
     void DealArgumentsInStart(); // 处理函数参数
     unordered_map<string, shared_ptr<RISCVRegister>> moveCallerArgsTwoPhase();
-    void move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap);
+    void move2RestoreArgs(unordered_map<string, shared_ptr<RISCVRegister>> &registerMap, const string &funcName);
     shared_ptr<RISCVRegister> getCallerArgReg(Argument *arg, size_t index);
     shared_ptr<RISCVRegister> getArgReg(const string &argName, RegisterType regType);
 
