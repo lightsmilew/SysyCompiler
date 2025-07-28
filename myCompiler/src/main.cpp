@@ -165,10 +165,8 @@ int main(int argc, const char *argv[])
         cerr << "Semantic analysis failed: " << e.what() << endl;
         return 1;
     }
-
     IRBuilder irbuilder(debugMode);
     auto ir_module = irbuilder.buildModule(ast_root);
-
     // 优化
     unique_ptr<optimization::PassManager> pass_manager;
     pass_manager = optimization::createOptimizationPipeline(opt_level, false);
@@ -266,6 +264,5 @@ int main(int argc, const char *argv[])
     auto riscv_module = riscv_builder.generateRISCVCode(shared_module);
     string assembly_code = riscv_builder.generateAssembly(riscv_module);
     fout << assembly_code << endl;
-
     return 0;
 }

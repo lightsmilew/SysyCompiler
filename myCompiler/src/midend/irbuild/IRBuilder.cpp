@@ -138,10 +138,8 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
         varToValue[node->params[i]->identifier] = arg;
         basicBlockVarToValue[currentBlock][node->params[i]->identifier] = arg;
     }
-
     // 访问函数体
     visitBlock(node->body);
-
     // 如果函数没有显式返回，添加默认返回
     if (!currentBlock->hasTerminator())
     {
@@ -188,10 +186,6 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
         for (auto [varName, value] : needToWriteBackVarToValue)
         {
             varToValue[varName] = value;
-            // if(debugMode)
-            // {
-            //     std::cout << "Write back variable: " << varName << " to outer scope with value: " << value->toRef() << "\n";
-            // }
         }
         // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
         basicBlockVarToValue[currentBlock] = varToValue;
@@ -386,10 +380,6 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
             // 如果不是新声明的变量，添加到需要写回的变量映射
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
         }
-        // if(debugMode)
-        // {
-        //     std::cout << "AssignStmt: " << node->lvalue->identifier << " = " << rvalue->toRef() << ",line: " << node->line << std::endl;
-        // }
     }
 }
 
@@ -940,8 +930,8 @@ Value *IRBuilder::visitStringLiteralExpr(std::shared_ptr<ast::StringLiteralExprN
 Value *IRBuilder::visitScalarInitExpr(std::shared_ptr<ast::InitExprNode> node, Type *targetType)
 {
     if (node->singleInitVal)
-    {   
-        Value *result= visitExpression(node->singleInitVal);
+    {
+        Value *result = visitExpression(node->singleInitVal);
         // 如果类型不匹配，进行类型转换
         if (result->getType() != targetType)
         {
@@ -1000,9 +990,11 @@ void IRBuilder::flattenInitList(
     int dim // 当前递归到第几维
 )
 {
+    // 防止越界
+    if (dim < 0 || dim >= dims.size())
+        return;
     int dim_len = dims[dim];
     int filled = 0;
-
     // 情况1：全平铺（只有singleInitVal），直接顺序push
     if (node && node->singleInitVal)
     {
@@ -1065,12 +1057,12 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(targetType))
     {
-        int dim = arrayType->getNumElements();
+        int arrayIndex = arrayType->getNumElements();
         Type *elemType = arrayType->ElementType;
 
         auto children = getChildrenAtCurrentLevel(initNode);
 
-        for (int i = 0; i < dim; ++i)
+        for (int i = 0; i < arrayIndex; ++i)
         {
             indices.push_back(i);
             auto childNode = (i < children.size()) ? children[i] : nullptr;
@@ -1089,7 +1081,7 @@ void IRBuilder::visitInitExprImpl(Type *targetType, Value *targetPtr,
             // 如果类型不匹配，进行类型转换
             if (val->getType() != groundType)
             {
-                val = createCast(val, groundType, "init expr"); 
+                val = createCast(val, groundType, "init expr");
             }
         }
         // 末尾补零
@@ -1483,10 +1475,6 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int l
             default:
                 throw std::runtime_error("Unsupported op in const int expr");
             }
-            // if (debugMode)
-            // {
-            //     std::cout << "Constant int expr: " << l << " " << toString(op) << " " << r << " = " << res << ",line: " << line << std::endl;
-            // }
             return new ConstantInt(IntegerType::getInstance(), res);
         }
         else if (isFloat)
@@ -1522,10 +1510,6 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int l
             default:
                 throw std::runtime_error("Unsupported op in const float expr");
             }
-            // if (debugMode)
-            // {
-            //     std::cout << "Constant float expr: " << l << " " << toString(op) << " " << r << " = " << res << ",line: " << line << std::endl;
-            // }
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
