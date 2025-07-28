@@ -757,7 +757,7 @@ vector<Value *> CallInst::getPtrArguments() const
 }
 Value *CallInst::getDest() const
 {
-   if(!hasReturnValue())
+    if (!hasReturnValue())
     {
         return nullptr; // 如果没有返回值，返回nullptr
     }
@@ -1289,6 +1289,19 @@ bool Function::isRecursive() const
     }
     return false;
 }
+void Function::setDeleted(bool deleted)
+{
+    isDeleted = deleted;
+}
+bool Function::isDeletedFunction() const
+{
+    return isDeleted;
+}
+bool Function::shouldBeOutput() const
+{
+    // 如果是库函数或被标记为删除，则不输出
+    return !isLibraryFunction() && !isDeletedFunction();
+}
 std::string Function::toString() const
 {
     std::stringstream ss;
@@ -1400,10 +1413,12 @@ std::string Module::toString() const
     {
         ss << "\n";
     }
-    // Functions 从库函数后一项开始遍历，下标是13
-    for (int i = 13; i < Functions.size(); ++i)
+    for (const auto &func : Functions)
     {
-        ss << Functions[i]->toString() << "\n";
+        if (func->shouldBeOutput())
+        {
+            ss << func->toString() << "\n";
+        }
     }
     return ss.str();
 }

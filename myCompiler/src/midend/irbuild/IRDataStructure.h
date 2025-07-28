@@ -756,9 +756,9 @@ public:
     vector<unique_ptr<BasicBlock>> BasicBlocks;
     vector<unique_ptr<Argument>> Arguments;
     Module *Parent;
-
+    bool isDeleted = false; // 标记函数是否被删除
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
-        : Value(funcTy, name), Parent(parent) {}
+        : Value(funcTy, name), Parent(parent), isDeleted(false) {}
 
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
     BasicBlock *getEntryBlock();                        // 获取入口基本块
@@ -773,6 +773,9 @@ public:
     unsigned getInstructionCount() const;                       // 获取指令数量
     bool isLibraryFunction() const;                             // 是否为库函数
     bool isRecursive() const;                                   // 是否为递归函数
+    void setDeleted(bool deleted);                              // 设置函数是否被删除
+    bool isDeletedFunction() const;                             // 获取函数是否被删除
+    bool shouldBeOutput() const;                                // 是否应该输出到IR文件
     string toString() const override;
 };
 

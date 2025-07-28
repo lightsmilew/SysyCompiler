@@ -17,12 +17,22 @@ bool PassManager::runOnModule(Module *module)
     // 先对每个 pass，依次作用于所有函数
     for (auto &pass : passes)
     {
-        for (size_t i = 13; i < module->Functions.size(); ++i)
+        for (auto &func : module->Functions)
         {
-            auto &func = module->Functions[i];
-            changed |= pass->runOnFunction(func.get());
+            if (!func->isLibraryFunction())
+            {
+                changed |= pass->runOnFunction(func.get());
+            }
         }
     }
+    // 删除所有标记为删除的函数
+    module->Functions.erase(
+        std::remove_if(
+            module->Functions.begin(),
+            module->Functions.end(),
+            [](const auto &func)
+            { return func->isDeletedFunction(); }),
+        module->Functions.end());
     return changed;
 }
 std::string PassManager::toString() const
@@ -654,6 +664,7 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                         call->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
+                        callee->setDeleted(true); // 标记为已删除
                         changed = true;
                         localChanged = true;
                         // debug
