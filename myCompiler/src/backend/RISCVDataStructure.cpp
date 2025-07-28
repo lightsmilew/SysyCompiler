@@ -512,12 +512,9 @@ namespace RISCV
         {
             calleeToOffset[calleeName] = unordered_map<int, int>();
             // 8字节对齐：如果分配8字节，当前偏移需8对齐
-            if (size == 8)
-            {
-                calleeArgOffset = (calleeArgOffset + 7) & ~7;
-            }
-            calleeToOffset[calleeName][ArgNumber] = calleeArgOffset;
+            calleeArgOffset = 0;
             argStackSize = size; // 初始化参数栈大小
+            calleeToOffset[calleeName][ArgNumber] = calleeArgOffset;
             maxArgStackSize = std::max(maxArgStackSize, argStackSize);
             int retOffset = calleeArgOffset;
             calleeArgOffset += size; // 初始化被调用函数参数偏移

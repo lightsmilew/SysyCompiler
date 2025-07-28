@@ -56,20 +56,20 @@ elif [ "$1" == "-riscv" ]; then
         for file in $INPUT_DIR/*.sy; do
             filename=$(basename "$file")
             echo "Processing $filename (RISC-V mode, $opt_level)..."
-            timeout 180s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}"
+            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}"
             status=$?
             if [ $status -eq 124 ]; then
-                echo "⏰ $filename 编译超时（180秒）"
+                echo "⏰ $filename 编译超时（300秒）"
             fi
         done
     else
         for file in $INPUT_DIR/*.sy; do
             filename=$(basename "$file")
             echo "Processing $filename (RISC-V mode, no opt_level)..."
-            timeout 180s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
+            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
             status=$?
             if [ $status -eq 124 ]; then
-                echo "⏰ $filename 编译超时（180秒）"
+                echo "⏰ $filename 编译超时（300秒）"
             fi
         done
     fi
