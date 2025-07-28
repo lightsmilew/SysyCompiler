@@ -1061,7 +1061,7 @@ namespace RISCV
   {
     auto &livenessInfo = currentFunc->getLivenessInfo();
 
-    // 1. 获取逆后序的基本块列表
+    // 1. 获取后序的基本块列表
     vector<shared_ptr<RISCVBasicBlock>> postOrder = getPostOrder(currentFunc);
 
     // 编号每条指令
@@ -1211,8 +1211,11 @@ namespace RISCV
     {
       for (auto instr : bb->getInstructions())
       {
+        if (!instr)
+          continue;
         if (instr->getOpcode() == RISCVOpcode::CALL)
         {
+          // 所有的callersaveregs都在call指令这里活跃，以实现将所有跨调用活跃变量自动分配到calleesavereg或溢出到栈上
           for (auto &reg : CallerSavedGeneralRegs)
           {
             livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
@@ -1220,6 +1223,55 @@ namespace RISCV
           for (auto &reg : CallerSavedFloatRegs)
           {
             livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
+          }
+
+          // 删除所有不需要的call指令之后的参数复原move指令。
+          auto moveInstructionsAfterCall = currentFunc->getMoveInstructionsAfterCall(instr->getOperands()[0]->toString());
+          for (auto &moveInstr : moveInstructionsAfterCall)
+          {
+            // 只处理move指令
+            if (!moveInstr)
+              continue;
+            if (!(moveInstr->getOpcode() == RISCVOpcode::MV || moveInstr->getOpcode() == RISCVOpcode::FMV_S))
+              continue;
+            // 获取目标寄存器
+            auto defRegs = moveInstr->getDefRegisters();
+            if (defRegs.empty())
+              continue;
+            auto destReg = defRegs[0];
+            // 获取move指令在全局指令序列中的编号
+            auto it = instrIndex.find(moveInstr);
+            if (it == instrIndex.end())
+              continue;
+            int movePos = it->second + 1;
+            // 检查该位置是否在目标寄存器的liverange内
+            const auto &ranges = livenessInfo.liveRanges[destReg];
+            bool inRange = false;
+            for (const auto &range : ranges)
+            {
+              if (range.contains(movePos))
+              {
+                inRange = true;
+                break;
+              }
+            }
+            // 如果不在liverange内，删除该move指令
+            if (!inRange)
+            {
+              // 在所属基本块中删除该指令
+              for (auto &bb2 : currentFunc->getBasicBlocks())
+              {
+                auto &instrs2 = bb2->getInstructions();
+                auto it2 = std::find(instrs2.begin(), instrs2.end(), moveInstr);
+                if (it2 != instrs2.end())
+                {
+                  instrs2.erase(it2);
+                  break;
+                }
+              }
+              // 从moveInstructionsAfterCall中移除该指令，避免悬挂指针和重复遍历
+              moveInstr = nullptr;
+            }
           }
         }
       }

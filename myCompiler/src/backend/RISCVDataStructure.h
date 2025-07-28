@@ -737,12 +737,10 @@ namespace RISCV
         shared_ptr<RISCVModule> parentModule;
         vector<shared_ptr<RISCVBasicBlock>> basicBlocks;
         StackFrame stackFrame;
-        vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs; // 被调用函数使用的保存寄存器
-
-        // 活跃性分析结果
-        LivenessInfo livenessInfo;
-
-        unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset; // 用于溢出处理的指令
+        LivenessInfo livenessInfo;                                                             // 活跃性分析结果
+        vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs;                                 // 被调用函数使用的保存寄存器
+        unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsAfterCall; // 用于函数调用后移动指令的映射
+        unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset;        // 用于溢出处理的指令
 
     public:
         RISCVFunction(const string &name, shared_ptr<RISCVModule> module);
@@ -756,6 +754,17 @@ namespace RISCV
         const vector<shared_ptr<RISCVBasicBlock>> &getBasicBlocks() { return basicBlocks; }
         StackFrame &getStackFrame() { return stackFrame; }
 
+        // 函数调用后的移动指令
+        void addMoveInstructionAfterCall(const string &calleeName, shared_ptr<RISCVInstruction> instr)
+        {
+            moveInstructionsAfterCall[calleeName].push_back(instr);
+        }
+        const vector<shared_ptr<RISCVInstruction>> &getMoveInstructionsAfterCall(const string &calleeName)
+        {
+            static vector<shared_ptr<RISCVInstruction>> empty;
+            auto it = moveInstructionsAfterCall.find(calleeName);
+            return it != moveInstructionsAfterCall.end() ? it->second : empty;
+        }
         // 活跃性信息访问
         const LivenessInfo &getLivenessInfo() const { return livenessInfo; }
         LivenessInfo &getLivenessInfo() { return livenessInfo; }
