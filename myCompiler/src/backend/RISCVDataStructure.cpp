@@ -477,8 +477,9 @@ namespace RISCV
     }
 
     // StackFrame 实现
-    int StackFrame::getTotalSize() const
+    int StackFrame::getTotalSize()
     {
+        maxArgStackSize = (maxArgStackSize + 7) & ~7; // 确保最大参数栈空间是8字节对齐
         return valueStackSize + raStackSize + maxArgStackSize;
     }
 
@@ -574,7 +575,7 @@ namespace RISCV
         return -1; // 如果没有找到，返回-1表示未分配
     }
 
-    int StackFrame::getCallerArgOffset(const string &valueName) const
+    int StackFrame::getCallerArgOffset(const string &valueName)
     {
         auto offset = callerToOffset.find(valueName);
         if (offset != callerToOffset.end())
@@ -618,7 +619,7 @@ namespace RISCV
         return callerToOffset.find(valueName) != callerToOffset.end();
     }
 
-    int StackFrame::getAlignedSize() const
+    int StackFrame::getAlignedSize()
     {
         int total = getTotalSize();
         // 8字节对齐
