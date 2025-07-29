@@ -620,7 +620,7 @@ namespace RISCV
     {
         int total = getTotalSize();
         // 8字节对齐
-        return (total + 7) & ~7;
+        return (total + 15) & ~15;
     }
 
     // RISCVBasicBlock 实现
