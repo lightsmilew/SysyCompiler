@@ -53,8 +53,8 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
         if (func->getParentModule()->getHasConverterInstructions())
         {
             // 有转换指令时，设置fcsr寄存器为向0舍入
-            ss << "        li t0, 3\n";      // 假设设置fcsr为3
-            ss << "        csrw fcsr, t0\n"; // 设置fcsr寄存器
+            ss << "        li t0, 1\n";
+            ss << "        fsrm zero, t0\n"; // 设置fcsr寄存器
         }
     }
 
