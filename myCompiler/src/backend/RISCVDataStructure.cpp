@@ -467,6 +467,12 @@ namespace RISCV
         if (!comment.empty())
             ss << "  # " << comment;
 
+        // 舍入模式
+        if (opcode == RISCVOpcode::FCVT_S_W || opcode == RISCVOpcode::FCVT_W_S)
+        {
+            ss << ", rtz"; // 使用RTZ（Round toward Zero）舍入模式
+        }
+
         return ss.str();
     }
 

@@ -804,10 +804,9 @@ namespace RISCV
         vector<shared_ptr<RISCVFunction>> functions;
         vector<shared_ptr<RISCVGlobalBlock>> globalBlocks;
         unordered_map<string, shared_ptr<RISCVFunction>> functionMap;
-        bool hasConverterInstructions = false; // 是否有转换指令
 
     public:
-        RISCVModule(const string &name) : name(name), hasConverterInstructions(false) {}
+        RISCVModule(const string &name) : name(name) {}
 
         // 函数管理
         void addFunction(shared_ptr<RISCVFunction> func);
@@ -821,8 +820,6 @@ namespace RISCV
         const string &getName() const { return name; }
         const vector<shared_ptr<RISCVFunction>> &getFunctions() const { return functions; }
         const vector<shared_ptr<RISCVGlobalBlock>> &getGlobalBlocks() const { return globalBlocks; }
-        void setHasConverterInstructions(bool has) { hasConverterInstructions = has; }
-        bool getHasConverterInstructions() const { return hasConverterInstructions; }
 
         string toString() const;
     };

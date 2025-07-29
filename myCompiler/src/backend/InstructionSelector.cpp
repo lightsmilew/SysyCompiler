@@ -632,8 +632,6 @@ void InstructionSelector::visitSIToFPInst(CastInst *inst)
     // 生成 RISC-V 的 fcvt.s.w 指令（整数到单精度浮点）
     auto fcvtInst = RISCVInstruction::createPseudo(RISCVOpcode::FCVT_S_W, destReg, srcReg);
     currentBB->addInstruction(fcvtInst);
-
-    currentFunc->getParentModule()->setHasConverterInstructions(true); // 标记有转换指令
 }
 
 void InstructionSelector::visitFPToSIInst(CastInst *inst)
@@ -648,8 +646,6 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
     // 使用RTZ（Round toward Zero）舍入模式，这是C语言标准的行为
     auto fcvtInst = RISCVInstruction::createPseudo(RISCVOpcode::FCVT_W_S, destReg, srcReg);
     currentBB->addInstruction(fcvtInst);
-
-    currentFunc->getParentModule()->setHasConverterInstructions(true); // 标记有转换指令
 }
 
 void InstructionSelector::visitCopyInst(CopyInst *inst)
