@@ -1302,6 +1302,19 @@ bool Function::shouldBeOutput() const
     // 如果是库函数或被标记为删除，则不输出
     return !isLibraryFunction() && !isDeletedFunction();
 }
+vector<size_t>Function::getIndexOfNotUsedArguments() const
+{
+    vector<size_t> notUsedArgs;
+    for (size_t i = 0; i < Arguments.size(); ++i)
+    {
+        bool used=Arguments[i]->getUsers().size() > 0; // 如果参数有用户，则认为被使用
+        if (!used)
+        {
+            notUsedArgs.push_back(i);
+        }
+    }
+    return notUsedArgs;
+}
 std::string Function::toString() const
 {
     std::stringstream ss;

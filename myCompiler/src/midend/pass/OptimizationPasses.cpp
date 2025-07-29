@@ -691,6 +691,25 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
 // 判断是否适合内联
 bool FunctionInliningPass::shouldInline(Function *callee)
 {
+
+    // 新增：如果只有一个基本块，且所有指令都是算术运算（不含控制流/调用/副作用），也允许内联,此时不考虑指令大小
+    if (callee->getBasicBlocks().size() == 1)
+    {
+        auto &insts = callee->getBasicBlocks()[0]->getInstructions();
+        bool onlyArithmetic = true;
+        for (auto &instPtr : insts)
+        {
+            Instruction *inst = instPtr.get();
+            // 只允许二元算术运算和return
+            if (!(inst->isBinaryOp() || inst->getOpcode() == Opcode::Ret))
+            {
+                onlyArithmetic = false;
+                break;
+            }
+        }
+        if (onlyArithmetic)
+            return true;
+    }
     // 不内联递归/库函数/过大函数/控制流复杂
     if (callee->isLibraryFunction() || callee->isRecursive() || callee->getInstructionCount() > 20 || callee->getBasicBlocks().size() > 5)
         return false;
@@ -1026,6 +1045,12 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                          << ci1->Value << " and " << ci2->Value
+                                          << " to " << result << "\n";
+                            }
                             // 还要打印输出
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
@@ -1059,6 +1084,12 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                             auto constVal = new ConstantFloat(FloatType::getInstance(), result);
                             inst->replaceAllUsesWith(constVal);
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                          << cf1->Value << " and " << cf2->Value
+                                          << " to " << result << "\n";
+                            }
                             // 还要打印输出
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
@@ -1100,6 +1131,12 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        if (verbose)
+                        {
+                            debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                      << ci1->Value << " and " << ci2->Value
+                                      << " to " << result << "\n";
+                        }
                         // 还要打印输出
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
@@ -1140,6 +1177,12 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         }
                         auto constVal = new ConstantInt(IntegerType::getInstance(), result);
                         inst->replaceAllUsesWith(constVal);
+                        if (verbose)
+                        {
+                            debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                      << cf1->Value << " and " << cf2->Value
+                                      << " to " << result << "\n";
+                        }
                         // 还要打印输出
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);

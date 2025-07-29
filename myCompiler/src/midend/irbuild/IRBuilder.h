@@ -3,6 +3,7 @@
 #include "IRDataStructure.h"
 #include <stack>
 #include <unordered_map>
+#include <sstream>
 
 namespace ir_builder
 {
@@ -43,6 +44,7 @@ namespace ir_builder
         unsigned stringCounter;  // 字符串常量计数器
         // Debug
         bool debugMode = false;  // 是否开启调试模式
+        std::stringstream debugOutput; // 调试输出流
     public:
         // 构造与初始化
         IRBuilder(bool debugMode, const String &moduleName = "main_module")
@@ -168,5 +170,10 @@ namespace ir_builder
 
         // Debug输出
         string getValueTableInEveryBlock();
+
+        string getDebugOutput() const
+        {
+            return debugMode ? debugOutput.str() : "";
+        }
     };
 }

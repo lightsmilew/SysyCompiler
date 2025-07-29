@@ -244,6 +244,7 @@ int main(int argc, const char *argv[])
             {
                 // 输出优化Pass调试信息
                 fout_after << ir_module->getBasicBlockInfo() << endl;
+                fout_after << irbuilder.getDebugOutput();
                 fout_after << pass_manager->toString() << endl;
             }
             fout_after.close();

@@ -776,6 +776,7 @@ public:
     void setDeleted(bool deleted);                              // 设置函数是否被删除
     bool isDeletedFunction() const;                             // 获取函数是否被删除
     bool shouldBeOutput() const;                                // 是否应该输出到IR文件
+    vector<size_t>getIndexOfNotUsedArguments() const;           // 获取未使用参数的索引
     string toString() const override;
 };
 

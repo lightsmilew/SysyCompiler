@@ -156,7 +156,18 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
             }
         }
     }
-
+    if (debugMode)
+    {
+        auto notUsedArgs = func->getIndexOfNotUsedArguments();
+        if (!notUsedArgs.empty())
+        {
+            debugOutput << "Warning: Function '" << func->getName() << "' has unused arguments at indices: ";
+            for (size_t idx : notUsedArgs)
+            {
+                debugOutput << idx << " ";
+            }
+        }
+    }
     // 退出作用域
     PopVarsStack();
     currentFunction = nullptr;
@@ -390,6 +401,10 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
             // basicBlockVarToValue用于phi合流
             basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
+        }
+        if (debugMode)
+        {
+            debugOutput << "Assign: " << node->lvalue->identifier << " = " << rvalue->toRef() << " in line " << node->line << "\n";
         }
     }
 }
@@ -2057,6 +2072,7 @@ void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
             PhiInst *phi = createPhi(value->getType());
             varToValue[name] = phi;                         // 更新 SSA 值为 PHI 节点
             basicBlockVarToValue[currentBlock][name] = phi; // 更新当前块的变量映射
+            needToWriteBackVarToValue[name] = phi;          // 添加到需要写回的变量列表
         }
     }
 }
