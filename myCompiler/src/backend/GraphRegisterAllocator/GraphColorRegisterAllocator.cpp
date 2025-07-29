@@ -169,6 +169,8 @@ void GraphColorRegisterAllocator::allocateRegisters(
     spilledRegs.clear();
     coalescingManager.clear();
     currentFunc->clearUsedCalleeSavedRegs();
+    while (!costs.empty())
+      costs.pop();
     while (!selectStack.empty())
       selectStack.pop();
 

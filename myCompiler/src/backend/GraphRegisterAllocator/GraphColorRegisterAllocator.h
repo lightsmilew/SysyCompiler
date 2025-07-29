@@ -13,9 +13,11 @@
 
 // 调试输出控制宏
 // 定义 DEBUG_REG_ALLOC 以启用寄存器分配器的详细输出
- //#define DEBUG_REG_ALLOC
+// #define DEBUG_REG_ALLOC
 
 using std::deque;
+using std::pair;
+using std::priority_queue;
 using std::shared_ptr;
 using std::stack;
 using std::unordered_map;
@@ -299,6 +301,16 @@ namespace RISCV
         allocation;
     unordered_set<shared_ptr<RISCVRegister>, RegisterHash, RegisterEqual>
         spilledRegs;
+    // 溢出cost记录
+    struct CostCompare
+    {
+      bool operator()(const std::pair<double, shared_ptr<RISCVRegister>> &a,
+                      const std::pair<double, shared_ptr<RISCVRegister>> &b) const
+      {
+        return a.first > b.first; // 小顶堆，cost小的优先
+      }
+    };
+    priority_queue<pair<double, shared_ptr<RISCVRegister>>, vector<pair<double, shared_ptr<RISCVRegister>>>, CostCompare> costs;
 
     // 算法栈
     stack<shared_ptr<RISCVRegister>> selectStack;

@@ -697,8 +697,16 @@ void InstructionSelector::DealArgumentsInStart()
 
     auto intArgIndex = 0;
     auto floatArgIndex = 0;
+    auto argIndex = 0;
+    vector<size_t> NoneUsedRegsIndex = irFunction->getIndexOfNotUsedArguments();
     for (auto arg : argsVec)
     {
+        if (find(NoneUsedRegsIndex.begin(), NoneUsedRegsIndex.end(), argIndex) != NoneUsedRegsIndex.end())
+        {
+            argIndex++;
+            continue; // 跳过未使用的参数
+        }
+
         bool isFloat = arg->getType()->isFloatTy();
         if (isFloat)
         {
@@ -710,6 +718,8 @@ void InstructionSelector::DealArgumentsInStart()
             getCallerArgReg(arg, intArgIndex);
             intArgIndex++;
         }
+
+        argIndex++;
     }
 }
 
