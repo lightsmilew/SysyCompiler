@@ -252,9 +252,13 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
 {
     Type *varType = convertASTTypeToIRType(node->type, false);
     // 如果当前已经定义了同名变量，则记录，退出作用域时不将该变量的ssa值写出
-    if (varToValue.count(node->identifier))
+    // 如果是全局变量，则不需要检查是否已经定义，可以直接覆盖，因为不需要写回，全局变量只存指针
+    if (auto it = varToValue.find(node->identifier); it != varToValue.end())
     {
-        newDeclaredVarsInBlock.push_back(node->identifier);
+        if (!dynamic_cast<GlobalVariable *>(it->second))
+        {
+            newDeclaredVarsInBlock.push_back(node->identifier);
+        }
     }
     // 检查数组维度是否合法
     if (varType->isArrayTy())
@@ -345,7 +349,12 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             // 将初始值存储到 varToValue 中
             varToValue[node->identifier] = initValue;
             // 在当前基本块中记录变量的 SSA 值
-            basicBlockVarToValue[currentBlock][node->identifier] = initValue;
+            // 只有是当非新定义的变量时才记录
+            if (!isBlockNewDeclaredVar(node->identifier))
+            {
+                basicBlockVarToValue[currentBlock][node->identifier] = initValue;
+            }
+            // basicBlockVarToValue[currentBlock][node->identifier] = initValue;
         }
     }
 }
@@ -374,10 +383,12 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
         }
         // 如果是标量变量，直接更新SSA值
         varToValue[node->lvalue->identifier] = rvalue;
-        basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
+        // basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
         if (!isBlockNewDeclaredVar(node->lvalue->identifier))
         {
             // 如果不是新声明的变量，添加到需要写回的变量映射
+            // basicBlockVarToValue用于phi合流
+            basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
         }
     }
