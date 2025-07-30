@@ -25,7 +25,7 @@ namespace ir_builder
         std::unordered_map<BasicBlock *,
                            std::unordered_map<String, ValueInfo>>
             basicBlockVarToValue;                                        // 基本块到变量映射 用于作用域嵌套管理
-        std::unordered_map<String, ValueInfo> varToValue;                  // AST变量名到IR Value的映射 当前符号表
+        std::unordered_map<String, ValueInfo> varToValue;                // AST变量名到IR Value的映射 当前符号表
         std::stack<std::unordered_map<String, ValueInfo>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
