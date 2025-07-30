@@ -698,6 +698,34 @@ void InstructionSelector::DealArgumentsInStart()
     for (auto arg : argsVec)
     {
         bool isFloat = arg->getType()->isFloatTy();
+        bool isPointer = arg->getType()->isPointerTy();
+        if (isFloat)
+        {
+            if (floatArgIndex < 8)
+            {
+                floatArgIndex++;
+                continue;
+            }
+
+            currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), 4);
+        }
+        else
+        {
+            if (intArgIndex < 8)
+            {
+                intArgIndex++;
+                continue;
+            }
+
+            currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), isPointer ? 8 : 4);
+        }
+    }
+
+    floatArgIndex = 0;
+    intArgIndex = 0;
+    for (auto arg : argsVec)
+    {
+        bool isFloat = arg->getType()->isFloatTy();
         if (find(NoneUsedRegsIndex.begin(), NoneUsedRegsIndex.end(), argIndex) != NoneUsedRegsIndex.end())
         {
             argIndex++;
@@ -835,7 +863,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         else
         {
             // 超出范围，从栈上获取参数
-            auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), 4);
+            auto offset = currentFunc->getStackFrame().getCallerArgOffset(arg->getName());
             auto tempReg = LiInt(offset, true);
             currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
             auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg);
@@ -861,7 +889,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getCallerArgReg(Argument *arg, si
         {
             // 超出范围，从栈上获取参数
             RISCVOpcode op = arg->getType()->isPointerTy() ? RISCVOpcode::LD : RISCVOpcode::LW;
-            auto offset = currentFunc->getStackFrame().allocateCallerArgSpace(arg->getName(), arg->getType()->isPointerTy() ? 8 : 4);
+            auto offset = currentFunc->getStackFrame().getCallerArgOffset(arg->getName());
             auto tempReg = LiInt(offset, true);
             currentFunc->addInstructionNeedReGetOffset(arg->getName(), currentLiInstruction);
             auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), tempReg);
