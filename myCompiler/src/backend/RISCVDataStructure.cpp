@@ -515,10 +515,10 @@ namespace RISCV
             calleeArgOffset = 0;
             argStackSize = size; // 初始化参数栈大小
             calleeToOffset[calleeName][ArgNumber] = calleeArgOffset;
-            maxArgStackSize = std::max(maxArgStackSize, argStackSize);
             int retOffset = calleeArgOffset;
             calleeArgOffset += size; // 初始化被调用函数参数偏移
-            return retOffset;        // 初始分配返回偏移
+            maxArgStackSize = std::max(maxArgStackSize, argStackSize);
+            return retOffset; // 初始分配返回偏移
         }
         else
         {
@@ -538,7 +538,7 @@ namespace RISCV
                 int offset = calleeArgOffset;
                 argOffsets[ArgNumber] = offset;
                 calleeArgOffset += size;
-                argStackSize += size; // 更新参数栈大小
+                argStackSize = calleeArgOffset; // 更新参数栈大小
                 maxArgStackSize = std::max(maxArgStackSize, argStackSize);
                 return offset;
             }
