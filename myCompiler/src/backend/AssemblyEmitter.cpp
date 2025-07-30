@@ -48,16 +48,6 @@ string AssemblyEmitter::emitFunction(shared_ptr<RISCVFunction> func)
     ss << ".globl " << func->getName() << "\n";
     ss << func->getName() << ":\n";
 
-    if (func->getName() == "main")
-    {
-        if (func->getParentModule()->getHasConverterInstructions())
-        {
-            // 有转换指令时，设置fcsr寄存器为向0舍入
-            ss << "        li t0, 1\n";
-            ss << "        fsrm zero, t0\n"; // 设置fcsr寄存器
-        }
-    }
-
     // 生成每个基本块
     for (const auto &bb : func->getBasicBlocks())
     {
