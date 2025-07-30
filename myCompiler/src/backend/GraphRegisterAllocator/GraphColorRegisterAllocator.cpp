@@ -169,8 +169,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
     spilledRegs.clear();
     coalescingManager.clear();
     currentFunc->clearUsedCalleeSavedRegs();
-    while (!costs.empty())
-      costs.pop();
+    costsSet.clear();
     while (!selectStack.empty())
       selectStack.pop();
 
@@ -337,6 +336,18 @@ void GraphColorRegisterAllocator::classifyNode(shared_ptr<RISCVRegister> reg)
 
   if (degree < K)
   {
+    if (!costsSet.empty())
+    {
+      for (auto it = costsSet.begin(); it != costsSet.end(); ++it)
+      {
+        if (it->second == reg)
+        {
+          costsSet.erase(it);
+          break;
+        }
+      }
+    }
+
     if (moveRelated)
     {
       setNodeState(reg, NodeState::FREEZE_READY);

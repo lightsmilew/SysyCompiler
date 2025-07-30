@@ -416,10 +416,11 @@ void GraphColorRegisterAllocator::selectSpillCandidates()
     shared_ptr<RISCVRegister> bestReg = nullptr;
     double minCost = std::numeric_limits<double>::max();
 
-    if (!costs.empty())
+    if (!costsSet.empty())
     {
         // 从小顶堆中获取代价最低的寄存器
-        auto topCost = costs.top();
+        auto topCost = *costsSet.begin();
+        costsSet.erase(costsSet.begin());
         bestReg = topCost.second;
         minCost = topCost.first;
     }
@@ -428,14 +429,14 @@ void GraphColorRegisterAllocator::selectSpillCandidates()
         for (auto reg : worklistManager.getAllNodes(WorklistManager::WorklistType::SPILL))
         {
             double cost = calculateSpillCost(reg);
-            costs.push({cost, reg});
+            costsSet.insert({cost, reg});
             if (cost < minCost)
             {
                 minCost = cost;
                 bestReg = reg;
             }
         }
-        costs.pop(); // 弹出最小代价的寄存器
+        costsSet.erase(costsSet.begin()); // 弹出最小代价的寄存器
     }
 
     if (!bestReg)

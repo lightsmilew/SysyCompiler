@@ -307,10 +307,13 @@ namespace RISCV
       bool operator()(const std::pair<double, shared_ptr<RISCVRegister>> &a,
                       const std::pair<double, shared_ptr<RISCVRegister>> &b) const
       {
-        return a.first > b.first; // 小顶堆，cost小的优先
+        if (a.first != b.first)
+          return a.first < b.first;
+        // 保证寄存器唯一性
+        return a.second < b.second;
       }
     };
-    priority_queue<pair<double, shared_ptr<RISCVRegister>>, vector<pair<double, shared_ptr<RISCVRegister>>>, CostCompare> costs;
+    std::set<std::pair<double, shared_ptr<RISCVRegister>>, CostCompare> costsSet;
 
     // 算法栈
     stack<shared_ptr<RISCVRegister>> selectStack;
