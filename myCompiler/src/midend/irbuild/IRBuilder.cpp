@@ -135,8 +135,9 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     for (size_t i = 0; i < node->params.size(); i++)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
-        varToValue[node->params[i]->identifier] = arg;
-        basicBlockVarToValue[currentBlock][node->params[i]->identifier] = arg;
+        size_t SerialNumber=varToValue.find(node->params[i]->identifier) == varToValue.end() ? 0 : varToValue[node->params[i]->identifier].getSerialNumber() + 1;
+        varToValue[node->params[i]->identifier] = ValueInfo(arg, SerialNumber);
+        basicBlockVarToValue[currentBlock][node->params[i]->identifier] = ValueInfo(arg, SerialNumber);
     }
     // 访问函数体
     visitBlock(node->body);
@@ -196,7 +197,7 @@ void IRBuilder::visitBlock(std::shared_ptr<ast::BlockStmtNode> node, bool isRest
         // 将当前块内非新声明的变量写回外层作用域
         for (auto [varName, value] : needToWriteBackVarToValue)
         {
-            varToValue[varName] = value;
+            varToValue[varName].setValue(value);
         }
         // 如果isRestore为真，则代表为非ifelse或者while块，需要写回bascicBlockVarToValue
         basicBlockVarToValue[currentBlock] = varToValue;
@@ -266,7 +267,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
     // 如果是全局变量，则不需要检查是否已经定义，可以直接覆盖，因为不需要写回，全局变量只存指针
     if (auto it = varToValue.find(node->identifier); it != varToValue.end())
     {
-        if (!dynamic_cast<GlobalVariable *>(it->second))
+        if (!dynamic_cast<GlobalVariable *>(it->second.getValue()))
         {
             newDeclaredVarsInBlock.push_back(node->identifier);
         }
@@ -300,7 +301,7 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             }
         }
         GlobalVariable *globalVar = module->addGlobalVariable(varType, node->identifier, initializer, node->type.isConst());
-        varToValue[node->identifier] = globalVar;
+        varToValue[node->identifier] = ValueInfo(globalVar, 0);
         // const变量加入常量表 const int i=10;把10加入下表
         if (node->type.isConst())
         {
@@ -314,7 +315,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         {
             // 数组用内存模型
             Value *alloca = createAlloca(varType);
-            varToValue[node->identifier] = alloca;
+            size_t SerialNumber=varToValue.find(node->identifier) == varToValue.end() ? 0 : varToValue[node->identifier].getSerialNumber()+1;
+            varToValue[node->identifier] = ValueInfo(alloca, SerialNumber);
             // 这里增加一个空块用于后端写入数组初始化赋值
             BasicBlock *arrayInitBlock = createBasicBlock(debugMode ? "array_init." + node->identifier : "");
             BasicBlock *arrayInitEndBlock = createBasicBlock(debugMode ? "array_init_end." + node->identifier : "");
@@ -358,13 +360,21 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
                     initValue = new ConstantFloat(FloatType::getInstance(), 0.0f);
             }
             // 将初始值存储到 varToValue 中
-            varToValue[node->identifier] = initValue;
+            varToValue[node->identifier].setValue(initValue);
+            basicBlockVarToValue[currentBlock][node->identifier].setValue(initValue);
             // 在当前基本块中记录变量的 SSA 值
             // 只有是当非新定义的变量时才记录
-            if (!isBlockNewDeclaredVar(node->identifier))
-            {
-                basicBlockVarToValue[currentBlock][node->identifier] = initValue;
+            // if (!isBlockNewDeclaredVar(node->identifier))
+            // {
+            //     basicBlockVarToValue[currentBlock][node->identifier].setValue(initValue);
+            // }
+            if(isBlockNewDeclaredVar(node->identifier))
+            { 
+                // 序号自增唯一确定一个变量
+                varToValue[node->identifier].plusSerialNumber();
+                basicBlockVarToValue[currentBlock][node->identifier].plusSerialNumber();
             }
+
             // basicBlockVarToValue[currentBlock][node->identifier] = initValue;
         }
     }
@@ -393,13 +403,14 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
             rvalue = createCast(rvalue, lvalue->getType(), "assign in scalar");
         }
         // 如果是标量变量，直接更新SSA值
-        varToValue[node->lvalue->identifier] = rvalue;
+        varToValue[node->lvalue->identifier].setValue(rvalue);
+        basicBlockVarToValue[currentBlock][node->lvalue->identifier].setValue(rvalue);
         // basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
         if (!isBlockNewDeclaredVar(node->lvalue->identifier))
         {
             // 如果不是新声明的变量，添加到需要写回的变量映射
             // basicBlockVarToValue用于phi合流
-            basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
+            //basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
         }
         if (debugMode)
@@ -807,7 +818,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
         throw std::runtime_error("Undefined variable: " + node->identifier + ",line:" + std::to_string(node->line));
     }
 
-    Value *ptr = it->second;
+    Value *ptr = it->second.getValue();
     if (ptr->getType()->isIntegerTy() || ptr->getType()->isFloatTy())
     {
         // 如果是标量变量，直接返回其 SSA 值
@@ -815,7 +826,7 @@ Value *IRBuilder::visitLValueExpr(std::shared_ptr<ast::LValueExprNode> node)
     }
     // 进入下面的语句只能是指针或常量数组
     // 如果是const数组或者const全局变量
-    if (constVarToValue.count(node->identifier))
+    if (isConstVars(node->identifier))
     {
         vector<int> indices;
         bool isAllConstant = true;
@@ -1342,7 +1353,7 @@ Constant *IRBuilder::evaluateConstantExprImp(std::shared_ptr<ast::ExprNode> node
         // 如果是空指针，代表是{}初始化,判断是int还是float
         if (!it->second)
         {
-            auto ptr = varToValue.find(lval->identifier)->second;
+            auto ptr = varToValue.find(lval->identifier)->second.getValue();
             auto groundType = dynamic_cast<PointerType *>(ptr->getType())->ElementType;
             if (groundType->isArrayTy())
             {
@@ -2059,8 +2070,9 @@ void IRBuilder::findBlockVariantVarsImp(std::shared_ptr<ast::StmtNode> node, std
 void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
 {
 
-    for (const auto &[name, value] : varToValue)
+    for (const auto &[name, valueInfo] : varToValue)
     {
+        Value *value = valueInfo.getValue();
         if (BlockVariantVars.empty() || std::find(BlockVariantVars.begin(), BlockVariantVars.end(), name) == BlockVariantVars.end())
         {
             // 如果是循环不变量，直接跳过
@@ -2070,8 +2082,8 @@ void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
         if (!(value->getType()->isPointerTy() || value->getType()->isArrayTy() || isConstVars(name)))
         {
             PhiInst *phi = createPhi(value->getType());
-            varToValue[name] = phi;                         // 更新 SSA 值为 PHI 节点
-            basicBlockVarToValue[currentBlock][name] = phi; // 更新当前块的变量映射
+            varToValue[name].setValue(phi);                         // 更新 SSA 值为 PHI 节点
+            basicBlockVarToValue[currentBlock][name].setValue(phi); // 更新当前块的变量映射
             needToWriteBackVarToValue[name] = phi;          // 添加到需要写回的变量列表
         }
     }
@@ -2079,8 +2091,9 @@ void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
 void IRBuilder::addPhiIncomings(BasicBlock *block)
 {
     // 遍历合流块所有变量
-    for (const auto &[name, value] : basicBlockVarToValue[block])
+    for (const auto &[name, valueInfo] : basicBlockVarToValue[block])
     {
+        Value *value = valueInfo.getValue();
         // 只处理 phi
         auto phi = dynamic_cast<PhiInst *>(value);
         if (!phi)
@@ -2088,11 +2101,12 @@ void IRBuilder::addPhiIncomings(BasicBlock *block)
         // 遍历所有前驱块
         for (auto pred : block->getPredecessors())
         {
-            // 如果前驱块有该变量的 SSA 值
+            // 如果前驱块有该变量的 SSA 值,而且是同一个变量
             auto it = basicBlockVarToValue[pred].find(name);
-            if (it != basicBlockVarToValue[pred].end() && it->second != value)
+            if (it != basicBlockVarToValue[pred].end() && it->second.getValue() != value&&it->second.getSerialNumber() == valueInfo.getSerialNumber())
+                // 添加前驱块的值到 phi 的 incoming 列表
             {
-                phi->addIncoming(it->second, pred); // 添加前驱块的值
+                phi->addIncoming(it->second.getValue(), pred); // 添加前驱块的值
             }
             // 如果没有，说明该变量在该前驱块未定义，为局部变量，不做处理
         }
@@ -2114,21 +2128,21 @@ bool IRBuilder::isConstantValue(Value *value)
 int IRBuilder::getArrayDims(string varName)
 {
     // 这个函数处理三种情况:局部变量数组、全局变量数组和全局普通变量，第三个要返回0，前两者正常走流程
-    auto ptr = varToValue.find(varName);
-    if (ptr == varToValue.end())
+    auto ptrInfo = varToValue.find(varName);
+    if (ptrInfo == varToValue.end())
     {
         throw std::runtime_error("Variable not found: " + varName);
     }
     // 不是指针抛出异常
-    if (!ptr->second->getType()->isPointerTy())
+    if (!ptrInfo->second.getValue()->getType()->isPointerTy())
     {
         throw std::runtime_error("Variable is not an array: " + varName);
     }
-    Type *type = dynamic_cast<PointerType *>(ptr->second->getType())->ElementType;
+    Type *type = dynamic_cast<PointerType *>(ptrInfo->second.getValue()->getType())->ElementType;
     // 如果是基本类型且是全局变量，返回0
     if ((type->isIntegerTy() || type->isFloatTy()))
     {
-        if (auto globalVar = dynamic_cast<GlobalVariable *>(ptr->second))
+        if (auto globalVar = dynamic_cast<GlobalVariable *>(ptrInfo->second.getValue()))
         {
             auto basic_type = globalVar->OriginalType;
             if (basic_type->isIntegerTy() || basic_type->isFloatTy())
@@ -2222,7 +2236,7 @@ string IRBuilder::getValueTableInEveryBlock()
         ss << "BasicBlock: " << it.first->getName() << std::endl;
         for (const auto &var : it.second)
         {
-            ss << "  Variable: " << var.first << " -> " << var.second->toRef() << std::endl;
+            ss << "  Variable: " << var.first << " -> " << var.second.getValue()->toRef() << std::endl;
         }
     }
     return ss.str();

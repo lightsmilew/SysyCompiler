@@ -23,10 +23,10 @@ namespace ir_builder
         std::vector<String> newDeclaredVarsInBlock;                      // 当前基本块内新声明的变量列表 用于作用域嵌套管理
         std::stack<std::vector<String>> newDeclaredVarsInBlockStack;     // 块内新定义符号栈，用于嵌套作用域管理变量写回
         std::unordered_map<BasicBlock *,
-                           std::unordered_map<String, Value *>>
+                           std::unordered_map<String, ValueInfo>>
             basicBlockVarToValue;                                        // 基本块到变量映射 用于作用域嵌套管理
-        std::unordered_map<String, Value *> varToValue;                  // AST变量名到IR Value的映射 当前符号表
-        std::stack<std::unordered_map<String, Value *>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
+        std::unordered_map<String, ValueInfo> varToValue;                  // AST变量名到IR Value的映射 当前符号表
+        std::stack<std::unordered_map<String, ValueInfo>> varToValueStack; // 变量映射栈 用于作用域嵌套管理
 
         // === 控制流管理 ===
         struct LoopContext

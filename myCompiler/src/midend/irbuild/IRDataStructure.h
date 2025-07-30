@@ -226,7 +226,16 @@ public:
     }
     virtual string toString() const = 0;
 };
-
+struct ValueInfo{
+    Value *value;             // 变量的SSA值
+    size_t SerialNumber;      // 变量的信号量(用于判断是否是新声明的变量)
+    ValueInfo() : value(nullptr), SerialNumber(0) {}                  // 默认构造函数
+    ValueInfo(Value *v, size_t s) : value(v), SerialNumber(s) {}      // 新定义的变量序号
+    void setValue(Value *v) { value = v; }                            // 设置SSA值
+    Value *getValue() const { return value; }                         // 获取SSA值
+    size_t getSerialNumber() const { return SerialNumber; }           // 获取信号量
+    void plusSerialNumber() { SerialNumber++; }                       // 信号量自增
+};
 // ===== User System Implementation =====
 class User : public Value
 {
