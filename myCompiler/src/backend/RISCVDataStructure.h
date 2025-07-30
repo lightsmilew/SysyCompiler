@@ -44,7 +44,12 @@ namespace RISCV
         MUL,
         DIV,
         REM,
-
+        ADDW,
+        ADDIW,
+        SUBW,
+        MULW,
+        DIVW,
+        REMW,
         // 逻辑指令
         AND,
         ANDI,

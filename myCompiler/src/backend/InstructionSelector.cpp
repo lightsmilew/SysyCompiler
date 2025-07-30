@@ -168,19 +168,19 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     switch (inst->Op)
     {
     case Opcode::Add:
-        opcode = RISCVOpcode::ADD;
+        opcode = RISCVOpcode::ADDW;
         break;
     case Opcode::Sub:
-        opcode = RISCVOpcode::SUB;
+        opcode = RISCVOpcode::SUBW;
         break;
     case Opcode::Mul:
-        opcode = RISCVOpcode::MUL;
+        opcode = RISCVOpcode::MULW;
         break;
     case Opcode::SDiv:
-        opcode = RISCVOpcode::DIV;
+        opcode = RISCVOpcode::DIVW;
         break;
     case Opcode::SRem:
-        opcode = RISCVOpcode::REM;
+        opcode = RISCVOpcode::REMW;
         break;
     case Opcode::FAdd:
         opcode = RISCVOpcode::FADD_S;

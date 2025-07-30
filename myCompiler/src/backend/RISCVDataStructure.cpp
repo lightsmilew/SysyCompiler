@@ -281,16 +281,28 @@ namespace RISCV
             switch (op)
             {
             case RISCVOpcode::ADD:
+                return "add";
+            case RISCVOpcode::ADDW:
                 return "addw";
             case RISCVOpcode::ADDI:
+                return "addi";
+            case RISCVOpcode::ADDIW:
                 return "addiw";
             case RISCVOpcode::SUB:
+                return "sub";
+            case RISCVOpcode::SUBW:
                 return "subw";
             case RISCVOpcode::MUL:
+                return "mul";
+            case RISCVOpcode::MULW:
                 return "mulw";
             case RISCVOpcode::DIV:
+                return "div";
+            case RISCVOpcode::DIVW:
                 return "divw";
             case RISCVOpcode::REM:
+                return "rem";
+            case RISCVOpcode::REMW:
                 return "remw";
             case RISCVOpcode::AND:
                 return "and";
