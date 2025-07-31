@@ -1655,13 +1655,13 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     auto *ptrOperand = gep->getPointerOperand();
                     auto *targetType = gep->getType(); // GEP的结果类型
                     auto *castInst = new CastInst(Opcode::BitCast, ptrOperand, targetType, gep->getName() + "_bitcast");
-                    // 在GEP指令后插入BitCast指令
+                    // 在GEP指令前面插入BitCast指令
                     it = insts.insert(it, std::unique_ptr<Instruction>(castInst));
                     gep->replaceAllUsesWith(castInst);
-                    // 删除原来的GEP指令（此时it指向castInst，gep还在castInst前面）
-                    auto gepIt = std::prev(it);
-                    needToDelete.push_back(gepIt->release());
-                    insts.erase(gepIt);
+                    ++it;
+                    // 删除原来的GEP指令（此时it指向gep，castInst在gep前面）
+                    needToDelete.push_back(it->release());
+                    it=insts.erase(it);
                     changed = true;
                     if(verbose)
                     {
@@ -1673,6 +1673,53 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                 {
                     ++it;
                 }
+            }
+            else
+            {
+                ++it; // 如果不是GEP，继续下一个指令
+            }
+        }
+    }
+    // 替换完再扫描一遍bitcast，如果类型相同直接删除,用操作数替换
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (auto *bitCast = dynamic_cast<CastInst *>(inst))
+            {
+                if (bitCast->getOpcode() == Opcode::BitCast)
+                {
+                    // 检查源类型和目标类型是否相同
+                    Type *srcType = bitCast->getOperand()->getType();
+                    Type *destType = bitCast->getType();
+                    if (destType->isTypeEqual(destType,srcType))
+                    {
+                        // 删除无效的BitCast指令
+                        bitCast->replaceAllUsesWith(bitCast->getOperand());
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
+                        changed = true;
+                        if(verbose)
+                        {
+                            debugInfo << "Removed redundant BitCast: " << bitCast->getName() << " in " << bb->getName() << "\n";
+                        }
+                    }
+                    else
+                    {
+                        ++it; // 如果不是冗余的BitCast，继续下一个指令
+                    }
+                }
+                else
+                {
+                    ++it; // 如果不是BitCast，继续下一个指令
+                }
+            }
+            else
+            {
+                ++it; // 如果不是BitCast，继续下一个指令
             }
         }
     }
