@@ -73,6 +73,8 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::FSub:
     case Opcode::FMul:
     case Opcode::FDiv:
+    case Opcode::Sll:
+    case Opcode::Sra:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
         {
             visitBinaryOp(binOp);
@@ -144,10 +146,17 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitFPToSIInst(castInst);
         }
         break;
+
     case Opcode::Copy:
         if (auto copyInst = dynamic_cast<CopyInst *>(inst))
         {
             visitCopyInst(copyInst);
+        }
+        break;
+    case Opcode::BitCast:
+        if (auto bitCastInst = dynamic_cast<CastInst *>(inst))
+        {
+            visitBitCastInst(bitCastInst);
         }
         break;
     default:
@@ -193,6 +202,12 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         break;
     case Opcode::FDiv:
         opcode = RISCVOpcode::FDIV_S;
+        break;
+    case Opcode::Sll:
+        opcode = RISCVOpcode::SLLW; // 左移
+        break;
+    case Opcode::Sra:
+        opcode = RISCVOpcode::SRAW; // 右移
         break;
     default:
         return;
@@ -262,44 +277,115 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
     auto baseAddr = getOrCreateVirtualReg(inst->getPointerOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
-    auto offsetReg = LiInt(1, true);
     auto totalOffsetReg = LiInt(0, true);
-    auto tmpReg = getTempReg(true);
-    auto strideReg = getTempReg(true);
 
     auto indices = inst->getIndices();
     auto stridePtr = inst->getArrayStride();
 
-    // 处理每个维度的索引
-    for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
+    // 检查是否所有索引除了第一个都是0
+    // 如果是，则可以直接使用第一个索引的值作为偏移量
+    bool allIndicesExceptFirstAreZero = true;
+    for (size_t i = 1; i < indices.size(); ++i)
     {
-        auto indexReg = getOrCreateVirtualReg(indices[i], false);
-
-        // totalOffset += offset * index * 4
-        auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
-        currentBB->addInstruction(mulInst);
-        auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmpReg, tmpReg, 2); // 左移2位，相当于乘以4
-        currentBB->addInstruction(shiftInst);
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
-        currentBB->addInstruction(addInst);
-
-        // offset *= stride
-        if (i == 0)
+        if (auto constInt = dynamic_cast<ConstantInt *>(indices[i]))
         {
-            // 最后一个维度的偏移量不需要乘以stride
-            break;
+            if (constInt->Value != 0)
+            {
+                allIndicesExceptFirstAreZero = false;
+                break;
+            }
         }
-
-        int stride = (*stridePtr)[i - 1];
-        if (stride != 1)
+        else
         {
-            auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
-            currentBB->addInstruction(liStrideInst);
-            auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
-            currentBB->addInstruction(mulStrideInst);
+            // 如果不是常量，无法静态判断，需运行时判断
+            allIndicesExceptFirstAreZero = false;
+            break;
         }
     }
 
+    if (allIndicesExceptFirstAreZero)
+    {
+        if (dynamic_cast<ConstantInt *>(indices[0]))
+        {
+            // 直接使用第一个索引的值乘步长乘以4作为偏移量
+            int offset = dynamic_cast<ConstantInt *>(indices[0])->Value;
+            if (offset == 0)
+            {
+                // 如果第一个索引也是0，则直接返回baseAddr
+                auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, baseAddr);
+                currentBB->addInstruction(mvInst);
+                return;
+            }
+            else
+            {
+                for (size_t i = 0; i < stridePtr->size(); ++i)
+                {
+                    if ((*stridePtr)[i] != 1)
+                    {
+                        // 如果步长不为1，则需要计算偏移量
+                        offset *= (*stridePtr)[i];
+                    }
+                }
+                offset *= 4; // 每个元素占4字节
+                auto liOffsetInst = RISCVInstruction::createPseudoLI(totalOffsetReg, offset);
+                currentBB->addInstruction(liOffsetInst);
+            }
+        }
+        else
+        {
+            // 如果第一个索引不是常量，则需要计算偏移量
+            auto indexReg = getOrCreateVirtualReg(indices[0], false);
+            int offset = 1; // 初始偏移量为1
+            for (size_t i = 0; i < stridePtr->size(); ++i)
+            {
+                if ((*stridePtr)[i] != 1)
+                {
+                    offset *= (*stridePtr)[i];
+                }
+            }
+            offset *= 4; // 每个元素占4字节
+            auto liOffsetInst = RISCVInstruction::createPseudoLI(totalOffsetReg, offset);
+            currentBB->addInstruction(liOffsetInst);
+            auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, totalOffsetReg, indexReg, totalOffsetReg);
+            currentBB->addInstruction(mulInst);
+        }
+    }
+    else
+    {
+        auto offsetReg = LiInt(1, true);
+        auto tmpReg = getTempReg(true);
+        auto strideReg = getTempReg(true);
+
+        // 处理每个维度的索引
+        for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
+        {
+            auto indexReg = getOrCreateVirtualReg(indices[i], false);
+
+            // totalOffset += offset * index * 4
+            auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, tmpReg, indexReg, offsetReg);
+            currentBB->addInstruction(mulInst);
+            auto shiftInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmpReg, tmpReg, 2); // 左移2位，相当于乘以4
+            currentBB->addInstruction(shiftInst);
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, totalOffsetReg, totalOffsetReg, tmpReg);
+            currentBB->addInstruction(addInst);
+
+            // offset *= stride
+            if (i == 0)
+            {
+                // 最后一个维度的偏移量不需要乘以stride
+                break;
+            }
+
+            int stride = (*stridePtr)[i - 1];
+            if (stride != 1)
+            {
+                auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
+                currentBB->addInstruction(liStrideInst);
+                auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
+                currentBB->addInstruction(mulStrideInst);
+            }
+        }
+    }
     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
     currentBB->addInstruction(addInst);
 }
@@ -674,6 +760,22 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     }
 
     auto moveInst = RISCVInstruction::createPseudo(moveOpcode, destReg, srcReg);
+    currentBB->addInstruction(moveInst);
+}
+
+void InstructionSelector::visitBitCastInst(CastInst *inst)
+{
+    // BitCast指令用于类型转换，但不改变数据的位模式
+    // 在RISC-V中，我们可以直接使用mv指令进行转换
+
+    // 获取源值的寄存器
+    auto srcReg = getOrCreateVirtualReg(inst->getOperand());
+
+    // 创建目标寄存器
+    auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // 生成移动指令
+    auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, srcReg);
     currentBB->addInstruction(moveInst);
 }
 

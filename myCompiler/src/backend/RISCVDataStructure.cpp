@@ -320,14 +320,20 @@ namespace RISCV
                 return "sll";
             case RISCVOpcode::SLLI:
                 return "slli";
+            case RISCVOpcode::SLLW:
+                return "sllw";
             case RISCVOpcode::SRL:
                 return "srl";
             case RISCVOpcode::SRLI:
                 return "srli";
+            case RISCVOpcode::SRLW:
+                return "srlw";
             case RISCVOpcode::SRA:
                 return "sra";
             case RISCVOpcode::SRAI:
                 return "srai";
+            case RISCVOpcode::SRAW:
+                return "sraw";
             case RISCVOpcode::SLT:
                 return "slt";
             case RISCVOpcode::SLTI:

@@ -59,10 +59,13 @@ namespace RISCV
         XORI,
         SLL,
         SLLI,
+        SLLW,
         SRL,
         SRLI,
+        SRLW,
         SRA,
         SRAI,
+        SRAW,
 
         // 比较指令
         SLT,

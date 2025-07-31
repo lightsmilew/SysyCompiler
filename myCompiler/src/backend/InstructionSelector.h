@@ -47,6 +47,7 @@ private:
     void visitSIToFPInst(CastInst *inst);
     void visitFPToSIInst(CastInst *inst);
     void visitCopyInst(CopyInst *inst);
+    void visitBitCastInst(CastInst *inst);
 
     // 获取虚拟寄存器
     shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value, bool isPhysical = true);
