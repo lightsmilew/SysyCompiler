@@ -4,7 +4,6 @@
 #include <stack>
 using namespace std;
 using namespace optimization;
-
 // ========== PassManager 实现 ==========
 void PassManager::addPass(std::unique_ptr<Pass> pass)
 {
@@ -14,6 +13,8 @@ void PassManager::addPass(std::unique_ptr<Pass> pass)
 bool PassManager::runOnModule(Module *module)
 {
     bool changed = false;
+    // 初始化循环信息
+    initializeLoops(module);
     // 先对每个 pass，依次作用于所有函数
     for (auto &pass : passes)
     {
@@ -34,6 +35,102 @@ bool PassManager::runOnModule(Module *module)
             { return func->isDeletedFunction(); }),
         module->Functions.end());
     return changed;
+}
+void PassManager::setVerbose(bool v)
+{
+    verbose = v;
+    for (auto &pass : passes)
+    {
+        pass->verbose = v;
+    }
+}
+void PassManager::initializeLoops(Module *module)
+{
+    for (auto &func : module->Functions)
+    {
+        func->setLoops(findLoops(func.get()));
+    }
+}
+// 查找所有自然循环（基于回边）
+vector<Loop> optimization::findLoops(Function *func)
+{
+    vector<Loop> loops;
+    auto &bbs = func->getBasicBlocks();
+    if (bbs.empty())
+        return loops;
+
+    // 1. DFS遍历，记录访问顺序和回边
+    std::unordered_map<BasicBlock *, int> dfn, inStack;
+    vector<BasicBlock *> order;
+    int idx = 0;
+    std::vector<std::pair<BasicBlock *, BasicBlock *>> backedges;
+    dfs(bbs[0].get(), dfn, order, idx, inStack, backedges);
+
+    // 2. 按循环头分组所有回边
+    std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> headerToBackedges;
+    for (auto &[from, to] : backedges)
+    {
+        headerToBackedges[to].push_back(from);
+    }
+
+    // 3. 对每个循环头，合并所有回边，收集完整循环体
+    for (auto &[header, backedges] : headerToBackedges)
+    {
+        std::unordered_set<BasicBlock *> loopBlocks;
+        std::stack<BasicBlock *> stk;
+        loopBlocks.insert(header);
+        for (auto *from : backedges)
+        {
+            if (loopBlocks.insert(from).second)
+                stk.push(from);
+        }
+        while (!stk.empty())
+        {
+            BasicBlock *cur = stk.top();
+            stk.pop();
+            for (auto *pred : cur->getPredecessors())
+            {
+                if (!loopBlocks.count(pred))
+                {
+                    loopBlocks.insert(pred);
+                    stk.push(pred);
+                }
+            }
+        }
+        // 关键：循环头必须有前驱在循环体外，才是真正的循环头
+        bool hasOutsidePred = false;
+        for (auto *pred : header->getPredecessors())
+        {
+            if (loopBlocks.find(pred) == loopBlocks.end())
+            {
+                hasOutsidePred = true;
+                break;
+            }
+        }
+        if (!hasOutsidePred)
+            continue; // 跳过伪循环头
+
+        // 去重
+        bool duplicate = false;
+        for (auto &l : loops)
+        {
+            std::set<BasicBlock *> s1(loopBlocks.begin(), loopBlocks.end());
+            std::set<BasicBlock *> s2(l.blocks.begin(), l.blocks.end());
+            if (l.header == header && s1 == s2)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate)
+        {
+            Loop loop;
+            loop.header = header;
+            loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
+            loops.push_back(loop);
+        }
+    }
+    return loops;
 }
 std::string PassManager::toString() const
 {
@@ -417,7 +514,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
         int count = 0;
         localChanged = false;
         // 1. 查找所有循环
-        auto loops = findLoops(func);
+        auto loops = func->getLoops();
         for (auto &loop : loops)
         {
             // 2. 找到循环的前置块（preheader）
@@ -478,14 +575,12 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 }
 bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
 {
-    // 修改这里 phi指令不外提
-    // 且操作数是phi指令也不能外提
     // copy指令不能外提，因为是由合流产生
     return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load && inst->getOpcode() != Opcode::Copy;
 }
-
-// 辅助：DFS遍历，记录访问顺序和父节点
-void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx,
+// 循环查找系统
+// DFS遍历，记录访问顺序和父节点
+void optimization::dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx,
          std::unordered_map<BasicBlock *, int> &inStack, std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges)
 {
     dfn[bb] = idx++;
@@ -504,101 +599,6 @@ void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<Basi
     }
     inStack[bb] = 0;
 }
-
-// 查找所有自然循环（基于回边）
-vector<LoopInvariantCodeMotionPass::Loop> LoopInvariantCodeMotionPass::findLoops(Function *func)
-{
-    vector<Loop> loops;
-    auto &bbs = func->getBasicBlocks();
-    if (bbs.empty())
-        return loops;
-
-    // 1. DFS遍历，记录访问顺序和回边
-    std::unordered_map<BasicBlock *, int> dfn, inStack;
-    vector<BasicBlock *> order;
-    int idx = 0;
-    std::vector<std::pair<BasicBlock *, BasicBlock *>> backedges;
-    dfs(bbs[0].get(), dfn, order, idx, inStack, backedges);
-
-    // 2. 按循环头分组所有回边
-    std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> headerToBackedges;
-    for (auto &[from, to] : backedges)
-    {
-        headerToBackedges[to].push_back(from);
-    }
-
-    // 3. 对每个循环头，合并所有回边，收集完整循环体
-    for (auto &[header, backedges] : headerToBackedges)
-    {
-        std::unordered_set<BasicBlock *> loopBlocks;
-        std::stack<BasicBlock *> stk;
-        loopBlocks.insert(header);
-        for (auto *from : backedges)
-        {
-            if (loopBlocks.insert(from).second)
-                stk.push(from);
-        }
-        while (!stk.empty())
-        {
-            BasicBlock *cur = stk.top();
-            stk.pop();
-            for (auto *pred : cur->getPredecessors())
-            {
-                if (!loopBlocks.count(pred))
-                {
-                    loopBlocks.insert(pred);
-                    stk.push(pred);
-                }
-            }
-        }
-        // 关键：循环头必须有前驱在循环体外，才是真正的循环头
-        bool hasOutsidePred = false;
-        for (auto *pred : header->getPredecessors())
-        {
-            if (loopBlocks.find(pred) == loopBlocks.end())
-            {
-                hasOutsidePred = true;
-                break;
-            }
-        }
-        if (!hasOutsidePred)
-            continue; // 跳过伪循环头
-
-        // 去重
-        bool duplicate = false;
-        for (auto &l : loops)
-        {
-            std::set<BasicBlock *> s1(loopBlocks.begin(), loopBlocks.end());
-            std::set<BasicBlock *> s2(l.blocks.begin(), l.blocks.end());
-            if (l.header == header && s1 == s2)
-            {
-                duplicate = true;
-                break;
-            }
-        }
-        if (!duplicate)
-        {
-            Loop loop;
-            loop.header = header;
-            loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
-            loops.push_back(loop);
-        }
-    }
-    // 调试输出
-    if (verbose)
-    {
-        debugInfo << "Found " << loops.size() << " loops in function " << func->getName() << ":\n";
-        for (auto &loop : loops)
-        {
-            debugInfo << "Loop Header: " << loop.header->getName() << ", Blocks: ";
-            for (auto *bb : loop.blocks)
-                debugInfo << bb->getName() << " ";
-            debugInfo << "\n";
-        }
-    }
-    return loops;
-}
-
 // 判断指令是否在循环不变
 bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop &loop)
 {
@@ -686,12 +686,14 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                 break; // 只要有内联，重新获取bbs
         }
     } while (localChanged);
+    // 更新函数的循环信息
+    caller->setLoops(findLoops(caller));
     return changed;
 }
 // 判断是否适合内联
 bool FunctionInliningPass::shouldInline(Function *callee)
 {
-
+    if (callee->isLibraryFunction() || callee->isRecursive())return false;
     // 新增：如果只有一个基本块，且所有指令都是算术运算（不含控制流/调用/副作用），也允许内联,此时不考虑指令大小
     if (callee->getBasicBlocks().size() == 1)
     {
@@ -710,8 +712,11 @@ bool FunctionInliningPass::shouldInline(Function *callee)
         if (onlyArithmetic)
             return true;
     }
+    auto size_loops= callee->getLoops().size();
+    size_loops = size_loops == 0 ? 1 : size_loops; // 避免除0
+    auto basicBlockCount = callee->getBasicBlocks().size();
     // 不内联递归/库函数/过大函数/控制流复杂
-    if (callee->isLibraryFunction() || callee->isRecursive() || callee->getInstructionCount() > 20 || callee->getBasicBlocks().size() > 5)
+    if ( callee->getInstructionCount() > 64 || basicBlockCount/size_loops > 5)
         return false;
     return true;
 }
@@ -1427,12 +1432,13 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
             {
-                if (gep->getNumOperands() < 5)
-                {
-                    // 如果GEP指令的操作数少于5个，直接跳过
-                    ++it;
-                    continue;
-                }
+                // 取消限制，可以增加循环不变量外提优化
+                // if (gep->getNumOperands() < 5)
+                // {
+                //     // 如果GEP指令的操作数少于5个，直接跳过
+                //     ++it;
+                //     continue;
+                // }
                 auto indices = gep->getIndices();
                 vector<unique_ptr<Instruction>> newgepInsts;
                 auto pointer = gep->getPointerOperand();
@@ -1615,13 +1621,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O14)
     {
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<LiveVariableAnalysisPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        //pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
-        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -1629,8 +1630,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O15)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
     else if (level == OptimizationLevel::O16)
     {

@@ -1243,6 +1243,14 @@ const vector<Argument *> Function::getPtrArguments() const
     }
     return ptrArgs;
 }
+const vector<Loop> &Function::getLoops()const
+{
+    return Loops;
+}
+void Function::setLoops(const vector<Loop> &loops)
+{
+    Loops = loops;
+}
 BasicBlock *Function::getEntryBlock()
 {
     return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();

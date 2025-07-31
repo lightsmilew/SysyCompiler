@@ -226,15 +226,16 @@ public:
     }
     virtual string toString() const = 0;
 };
-struct ValueInfo{
-    Value *value;             // 变量的SSA值
-    size_t SerialNumber;      // 变量的信号量(用于判断是否是新声明的变量)
-    ValueInfo() : value(nullptr), SerialNumber(0) {}                  // 默认构造函数
-    ValueInfo(Value *v, size_t s) : value(v), SerialNumber(s) {}      // 新定义的变量序号
-    void setValue(Value *v) { value = v; }                            // 设置SSA值
-    Value *getValue() const { return value; }                         // 获取SSA值
-    size_t getSerialNumber() const { return SerialNumber; }           // 获取信号量
-    void plusSerialNumber() { SerialNumber++; }                       // 信号量自增
+struct ValueInfo
+{
+    Value *value;                                                // 变量的SSA值
+    size_t SerialNumber;                                         // 变量的信号量(用于判断是否是新声明的变量)
+    ValueInfo() : value(nullptr), SerialNumber(0) {}             // 默认构造函数
+    ValueInfo(Value *v, size_t s) : value(v), SerialNumber(s) {} // 新定义的变量序号
+    void setValue(Value *v) { value = v; }                       // 设置SSA值
+    Value *getValue() const { return value; }                    // 获取SSA值
+    size_t getSerialNumber() const { return SerialNumber; }      // 获取信号量
+    void plusSerialNumber() { SerialNumber++; }                  // 信号量自增
 };
 // ===== User System Implementation =====
 class User : public Value
@@ -757,15 +758,29 @@ public:
 
     string toString() const override;
 };
-
+struct Loop
+{
+    BasicBlock *header;
+    // blocks是循环体内的所有基本块
+    // exits是循环的出口基本块（可能有多个）
+    vector<BasicBlock *> blocks;
+    vector<BasicBlock *> exits;
+    bool contains(Instruction *inst) const
+    {
+        return std::any_of(blocks.begin(), blocks.end(),
+                           [&](BasicBlock *bb)
+                           { return bb->containsByName(inst); });
+    }
+};
 // ===== Function =====
 class Function : public Value
 {
 public:
     vector<unique_ptr<BasicBlock>> BasicBlocks;
     vector<unique_ptr<Argument>> Arguments;
+    vector<Loop> Loops;                                 // 循环信息
     Module *Parent;
-    bool isDeleted = false; // 标记函数是否被删除
+    bool isDeleted = false;                             // 标记函数是否被删除
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
         : Value(funcTy, name), Parent(parent), isDeleted(false) {}
 
@@ -778,6 +793,8 @@ public:
     const vector<Argument *> getIntArguments() const;           // 获取int类型参数
     const vector<Argument *> getFloatArguments() const;         // 获取float类型参数
     const vector<Argument *> getPtrArguments() const;           // 获取指针类型参数
+    const vector<Loop> &getLoops() const;                       // 获取循环信息
+    void setLoops(const vector<Loop> &loops);                   // 设置循环信息
     FunctionType *getFunctionType();                            // 获取函数类型
     unsigned getInstructionCount() const;                       // 获取指令数量
     bool isLibraryFunction() const;                             // 是否为库函数
@@ -785,7 +802,7 @@ public:
     void setDeleted(bool deleted);                              // 设置函数是否被删除
     bool isDeletedFunction() const;                             // 获取函数是否被删除
     bool shouldBeOutput() const;                                // 是否应该输出到IR文件
-    vector<size_t>getIndexOfNotUsedArguments() const;           // 获取未使用参数的索引
+    vector<size_t> getIndexOfNotUsedArguments() const;          // 获取未使用参数的索引
     string toString() const override;
 };
 

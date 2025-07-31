@@ -11,6 +11,11 @@
 namespace optimization
 {
 
+    void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn,
+             vector<BasicBlock *> &order, int &idx,
+             std::unordered_map<BasicBlock *, int> &inStack,
+             std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges);
+    vector<Loop> findLoops(Function *func);
     // 优化Pass的基类
     class Pass
     {
@@ -37,14 +42,9 @@ namespace optimization
         PassManager(bool verbose = false) : verbose(verbose) {}
         void addPass(std::unique_ptr<Pass> pass);
         bool runOnModule(Module *module);
-        void setVerbose(bool v)
-        {
-            verbose = v;
-            for (auto &pass : passes)
-            {
-                pass->verbose = v;
-            }
-        }
+        void setVerbose(bool v); // 设置是否启用详细输出
+        // 循环信息模块
+        void initializeLoops(Module *module);
         // 输出调试信息
         std::string toString() const;
     };
@@ -65,27 +65,29 @@ namespace optimization
     // 2. 公共子表达式消除Pass
     class CommonSubexpressionEliminationPass : public Pass
     {
-    using ExprKey = std::pair<std::string, std::vector<std::string>>;
+        using ExprKey = std::pair<std::string, std::vector<std::string>>;
+
     private:
         struct ExpressionHash
         {
             std::size_t operator()(const ExprKey &expr) const;
         };
 
-    std::unordered_map<ExprKey, std::pair<Instruction*, BasicBlock*>, ExpressionHash> exprMap;
-    std::unordered_map<BasicBlock*, std::unordered_set<BasicBlock*>> dom;
+        std::unordered_map<ExprKey, std::pair<Instruction *, BasicBlock *>, ExpressionHash> exprMap;
+        std::unordered_map<BasicBlock *, std::unordered_set<BasicBlock *>> dom;
+
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "CommonSubexpressionElimination"; }
 
     private:
-        std::unordered_map<BasicBlock*, BasicBlock*> idom;
+        std::unordered_map<BasicBlock *, BasicBlock *> idom;
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
-        bool canBeCommonSubexpression(Instruction *inst,BasicBlock *bb);
-        bool CanLoadCSE(Instruction *inst,BasicBlock *bb);
+        bool canBeCommonSubexpression(Instruction *inst, BasicBlock *bb);
+        bool CanLoadCSE(Instruction *inst, BasicBlock *bb);
         bool dominates(BasicBlock *dom, BasicBlock *node);
-        std::unordered_map<BasicBlock*, BasicBlock*>computeIDom_LengauerTarjan(Function* func);
+        std::unordered_map<BasicBlock *, BasicBlock *> computeIDom_LengauerTarjan(Function *func);
         // 检查Load指令的地址是否只被唯一Store且无其他写
     };
 
@@ -98,26 +100,12 @@ namespace optimization
         string getName() const override { return "LoopInvariantCodeMotion"; }
 
     private:
-        struct Loop
-        {
-            BasicBlock *header;
-            // blocks是循环体内的所有基本块
-            // exits是循环的出口基本块（可能有多个）
-            vector<BasicBlock *> blocks;
-            vector<BasicBlock *> exits;
-            bool contains(Instruction *inst) const
-            {
-                return std::any_of(blocks.begin(), blocks.end(),
-                                   [&](BasicBlock *bb)
-                                   { return bb->containsByName(inst); });
-            }
-        };
-        vector<Loop> findLoops(Function *func);
         bool isLoopInvariant(Instruction *inst, const Loop &loop);
         bool canMoveToPreheader(Instruction *inst);
         BasicBlock *findPreheader(const Loop &loop);
     };
     // 4. 函数内联 Pass（将函数调用替换为函数体）
+    // 内联之后要更新循环块信息
     class FunctionInliningPass : public Pass
     {
     public:
@@ -130,7 +118,7 @@ namespace optimization
         int inlineCount = 0;
         bool shouldInline(Function *callee);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
-        //debug
+        // debug
         void verifyCFG(Function *func);
     };
     // 5. 常量折叠 Pass（将常量表达式计算为常量值）函数内联时会产生常量二元表达式
@@ -154,7 +142,7 @@ namespace optimization
     // 含义：在进入该基本块时，哪些变量是“活跃”的。
     // 解释：这些变量在该基本块及其后继中会被使用，但在本基本块内还没有被重新定义。
     // 用途：进入基本块前，这些变量的值必须是有效的（不能被覆盖或丢弃）。
-    // liveOut 
+    // liveOut
     // 含义：在离开该基本块时，哪些变量是“活跃”的。
     // 解释：这些变量在该基本块的后继基本块中会被使用。
     // 用途：离开基本块时，这些变量的值必须被保留，以便后继块使用。
