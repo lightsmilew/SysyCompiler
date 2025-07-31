@@ -1441,7 +1441,6 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
                 int size = indices.size() - gep->num_addedzero;
                 for (int i = 0; i < size; i++)
                 {
-                    // 先全部展开
                     auto newgep = std::make_unique<GetElementPtrInst>(pointer, vector<Value *>{indices[i]}, basename + "_gep" + std::to_string(i));
                     newgepInsts.push_back(std::move(newgep));
                     // 更新指针操作数
@@ -1470,48 +1469,6 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
             }
         }
     }
-    // // 展开后再扫描一遍，查看是否有多余的GEP指令（比如indices全为0的情况）
-    // for (auto &bbPtr : func->getBasicBlocks())
-    // {
-    //     BasicBlock *bb = bbPtr.get();
-    //     auto &insts = bb->getInstructions();
-    //     for (auto it = insts.begin(); it != insts.end();)
-    //     {
-    //         Instruction *inst = it->get();
-    //         if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
-    //         {
-    //             // 检查是否所有索引都是0
-    //             bool allZero = true;
-    //             for (auto *index : gep->getIndices())
-    //             {
-    //                 if (auto *constInt = dynamic_cast<ConstantInt *>(index))
-    //                 {
-    //                     if (constInt->Value != 0)
-    //                     {
-    //                         allZero = false;
-    //                         break;
-    //                     }
-    //                 }
-    //                 else
-    //                 {
-    //                     allZero = false;
-    //                 }
-    //             }
-    //             if (allZero)
-    //             {
-    //                 // 如果所有索引都是0，直接替换为指针操作数
-    //                 gep->replaceAllUsesWith(gep->getPointerOperand());
-    //                 needToDelete.push_back(gep);
-    //                 it = insts.erase(it);
-    //                 changed = true;
-    //             }
-    //             else
-    //             {
-    //                 ++it;
-    //             }
-    //         }
-    //     }
-    // }
     return changed;
 }
 bool AddChainReductionPass::runOnFunction(Function *func)
@@ -1700,7 +1657,6 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     auto *castInst = new CastInst(Opcode::BitCast, ptrOperand, targetType, gep->getName() + "_bitcast");
                     // 在GEP指令后插入BitCast指令
                     it = insts.insert(it, std::unique_ptr<Instruction>(castInst));
-                    ++it; // 跳过新插入的cast
                     gep->replaceAllUsesWith(castInst);
                     // 删除原来的GEP指令（此时it指向castInst，gep还在castInst前面）
                     auto gepIt = std::prev(it);
