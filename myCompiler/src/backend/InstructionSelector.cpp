@@ -318,12 +318,15 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             }
             else
             {
-                for (size_t i = 0; i < stridePtr->size(); ++i)
+                if (stridePtr)
                 {
-                    if ((*stridePtr)[i] != 1)
+                    for (size_t i = 0; i < stridePtr->size(); ++i)
                     {
-                        // 如果步长不为1，则需要计算偏移量
-                        offset *= (*stridePtr)[i];
+                        if ((*stridePtr)[i] != 1)
+                        {
+                            // 如果步长不为1，则需要计算偏移量
+                            offset *= (*stridePtr)[i];
+                        }
                     }
                 }
                 offset *= 4; // 每个元素占4字节
@@ -336,13 +339,17 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             // 如果第一个索引不是常量，则需要计算偏移量
             auto indexReg = getOrCreateVirtualReg(indices[0], false);
             int offset = 1; // 初始偏移量为1
-            for (size_t i = 0; i < stridePtr->size(); ++i)
+            if (stridePtr)
             {
-                if ((*stridePtr)[i] != 1)
+                for (size_t i = 0; i < stridePtr->size(); ++i)
                 {
-                    offset *= (*stridePtr)[i];
+                    if ((*stridePtr)[i] != 1)
+                    {
+                        offset *= (*stridePtr)[i];
+                    }
                 }
             }
+
             offset *= 4; // 每个元素占4字节
             auto liOffsetInst = RISCVInstruction::createPseudoLI(totalOffsetReg, offset);
             currentBB->addInstruction(liOffsetInst);
