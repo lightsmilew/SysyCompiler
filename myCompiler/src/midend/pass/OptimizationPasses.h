@@ -172,6 +172,22 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "AddChainReduction"; }
     };
+    // 10.强度削弱
+    class StrengthReductionPass : public Pass
+    {
+    public:
+        StrengthReductionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "StrengthReduction"; }
+    };
+    // 11.替换无用的gep指令为bitcast
+    class GEPToBitCastPass : public Pass
+    {
+    public:
+        GEPToBitCastPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "GEPToBitCast"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

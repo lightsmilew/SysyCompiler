@@ -581,7 +581,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
 void optimization::dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx,
-         std::unordered_map<BasicBlock *, int> &inStack, std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges)
+                       std::unordered_map<BasicBlock *, int> &inStack, std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges)
 {
     dfn[bb] = idx++;
     inStack[bb] = 1;
@@ -693,7 +693,8 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
 // 判断是否适合内联
 bool FunctionInliningPass::shouldInline(Function *callee)
 {
-    if (callee->isLibraryFunction() || callee->isRecursive())return false;
+    if (callee->isLibraryFunction() || callee->isRecursive())
+        return false;
     // 新增：如果只有一个基本块，且所有指令都是算术运算（不含控制流/调用/副作用），也允许内联,此时不考虑指令大小
     if (callee->getBasicBlocks().size() == 1)
     {
@@ -712,11 +713,11 @@ bool FunctionInliningPass::shouldInline(Function *callee)
         if (onlyArithmetic)
             return true;
     }
-    auto size_loops= callee->getLoops().size();
+    auto size_loops = callee->getLoops().size();
     size_loops = size_loops == 0 ? 1 : size_loops; // 避免除0
     auto basicBlockCount = callee->getBasicBlocks().size();
     // 不内联递归/库函数/过大函数/控制流复杂
-    if ( callee->getInstructionCount() > 64 || basicBlockCount/size_loops > 5)
+    if (callee->getInstructionCount() > 64 || basicBlockCount / size_loops > 5)
         return false;
     return true;
 }
@@ -1433,12 +1434,6 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
             if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
             {
                 // 取消限制，可以增加循环不变量外提优化
-                // if (gep->getNumOperands() < 5)
-                // {
-                //     // 如果GEP指令的操作数少于5个，直接跳过
-                //     ++it;
-                //     continue;
-                // }
                 auto indices = gep->getIndices();
                 vector<unique_ptr<Instruction>> newgepInsts;
                 auto pointer = gep->getPointerOperand();
@@ -1446,6 +1441,7 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
                 int size = indices.size() - gep->num_addedzero;
                 for (int i = 0; i < size; i++)
                 {
+                    // 先全部展开
                     auto newgep = std::make_unique<GetElementPtrInst>(pointer, vector<Value *>{indices[i]}, basename + "_gep" + std::to_string(i));
                     newgepInsts.push_back(std::move(newgep));
                     // 更新指针操作数
@@ -1474,6 +1470,48 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
             }
         }
     }
+    // // 展开后再扫描一遍，查看是否有多余的GEP指令（比如indices全为0的情况）
+    // for (auto &bbPtr : func->getBasicBlocks())
+    // {
+    //     BasicBlock *bb = bbPtr.get();
+    //     auto &insts = bb->getInstructions();
+    //     for (auto it = insts.begin(); it != insts.end();)
+    //     {
+    //         Instruction *inst = it->get();
+    //         if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
+    //         {
+    //             // 检查是否所有索引都是0
+    //             bool allZero = true;
+    //             for (auto *index : gep->getIndices())
+    //             {
+    //                 if (auto *constInt = dynamic_cast<ConstantInt *>(index))
+    //                 {
+    //                     if (constInt->Value != 0)
+    //                     {
+    //                         allZero = false;
+    //                         break;
+    //                     }
+    //                 }
+    //                 else
+    //                 {
+    //                     allZero = false;
+    //                 }
+    //             }
+    //             if (allZero)
+    //             {
+    //                 // 如果所有索引都是0，直接替换为指针操作数
+    //                 gep->replaceAllUsesWith(gep->getPointerOperand());
+    //                 needToDelete.push_back(gep);
+    //                 it = insts.erase(it);
+    //                 changed = true;
+    //             }
+    //             else
+    //             {
+    //                 ++it;
+    //             }
+    //         }
+    //     }
+    // }
     return changed;
 }
 bool AddChainReductionPass::runOnFunction(Function *func)
@@ -1542,6 +1580,142 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+    return changed;
+}
+bool StrengthReductionPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        // 用下标逆序遍历，避免迭代器失效
+        for (int i = insts.size() - 1; i >= 0; --i)
+        {
+            Instruction *inst = insts[i].get();
+            if (inst && inst->getOpcode() == Opcode::Mul)
+            {
+                Value *lhs = inst->getOperands()[0];
+                Value *rhs = inst->getOperands()[1];
+                if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
+                {
+                    if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
+                    {
+                        // 2的幂，直接左移
+                        int shift = 0;
+                        int val = constInt->Value;
+                        while (val > 1)
+                        {
+                            val >>= 1;
+                            shift++;
+                        }
+                        // 替换为左移操作
+                        auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        inst->replaceAllUsesWith(shlInst);
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
+                        changed = true;
+                        if( verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced Mul with Sll for " << constInt->Value
+                                      << " in " << bb->getName() << "\n";
+                        }
+                    }
+                }
+            }
+            else if (inst && inst->getOpcode() == Opcode::SDiv)
+            {
+                Value *lhs = inst->getOperands()[0];
+                Value *rhs = inst->getOperands()[1];
+                if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
+                {
+                    if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
+                    {
+                        // 2的幂，直接算数右移
+                        int shift = 0;
+                        int val = constInt->Value;
+                        while (val > 1)
+                        {
+                            val >>= 1;
+                            shift++;
+                        }
+                        // 替换为右移操作
+                        auto *shlInst = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        inst->replaceAllUsesWith(shlInst);
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
+                        changed = true;
+                        if(verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced SDiv with Sra for " << constInt->Value
+                                      << " in " << bb->getName() << "\n";
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return changed;
+}
+bool GEPToBitCastPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    // gep展开经过公共子表达式消除后可以强度削弱->查看是否有多余的GEP指令（比如indices全为0的情况）
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
+            {
+                // 检查是否所有索引都是0
+                bool allZero = true;
+                for (auto *index : gep->getIndices())
+                {
+                    if (auto *constInt = dynamic_cast<ConstantInt *>(index))
+                    {
+                        if (constInt->Value != 0)
+                        {
+                            allZero = false;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        allZero = false;
+                    }
+                }
+                if (allZero)
+                {
+                    // 类型转换：插入BitCast指令
+                    auto *ptrOperand = gep->getPointerOperand();
+                    auto *targetType = gep->getType(); // GEP的结果类型
+                    auto *castInst = new CastInst(Opcode::BitCast, ptrOperand, targetType, gep->getName() + "_bitcast");
+                    // 在GEP指令后插入BitCast指令
+                    it = insts.insert(it, std::unique_ptr<Instruction>(castInst));
+                    ++it; // 跳过新插入的cast
+                    gep->replaceAllUsesWith(castInst);
+                    // 删除原来的GEP指令（此时it指向castInst，gep还在castInst前面）
+                    auto gepIt = std::prev(it);
+                    needToDelete.push_back(gepIt->release());
+                    insts.erase(gepIt);
+                    changed = true;
+                    if(verbose)
+                    {
+                        debugInfo << "GEP to BitCast: Replaced GEP " << gep->getName() << " with BitCast in "
+                                  << bb->getName() << "\n";
+                    }
+                }
+                else
+                {
+                    ++it;
                 }
             }
         }
@@ -1632,6 +1806,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -1643,10 +1818,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
+        pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
     }
     return pm;
 }
