@@ -374,6 +374,9 @@ enum class Opcode
     Mul,
     SDiv,
     SRem,
+    //左移右移(算数左移右移)
+    Sll,
+    Sra,
     FAdd,
     FSub,
     FMul,
@@ -392,7 +395,7 @@ enum class Opcode
     // 类型转换符
     SIToFP, // signed int (i32) to float
     FPToSI, // float to signed int (i32)
-
+    BitCast,// 指针类型转换
     // 其他操作
     Call,
     Phi,

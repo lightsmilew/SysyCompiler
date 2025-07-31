@@ -293,6 +293,10 @@ string Instruction::getOpcodeName() const
         return "sdiv";
     case Opcode::SRem:
         return "srem";
+    case Opcode::Sll:
+        return "sll";   
+    case Opcode::Sra:
+        return "sra";
     case Opcode::FAdd:
         return "fadd";
     case Opcode::FSub:
@@ -495,6 +499,12 @@ std::string BinaryOperator::toString() const
         break;
     case Opcode::SRem:
         opStr = "srem";
+        break;
+    case Opcode::Sll:
+        opStr = "sll";
+        break;
+    case Opcode::Sra:
+        opStr = "sra";
         break;
     case Opcode::FAdd:
         opStr = "fadd";
@@ -1046,6 +1056,9 @@ std::string CastInst::toString() const
         break;
     case Opcode::FPToSI:
         opStr = "fptosi";
+        break;
+    case Opcode::BitCast:
+        opStr = "bitcast";
         break;
     default:
         opStr = "cast";
