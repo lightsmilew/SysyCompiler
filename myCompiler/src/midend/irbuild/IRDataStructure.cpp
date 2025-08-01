@@ -1,6 +1,13 @@
 #include "IRDataStructure.h"
 #include <sstream>
 #include <algorithm>
+#include <regex>
+// 辅助函数：去除 _inl\d+ 后缀
+std::string normalizeName(const std::string &name) 
+{
+    static std::regex inl_regex("(_inl\\d+)");
+    return std::regex_replace(name, inl_regex, "");
+}
 size_t ArrayType::getArrayLength() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))

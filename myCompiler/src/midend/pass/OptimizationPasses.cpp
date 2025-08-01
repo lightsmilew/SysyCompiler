@@ -2,7 +2,7 @@
 #include "Lengauer-Tarjan.h"
 #include <iostream>
 #include <stack>
-#include <regex>
+
 using namespace std;
 using namespace optimization;
 // ========== PassManager 实现 ==========
@@ -342,11 +342,45 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     //  load特判
                     //  如果查到的load在本load之前的块则跳过(load仅支持同基本块消除)
                     //  或者如果操作数有load指令，则不消除
-                    if (inst->getOpcode() == Opcode::Load && defBB != bb.get())
+                    if (inst->getOpcode() == Opcode::Load )
                     {
+                        if(defBB!= bb.get())
+                        {
+                            // 如果不是同一个基本块，则跳过
+                            ++it;
+                            continue;
+                        }
+                        //否则判断中间是否有store指令进行修改
+                        if (!CanLoadCSE(inst, found->second.first, bb.get()))
+                        {
+                            // 如果不能消除，则更新exprMap
+                            exprMap[key] = {inst, bb.get()};
+                            ++it;
+                            continue;
+                        }
+                    }
+                    // 判断表达式操作数是否有load，如果有load，且defBB!=bb，则不消除
+                    // 此时表示该load指令的地址有可能被跨块修改，保守起见不进行消除
+                    bool hasCrossBBLoad = false;
+                    for (auto *op : inst->getOperands())
+                    {
+                        if (auto *loadInst = dynamic_cast<LoadInst *>(op))
+                        {
+                            if (defBB != bb.get())
+                            {
+                                hasCrossBBLoad = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasCrossBBLoad)
+                    {
+                        // 不过可以更新exprMap，为后续可能的消除做准备
+                        exprMap[key] = {inst, bb.get()};
                         ++it;
                         continue;
                     }
+                    // 进入消除过程
                     if (defBB == bb.get() || dominates(defBB, bb.get()))
                     {
                         inst->replaceAllUsesWith(found->second.first);
@@ -390,7 +424,7 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
             }
             else
             {
-                // ops.push_back("var:" + normalizeName(op->getName()));
+                 //ops.push_back("var:" + normalizeName(op->getName()));
                 ops.push_back("var:" + op->getName());
             }
         }
@@ -408,25 +442,20 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
         }
         else
         {
-            // ops.push_back("var:" + normalizeName(op->getName()));
+             //ops.push_back("var:" + normalizeName(op->getName()));
             ops.push_back("var:" + op->getName());
         }
     }
     return {inst->getOpcodeName(), ops};
 }
-// 辅助函数：去除 _inl\d+ 后缀
-std::string CommonSubexpressionEliminationPass::normalizeName(const std::string &name) const
-{
-    static std::regex inl_regex("(_inl\\d+)");
-    return std::regex_replace(name, inl_regex, "");
-}
+
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
 {
-    if (inst->getOpcode() == Opcode::Load)
-    {
-        return CanLoadCSE(inst, bb);
-    }
+    // if (inst->getOpcode() == Opcode::Load)
+    // {
+    //     return CanLoadCSE(inst, bb);
+    // }
     // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
     for (auto *v : inst->getOperands())
     {
@@ -434,15 +463,9 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
         {
             return false;
         }
-        // 操作数是load也需要特殊处理
-        // if (auto loadInst = dynamic_cast<LoadInst *>(v))
-        // {
-        //     if (!CanLoadCSE(loadInst, bb))
-        //         return false;
-        // }
     }
-    // 只处理无副作用的二元运算和getelementptr,不包括Store Call Ret Br
-    return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr) && !inst->mayHaveSideEffects();
+    // 只处理无副作用的二元运算和getelementptr以及load,不包括Store Call Ret Br
+    return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr||inst->getOpcode()==Opcode::Load);
 }
 // 返回每个BB的直接支配者
 std::unordered_map<BasicBlock *, BasicBlock *>
@@ -515,34 +538,39 @@ bool CommonSubexpressionEliminationPass::dominates(BasicBlock *dom, BasicBlock *
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
 // load需要支持，只做基本块内替换，如果第一个load后面没有store则可以替换，替换后更新哈希表load的指令
-bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, BasicBlock *bb)
+bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst,Instruction *map_inst,BasicBlock *bb)
 {
     // 只允许同一基本块内的load做CSE，且store和load之间没有其他store
     auto *loadInst = dynamic_cast<LoadInst *>(inst);
-    if (!loadInst)
+    auto *mapLoadInst = dynamic_cast<LoadInst *>(map_inst);
+    if (!loadInst|| !mapLoadInst)
         return false;
-    Value *addr = loadInst->getPointer();
+    Value *addr = loadInst->getOriginalPointer();
     if (!addr)
         return false;
-
-    int loadPos = bb->getInstructionOrder(inst);
-    int lastStorePos = -1;
-    int storeCount = 0;
+    //std::string addrName =normalizeName(addr->getName());
+    int pos1 = bb->getInstructionOrder(map_inst);
+    int pos2 = bb->getInstructionOrder(inst);
+    if (pos1 == -1 || pos2 == -1 || pos1 >= pos2)
+        return false; // map_inst必须在inst之前
     auto &insts = bb->getInstructions();
-    for (size_t i = 0; i < insts.size(); ++i)
+    // 检查load之前是否有store，load之后不能有store
+    for (int i = pos1 + 1; i < pos2; ++i)
     {
         if (auto *store = dynamic_cast<StoreInst *>(insts[i].get()))
         {
-            if (store->getPointer() == addr)
+            // if (normalizeName(store->getOriginalPointer()->getName()) == addrName)
+            // {
+            //     return false; // 两条load之间有store，不能CSE
+            // }
+            if(store->getOriginalPointer() == addr)
             {
-                storeCount++;
-                lastStorePos = i;
+                return false; // 两条load之间有store，不能CSE
             }
         }
     }
-    // 如果条件不满足要更新map用于下一次load CSE判断
-    // 只允许唯一一次store，且store在load之前
-    return storeCount == 1 && lastStorePos < loadPos;
+    // 没有store，可以CSE
+    return true;
 }
 
 // 哈希函数，用于表达式键的哈希表

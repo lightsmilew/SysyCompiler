@@ -15,7 +15,7 @@ class Function;
 class Module;
 class User;
 class ArrayType;
-
+std::string normalizeName(const std::string &name); // 归一化处理变量名，内联后变量名只有后缀不同的算作同一变量
 // ===== Type System Implementation =====
 class Type
 {
