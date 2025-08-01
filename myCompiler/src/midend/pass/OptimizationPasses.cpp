@@ -26,8 +26,8 @@ bool PassManager::runOnModule(Module *module)
                 changed |= pass->runOnFunction(func.get());
             }
         }
-        //如果是函数内联pass，则在内联后删除内联的函数
-        if(dynamic_cast<FunctionInliningPass *>(pass.get()))
+        // 如果是函数内联pass，则在内联后删除内联的函数
+        if (dynamic_cast<FunctionInliningPass *>(pass.get()))
         {
             module->Functions.erase(
                 std::remove_if(
@@ -61,7 +61,7 @@ void PassManager::initializeLoops(Module *module)
 {
     for (auto &func : module->Functions)
     {
-        if(func->isLibraryFunction())
+        if (func->isLibraryFunction())
             continue; // 跳过库函数
         func->setLoops(findLoops(func.get()));
         if (verbose)
@@ -341,6 +341,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     BasicBlock *defBB = found->second.second;
                     //  load特判
                     //  如果查到的load在本load之前的块则跳过(load仅支持同基本块消除)
+                    //  或者如果操作数有load指令，则不消除
                     if (inst->getOpcode() == Opcode::Load && defBB != bb.get())
                     {
                         ++it;
@@ -389,8 +390,8 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
             }
             else
             {
-                //ops.push_back("var:" + normalizeName(op->getName()));
-               ops.push_back("var:" + op->getName());
+                // ops.push_back("var:" + normalizeName(op->getName()));
+                ops.push_back("var:" + op->getName());
             }
         }
         return {inst->getOpcodeName(), ops};
@@ -407,14 +408,14 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
         }
         else
         {
-            //ops.push_back("var:" + normalizeName(op->getName()));
+            // ops.push_back("var:" + normalizeName(op->getName()));
             ops.push_back("var:" + op->getName());
         }
     }
     return {inst->getOpcodeName(), ops};
 }
 // 辅助函数：去除 _inl\d+ 后缀
-std::string CommonSubexpressionEliminationPass::normalizeName(const std::string &name)const
+std::string CommonSubexpressionEliminationPass::normalizeName(const std::string &name) const
 {
     static std::regex inl_regex("(_inl\\d+)");
     return std::regex_replace(name, inl_regex, "");
@@ -433,6 +434,12 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
         {
             return false;
         }
+        // 操作数是load也需要特殊处理
+        // if (auto loadInst = dynamic_cast<LoadInst *>(v))
+        // {
+        //     if (!CanLoadCSE(loadInst, bb))
+        //         return false;
+        // }
     }
     // 只处理无副作用的二元运算和getelementptr,不包括Store Call Ret Br
     return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr) && !inst->mayHaveSideEffects();
@@ -678,7 +685,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     }
     // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
-    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy  && inst->getOpcode() != Opcode::Phi;
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;
 }
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
@@ -1940,7 +1947,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
         // 循环不变量外提必须要在phi消除后进行才能效果好(可以在后面再进行一轮公共子表达式消除多余load）
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
