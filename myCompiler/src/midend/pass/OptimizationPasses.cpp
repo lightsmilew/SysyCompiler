@@ -2,6 +2,7 @@
 #include "Lengauer-Tarjan.h"
 #include <iostream>
 #include <stack>
+#include <regex>
 using namespace std;
 using namespace optimization;
 // ========== PassManager 实现 ==========
@@ -388,27 +389,35 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
             }
             else
             {
-                ops.push_back("var:" + op->getName());
+               // ops.push_back("var:" + normalizeName(op->getName()));
+               ops.push_back("var:" + op->getName());
             }
         }
         return {inst->getOpcodeName(), ops};
     }
-    for (auto *v : inst->getOperands())
+    for (auto *op : inst->getOperands())
     {
-        if (auto *ci = dynamic_cast<ConstantInt *>(v))
+        if (auto *ci = dynamic_cast<ConstantInt *>(op))
         {
             ops.push_back("int:" + std::to_string(ci->Value));
         }
-        else if (auto *cf = dynamic_cast<ConstantFloat *>(v))
+        else if (auto *cf = dynamic_cast<ConstantFloat *>(op))
         {
             ops.push_back("float:" + std::to_string(cf->Value));
         }
         else
         {
-            ops.push_back("var:" + v->getName());
+            //ops.push_back("var:" + normalizeName(op->getName()));
+            ops.push_back("var:" + op->getName());
         }
     }
     return {inst->getOpcodeName(), ops};
+}
+// 辅助函数：去除 _inl\d+ 后缀
+std::string CommonSubexpressionEliminationPass::normalizeName(const std::string &name)const
+{
+    static std::regex inl_regex("(_inl\\d+)");
+    return std::regex_replace(name, inl_regex, "");
 }
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
@@ -667,9 +676,9 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
         // 否则可以外提
         return true;
     }
-    // 增加对phi指令的特殊处理
+    // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
-    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Load && inst->getOpcode() != Opcode::Phi;
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy  && inst->getOpcode() != Opcode::Phi;
 }
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
@@ -1931,7 +1940,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        // phi指令限制了循环不变量外提，所以必须先消除phi指令
+        // 循环不变量外提必须要在phi消除后进行才能效果好(可以在后面再进行一轮公共子表达式消除多余load）
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));

@@ -1169,7 +1169,8 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     std::vector<size_t> dims = arrayType->getArrayIndices();
     Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
     flattenInitList(node, flat_inits, dims, 0);
-
+    // 判断是否全部为0或者空指针,如果是则返回空指针用于优化{0}成{}；
+    
     // 2. 递归构造 ConstantArray
     size_t flat_idx = 0;
     std::function<Constant *(ArrayType *, int)> buildArray = [&](ArrayType *arrTy, int dim) -> Constant *

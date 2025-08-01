@@ -88,6 +88,7 @@ namespace optimization
         bool canBeCommonSubexpression(Instruction *inst, BasicBlock *bb);
         bool CanLoadCSE(Instruction *inst, BasicBlock *bb);
         bool dominates(BasicBlock *dom, BasicBlock *node);
+        std::string normalizeName(const std::string &name)const;//归一化处理变量名，内联后变量名只有后缀不同的算作同一变量
         std::unordered_map<BasicBlock *, BasicBlock *> computeIDom_LengauerTarjan(Function *func);
         // 检查Load指令的地址是否只被唯一Store且无其他写
     };
