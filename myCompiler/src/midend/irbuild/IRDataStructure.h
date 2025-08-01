@@ -9,13 +9,17 @@
 #include <limits>
 using namespace ast;
 
-// 前向声明
+// ===== Forward Declarations =====
 class BasicBlock;
 class Function;
 class Module;
 class User;
 class ArrayType;
-std::string normalizeName(const std::string &name); // 归一化处理变量名，内联后变量名只有后缀不同的算作同一变量
+class Value;
+
+// ===== Address Comparison =====
+std::string normalizeName(const std::string &name); // 归一化处理变量名
+bool isSameAddr(Value *a,Value *b);
 // ===== Type System Implementation =====
 class Type
 {

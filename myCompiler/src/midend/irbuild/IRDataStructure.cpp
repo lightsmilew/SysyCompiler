@@ -8,6 +8,11 @@ std::string normalizeName(const std::string &name)
     static std::regex inl_regex("(_inl\\d+)");
     return std::regex_replace(name, inl_regex, "");
 }
+//根据归一化后的名称判断两个指针是否有可能指向同一个地址
+bool isSameAddr(Value *a,Value *b)
+{
+   return normalizeName(a->getName()) == normalizeName(b->getName());
+}
 size_t ArrayType::getArrayLength() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
@@ -837,7 +842,7 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
                 break;
             }
         }
-        if (origin == value)
+        if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
             if (funcName == "getarray" || funcName == "getfarray")
@@ -845,8 +850,6 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
             // 检查该函数是否修改了对应位置的形参
             if (IsModifyingGlobalVar(func->getArgumentByIndex(i)))
             {     
-                // std::cout<< "CallInst::IsModifyingGlobalVar: Function " << func->getName()
-                //           << " modifies global variable " << value->toRef() <<" in arg:"<<origin->toRef() << std::endl;
                 return true;
             }
         }
@@ -859,7 +862,7 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
             if (auto storeInst = dynamic_cast<StoreInst *>(inst))
             {
                 auto storeOriginalPointer = storeInst->getOriginalPointer();
-                if (storeOriginalPointer == value)
+                if (isSameAddr(storeOriginalPointer,value))
                 {
                     return true; // 找到修改该全局变量的store指令
                 }

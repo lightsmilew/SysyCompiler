@@ -339,6 +339,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                 {
                     // 只有原表达式所在基本块支配当前基本块时才可消除
                     BasicBlock *defBB = found->second.second;
+                    Instruction *defInst = found->second.first;
                     //  load特判
                     //  如果查到的load在本load之前的块则跳过(load仅支持同基本块消除)
                     //  或者如果操作数有load指令，则不消除
@@ -361,19 +362,46 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     }
                     // 判断表达式操作数是否有load，如果有load，且defBB!=bb，则不消除
                     // 此时表示该load指令的地址有可能被跨块修改，保守起见不进行消除
-                    bool hasCrossBBLoad = false;
+                    bool CanNotCSEWithLoadOperand = false;
                     for (auto *op : inst->getOperands())
                     {
                         if (auto *loadInst = dynamic_cast<LoadInst *>(op))
                         {
                             if (defBB != bb.get())
                             {
-                                hasCrossBBLoad = true;
+                                CanNotCSEWithLoadOperand = true;
                                 break;
+                            }
+                            else
+                            {
+
+                                //判断是否有store对该地址进行修改
+                                Value *addr = loadInst->getOriginalPointer();
+                                int pos1=bb->getInstructionOrder(defInst);
+                                int pos2=bb->getInstructionOrder(inst);
+                                // 检查两条指令之间是否有store指令修改了地址
+                                if(pos1>pos2)
+                                {
+                                    // 如果defInst在inst之后，则不消除
+                                    CanNotCSEWithLoadOperand = true;
+                                    break;
+                                }
+                                auto &insts= bb->getInstructions();
+                                for(int i=pos1+1;i<pos2;i++)
+                                {
+                                    if(auto *storeInst=dynamic_cast<StoreInst *>(insts[i].get()))
+                                    {
+                                        if(isSameAddr(storeInst->getOriginalPointer(),addr))
+                                        {
+                                            CanNotCSEWithLoadOperand=true;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                    if (hasCrossBBLoad)
+                    if (CanNotCSEWithLoadOperand)
                     {
                         // 不过可以更新exprMap，为后续可能的消除做准备
                         exprMap[key] = {inst, bb.get()};
@@ -424,7 +452,6 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
             }
             else
             {
-                 //ops.push_back("var:" + normalizeName(op->getName()));
                 ops.push_back("var:" + op->getName());
             }
         }
@@ -442,7 +469,6 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
         }
         else
         {
-             //ops.push_back("var:" + normalizeName(op->getName()));
             ops.push_back("var:" + op->getName());
         }
     }
@@ -452,10 +478,6 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
 {
-    // if (inst->getOpcode() == Opcode::Load)
-    // {
-    //     return CanLoadCSE(inst, bb);
-    // }
     // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
     for (auto *v : inst->getOperands())
     {
@@ -563,7 +585,7 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst,Instructio
             // {
             //     return false; // 两条load之间有store，不能CSE
             // }
-            if(store->getOriginalPointer() == addr)
+            if(isSameAddr(store->getOriginalPointer(), addr))
             {
                 return false; // 两条load之间有store，不能CSE
             }
@@ -658,20 +680,14 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     if (auto loadInst = dynamic_cast<LoadInst *>(inst))
     {
         Value *addr = loadInst->getPointer();
-        // 判断同一基本块内是否有对地址的修改
-        bool isAddrModifiedInLoop = false;
-        for (auto *loopBB : loop.blocks)
-        {
-            if (loopBB->containsByName(addr->getName()))
-            {
-                isAddrModifiedInLoop = true;
-                break;
-            }
-        }
         // 如果循环体内有对该地址的修改，则不能外提
-        if (isAddrModifiedInLoop)
+        if(auto loadOp = dynamic_cast<Instruction *>(addr))
         {
-            return false;
+            if(loop.contains(loadOp))
+            {
+                // 如果addr是循环变量，则不能外提
+                return false;
+            }
         }
         // 获取addr的原始指针操作数
         Value *loadOriginalPointer = loadInst->getOriginalPointer();
@@ -685,9 +701,9 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
                 {
                     Value *storeOriginalAddr = storeInst->getOriginalPointer();
                     // 如果store的地址和load的地址相同，则不能外提
-                    if (storeOriginalAddr == loadOriginalPointer)
+                    if (isSameAddr(storeOriginalAddr, loadOriginalPointer))
                     {
-                        return false;
+                        return false; // 两条load之间有store，不能外提
                     }
                 }
             }
