@@ -25,15 +25,27 @@ bool PassManager::runOnModule(Module *module)
                 changed |= pass->runOnFunction(func.get());
             }
         }
+        //如果是函数内联pass，则在内联后删除内联的函数
+        if(dynamic_cast<FunctionInliningPass *>(pass.get()))
+        {
+            module->Functions.erase(
+                std::remove_if(
+                    module->Functions.begin(),
+                    module->Functions.end(),
+                    [](const auto &func)
+                    { return func->isDeletedFunction(); }),
+                module->Functions.end());
+        }
     }
     // 删除所有标记为删除的函数
-    module->Functions.erase(
-        std::remove_if(
-            module->Functions.begin(),
-            module->Functions.end(),
-            [](const auto &func)
-            { return func->isDeletedFunction(); }),
-        module->Functions.end());
+    // 先不删除，用于调试
+    // module->Functions.erase(
+    //     std::remove_if(
+    //         module->Functions.begin(),
+    //         module->Functions.end(),
+    //         [](const auto &func)
+    //         { return func->isDeletedFunction(); }),
+    //     module->Functions.end());
     return changed;
 }
 void PassManager::setVerbose(bool v)
@@ -48,7 +60,23 @@ void PassManager::initializeLoops(Module *module)
 {
     for (auto &func : module->Functions)
     {
+        if(func->isLibraryFunction())
+            continue; // 跳过库函数
         func->setLoops(findLoops(func.get()));
+        if (verbose)
+        {
+            debugInfo << "Function: " << func->getName() << "\n";
+            for (const auto &loop : func->getLoops())
+            {
+                debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
+                debugInfo << "  Blocks: ";
+                for (const auto &block : loop.blocks)
+                {
+                    debugInfo << block->getName() << " ";
+                }
+                debugInfo << "\n";
+            }
+        }
     }
 }
 // 查找所有自然循环（基于回边）
@@ -139,6 +167,11 @@ std::string PassManager::toString() const
     {
         ss << pass->getName() << ": \n"
            << pass->toString() << "\n";
+    }
+    if (verbose)
+    {
+        ss << "Debug Info:\n"
+           << debugInfo.str();
     }
     return ss.str();
 }
@@ -465,6 +498,7 @@ bool CommonSubexpressionEliminationPass::dominates(BasicBlock *dom, BasicBlock *
     return false;
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
+// load需要支持，只做基本块内替换，如果第一个load后面没有store则可以替换，替换后更新哈希表load的指令
 bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, BasicBlock *bb)
 {
     // 只允许同一基本块内的load做CSE，且store和load之间没有其他store
@@ -490,6 +524,7 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, BasicBloc
             }
         }
     }
+    // 如果条件不满足要更新map用于下一次load CSE判断
     // 只允许唯一一次store，且store在load之前
     return storeCount == 1 && lastStorePos < loadPos;
 }
@@ -536,7 +571,7 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
                         if (std::find_if(invariants.begin(), invariants.end(),
                                          [inst](const auto &p)
                                          { return p.first == inst; }) == invariants.end() &&
-                            canMoveToPreheader(inst) && isLoopInvariant(inst, loop))
+                            canMoveToPreheader(inst, loop) && isLoopInvariant(inst, loop))
                         {
                             invariants.emplace_back(inst, bb);
                             foundNew = true;
@@ -573,10 +608,68 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
     } while (localChanged);
     return changed;
 }
-bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst)
+bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Loop &loop)
 {
+    // 外提合法判断条件：地址不是循环改变量、没有循环内的store、没有函数调用对顶层地址进行store
+    if (auto loadInst = dynamic_cast<LoadInst *>(inst))
+    {
+        Value *addr = loadInst->getPointer();
+        // 判断同一基本块内是否有对地址的修改
+        bool isAddrModifiedInLoop = false;
+        for (auto *loopBB : loop.blocks)
+        {
+            if (loopBB->containsByName(addr->getName()))
+            {
+                isAddrModifiedInLoop = true;
+                break;
+            }
+        }
+        // 如果循环体内有对该地址的修改，则不能外提
+        if (isAddrModifiedInLoop)
+        {
+            return false;
+        }
+        // 获取addr的原始指针操作数
+        Value *loadOriginalPointer = loadInst->getOriginalPointer();
+        // 判断循环体内是否有对该地址的store
+        for (auto *loopBB : loop.blocks)
+        {
+            for (auto &instPtr : loopBB->getInstructions())
+            {
+                Instruction *store = instPtr.get();
+                if (auto storeInst = dynamic_cast<StoreInst *>(store))
+                {
+                    Value *storeOriginalAddr = storeInst->getOriginalPointer();
+                    // 如果store的地址和load的地址相同，则不能外提
+                    if (storeOriginalAddr == loadOriginalPointer)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        // 判断是否有其他call对该地址的修改
+        for (auto *loopBB : loop.blocks)
+        {
+            for (auto &instPtr : loopBB->getInstructions())
+            {
+                Instruction *call = instPtr.get();
+                if (auto callInst = dynamic_cast<CallInst *>(call))
+                {
+                    // 如果是调用函数，且函数有副作用，则不能外提
+                    if (callInst->IsModifyingGlobalVar(loadOriginalPointer))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        // 否则可以外提
+        return true;
+    }
+    // 增加对phi指令的特殊处理
     // copy指令不能外提，因为是由合流产生
-    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Load && inst->getOpcode() != Opcode::Copy;
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Load && inst->getOpcode() != Opcode::Phi;
 }
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
@@ -688,6 +781,20 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
     } while (localChanged);
     // 更新函数的循环信息
     caller->setLoops(findLoops(caller));
+    if (verbose)
+    {
+        debugInfo << "Function: " << caller->getName() << "\n";
+        for (const auto &loop : caller->getLoops())
+        {
+            debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
+            debugInfo << "  Blocks: ";
+            for (const auto &block : loop.blocks)
+            {
+                debugInfo << block->getName() << " ";
+            }
+            debugInfo << "\n";
+        }
+    }
     return changed;
 }
 // 判断是否适合内联
@@ -1576,7 +1683,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
                         changed = true;
-                        if( verbose)
+                        if (verbose)
                         {
                             debugInfo << "Strength Reduction: Replaced Mul with Sll for " << constInt->Value
                                       << " in " << bb->getName() << "\n";
@@ -1607,7 +1714,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
                         changed = true;
-                        if(verbose)
+                        if (verbose)
                         {
                             debugInfo << "Strength Reduction: Replaced SDiv with Sra for " << constInt->Value
                                       << " in " << bb->getName() << "\n";
@@ -1661,9 +1768,9 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     ++it;
                     // 删除原来的GEP指令（此时it指向gep，castInst在gep前面）
                     needToDelete.push_back(it->release());
-                    it=insts.erase(it);
+                    it = insts.erase(it);
                     changed = true;
-                    if(verbose)
+                    if (verbose)
                     {
                         debugInfo << "GEP to BitCast: Replaced GEP " << gep->getName() << " with BitCast in "
                                   << bb->getName() << "\n";
@@ -1695,14 +1802,14 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     // 检查源类型和目标类型是否相同
                     Type *srcType = bitCast->getOperand()->getType();
                     Type *destType = bitCast->getType();
-                    if (destType->isTypeEqual(destType,srcType))
+                    if (destType->isTypeEqual(destType, srcType))
                     {
                         // 删除无效的BitCast指令
                         bitCast->replaceAllUsesWith(bitCast->getOperand());
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         changed = true;
-                        if(verbose)
+                        if (verbose)
                         {
                             debugInfo << "Removed redundant BitCast: " << bitCast->getName() << " in " << bb->getName() << "\n";
                         }
@@ -1815,6 +1922,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
+    // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));

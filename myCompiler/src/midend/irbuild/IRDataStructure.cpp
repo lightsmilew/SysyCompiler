@@ -294,7 +294,7 @@ string Instruction::getOpcodeName() const
     case Opcode::SRem:
         return "srem";
     case Opcode::Sll:
-        return "sll";   
+        return "sll";
     case Opcode::Sra:
         return "sra";
     case Opcode::FAdd:
@@ -666,6 +666,27 @@ Type *LoadInst::getElementType(Value *ptr)
     // 传入不是指针报错
     throw std::runtime_error("LoadInst: operand must be a pointer type");
 }
+Value *LoadInst::getOriginalPointer() const
+{
+    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *pointer = getPointer();
+    while (true)
+    {
+        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
+        {
+            pointer = gepInst->getOriginalPointerOperand();
+        }
+        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
+        {
+            pointer = castInst->getOperand();
+        }
+        else
+        {
+            break;
+        }
+    }
+    return pointer;
+}
 std::string LoadInst::toString() const
 {
     std::stringstream ss;
@@ -673,7 +694,27 @@ std::string LoadInst::toString() const
        << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
-
+Value *StoreInst::getOriginalPointer() const
+{
+    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *pointer = getPointer();
+    while (true)
+    {
+        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
+        {
+            pointer = gepInst->getOriginalPointerOperand();
+        }
+        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
+        {
+            pointer = castInst->getOperand();
+        }
+        else
+        {
+            break;
+        }
+    }
+    return pointer;
+}
 std::string StoreInst::toString() const
 {
     std::stringstream ss;
@@ -764,6 +805,74 @@ vector<Value *> CallInst::getPtrArguments() const
         }
     }
     return args;
+}
+bool CallInst::IsModifyingGlobalVar(Value *value) const
+{
+    Function *func = getCalledFunction();
+    if (!func)
+        throw std::runtime_error("CallInst: function is null");
+    // 该变量作为函数实参并在函数体内对对应的形参进行了修改
+    for (size_t i = 0; i < getArguments().size(); i++)
+    {
+        Value *origin= getArguments()[i];
+        while(true)
+        {
+            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
+            {
+                origin = gepInst->getOriginalPointerOperand();
+            }
+            else if (auto castInst = dynamic_cast<CastInst *>(origin))
+            {
+                origin = castInst->getOperand();
+            }
+            else
+            {
+                break;
+            }
+        }
+        if (origin == value)
+        {
+            string funcName = func->getName();
+            if (funcName == "getarray" || funcName == "getfarray")
+                return true; // 特例：getarray和getfarray函数会修改对应位置的形参
+            // 检查该函数是否修改了对应位置的形参
+            if (IsModifyingGlobalVar(func->getArgumentByIndex(i)))
+            {     
+                // std::cout<< "CallInst::IsModifyingGlobalVar: Function " << func->getName()
+                //           << " modifies global variable " << value->toRef() <<" in arg:"<<origin->toRef() << std::endl;
+                return true;
+            }
+        }
+    }
+    for (auto &bb : func->getBasicBlocks())
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto storeInst = dynamic_cast<StoreInst *>(inst))
+            {
+                auto storeOriginalPointer = storeInst->getOriginalPointer();
+                if (storeOriginalPointer == value)
+                {
+                    return true; // 找到修改该全局变量的store指令
+                }
+            }
+            else if (auto callInst = dynamic_cast<CallInst *>(inst))
+            {
+                // 如果是递归函数就直接跳过(已检查过)
+                if (callInst->getCalledFunction() == func)
+                {
+                    continue;
+                }
+                // 递归检查被调用的函数是否修改了全局变量
+                if (callInst->IsModifyingGlobalVar(value))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false; // 如果没有找到修改该全局变量的指令
 }
 Value *CallInst::getDest() const
 {
@@ -914,6 +1023,16 @@ std::string CopyInst::toString() const
 Value *GetElementPtrInst::getPointerOperand() const
 {
     return getOperandByIndex(0);
+}
+Value *GetElementPtrInst::getOriginalPointerOperand() const
+{
+    Value *ptr = getPointerOperand();
+    if (auto gep = dynamic_cast<GetElementPtrInst *>(ptr))
+    {
+        // 如果是嵌套的GetElementPtrInst，递归获取原始指针
+        return gep->getOriginalPointerOperand();
+    }
+    return ptr; // 返回最外层的指针操作数
 }
 vector<Value *> GetElementPtrInst::getIndices() const
 {
@@ -1156,9 +1275,8 @@ bool BasicBlock::hasTerminator()
     Instruction *term = getTerminator();
     return term && (term->Op == Opcode::Ret || term->Op == Opcode::Br);
 }
-bool BasicBlock::containsByName(Instruction *inst) const
+bool BasicBlock::containsByName(const std::string &name) const
 {
-    const std::string &name = inst->getName();
     return std::any_of(Instructions.begin(), Instructions.end(),
                        [&](const unique_ptr<Instruction> &i)
                        {
@@ -1256,7 +1374,15 @@ const vector<Argument *> Function::getPtrArguments() const
     }
     return ptrArgs;
 }
-const vector<Loop> &Function::getLoops()const
+Value *Function::getArgumentByIndex(size_t index) const
+{
+    if (index < Arguments.size())
+    {
+        return Arguments[index].get();
+    }
+    throw std::out_of_range("Function: Argument index out of range");
+}
+const vector<Loop> &Function::getLoops() const
 {
     return Loops;
 }
@@ -1323,12 +1449,12 @@ bool Function::shouldBeOutput() const
     // 如果是库函数或被标记为删除，则不输出
     return !isLibraryFunction() && !isDeletedFunction();
 }
-vector<size_t>Function::getIndexOfNotUsedArguments() const
+vector<size_t> Function::getIndexOfNotUsedArguments() const
 {
     vector<size_t> notUsedArgs;
     for (size_t i = 0; i < Arguments.size(); ++i)
     {
-        bool used=Arguments[i]->getUsers().size() > 0; // 如果参数有用户，则认为被使用
+        bool used = Arguments[i]->getUsers().size() > 0; // 如果参数有用户，则认为被使用
         if (!used)
         {
             notUsedArgs.push_back(i);

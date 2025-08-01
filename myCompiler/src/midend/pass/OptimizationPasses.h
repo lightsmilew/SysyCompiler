@@ -37,7 +37,8 @@ namespace optimization
         vector<std::unique_ptr<Pass>> passes;
         // 是否启用详细输出
         bool verbose;
-
+        // 增加passmanager本身的调试输出
+        std::stringstream debugInfo;
     public:
         PassManager(bool verbose = false) : verbose(verbose) {}
         void addPass(std::unique_ptr<Pass> pass);
@@ -101,7 +102,7 @@ namespace optimization
 
     private:
         bool isLoopInvariant(Instruction *inst, const Loop &loop);
-        bool canMoveToPreheader(Instruction *inst);
+        bool canMoveToPreheader(Instruction *inst,const Loop &loop);
         BasicBlock *findPreheader(const Loop &loop);
     };
     // 4. 函数内联 Pass（将函数调用替换为函数体）
