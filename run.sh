@@ -1,7 +1,8 @@
 #!/bin/bash
 INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
 OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-#PERFORMANCE_DIR="../compiler2023/公开样例与运行时库/performance"
+# INPUT_DIR="../compiler2023/公开样例与运行时库/performance"
+# OUTPUT_DIR="../compiler2023/公开样例与运行时库/performance"
 #INPUT_DIR="debug_case"
 #OUTPUT_DIR="debug_case"
 

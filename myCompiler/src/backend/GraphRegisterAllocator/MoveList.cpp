@@ -84,30 +84,35 @@ void MoveList::freezeMoves(shared_ptr<RISCVRegister> reg)
     }
 }
 
-void MoveList::coalesceMoves(shared_ptr<RISCVRegister> reg1,
-                             shared_ptr<RISCVRegister> reg2)
+void MoveList::coalesceMoves(shared_ptr<RISCVRegister> keepReg,
+                             shared_ptr<RISCVRegister> mergeReg)
 {
-    auto it1 = regToMoves.find(reg1);
-    auto it2 = regToMoves.find(reg2);
-
+    auto it1 = regToMoves.find(keepReg);
+    auto it2 = regToMoves.find(mergeReg);
     if (it1 == regToMoves.end() || it2 == regToMoves.end())
         return;
 
-    // 查找并标记相关的move为已合并
-    for (int moveIndex1 : it1->second)
+    // 替换所有 move 的 src/dst
+    for (auto &move : moves)
     {
-        for (int moveIndex2 : it2->second)
-        {
-            if (moveIndex1 == moveIndex2)
-            {
-                const auto &move = moves[moveIndex1];
-                if ((move.src == reg1 && move.dst == reg2) ||
-                    (move.src == reg2 && move.dst == reg1))
-                {
-                    moves[moveIndex1].state = MoveState::COALESCED;
-                }
-            }
-        }
+        if (*move.src == *mergeReg)
+            move.src = keepReg;
+        if (*move.dst == *mergeReg)
+            move.dst = keepReg;
+    }
+
+    // 合并 move 索引并去重
+    auto &vec = regToMoves[keepReg];
+    vec.insert(vec.end(), it2->second.begin(), it2->second.end());
+    std::sort(vec.begin(), vec.end());
+    vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+    regToMoves.erase(mergeReg);
+
+    // 更新所有 move 的状态
+    for (auto &move : moves)
+    {
+        if (*move.src == *keepReg && *move.dst == *keepReg)
+            move.state = MoveState::COALESCED;
     }
 }
 

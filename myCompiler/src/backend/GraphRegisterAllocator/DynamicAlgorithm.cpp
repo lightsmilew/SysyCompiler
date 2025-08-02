@@ -339,10 +339,8 @@ void GraphColorRegisterAllocator::executeCoalescing(
                                                     mergeNeighbors.end());
 
     // 4. 处理合并后的 move 状态更新和节点重新分类
-
     // 更新move指令状态
-    moveList.coalesceMoves(reg1, reg2);
-
+    moveList.coalesceMoves(keepReg, mergeReg);
     coalescingManager.addPair(keepReg, mergeReg);
 
     // 在冲突图中执行合并
