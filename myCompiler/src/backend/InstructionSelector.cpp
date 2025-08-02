@@ -209,6 +209,12 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     case Opcode::Sra:
         opcode = RISCVOpcode::SRAW; // 右移
         break;
+    case Opcode::And:
+        opcode = RISCVOpcode::AND;
+        break;
+    case Opcode::Or:
+        opcode = RISCVOpcode::OR;
+        break;
     default:
         return;
     }
