@@ -2278,7 +2278,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         //这里来一轮公共子表达式消除，消除无用的函数调用
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));

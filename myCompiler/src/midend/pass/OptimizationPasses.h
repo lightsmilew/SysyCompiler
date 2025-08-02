@@ -122,7 +122,6 @@ namespace optimization
         std::string getName() const override { return "FunctionInlining"; }
 
     private:
-        int inlineCount = 0;
         unordered_map<string,int> inlineCountMap; // 记录每个函数的内联次数
         bool shouldInline(Function *callee);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
