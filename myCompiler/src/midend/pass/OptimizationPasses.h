@@ -16,6 +16,7 @@ namespace optimization
              std::unordered_map<BasicBlock *, int> &inStack,
              std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges);
     vector<Loop> findLoops(Function *func);
+
     // 优化Pass的基类
     class Pass
     {
@@ -39,6 +40,7 @@ namespace optimization
         bool verbose;
         // 增加passmanager本身的调试输出
         std::stringstream debugInfo;
+
     public:
         PassManager(bool verbose = false) : verbose(verbose) {}
         void addPass(std::unique_ptr<Pass> pass);
@@ -86,9 +88,8 @@ namespace optimization
         std::unordered_map<BasicBlock *, BasicBlock *> idom;
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
         bool canBeCommonSubexpression(Instruction *inst, BasicBlock *bb);
-        bool CanLoadCSE(Instruction *inst, BasicBlock *bb);
+        bool CanLoadCSE(Instruction *inst, Instruction *map_inst, BasicBlock *bb);
         bool dominates(BasicBlock *dom, BasicBlock *node);
-        std::string normalizeName(const std::string &name)const;//归一化处理变量名，内联后变量名只有后缀不同的算作同一变量
         std::unordered_map<BasicBlock *, BasicBlock *> computeIDom_LengauerTarjan(Function *func);
         // 检查Load指令的地址是否只被唯一Store且无其他写
     };
@@ -103,7 +104,7 @@ namespace optimization
 
     private:
         bool isLoopInvariant(Instruction *inst, const Loop &loop);
-        bool canMoveToPreheader(Instruction *inst,const Loop &loop);
+        bool canMoveToPreheader(Instruction *inst, const Loop &loop);
         BasicBlock *findPreheader(const Loop &loop);
     };
     // 4. 函数内联 Pass（将函数调用替换为函数体）
