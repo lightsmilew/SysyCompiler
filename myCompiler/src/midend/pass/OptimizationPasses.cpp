@@ -1749,6 +1749,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                                       << " in " << bb->getName() << "\n";
                         }
                     }
+                    
                 }
             }
             else if (inst && inst->getOpcode() == Opcode::SDiv)
@@ -1770,18 +1771,18 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         // 替换为右移操作
                         // 负数除法需要加掩码
                         auto *zero=new ConstantInt(IntegerType::getInstance(), 0);
-                        auto *isNeg=new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, inst->getName() + "_isNeg");
                         auto *mask=new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
-                        auto *addand=new BinaryOperator(Opcode::And,isNeg, mask, inst->getName() + "_addand");
+                        auto *signedDiv = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), 31), inst->getName() + "_signedDiv");
+                        auto *addand= new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
                         auto *lhsAdj=new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
-                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sra");
                         inst->replaceAllUsesWith(sraInst);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sraInst));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhsAdj));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(addand));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(isNeg));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(signedDiv));
                         changed = true;
                         if (verbose)
                         {
