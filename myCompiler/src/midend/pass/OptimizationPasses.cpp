@@ -486,8 +486,12 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
             return false;
         }
     }
-    // 只处理无副作用的二元运算和getelementptr以及load,不包括Store Call Ret Br
-    return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr || inst->getOpcode() == Opcode::Load);
+    // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
+    // 不包括Store Ret Br
+    return (inst->isBinaryOp() ||
+            inst->getOpcode() == Opcode::GetElementPtr ||
+            inst->getOpcode() == Opcode::Load ||
+            (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
 // 返回每个BB的直接支配者
 std::unordered_map<BasicBlock *, BasicBlock *>
@@ -729,7 +733,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     }
     // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
-    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;
+    return !inst->mayHaveSideEffects();
 }
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
@@ -1726,7 +1730,21 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                 Value *rhs = inst->getOperands()[1];
                 if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
                 {
-                    if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
+                    if (constInt->Value == 0)
+                    {
+                        // 乘以0，直接替换为0
+                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                        inst->replaceAllUsesWith(zero);
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        changed = true;
+                        if (verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced Mul with 0 in " << bb->getName() << "\n";
+                        }
+                        continue;
+                    }
+                    else if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
                     {
                         // 2的幂，直接左移
                         int shift = 0;
@@ -1749,7 +1767,49 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                                       << " in " << bb->getName() << "\n";
                         }
                     }
-                    
+                    // 不需要处理不是2的幂次方情况，因为会降低性能
+                    // // 乘以不是2的幂次方，转换为移位和加法
+                    // else if(constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) != 0)
+                    // {
+                    //     // 不是2的幂，转换为移位和加法
+                    //     int val = constInt->Value;
+                    //     std::vector<int> shifts;
+                    //     int shift = 0;
+                    //     while (val > 0)
+                    //     {
+                    //         if (val & 1)
+                    //         {
+                    //             shifts.push_back(shift);
+                    //         }
+                    //         val >>= 1;
+                    //         shift++;
+                    //     }
+                    //     needToDelete.push_back(insts[i].release());
+                    //     insts.erase(insts.begin() + i);
+                    //     // 构造移位和加法
+                    //     Value *result = lhs;
+                    //     for (int j=shifts.size()-1;j>=0;j--)
+                    //     {
+                    //         int s = shifts[j];
+                    //         if(s==0)
+                    //         {
+                    //             // 如果移位为0，直接加上原值
+                    //             result = new BinaryOperator(Opcode::Add, result, lhs, inst->getName() + "_add_" + std::to_string(s));
+                    //             continue;
+                    //         }
+                    //         auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), s), inst->getName() + "_sll_" + std::to_string(s));
+                    //         result = new BinaryOperator(Opcode::Add, result, shlInst, inst->getName() + "_add_" + std::to_string(s));
+                    //         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(dynamic_cast<Instruction *>(result)));
+                    //         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
+                    //     }
+                    //     inst->replaceAllUsesWith(result);
+                    //     changed = true;
+                    //     if (verbose)
+                    //     {
+                    //         debugInfo << "Strength Reduction: Replaced Mul with Add and Sll for " << constInt->Value
+                    //                   << " in " << bb->getName() << "\n";
+                    //     }
+                    // }
                 }
             }
             else if (inst && inst->getOpcode() == Opcode::SDiv)
@@ -1770,11 +1830,11 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         }
                         // 替换为右移操作
                         // 负数除法需要加掩码
-                        auto *zero=new ConstantInt(IntegerType::getInstance(), 0);
-                        auto *mask=new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
+                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                        auto *mask = new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
                         auto *signedDiv = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), 31), inst->getName() + "_signedDiv");
-                        auto *addand= new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
-                        auto *lhsAdj=new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
+                        auto *addand = new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
+                        auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
                         auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sra");
                         inst->replaceAllUsesWith(sraInst);
                         needToDelete.push_back(insts[i].release());
@@ -2217,15 +2277,15 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O16)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        //这里来一轮公共子表达式消除，消除无用的函数调用
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
-        // 循环不变量外提必须要在phi消除后进行才能效果好(可以在后面再进行一轮公共子表达式消除多余load）
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));

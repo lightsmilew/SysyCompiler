@@ -594,6 +594,7 @@ public:
     vector<Value *> getPtrArguments() const;            // 获取指针类型参数
     bool hasReturnValue() const { return !getType()->isVoidTy(); }
     bool IsModifyingGlobalVar(Value* ptr) const;        // 是否有修改副作用(修改全局变量或指针指向的值)
+    bool ifHasSideEffects() const;                      // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
     Value *getDest() const;                             // 如果是void类型 返回空指针
     string toString() const override;
 

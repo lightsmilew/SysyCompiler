@@ -3,15 +3,15 @@
 #include <algorithm>
 #include <regex>
 // 辅助函数：去除 _inl\d+ 后缀
-std::string normalizeName(const std::string &name) 
+std::string normalizeName(const std::string &name)
 {
     static std::regex inl_regex("(_inl\\d+)");
     return std::regex_replace(name, inl_regex, "");
 }
-//根据归一化后的名称判断两个指针是否有可能指向同一个地址
-bool isSameAddr(Value *a,Value *b)
+// 根据归一化后的名称判断两个指针是否有可能指向同一个地址
+bool isSameAddr(Value *a, Value *b)
 {
-   return normalizeName(a->getName()) == normalizeName(b->getName());
+    return normalizeName(a->getName()) == normalizeName(b->getName());
 }
 size_t ArrayType::getArrayLength() const
 {
@@ -351,7 +351,7 @@ bool Instruction::isBinaryOp() const
 {
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
-           Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv||Op == Opcode::And || Op == Opcode::Or ||
+           Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
            Op == Opcode::Sll || Op == Opcode::Sra;
 }
 bool Instruction::isComparisonOp() const
@@ -368,8 +368,20 @@ bool Instruction::isCopy() const
 }
 bool Instruction::mayHaveSideEffects() const
 {
-    return Op == Opcode::Store || Op == Opcode::Call || Op == Opcode::Br ||
-           Op == Opcode::Ret || Op == Opcode::Alloca;
+    if (Op == Opcode::Store ||
+        Op == Opcode::Br    ||
+        Op == Opcode::Ret   ||
+        Op == Opcode::Alloca||
+        Op == Opcode::Phi   ||
+        Op == Opcode::Copy)
+    {
+        return true;
+    }
+    else if (Op == Opcode::Call)
+    {
+        return dynamic_cast<const CallInst *>(this)->ifHasSideEffects();
+    }
+    return false; // 其他指令通常没有副作用
 }
 // 判断该指令是否有结果（即是否定义SSA变量）
 bool Instruction::hasResult() const
@@ -846,8 +858,8 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
     // 该变量作为函数实参并在函数体内对对应的形参进行了修改
     for (size_t i = 0; i < getArguments().size(); i++)
     {
-        Value *origin= getArguments()[i];
-        while(true)
+        Value *origin = getArguments()[i];
+        while (true)
         {
             if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
             {
@@ -869,7 +881,7 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
             // 检查该函数是否修改了对应位置的形参
             if (IsModifyingGlobalVar(func->getArgumentByIndex(i)))
-            {     
+            {
                 return true;
             }
         }
@@ -882,7 +894,7 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
             if (auto storeInst = dynamic_cast<StoreInst *>(inst))
             {
                 auto storeOriginalPointer = storeInst->getOriginalPointer();
-                if (isSameAddr(storeOriginalPointer,value))
+                if (isSameAddr(storeOriginalPointer, value))
                 {
                     return true; // 找到修改该全局变量的store指令
                 }
@@ -903,6 +915,55 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
         }
     }
     return false; // 如果没有找到修改该全局变量的指令
+}
+bool CallInst::ifHasSideEffects() const
+{
+    // 判断是否有副作用
+    if (getCalledFunction() == nullptr)
+        return false; // 如果没有调用函数，则没有副作用
+    // 如果是库函数则有副作用
+    Function *func = getCalledFunction();
+    if (func->isLibraryFunction())
+        return true;
+    // 检查参数中是否有指针类型的参数
+    for (Value *arg : getArguments())
+    {
+        if (arg->getType()->isPointerTy())
+            return true; // 如果有指针类型参数，则可能有副作用
+    }
+    // 检查函数体内是否有store指令
+    for (auto &bb : func->getBasicBlocks())
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto storeInst = dynamic_cast<StoreInst *>(inst))
+            {
+                auto storeOriginalPointer = storeInst->getOriginalPointer();
+                // 如果store指令的原始指针是函数参数或全局变量，则有副作用
+                if (std::find(getArguments().begin(), getArguments().end(), storeOriginalPointer) != getArguments().end() ||
+                    (storeOriginalPointer->isGlobal()))
+                {
+                    return true; // 找到修改全局变量或函数参数的store指令
+                }
+            }
+            else if (auto callInst = dynamic_cast<CallInst *>(inst))
+            {
+                // 如果是递归函数就直接跳过(已检查过)
+                if (callInst->getCalledFunction() == func)
+                {
+                    continue;
+                }
+                // 递归检查被调用的函数是否有副作用
+                if (callInst->ifHasSideEffects())
+                {
+                    return true; // 如果被调用的函数有副作用，则当前调用也有副作用
+                }
+            }
+        }
+    }
+    // 如果没有找到任何副作用的迹象，则认为没有副作用
+    return false; // 否则没有副作用
 }
 Value *CallInst::getDest() const
 {
@@ -1326,7 +1387,7 @@ int BasicBlock::getInstructionOrder(Instruction *inst) const
 }
 void BasicBlock::removeSelfBasicBlock()
 {
-    //先将自身从前驱的后继中和后继的前驱中删除
+    // 先将自身从前驱的后继中和后继的前驱中删除
     for (auto *pred : Predecessors)
     {
         pred->removeSuccessor(this);

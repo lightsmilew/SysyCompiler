@@ -114,11 +114,16 @@ namespace optimization
     public:
         FunctionInliningPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        string getsuffix(string funcname) { return "_inl_" +funcname+to_string(inlineCount++); }
+        string getsuffix(string funcname) 
+        { 
+            int count = inlineCountMap[funcname]++;
+            return "_inl_" +funcname+"_"+to_string(count); 
+        }
         std::string getName() const override { return "FunctionInlining"; }
 
     private:
         int inlineCount = 0;
+        unordered_map<string,int> inlineCountMap; // 记录每个函数的内联次数
         bool shouldInline(Function *callee);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
         // debug
