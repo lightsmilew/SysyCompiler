@@ -309,6 +309,10 @@ string Instruction::getOpcodeName() const
         return "sll";
     case Opcode::Sra:
         return "sra";
+    case Opcode::And:
+        return "and";
+    case Opcode::Or:
+        return "or";
     case Opcode::FAdd:
         return "fadd";
     case Opcode::FSub:
@@ -347,7 +351,8 @@ bool Instruction::isBinaryOp() const
 {
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
-           Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv;
+           Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv||Op == Opcode::And || Op == Opcode::Or ||
+           Op == Opcode::Sll || Op == Opcode::Sra;
 }
 bool Instruction::isComparisonOp() const
 {
@@ -380,6 +385,10 @@ bool Instruction::hasResult() const
     case Opcode::FSub:
     case Opcode::FMul:
     case Opcode::FDiv:
+    case Opcode::Sll:
+    case Opcode::Sra:
+    case Opcode::And:
+    case Opcode::Or:
     case Opcode::ICmp:
     case Opcode::FCmp:
     case Opcode::Alloca:
@@ -432,6 +441,11 @@ Instruction *Instruction::clone() const
     case Opcode::FSub:
     case Opcode::FMul:
     case Opcode::FDiv:
+    case Opcode::Sll:
+    case Opcode::Sra:
+    case Opcode::And:
+    case Opcode::Or:
+        // 对于二元操作符，直接创建新的BinaryOperator实例
         return new BinaryOperator(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::ICmp:
         return new ICmpInst(static_cast<const ICmpInst *>(this)->getPredicate(),
@@ -517,6 +531,12 @@ std::string BinaryOperator::toString() const
         break;
     case Opcode::Sra:
         opStr = "sra";
+        break;
+    case Opcode::And:
+        opStr = "and";
+        break;
+    case Opcode::Or:
+        opStr = "or";
         break;
     case Opcode::FAdd:
         opStr = "fadd";
@@ -1303,6 +1323,20 @@ int BasicBlock::getInstructionOrder(Instruction *inst) const
         }
     }
     return -1; // Not found
+}
+void BasicBlock::removeSelfBasicBlock()
+{
+    //先将自身从前驱的后继中和后继的前驱中删除
+    for (auto *pred : Predecessors)
+    {
+        pred->removeSuccessor(this);
+        removePredecessor(pred);
+    }
+    for (auto *succ : Successors)
+    {
+        succ->removePredecessor(this);
+        removeSuccessor(succ);
+    }
 }
 std::string BasicBlock::toString() const
 {

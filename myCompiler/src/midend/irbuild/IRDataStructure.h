@@ -385,7 +385,8 @@ enum class Opcode
     FSub,
     FMul,
     FDiv,
-
+    And,
+    Or,
     // 比较运算符
     ICmp,
     FCmp,
@@ -751,8 +752,9 @@ public:
     Instruction *getTerminator();                       // 获取终结指令
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令
     bool hasTerminator();                               // 检查是否有终结指令
-    bool containsByName(const std::string &name) const;        // 判断是否包含特定指令(通过名称)
+    bool containsByName(const std::string &name) const; // 判断是否包含特定指令(通过名称)
     int getInstructionOrder(Instruction *inst) const;   // 获取指令在基本块中的顺序
+    void removeSelfBasicBlock();                        // 删除基本块(从父函数中移除)
     string toString() const override;
 };
 
@@ -780,6 +782,26 @@ struct Loop
         return std::any_of(blocks.begin(), blocks.end(),
                            [&](BasicBlock *bb)
                            { return bb->containsByName(inst->getName()); });
+    }
+    Value *getLoopCondition()const
+    {
+        BasicBlock *headerBlock = header;
+        Instruction *terminator = headerBlock->getTerminator();
+        if(auto brInst = dynamic_cast<BranchInst *>(terminator))
+        {
+            if(brInst->isConditional())
+            {
+                return brInst->getCondition();
+            }
+            else 
+            {
+                return new ConstantInt(IntegerType::getInstance(), 1); // 如果没有条件，返回常量1
+            }
+        }
+        else 
+        {
+            throw std::runtime_error("Loop header does not have a valid terminator instruction.");
+        }
     }
 };
 // ===== Function =====

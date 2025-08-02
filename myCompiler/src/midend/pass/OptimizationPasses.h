@@ -114,7 +114,7 @@ namespace optimization
     public:
         FunctionInliningPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        string getsuffix() { return "_inl" + to_string(inlineCount++); }
+        string getsuffix(string funcname) { return "_inl_" +funcname+to_string(inlineCount++); }
         std::string getName() const override { return "FunctionInlining"; }
 
     private:
@@ -191,6 +191,18 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "GEPToBitCast"; }
     };
+    // // 12.数组消除
+    // class ArrayEliminationPass : public Pass
+    // {
+    // public:
+    //     ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
+    //     std::string getName() const override { return "ArrayEliminationPass"; }
+    //     bool runOnFunction(Function *func) override;
+
+    //     bool isAffineStore(StoreInst *store, Value *index, double &A, double &b);
+    //     // 构造循环比较指令
+    //     Instruction *constructLoopCondition(const Loop &loop);
+    // };
     // 优化级别枚举
     enum class OptimizationLevel
     {
