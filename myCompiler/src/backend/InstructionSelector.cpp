@@ -75,6 +75,8 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::FDiv:
     case Opcode::Sll:
     case Opcode::Sra:
+    case Opcode::And:
+    case Opcode::Or:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
         {
             visitBinaryOp(binOp);
