@@ -371,9 +371,9 @@ bool Instruction::mayHaveSideEffects() const
     if (Op == Opcode::Store ||
         Op == Opcode::Br    ||
         Op == Opcode::Ret   ||
-        Op == Opcode::Alloca||
-        Op == Opcode::Phi   ||
-        Op == Opcode::Copy)
+        Op == Opcode::Alloca)
+        //Op == Opcode::Phi   ||
+        //Op == Opcode::Copy)
     {
         return true;
     }
