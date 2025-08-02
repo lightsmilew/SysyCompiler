@@ -1170,7 +1170,26 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     Vector<std::shared_ptr<ast::InitExprNode>> flat_inits;
     flattenInitList(node, flat_inits, dims, 0);
     // 判断是否全部为0或者空指针,如果是则返回空指针用于优化{0}成{}；
-    
+    bool isAllZero = true;
+    for(int i=0;i<flat_inits.size();i++)
+    {
+        if(!flat_inits[i])continue; // 如果是空指针，跳过
+        if(auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(flat_inits[i]->singleInitVal))
+        {
+            if(intLiteral->value != 0)
+            {
+                isAllZero = false;
+                break;
+            }
+            else continue; // 如果是0，继续
+        }
+    }
+    // 示例{0，0，0}，如果全部为0，则返回nullptr
+    // 这种情况下，表示数组没有实际初始值，可以优化为 nullptr，减小代码体积
+    if(isAllZero)
+    {
+        return nullptr; // 如果全部为0，返回nullptr表示空数组
+    }
     // 2. 递归构造 ConstantArray
     size_t flat_idx = 0;
     std::function<Constant *(ArrayType *, int)> buildArray = [&](ArrayType *arrTy, int dim) -> Constant *

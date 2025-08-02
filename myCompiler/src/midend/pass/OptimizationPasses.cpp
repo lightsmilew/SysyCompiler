@@ -26,27 +26,19 @@ bool PassManager::runOnModule(Module *module)
                 changed |= pass->runOnFunction(func.get());
             }
         }
+        // 先不删除用于调试
         // 如果是函数内联pass，则在内联后删除内联的函数
-        if (dynamic_cast<FunctionInliningPass *>(pass.get()))
-        {
-            module->Functions.erase(
-                std::remove_if(
-                    module->Functions.begin(),
-                    module->Functions.end(),
-                    [](const auto &func)
-                    { return func->isDeletedFunction(); }),
-                module->Functions.end());
-        }
+        // if (dynamic_cast<FunctionInliningPass *>(pass.get()))
+        // {
+        //     module->Functions.erase(
+        //         std::remove_if(
+        //             module->Functions.begin(),
+        //             module->Functions.end(),
+        //             [](const auto &func)
+        //             { return func->isDeletedFunction(); }),
+        //         module->Functions.end());
+        // }
     }
-    // 删除所有标记为删除的函数
-    // 先不删除，用于调试
-    // module->Functions.erase(
-    //     std::remove_if(
-    //         module->Functions.begin(),
-    //         module->Functions.end(),
-    //         [](const auto &func)
-    //         { return func->isDeletedFunction(); }),
-    //     module->Functions.end());
     return changed;
 }
 void PassManager::setVerbose(bool v)
@@ -418,6 +410,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                       << found->second.first->toString() << " in "
                                       << bb->getName() << endl;
                         }
+                        // 从操作数的user列表中移除自己
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -1071,6 +1065,8 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
                 {
                     retPairs.push_back({newBB, ret->getReturnValue()});
                 }
+                //从操作数中移除自己
+                ret->removeThisFromOperands();
                 needToDelete.push_back(it->release()); // 记录需要删除的指令
                 it = insts.erase(it);
                 newBB->addInstruction(std::make_unique<BranchInst>(afterBB));
@@ -1229,6 +1225,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                           << " to " << result << "\n";
                             }
                             // 还要打印输出
+                            inst->removeThisFromOperands();
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
@@ -1268,6 +1265,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                           << " to " << result << "\n";
                             }
                             // 还要打印输出
+                            inst->removeThisFromOperands();
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
@@ -1315,6 +1313,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                       << " to " << result << "\n";
                         }
                         // 还要打印输出
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -1361,6 +1360,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                       << " to " << result << "\n";
                         }
                         // 还要打印输出
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -1394,6 +1394,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             if (phi->getNumIncomingValues() == 1)
             {
                 Value *incomingValue = phi->getIncomingValue(0);
+                phi->removeThisFromOperands();
                 phi->replaceAllUsesWith(incomingValue);
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
@@ -1413,6 +1414,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             }
             if (allSame)
             {
+                phi->removeThisFromOperands();
                 phi->replaceAllUsesWith(firstVal);
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
@@ -1455,6 +1457,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 if (copy->getSource()->getName() == copy->getDest()->getName())
                 {
                     // 删除无效的copy指令
+                    copy->removeThisFromOperands();
                     needToDelete.push_back(it->release());
                     it = insts.erase(it);
                     changed = true;
@@ -1625,6 +1628,7 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
                 // 替换原GEP的所有使用
                 gep->replaceAllUsesWith(lastNewGEP);
                 // 删除原来的GEP指令
+                gep->removeThisFromOperands();
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
@@ -1689,6 +1693,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                     auto *mulInst = new BinaryOperator(Opcode::Mul, base, new ConstantInt(IntegerType::getInstance(), chainLen + 1), inst->getName() + "_mul");
                     // 在链式加法最后一条指令的后面插入
                     insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                    inst->removeThisFromOperands();
                     inst->replaceAllUsesWith(mulInst);
                     needToDelete.push_back(insts[i].release());
                     insts.erase(insts.begin() + i);
@@ -1703,6 +1708,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                                                         { return ptr.get() == chainInst; });
                             if (chainIt != insts.end())
                             {
+                                chainInst->removeThisFromOperands();
                                 needToDelete.push_back(chainIt->release());
                                 insts.erase(chainIt);
                             }
@@ -1735,6 +1741,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         // 乘以0，直接替换为0
                         auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
                         inst->replaceAllUsesWith(zero);
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
                         changed = true;
@@ -1755,7 +1762,8 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                             shift++;
                         }
                         // 替换为左移操作
-                        auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sll");
+                        inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(shlInst);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
@@ -1768,48 +1776,6 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         }
                     }
                     // 不需要处理不是2的幂次方情况，因为会降低性能
-                    // // 乘以不是2的幂次方，转换为移位和加法
-                    // else if(constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) != 0)
-                    // {
-                    //     // 不是2的幂，转换为移位和加法
-                    //     int val = constInt->Value;
-                    //     std::vector<int> shifts;
-                    //     int shift = 0;
-                    //     while (val > 0)
-                    //     {
-                    //         if (val & 1)
-                    //         {
-                    //             shifts.push_back(shift);
-                    //         }
-                    //         val >>= 1;
-                    //         shift++;
-                    //     }
-                    //     needToDelete.push_back(insts[i].release());
-                    //     insts.erase(insts.begin() + i);
-                    //     // 构造移位和加法
-                    //     Value *result = lhs;
-                    //     for (int j=shifts.size()-1;j>=0;j--)
-                    //     {
-                    //         int s = shifts[j];
-                    //         if(s==0)
-                    //         {
-                    //             // 如果移位为0，直接加上原值
-                    //             result = new BinaryOperator(Opcode::Add, result, lhs, inst->getName() + "_add_" + std::to_string(s));
-                    //             continue;
-                    //         }
-                    //         auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), s), inst->getName() + "_sll_" + std::to_string(s));
-                    //         result = new BinaryOperator(Opcode::Add, result, shlInst, inst->getName() + "_add_" + std::to_string(s));
-                    //         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(dynamic_cast<Instruction *>(result)));
-                    //         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(shlInst));
-                    //     }
-                    //     inst->replaceAllUsesWith(result);
-                    //     changed = true;
-                    //     if (verbose)
-                    //     {
-                    //         debugInfo << "Strength Reduction: Replaced Mul with Add and Sll for " << constInt->Value
-                    //                   << " in " << bb->getName() << "\n";
-                    //     }
-                    // }
                 }
             }
             else if (inst && inst->getOpcode() == Opcode::SDiv)
@@ -1836,6 +1802,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         auto *addand = new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
                         auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
                         auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sra");
+                        inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(sraInst);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
@@ -1894,6 +1861,7 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     auto *castInst = new CastInst(Opcode::BitCast, ptrOperand, targetType, gep->getName() + "_bitcast");
                     // 在GEP指令前面插入BitCast指令
                     it = insts.insert(it, std::unique_ptr<Instruction>(castInst));
+                    gep->removeThisFromOperands();
                     gep->replaceAllUsesWith(castInst);
                     ++it;
                     // 删除原来的GEP指令（此时it指向gep，castInst在gep前面）
@@ -1935,6 +1903,7 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     if (destType->isTypeEqual(destType, srcType))
                     {
                         // 删除无效的BitCast指令
+                        bitCast->removeThisFromOperands();
                         bitCast->replaceAllUsesWith(bitCast->getOperand());
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
