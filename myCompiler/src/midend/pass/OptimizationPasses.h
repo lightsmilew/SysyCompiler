@@ -1,5 +1,6 @@
 #pragma once
 #include "../irbuild/IRDataStructure.h"
+#include "ControlFlowAnalysis.h"
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -10,13 +11,6 @@
 
 namespace optimization
 {
-
-    void dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn,
-             vector<BasicBlock *> &order, int &idx,
-             std::unordered_map<BasicBlock *, int> &inStack,
-             std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges);
-    vector<Loop> findLoops(Function *func);
-
     // 优化Pass的基类
     class Pass
     {
@@ -69,29 +63,20 @@ namespace optimization
     class CommonSubexpressionEliminationPass : public Pass
     {
         using ExprKey = std::pair<std::string, std::vector<std::string>>;
-
-    private:
-        struct ExpressionHash
-        {
-            std::size_t operator()(const ExprKey &expr) const;
-        };
-
-        std::unordered_map<ExprKey, std::pair<Instruction *, BasicBlock *>, ExpressionHash> exprMap;
-        std::unordered_map<BasicBlock *, std::unordered_set<BasicBlock *>> dom;
-
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "CommonSubexpressionElimination"; }
 
     private:
-        std::unordered_map<BasicBlock *, BasicBlock *> idom;
+        struct ExpressionHash
+        {
+            std::size_t operator()(const ExprKey &expr) const;
+        };
+        std::unordered_map<ExprKey, std::pair<Instruction *, BasicBlock *>, ExpressionHash> exprMap;
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
         bool canBeCommonSubexpression(Instruction *inst, BasicBlock *bb);
         bool CanLoadCSE(Instruction *inst, Instruction *map_inst, BasicBlock *bb);
-        bool dominates(BasicBlock *dom, BasicBlock *node);
-        std::unordered_map<BasicBlock *, BasicBlock *> computeIDom_LengauerTarjan(Function *func);
-        // 检查Load指令的地址是否只被唯一Store且无其他写
     };
 
     // 3. 循环不变代码外提Pass
@@ -114,11 +99,15 @@ namespace optimization
     public:
         FunctionInliningPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        string getsuffix(string funcname) { return "_inl_" +funcname+to_string(inlineCount++); }
+        string getsuffix(string funcname)
+        {
+            int count = inlineCountMap[funcname]++;
+            return "_inl_" + funcname + "_" + to_string(count);
+        }
         std::string getName() const override { return "FunctionInlining"; }
 
     private:
-        int inlineCount = 0;
+        unordered_map<string, int> inlineCountMap; // 记录每个函数的内联次数
         bool shouldInline(Function *callee);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
         // debug
@@ -191,18 +180,22 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "GEPToBitCast"; }
     };
-    // // 12.数组消除
-    // class ArrayEliminationPass : public Pass
-    // {
-    // public:
-    //     ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
-    //     std::string getName() const override { return "ArrayEliminationPass"; }
-    //     bool runOnFunction(Function *func) override;
-
-    //     bool isAffineStore(StoreInst *store, Value *index, double &A, double &b);
-    //     // 构造循环比较指令
-    //     Instruction *constructLoopCondition(const Loop &loop);
-    // };
+    // 12.CFG优化
+    class CFGSimplificationPass : public Pass
+    {
+    public:
+        CFGSimplificationPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "CFGSimplification"; }
+    };
+    // 13.数组消除
+    class ArrayEliminationPass : public Pass
+    {
+    public:
+        ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ArrayElimination"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

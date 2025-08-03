@@ -1,6 +1,6 @@
 #!/bin/bash
-INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
-OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#INPUT_DIR="../compiler2023/公开样例与运行时库/functional"
+#OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
 # INPUT_DIR="../compiler2023/公开样例与运行时库/performance"
 # OUTPUT_DIR="../compiler2023/公开样例与运行时库/performance"
 #INPUT_DIR="debug_case"
@@ -8,8 +8,8 @@ OUTPUT_DIR="../compiler2023/公开样例与运行时库/functional"
 
 #INPUT_DIR="case/final_performance"
 #OUTPUT_DIR="case/final_performance/output"
-# INPUT_DIR="case/functional"
-# OUTPUT_DIR="case/functional"
+INPUT_DIR="case/h_functional"
+OUTPUT_DIR="case/h_functional"
 
 
 if [ "$1" == "-rebuild" ]; then

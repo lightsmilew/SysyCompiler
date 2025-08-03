@@ -1,5 +1,4 @@
 #include "OptimizationPasses.h"
-#include "Lengauer-Tarjan.h"
 #include <iostream>
 #include <stack>
 
@@ -26,6 +25,7 @@ bool PassManager::runOnModule(Module *module)
                 changed |= pass->runOnFunction(func.get());
             }
         }
+        // 先不删除用于调试
         // 如果是函数内联pass，则在内联后删除内联的函数
         if (dynamic_cast<FunctionInliningPass *>(pass.get()))
         {
@@ -38,15 +38,6 @@ bool PassManager::runOnModule(Module *module)
                 module->Functions.end());
         }
     }
-    // 删除所有标记为删除的函数
-    // 先不删除，用于调试
-    // module->Functions.erase(
-    //     std::remove_if(
-    //         module->Functions.begin(),
-    //         module->Functions.end(),
-    //         [](const auto &func)
-    //         { return func->isDeletedFunction(); }),
-    //     module->Functions.end());
     return changed;
 }
 void PassManager::setVerbose(bool v)
@@ -63,7 +54,7 @@ void PassManager::initializeLoops(Module *module)
     {
         if (func->isLibraryFunction())
             continue; // 跳过库函数
-        func->setLoops(findLoops(func.get()));
+        func->setLoops(ControlFlowAnalysis::findLoops(func.get()));
         if (verbose)
         {
             debugInfo << "Function: " << func->getName() << "\n";
@@ -79,87 +70,6 @@ void PassManager::initializeLoops(Module *module)
             }
         }
     }
-}
-// 查找所有自然循环（基于回边）
-vector<Loop> optimization::findLoops(Function *func)
-{
-    vector<Loop> loops;
-    auto &bbs = func->getBasicBlocks();
-    if (bbs.empty())
-        return loops;
-
-    // 1. DFS遍历，记录访问顺序和回边
-    std::unordered_map<BasicBlock *, int> dfn, inStack;
-    vector<BasicBlock *> order;
-    int idx = 0;
-    std::vector<std::pair<BasicBlock *, BasicBlock *>> backedges;
-    dfs(bbs[0].get(), dfn, order, idx, inStack, backedges);
-
-    // 2. 按循环头分组所有回边
-    std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> headerToBackedges;
-    for (auto &[from, to] : backedges)
-    {
-        headerToBackedges[to].push_back(from);
-    }
-
-    // 3. 对每个循环头，合并所有回边，收集完整循环体
-    for (auto &[header, backedges] : headerToBackedges)
-    {
-        std::unordered_set<BasicBlock *> loopBlocks;
-        std::stack<BasicBlock *> stk;
-        loopBlocks.insert(header);
-        for (auto *from : backedges)
-        {
-            if (loopBlocks.insert(from).second)
-                stk.push(from);
-        }
-        while (!stk.empty())
-        {
-            BasicBlock *cur = stk.top();
-            stk.pop();
-            for (auto *pred : cur->getPredecessors())
-            {
-                if (!loopBlocks.count(pred))
-                {
-                    loopBlocks.insert(pred);
-                    stk.push(pred);
-                }
-            }
-        }
-        // 关键：循环头必须有前驱在循环体外，才是真正的循环头
-        bool hasOutsidePred = false;
-        for (auto *pred : header->getPredecessors())
-        {
-            if (loopBlocks.find(pred) == loopBlocks.end())
-            {
-                hasOutsidePred = true;
-                break;
-            }
-        }
-        if (!hasOutsidePred)
-            continue; // 跳过伪循环头
-
-        // 去重
-        bool duplicate = false;
-        for (auto &l : loops)
-        {
-            std::set<BasicBlock *> s1(loopBlocks.begin(), loopBlocks.end());
-            std::set<BasicBlock *> s2(l.blocks.begin(), l.blocks.end());
-            if (l.header == header && s1 == s2)
-            {
-                duplicate = true;
-                break;
-            }
-        }
-        if (!duplicate)
-        {
-            Loop loop;
-            loop.header = header;
-            loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
-            loops.push_back(loop);
-        }
-    }
-    return loops;
 }
 std::string PassManager::toString() const
 {
@@ -313,8 +223,8 @@ bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
-    idom.clear();
-    idom = computeIDom_LengauerTarjan(func);
+    std::unordered_map<BasicBlock *, BasicBlock *> idom;
+    idom = ControlFlowAnalysis::analyze(func);
     bool changed = false;
     bool localChanged;
     // 递归消除
@@ -409,7 +319,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                         continue;
                     }
                     // 进入消除过程
-                    if (defBB == bb.get() || dominates(defBB, bb.get()))
+                    if (defBB == bb.get() || ControlFlowAnalysis::dominates(idom, defBB, bb.get()))
                     {
                         inst->replaceAllUsesWith(found->second.first);
                         if (verbose)
@@ -418,6 +328,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                       << found->second.first->toString() << " in "
                                       << bb->getName() << endl;
                         }
+                        // 从操作数的user列表中移除自己
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -486,77 +398,12 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
             return false;
         }
     }
-    // 只处理无副作用的二元运算和getelementptr以及load,不包括Store Call Ret Br
-    return (inst->isBinaryOp() || inst->getOpcode() == Opcode::GetElementPtr || inst->getOpcode() == Opcode::Load);
-}
-// 返回每个BB的直接支配者
-std::unordered_map<BasicBlock *, BasicBlock *>
-CommonSubexpressionEliminationPass::computeIDom_LengauerTarjan(Function *func)
-{
-    auto &bbs = func->getBasicBlocks();
-    if (bbs.empty())
-        return {};
-
-    LTContext ctx;
-    BasicBlock *entry = bbs[0].get();
-    ctx.N = 0;
-    dfsLT(entry, ctx);
-
-    std::vector<BasicBlock *> vertex = ctx.vertex;
-    int n = vertex.size();
-    std::unordered_map<BasicBlock *, BasicBlock *> idom;
-
-    // 1. 计算semi-dominator
-    for (int i = n - 1; i >= 1; --i)
-    {
-        BasicBlock *w = vertex[i];
-        for (auto *v : ctx.pred[w])
-        {
-            BasicBlock *u = eval(v, ctx);
-            if (ctx.semi[u] < ctx.semi[w])
-                ctx.semi[w] = ctx.semi[u];
-        }
-        ctx.idom[w] = vertex[ctx.semi[w] - 1]; // 初始设置为 semi[w] 的节点
-        ctx.bucket[vertex[ctx.semi[w] - 1]].push_back(w);
-        ctx.ancestor[w] = ctx.parent[w];
-        if (ctx.parent[w])
-        { // 防止入口块 parent 为 nullptr
-            for (auto *v : ctx.bucket[ctx.parent[w]])
-            {
-                BasicBlock *u = eval(v, ctx);
-                ctx.idom[v] = (ctx.semi[u] < ctx.semi[v]) ? u : ctx.parent[w];
-            }
-            ctx.bucket[ctx.parent[w]].clear();
-        }
-    }
-    // 2. 显式计算idom
-    for (int i = 1; i < n; ++i)
-    {
-        BasicBlock *w = vertex[i];
-        if (ctx.idom[w] != vertex[ctx.semi[w] - 1])
-            ctx.idom[w] = ctx.idom[ctx.idom[w]];
-    }
-    ctx.idom[entry] = nullptr;
-
-    // 3. 输出
-    std::unordered_map<BasicBlock *, BasicBlock *> result;
-    for (auto &p : ctx.idom)
-        if (p.first)
-            result[p.first] = p.second;
-    return result;
-}
-// 判断storeBB是否支配loadBB（所有到loadBB的路径都经过storeBB）
-bool CommonSubexpressionEliminationPass::dominates(BasicBlock *dom, BasicBlock *node)
-{
-    if (dom == node)
-        return true;
-    while (node && idom.count(node))
-    {
-        node = idom[node];
-        if (node == dom)
-            return true;
-    }
-    return false;
+    // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
+    // 不包括Store Ret Br
+    return (inst->isBinaryOp() ||
+            inst->getOpcode() == Opcode::GetElementPtr ||
+            inst->getOpcode() == Opcode::Load ||
+            (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
 // load需要支持，只做基本块内替换，如果第一个load后面没有store则可以替换，替换后更新哈希表load的指令
@@ -581,10 +428,6 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
     {
         if (auto *store = dynamic_cast<StoreInst *>(insts[i].get()))
         {
-            // if (normalizeName(store->getOriginalPointer()->getName()) == addrName)
-            // {
-            //     return false; // 两条load之间有store，不能CSE
-            // }
             if (isSameAddr(store->getOriginalPointer(), addr))
             {
                 return false; // 两条load之间有store，不能CSE
@@ -730,27 +573,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
     return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;
-}
-// 循环查找系统
-// DFS遍历，记录访问顺序和父节点
-void optimization::dfs(BasicBlock *bb, std::unordered_map<BasicBlock *, int> &dfn, vector<BasicBlock *> &order, int &idx,
-                       std::unordered_map<BasicBlock *, int> &inStack, std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges)
-{
-    dfn[bb] = idx++;
-    inStack[bb] = 1;
-    order.push_back(bb);
-    for (auto *succ : bb->getSuccessors())
-    {
-        if (!dfn.count(succ))
-        {
-            dfs(succ, dfn, order, idx, inStack, backedges);
-        }
-        else if (inStack[succ]) // succ在递归栈上，说明是回边
-        {
-            backedges.push_back({bb, succ});
-        }
-    }
-    inStack[bb] = 0;
+    ;
 }
 // 判断指令是否在循环不变
 bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop &loop)
@@ -840,7 +663,7 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
         }
     } while (localChanged);
     // 更新函数的循环信息
-    caller->setLoops(findLoops(caller));
+    caller->setLoops(ControlFlowAnalysis::findLoops(caller));
     if (verbose)
     {
         debugInfo << "Function: " << caller->getName() << "\n";
@@ -1067,6 +890,8 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
                 {
                     retPairs.push_back({newBB, ret->getReturnValue()});
                 }
+                // 从操作数中移除自己
+                ret->removeThisFromOperands();
                 needToDelete.push_back(it->release()); // 记录需要删除的指令
                 it = insts.erase(it);
                 newBB->addInstruction(std::make_unique<BranchInst>(afterBB));
@@ -1225,6 +1050,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                           << " to " << result << "\n";
                             }
                             // 还要打印输出
+                            inst->removeThisFromOperands();
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
@@ -1264,6 +1090,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                           << " to " << result << "\n";
                             }
                             // 还要打印输出
+                            inst->removeThisFromOperands();
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             localChanged = true;
@@ -1311,6 +1138,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                       << " to " << result << "\n";
                         }
                         // 还要打印输出
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -1357,6 +1185,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                       << " to " << result << "\n";
                         }
                         // 还要打印输出
+                        inst->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
                         localChanged = true;
@@ -1390,6 +1219,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             if (phi->getNumIncomingValues() == 1)
             {
                 Value *incomingValue = phi->getIncomingValue(0);
+                phi->removeThisFromOperands();
                 phi->replaceAllUsesWith(incomingValue);
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
@@ -1409,6 +1239,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             }
             if (allSame)
             {
+                phi->removeThisFromOperands();
                 phi->replaceAllUsesWith(firstVal);
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
@@ -1451,6 +1282,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 if (copy->getSource()->getName() == copy->getDest()->getName())
                 {
                     // 删除无效的copy指令
+                    copy->removeThisFromOperands();
                     needToDelete.push_back(it->release());
                     it = insts.erase(it);
                     changed = true;
@@ -1621,6 +1453,7 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
                 // 替换原GEP的所有使用
                 gep->replaceAllUsesWith(lastNewGEP);
                 // 删除原来的GEP指令
+                gep->removeThisFromOperands();
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
@@ -1685,6 +1518,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                     auto *mulInst = new BinaryOperator(Opcode::Mul, base, new ConstantInt(IntegerType::getInstance(), chainLen + 1), inst->getName() + "_mul");
                     // 在链式加法最后一条指令的后面插入
                     insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                    inst->removeThisFromOperands();
                     inst->replaceAllUsesWith(mulInst);
                     needToDelete.push_back(insts[i].release());
                     insts.erase(insts.begin() + i);
@@ -1699,6 +1533,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                                                         { return ptr.get() == chainInst; });
                             if (chainIt != insts.end())
                             {
+                                chainInst->removeThisFromOperands();
                                 needToDelete.push_back(chainIt->release());
                                 insts.erase(chainIt);
                             }
@@ -1726,7 +1561,22 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                 Value *rhs = inst->getOperands()[1];
                 if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
                 {
-                    if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
+                    if (constInt->Value == 0)
+                    {
+                        // 乘以0，直接替换为0
+                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                        inst->replaceAllUsesWith(zero);
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        changed = true;
+                        if (verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced Mul with 0 in " << bb->getName() << "\n";
+                        }
+                        continue;
+                    }
+                    else if (constInt->Value != 0 && (constInt->Value & (constInt->Value - 1)) == 0)
                     {
                         // 2的幂，直接左移
                         int shift = 0;
@@ -1737,7 +1587,8 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                             shift++;
                         }
                         // 替换为左移操作
-                        auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        auto *shlInst = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sll");
+                        inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(shlInst);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
@@ -1749,6 +1600,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                                       << " in " << bb->getName() << "\n";
                         }
                     }
+                    // 不需要处理不是2的幂次方情况，因为会降低性能
                 }
             }
             else if (inst && inst->getOpcode() == Opcode::SDiv)
@@ -1769,19 +1621,20 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         }
                         // 替换为右移操作
                         // 负数除法需要加掩码
-                        auto *zero=new ConstantInt(IntegerType::getInstance(), 0);
-                        auto *isNeg=new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, inst->getName() + "_isNeg");
-                        auto *mask=new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
-                        auto *addand=new BinaryOperator(Opcode::And,isNeg, mask, inst->getName() + "_addand");
-                        auto *lhsAdj=new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
-                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_shl");
+                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                        auto *mask = new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
+                        auto *signedDiv = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), 31), inst->getName() + "_signedDiv");
+                        auto *addand = new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
+                        auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
+                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sra");
+                        inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(sraInst);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sraInst));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhsAdj));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(addand));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(isNeg));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(signedDiv));
                         changed = true;
                         if (verbose)
                         {
@@ -1833,6 +1686,7 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     auto *castInst = new CastInst(Opcode::BitCast, ptrOperand, targetType, gep->getName() + "_bitcast");
                     // 在GEP指令前面插入BitCast指令
                     it = insts.insert(it, std::unique_ptr<Instruction>(castInst));
+                    gep->removeThisFromOperands();
                     gep->replaceAllUsesWith(castInst);
                     ++it;
                     // 删除原来的GEP指令（此时it指向gep，castInst在gep前面）
@@ -1874,6 +1728,7 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
                     if (destType->isTypeEqual(destType, srcType))
                     {
                         // 删除无效的BitCast指令
+                        bitCast->removeThisFromOperands();
                         bitCast->replaceAllUsesWith(bitCast->getOperand());
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
@@ -1901,230 +1756,354 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
     }
     return changed;
 }
-// // 支持 int/float 的 affine store 检查
-// bool ArrayEliminationPass::isAffineStore(StoreInst *store, Value *index, double &A, double &B)
-// {
-//     auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
-//     if (!gep || gep->getIndices().size() - gep->num_addedzero != 1)
-//         return false;
-//     if (gep->getIndices()[0] != index)
-//         return false;
-//     auto *bin = dynamic_cast<BinaryOperator *>(store->getValueToStore());
-//     if (!bin)
-//         return false;
-//     auto getConstVal = [](Value *v, double &val) -> bool
-//     {
-//         if (auto *ci = dynamic_cast<ConstantInt *>(v))
-//         {
-//             val = ci->Value;
-//             return true;
-//         }
-//         if (auto *cf = dynamic_cast<ConstantFloat *>(v))
-//         {
-//             val = cf->Value;
-//             return true;
-//         }
-//         return false;
-//     };
-//     // A + j
-//     if (bin->getOpcode() == Opcode::Add)
-//     {
-//         double a = 0;
-//         if (getConstVal(bin->getLHS(), a) && bin->getRHS() == index)
-//         {
-//             A = a;
-//             B = 1.0;
-//             return true;
-//         }
-//         if (getConstVal(bin->getRHS(), a) && bin->getLHS() == index)
-//         {
-//             A = a;
-//             B = 1.0;
-//             return true;
-//         }
-//     }
-//     // A + B*j
-//     if (bin->getOpcode() == Opcode::Add)
-//     {
-//         auto *mul = dynamic_cast<BinaryOperator *>(bin->getLHS());
-//         double a = 0, b = 0;
-//         if (mul && mul->getOpcode() == Opcode::Mul && getConstVal(bin->getRHS(), a))
-//         {
-//             if (mul->getLHS() == index && getConstVal(mul->getRHS(), b))
-//             {
-//                 A = a;
-//                 B = b;
-//                 return true;
-//             }
-//         }
-//     }
-//     return false;
-// }
-// Instruction *constructLoopCondition(const Loop &loop)
-// {
-//     Value *condition = loop.getLoopCondition();
-//     if (auto constInt = dynamic_cast<ConstantInt *>(condition))
-//     {
-//         return new ICmpInst(ICmpInst::ICMP_NE, condition, new ConstantInt(IntegerType::getInstance(), 0), "loop_condition");
-//     }
-//     else if (auto icmpInst = dynamic_cast<ICmpInst *>(condition))
-//     {
-//         // 如果是比较指令，直接返回
-//         return new ICmpInst(*icmpInst);
-//     }
-//     else if (auto fcmpInst = dynamic_cast<FCmpInst *>(condition))
-//     {
-//         // 如果是浮点比较指令，直接返回
-//         return new FCmpInst(*fcmpInst);
-//     }
-//     // 其他情况无法处理，返回nullptr
-//     return nullptr;
-// }
-// bool ArrayEliminationPass::runOnFunction(Function *func)
-// {
-//     bool changed = false;
-//     auto &loops = func->getLoops();
-//     auto &bbs = func->getBasicBlocks();
+bool ArrayEliminationPass ::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        // 1. 识别顺序赋值模式
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            auto *store = dynamic_cast<StoreInst *>(insts[i].get());
+            if (!store)
+                continue;
+            auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+            if (!gep || gep->getIndices().size() != 1)
+                continue;
+            Value *arr = gep->getPointerOperand();
+            Value *idx = gep->getIndices()[0];
+            // 检查是否为 a[j] = expr(j)
+            // 这里只处理 a[j] = A + j 或 a[j] = j
+            auto *bin = dynamic_cast<BinaryOperator *>(store->getValueToStore());
+            bool isSimple = false;
+            Value *A = nullptr;
+            if (bin)
+            {
+                if (bin->getOpcode() == Opcode::Add)
+                {
+                    if (bin->getLHS() == idx)
+                    {
+                        A = bin->getRHS();
+                        isSimple = true;
+                    }
+                    else if (bin->getRHS() == idx)
+                    {
+                        A = bin->getLHS();
+                        isSimple = true;
+                    }
+                }
+            }
+            else if (store->getValueToStore() == idx)
+            {
+                // 识别 a[j] = j
+                A = nullptr; // 没有常量项
+                isSimple = true;
+            }
+            if (!isSimple)
+                continue;
 
-//     // 1. 查找两个连续循环
-//     for (size_t i = 0; i + 1 < loops.size(); ++i)
-//     {
-//         const Loop &loop1 = loops[i];
-//         const Loop &loop2 = loops[i + 1];
+            // 2. 检查所有load是否只顺序访问
+            bool canReplace = true;
+            std::vector<std::tuple<BasicBlock *, Instruction *, size_t>> loadsToReplace;
+            for (auto &bb2Ptr : func->getBasicBlocks())
+            {
+                BasicBlock *bb2 = bb2Ptr.get();
+                auto &insts2 = bb2->getInstructions();
+                for (size_t j = 0; j < insts2.size(); ++j)
+                {
+                    auto *load = dynamic_cast<LoadInst *>(insts2[j].get());
+                    if (!load)
+                        continue;
+                    auto *gep2 = dynamic_cast<GetElementPtrInst *>(load->getPointer());
+                    if (!gep2 || gep2->getPointerOperand() != arr)
+                        continue;
+                    if (gep2->getIndices().size() != 1)
+                    {
+                        canReplace = false;
+                        break;
+                    }
+                    // 只允许 load a[j]
+                    loadsToReplace.emplace_back(bb2, load, j);
+                }
+            }
+            if (!canReplace)
+                continue;
 
-//         // 2. 自动识别所有被填充的数组
-//         struct ArrInfo
-//         {
-//             std::string arrName;
-//             StoreInst *store;
-//             Value *index;
-//             double A, B;
-//         };
-//         std::vector<ArrInfo> arrs;
-//         for (auto *bb : loop1.blocks)
-//         {
-//             for (auto &instPtr : bb->getInstructions())
-//             {
-//                 if (auto *store = dynamic_cast<StoreInst *>(instPtr.get()))
-//                 {
-//                     auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
-//                     // 不是一维数组直接跳过
-//                     if (!gep || gep->getIndices().size() - gep->num_addedzero != 1)
-//                         continue;
-//                     Value *indexVar = gep->getIndices()[0];
-//                     double A = 0, B = 0;
-//                     if (isAffineStore(store, indexVar, A, B))
-//                     {
-//                         arrs.push_back({gep->getPointerOperand()->getName(), store, indexVar, A, B});
-//                     }
-//                 }
-//             }
-//         }
-//         if (arrs.size() < 2)
-//             continue; // 至少两个数组
+            // 3. 替换所有load为表达式
+            for (auto &[bb2, load, pos] : loadsToReplace)
+            {
+                // 替换 load a[j] 为 (A + j)
+                auto loadinst = dynamic_cast<LoadInst *>(load);
+                if (!loadinst)
+                    continue;
+                auto *gep2 = dynamic_cast<GetElementPtrInst *>(loadinst->getPointer());
+                Value *idx2 = gep2->getIndices()[0];
+                Value *newExpr = nullptr;
+                if (A == nullptr)
+                    newExpr = idx2;
+                else
+                {
+                    newExpr = new BinaryOperator(Opcode::Add, A, idx2, "scalar_repl");
+                }
+                // 确保newExpr是一个有效的指令
+                auto newExprInst = dynamic_cast<Instruction *>(newExpr);
+                if (!newExprInst)
+                    continue;
+                load->replaceAllUsesWith(newExpr);
+                // 插入新表达式
+                auto &insts2 = bb2->getInstructions();
+                insts2.insert(insts2.begin() + pos, std::unique_ptr<Instruction>(newExprInst));
+                // 删除原load
+                load->removeThisFromOperands();
+                needToDelete.push_back(insts2[pos + 1].release());
+                insts2.erase(insts2.begin() + pos + 1);
+                changed = true;
+            }
+            // 4. 删除原store
+            store->removeThisFromOperands();
+            needToDelete.push_back(insts[i].release());
+            insts.erase(insts.begin() + i);
+            --i;
+            changed = true;
+        }
+    }
+    return changed;
+}
+bool CFGSimplificationPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    auto &bbs = func->getBasicBlocks();
+    vector<BasicBlock *> bbsToProcess;
+    Value *arrayAddr = nullptr;
+    for (auto &bbPtr : bbs)
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        // 1. 检查是否为 if (i > k) 结构
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            auto *icmp = dynamic_cast<ICmpInst *>(insts[i].get());
+            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SGT)
+                continue;
+            auto *iVar = icmp->getLHS();
+            auto *kConst = dynamic_cast<ConstantInt *>(icmp->getRHS());
+            if (!kConst)
+                continue;
+            int k = kConst->Value;
 
-//         // 3. 在 loop2 里找点积模式
-//         struct DotInfo
-//         {
-//             Value *sumVar;
-//             std::string arr1;
-//             std::string arr2;
-//             Value *index;
-//         };
-//         DotInfo dotInfo;
-//         bool foundDot = false;
-//         for (auto *bb : loop2.blocks)
-//         {
-//             for (auto &instPtr : bb->getInstructions())
-//             {
-//                 if (auto *add = dynamic_cast<BinaryOperator *>(instPtr.get()))
-//                 {
-//                     if (add->getOpcode() == Opcode::Add)
-//                     {
-//                         auto *mul = dynamic_cast<BinaryOperator *>(add->getRHS());
-//                         if (mul && mul->getOpcode() == Opcode::Mul)
-//                         {
-//                             auto *load1 = dynamic_cast<LoadInst *>(mul->getLHS());
-//                             auto *load2 = dynamic_cast<LoadInst *>(mul->getRHS());
-//                             if (load1 && load2)
-//                             {
-//                                 auto *gep1 = dynamic_cast<GetElementPtrInst *>(load1->getPointer());
-//                                 auto *gep2 = dynamic_cast<GetElementPtrInst *>(load2->getPointer());
-//                                 if (gep1 && gep2 &&
-//                                     gep1->getIndices().size() - gep1->num_addedzero == 1 && gep2->getIndices().size() - gep2->num_addedzero == 1 &&
-//                                     gep1->getIndices()[0] == gep2->getIndices()[0])
-//                                 {
-//                                     dotInfo = {add->getLHS(), gep1->getPointerOperand()->getName(), gep2->getPointerOperand()->getName(), gep1->getIndices()[0]};
-//                                     foundDot = true;
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//         if (!foundDot)
-//             continue;
+            // 2. 检查 then 分支是否为 s[k] = k
+            // 这里假设 then 分支是下一个基本块，且有 store 指令 s[k] = k
+            BasicBlock *thenBB = nullptr;
+            BasicBlock *exitBB = nullptr;
+            if (i + 1 < insts.size())
+            {
+                if (auto *br = dynamic_cast<BranchInst *>(insts[i + 1].get()))
+                {
+                    thenBB = br->TrueBlock;
+                    exitBB = br->FalseBlock; // 该模式下无else分支
+                }
+            }
+            if (!thenBB || !exitBB)
+                continue;
+            auto &thenInsts = thenBB->getInstructions();
+            bool match = false;
+            for (auto &tinstPtr : thenInsts)
+            {
+                if (auto *store = dynamic_cast<StoreInst *>(tinstPtr.get()))
+                {
+                    // 检查store的地址和数值是否都是k
+                    auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+                    auto *storeVal = dynamic_cast<ConstantInt *>(store->getValueToStore());
+                    if (gep && storeVal && storeVal->Value == k)
+                    {
+                        // 检查GEP索引是否为k
+                        if (gep->getIndices().size() == 1)
+                        {
+                            auto *idx = dynamic_cast<ConstantInt *>(gep->getIndices()[0]);
+                            if (idx && idx->Value == k)
+                            {
+                                arrayAddr = gep->getPointerOperand();
+                                match = true;
+                                needToDelete.push_back(insts[i].release());     // 删除原有的 if (i > k) 结构
+                                needToDelete.push_back(insts[i + 1].release()); // 删除分支指令
+                                insts.erase(insts.begin() + i);                 // 删除if指令
+                                insts.erase(insts.begin() + i);                 // 删除分支指令
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!match)
+                continue;
+            // 找到匹配的 if (i > k) 结构和 then 分支 s[k] = k
+            // bbsToProcess.push_back(bb);
+            // bb即是整个循环的前驱基本块
+            bbsToProcess.push_back(thenBB);
+            bbsToProcess.push_back(exitBB);
+            // 3. 递归/循环收集连续的k
+            std::vector<int> kList = {k};
+            BasicBlock *curBB = thenBB;
+            while (true)
+            {
+                // 查找下一个 if (i > k+1) 结构
+                auto &curInsts = curBB->getInstructions();
+                bool foundNext = false;
+                for (size_t j = 0; j < curInsts.size(); ++j)
+                {
+                    auto *icmp2 = dynamic_cast<ICmpInst *>(curInsts[j].get());
+                    if (icmp2 && icmp2->getPredicate() == ICmpInst::ICMP_SGT)
+                    {
+                        auto *k2Const = dynamic_cast<ConstantInt *>(icmp2->getRHS());
+                        if (k2Const && k2Const->Value == kList.back() + 1)
+                        {
+                            kList.push_back(k2Const->Value);
+                            // 跳到下一个then分支
+                            if (j + 1 < curInsts.size())
+                            {
+                                if (auto *br2 = dynamic_cast<BranchInst *>(curInsts[j + 1].get()))
+                                {
+                                    curBB = br2->TrueBlock;
+                                    bbsToProcess.push_back(curBB);
+                                    bbsToProcess.push_back(br2->FalseBlock);
+                                    foundNext = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!foundNext)
+                    break;
+            }
+            //
+            // 4. 替换为循环
+            if (kList.size() > 3)
+            { // 只有连续if链足够长才替换
+                int minK = kList.front();
+                int maxK = kList.back();
 
-//         // 4. 匹配填充数组和点积数组
-//         ArrInfo *arrA = nullptr, *arrB = nullptr;
-//         for (auto &info : arrs)
-//         {
-//             if (info.arrName == dotInfo.arr1)
-//                 arrA = &info;
-//             if (info.arrName == dotInfo.arr2)
-//                 arrB = &info;
-//         }
-//         if (!arrA || !arrB)
-//             continue;
+                auto *minKthen = new BasicBlock("min_k_then", func);
+                auto *loopCond = new BasicBlock("loop_cond", func);
+                auto *loopBody = new BasicBlock("loop_body", func);
+                auto *loopExit = new BasicBlock("loop_exit", func);
+                // 比较指令min(i,maxK+1)
+                auto *icmpMin = new ICmpInst(ICmpInst::ICMP_SLT, iVar, new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_icmp");
+                auto *condbr = new BranchInst(icmpMin, minKthen, loopCond);
+                // 构建合流指令
+                auto *kPhi = new PhiInst(IntegerType::getInstance(), "tk_loop");
+                auto *min_i_maxK = new PhiInst(IntegerType::getInstance(), "min_i_maxK");
+                // 设置循环条件
+                auto *icmpLoop = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, min_i_maxK, "loop_cond_icmp");
+                // 设置跳转指令
+                auto *brLoop = new BranchInst(icmpLoop, loopBody, loopExit);
+                // 设置循环体指令
+                auto *gepLoop = new GetElementPtrInst(arrayAddr, {kPhi}, "loop_gep");
+                auto *storeLoop = new StoreInst(kPhi, gepLoop);
+                auto *incK = new BinaryOperator(Opcode::Add, kPhi, new ConstantInt(IntegerType::getInstance(), 1), "inc_k");
+                // 无条件跳转到循环条件
+                auto *brToCond = new BranchInst(loopCond);
+                // 设置初始值
+                kPhi->addIncoming(new ConstantInt(IntegerType::getInstance(), minK), bb);
+                kPhi->addIncoming(incK, loopBody);
+                min_i_maxK->addIncoming(new ConstantInt(IntegerType::getInstance(), maxK + 1), bb);
+                min_i_maxK->addIncoming(iVar, minKthen);
+                // 将原来最外层if退出块指令复制到loopExit
+                for (auto &instPtr : exitBB->getInstructions())
+                {
+                    std::unique_ptr<Instruction> instPtrCopy = move(instPtr);
 
-//         Instruction *loopCmp = constructLoopCondition(loop1);
-//         if (!loopCmp)
-//             continue; // 无法构造循环条件
-//                       // 如果是变量则构造循环
-//                       // 在这里构造循环
-//                       // 变量情况，构造新循环
-//         // 删除原两个循环和相关数组
-//         std::set<std::string> arrNames = {arrA->arrName, arrB->arrName};
-//         for (auto *bb : loop1.blocks)
-//             bb->removeSelfBasicBlock();
-//         for (auto *bb : loop2.blocks)
-//             bb->removeSelfBasicBlock();
-//         for (auto &bbPtr : bbs)
-//         {
-//             auto &insts = bbPtr->getInstructions();
-//             for (auto it = insts.begin(); it != insts.end();)
-//             {
-//                 Instruction *inst = it->get();
-//                 bool toDelete = false;
-//                 if (auto *store = dynamic_cast<StoreInst *>(inst))
-//                 {
-//                     auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
-//                     if (gep && arrNames.count(gep->getPointerOperand()->getName()))
-//                         toDelete = true;
-//                 }
-//                 if (auto *load = dynamic_cast<LoadInst *>(inst))
-//                 {
-//                     auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
-//                     if (gep && arrNames.count(gep->getPointerOperand()->getName()))
-//                         toDelete = true;
-//                 }
-//                 if (auto *alloc = dynamic_cast<AllocaInst *>(inst))
-//                 {
-//                     if (arrNames.count(alloc->getName()))
-//                         toDelete = true;
-//                 }
-//                 if (toDelete)
-//                     it = insts.erase(it);
-//                 else
-//                     ++it;
-//             }
-//         }
-//         // 构造还未实现
-//         break; // 找到第一个匹配的就退出
-//     }
-//     return changed;
-// }
+                    loopExit->addInstruction(move(instPtrCopy)); // 使用move而不是insert，避免重复添加
+                }
+                exitBB->clearInstructions(); // 清空原有退出块指令
+                // 将原来phi输入从exitBB的指令改为loopExit
+                for (auto *user : exitBB->getUsers())
+                {
+                    if (auto *phi = dynamic_cast<PhiInst *>(user))
+                    {
+                        phi->replaceIncomingBasicBlock(exitBB, loopExit);
+                    }
+                }
+                bb->addInstruction(std::unique_ptr<Instruction>(icmpMin));
+                bb->addInstruction(std::unique_ptr<Instruction>(condbr));
+                // 添加then跳转到循环条件-->不需要，因为cond块刚好在then块后面
+                // minKthen->addInstruction(std::unique_ptr<Instruction>(thenBrToCond));
+                // 将新构造的指令添加到基本块
+                loopCond->addInstruction(std::unique_ptr<Instruction>(kPhi));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(min_i_maxK));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(icmpLoop));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(brLoop));
+                // 添加循环体指令
+                loopBody->addInstruction(std::unique_ptr<Instruction>(gepLoop));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(storeLoop));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(incK));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(brToCond));
+                // 更新CFG
+                // 建立原来ifthen前驱与循环条件的连接
+                bb->addSuccessor(loopCond);
+                loopCond->addPredecessor(bb);
+                // bb跳转到ifthen，即i比maxk+1小
+                bb->addSuccessor(minKthen);
+                minKthen->addPredecessor(bb);
+                // minKthen跳转到loopCond
+                loopCond->addPredecessor(minKthen);
+                minKthen->addSuccessor(loopCond);
+                // 将原来最外层的exit的后继块复制到loopExit
+                for (auto *succ : exitBB->getSuccessors())
+                {
+                    exitBB->removeSuccessor(succ);   // 删除原有后继
+                    succ->removePredecessor(exitBB); // 删除原有后继
+                    succ->addPredecessor(loopExit);  // 添加到新循环退出块
+                    loopExit->addSuccessor(succ);    // 添加后继到循环退出块
+                }
+                // 更新内部CFG连接
+                loopCond->addSuccessor(loopBody);
+                loopCond->addSuccessor(loopExit);
+                loopExit->addPredecessor(loopCond);
+                loopBody->addPredecessor(loopCond);
+                loopBody->addSuccessor(loopCond);
+                // minKthen放在最前面可以减少一条分支指令
+                func->addBasicBlock(unique_ptr<BasicBlock>(minKthen));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopCond));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopBody));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopExit));
+
+                // 删除原来的if链相关基本块
+                for (auto *bbToDel : bbsToProcess)
+                {
+                    bbToDel->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
+                }
+
+                changed = true;
+                if (verbose)
+                    debugInfo << "CFG Simplification: Replace if-chain [" << minK << "," << maxK << "] with loop in " << bb->getName() << "\n";
+            }
+            bbsToProcess.clear(); // 清空待处理基本块
+            break;                // 找到一个匹配就退出当前基本块的检查
+        }
+        if (changed)
+            break; // 如果已经进行了替换，退出函数
+    }
+    //  删除无用的基本块
+    for (auto it = bbs.begin(); it != bbs.end();)
+    {
+        BasicBlock *bb = it->get();
+        if (bb != func->getEntryBlock() && bb->getPredecessors().empty())
+        {
+            // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
+            needToDelete.push_back(it->release());
+            // 从基本块列表中删除
+            it = bbs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -2136,6 +2115,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // // 消除phi
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -2149,6 +2129,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -2216,15 +2197,16 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O16)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // 这里来一轮公共子表达式消除，消除无用的函数调用
+        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
-        // 循环不变量外提必须要在phi消除后进行才能效果好(可以在后面再进行一轮公共子表达式消除多余load）
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
