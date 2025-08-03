@@ -727,7 +727,8 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     }
     // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
-    return  !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;;
+    return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;
+    ;
 }
 // 循环查找系统
 // DFS遍历，记录访问顺序和父节点
@@ -1065,7 +1066,7 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
                 {
                     retPairs.push_back({newBB, ret->getReturnValue()});
                 }
-                //从操作数中移除自己
+                // 从操作数中移除自己
                 ret->removeThisFromOperands();
                 needToDelete.push_back(it->release()); // 记录需要删除的指令
                 it = insts.erase(it);
@@ -2155,6 +2156,239 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
 //     }
 //     return changed;
 // }
+bool CFGSimplificationPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    auto &bbs = func->getBasicBlocks();
+    vector<BasicBlock *> bbsToProcess;
+    Value *arrayAddr = nullptr;
+    for (auto &bbPtr : bbs)
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        // 1. 检查是否为 if (i > k) 结构
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            auto *icmp = dynamic_cast<ICmpInst *>(insts[i].get());
+            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SGT)
+                continue;
+            auto *iVar = icmp->getLHS();
+            auto *kConst = dynamic_cast<ConstantInt *>(icmp->getRHS());
+            if (!kConst)
+                continue;
+            int k = kConst->Value;
+
+            // 2. 检查 then 分支是否为 s[k] = k
+            // 这里假设 then 分支是下一个基本块，且有 store 指令 s[k] = k
+            BasicBlock *thenBB = nullptr;
+            BasicBlock *exitBB = nullptr;
+            if (i + 1 < insts.size())
+            {
+                if (auto *br = dynamic_cast<BranchInst *>(insts[i + 1].get()))
+                {
+                    thenBB = br->TrueBlock;
+                    exitBB = br->FalseBlock; // 该模式下无else分支
+                }
+            }
+            if (!thenBB || !exitBB)
+                continue;
+            auto &thenInsts = thenBB->getInstructions();
+            bool match = false;
+            for (auto &tinstPtr : thenInsts)
+            {
+                if (auto *store = dynamic_cast<StoreInst *>(tinstPtr.get()))
+                {
+                    // 检查store的地址和数值是否都是k
+                    auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+                    auto *storeVal = dynamic_cast<ConstantInt *>(store->getValueToStore());
+                    if (gep && storeVal && storeVal->Value == k)
+                    {
+                        // 检查GEP索引是否为k
+                        if (gep->getIndices().size() == 1)
+                        {
+                            auto *idx = dynamic_cast<ConstantInt *>(gep->getIndices()[0]);
+                            if (idx && idx->Value == k)
+                            {
+                                arrayAddr = gep->getPointerOperand();
+                                match = true;
+                                needToDelete.push_back(insts[i].release());     // 删除原有的 if (i > k) 结构
+                                needToDelete.push_back(insts[i + 1].release()); // 删除分支指令
+                                insts.erase(insts.begin() + i);                 // 删除if指令
+                                insts.erase(insts.begin() + i);                 // 删除分支指令
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!match)
+                continue;
+            // 找到匹配的 if (i > k) 结构和 then 分支 s[k] = k
+            // bbsToProcess.push_back(bb);
+            // bb即是整个循环的前驱基本块
+            bbsToProcess.push_back(thenBB);
+            bbsToProcess.push_back(exitBB);
+            // 3. 递归/循环收集连续的k
+            std::vector<int> kList = {k};
+            BasicBlock *curBB = thenBB;
+            while (true)
+            {
+                // 查找下一个 if (i > k+1) 结构
+                auto &curInsts = curBB->getInstructions();
+                bool foundNext = false;
+                for (size_t j = 0; j < curInsts.size(); ++j)
+                {
+                    auto *icmp2 = dynamic_cast<ICmpInst *>(curInsts[j].get());
+                    if (icmp2 && icmp2->getPredicate() == ICmpInst::ICMP_SGT)
+                    {
+                        auto *k2Const = dynamic_cast<ConstantInt *>(icmp2->getRHS());
+                        if (k2Const && k2Const->Value == kList.back() + 1)
+                        {
+                            kList.push_back(k2Const->Value);
+                            // 跳到下一个then分支
+                            if (j + 1 < curInsts.size())
+                            {
+                                if (auto *br2 = dynamic_cast<BranchInst *>(curInsts[j + 1].get()))
+                                {
+                                    curBB = br2->TrueBlock;
+                                    bbsToProcess.push_back(curBB);
+                                    bbsToProcess.push_back(br2->FalseBlock);
+                                    foundNext = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!foundNext)
+                    break;
+            }
+            //
+            // 4. 替换为循环
+            if (kList.size() > 3)
+            { // 只有连续if链足够长才替换
+                int minK = kList.front();
+                int maxK = kList.back();
+
+                auto *minKthen = new BasicBlock("min_k_then", func);
+                auto *loopCond = new BasicBlock("loop_cond", func);
+                auto *loopBody = new BasicBlock("loop_body", func);
+                auto *loopExit = new BasicBlock("loop_exit", func);
+                // 比较指令min(i,maxK+1)
+                auto *icmpMin = new ICmpInst(ICmpInst::ICMP_SLT, iVar, new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_icmp");
+                auto *condbr = new BranchInst(icmpMin, minKthen, loopCond);
+                // 构建合流指令
+                auto *kPhi = new PhiInst(IntegerType::getInstance(), "tk_loop");
+                auto *min_i_maxK = new PhiInst(IntegerType::getInstance(), "min_i_maxK");
+                // 设置循环条件
+                auto *icmpLoop = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, min_i_maxK, "loop_cond_icmp");
+                // 设置跳转指令
+                auto *brLoop = new BranchInst(icmpLoop, loopBody, loopExit);
+                // 设置循环体指令
+                auto *gepLoop = new GetElementPtrInst(arrayAddr, {kPhi}, "loop_gep");
+                auto *storeLoop = new StoreInst(kPhi, gepLoop);
+                auto *incK = new BinaryOperator(Opcode::Add, kPhi, new ConstantInt(IntegerType::getInstance(), 1), "inc_k");
+                // 无条件跳转到循环条件
+                auto *brToCond = new BranchInst(loopCond);
+                // 设置初始值
+                kPhi->addIncoming(new ConstantInt(IntegerType::getInstance(), minK), bb);
+                kPhi->addIncoming(incK, loopBody);
+                min_i_maxK->addIncoming(new ConstantInt(IntegerType::getInstance(), maxK + 1), bb);
+                min_i_maxK->addIncoming(iVar, minKthen);
+                // 将原来最外层if退出块指令复制到loopExit
+                for (auto &instPtr : exitBB->getInstructions())
+                {
+                    std::unique_ptr<Instruction> instPtrCopy = move(instPtr);
+
+                    loopExit->addInstruction(move(instPtrCopy)); // 使用move而不是insert，避免重复添加
+                }
+                exitBB->clearInstructions(); // 清空原有退出块指令
+                // 将原来phi输入从exitBB的指令改为loopExit
+                for (auto *user : exitBB->getUsers())
+                {
+                    if (auto *phi = dynamic_cast<PhiInst *>(user))
+                    {
+                        phi->replaceIncomingBasicBlock(exitBB, loopExit);
+                    }
+                }
+                bb->addInstruction(std::unique_ptr<Instruction>(icmpMin));
+                bb->addInstruction(std::unique_ptr<Instruction>(condbr));
+                // 添加then跳转到循环条件-->不需要，因为cond块刚好在then块后面
+                // minKthen->addInstruction(std::unique_ptr<Instruction>(thenBrToCond));
+                // 将新构造的指令添加到基本块
+                loopCond->addInstruction(std::unique_ptr<Instruction>(kPhi));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(min_i_maxK));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(icmpLoop));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(brLoop));
+                // 添加循环体指令
+                loopBody->addInstruction(std::unique_ptr<Instruction>(gepLoop));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(storeLoop));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(incK));
+                loopBody->addInstruction(std::unique_ptr<Instruction>(brToCond));
+                // 更新CFG
+                // 建立原来ifthen前驱与循环条件的连接
+                bb->addSuccessor(loopCond);
+                loopCond->addPredecessor(bb);
+                // bb跳转到ifthen，即i比maxk+1小
+                bb->addSuccessor(minKthen);
+                minKthen->addPredecessor(bb);
+                // minKthen跳转到loopCond
+                loopCond->addPredecessor(minKthen);
+                minKthen->addSuccessor(loopCond);
+                // 将原来最外层的exit的后继块复制到loopExit
+                for (auto *succ : exitBB->getSuccessors())
+                {
+                    exitBB->removeSuccessor(succ);   // 删除原有后继
+                    succ->removePredecessor(exitBB); // 删除原有后继
+                    succ->addPredecessor(loopExit);  // 添加到新循环退出块
+                    loopExit->addSuccessor(succ);    // 添加后继到循环退出块
+                }
+                // 更新内部CFG连接
+                loopCond->addSuccessor(loopBody);
+                loopCond->addSuccessor(loopExit);
+                loopExit->addPredecessor(loopCond);
+                loopBody->addPredecessor(loopCond);
+                loopBody->addSuccessor(loopCond);
+                // minKthen放在最前面可以减少一条分支指令
+                func->addBasicBlock(unique_ptr<BasicBlock>(minKthen));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopCond));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopBody));
+                func->addBasicBlock(unique_ptr<BasicBlock>(loopExit));
+
+                // 删除原来的if链相关基本块
+                for (auto *bbToDel : bbsToProcess)
+                {
+                    bbToDel->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
+                }
+
+                changed = true;
+                if (verbose)
+                    debugInfo << "CFG Simplification: Replace if-chain [" << minK << "," << maxK << "] with loop in " << bb->getName() << "\n";
+            }
+            bbsToProcess.clear(); // 清空待处理基本块
+            break;                // 找到一个匹配就退出当前基本块的检查
+        }
+        if (changed)
+            break; // 如果已经进行了替换，退出函数
+    }
+    //  删除无用的基本块
+    for (auto it = bbs.begin(); it != bbs.end();)
+    {
+        BasicBlock *bb = it->get();
+        if (bb != func->getEntryBlock() && bb->getPredecessors().empty())
+        {
+            // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
+            needToDelete.push_back(it->release());
+            // 从基本块列表中删除
+            it = bbs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -2246,8 +2480,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O16)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        //这里来一轮公共子表达式消除，消除无用的函数调用
-        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // 这里来一轮公共子表达式消除，消除无用的函数调用
+        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));

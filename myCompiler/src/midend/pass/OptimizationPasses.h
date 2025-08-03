@@ -207,6 +207,14 @@ namespace optimization
     //     // 构造循环比较指令
     //     Instruction *constructLoopCondition(const Loop &loop);
     // };
+    // 12。CFG优化
+    class CFGSimplificationPass : public Pass
+    {
+    public:
+        CFGSimplificationPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "CFGSimplification"; }        
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

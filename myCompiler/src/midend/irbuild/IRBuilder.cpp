@@ -315,6 +315,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
         {
             // 数组用内存模型
             Value *alloca = createAlloca(varType);
+            // 如果有初始值，则标记为需要初始化
+            if(node->initializer)dynamic_cast<AllocaInst *>(alloca)->setIsInitialized(true);
             size_t SerialNumber=varToValue.find(node->identifier) == varToValue.end() ? 0 : varToValue[node->identifier].getSerialNumber()+1;
             varToValue[node->identifier] = ValueInfo(alloca, SerialNumber);
             // 这里增加一个空块用于后端写入数组初始化赋值
@@ -1607,48 +1609,48 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs, int
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-        // 如果是常量表达式，直接计算结果
-        if (isConstantValue(lhs) && isConstantValue(rhs))
-        {
-            float l, r;
-            if (auto it = dynamic_cast<GlobalVariable *>(lhs))
-            {
-                l = static_cast<ConstantFloat *>(it->Initializer)->Value;
-            }
-            else
-                l = static_cast<ConstantFloat *>(lhs)->Value;
-            if (auto it = dynamic_cast<GlobalVariable *>(rhs))
-            {
-                r = static_cast<ConstantFloat *>(it->Initializer)->Value;
-            }
-            else
-                r = static_cast<ConstantFloat *>(rhs)->Value;
-            int res = 0;
-            switch (op)
-            {
-            case BinaryOp::Lt:
-                res = l < r;
-                break;
-            case BinaryOp::Gt:
-                res = l > r;
-                break;
-            case BinaryOp::Le:
-                res = l <= r;
-                break;
-            case BinaryOp::Ge:
-                res = l >= r;
-                break;
-            case BinaryOp::Eq:
-                res = l == r;
-                break;
-            case BinaryOp::Ne:
-                res = l != r;
-                break;
-            default:
-                throw std::runtime_error("Unsupported op in const float expr");
-            }
-            return new ConstantInt(IntegerType::getInstance(), res);
-        }
+        // // 如果是常量表达式，直接计算结果
+        // if (isConstantValue(lhs) && isConstantValue(rhs))
+        // {
+        //     float l, r;
+        //     if (auto it = dynamic_cast<GlobalVariable *>(lhs))
+        //     {
+        //         l = static_cast<ConstantFloat *>(it->Initializer)->Value;
+        //     }
+        //     else
+        //         l = static_cast<ConstantFloat *>(lhs)->Value;
+        //     if (auto it = dynamic_cast<GlobalVariable *>(rhs))
+        //     {
+        //         r = static_cast<ConstantFloat *>(it->Initializer)->Value;
+        //     }
+        //     else
+        //         r = static_cast<ConstantFloat *>(rhs)->Value;
+        //     int res = 0;
+        //     switch (op)
+        //     {
+        //     case BinaryOp::Lt:
+        //         res = l < r;
+        //         break;
+        //     case BinaryOp::Gt:
+        //         res = l > r;
+        //         break;
+        //     case BinaryOp::Le:
+        //         res = l <= r;
+        //         break;
+        //     case BinaryOp::Ge:
+        //         res = l >= r;
+        //         break;
+        //     case BinaryOp::Eq:
+        //         res = l == r;
+        //         break;
+        //     case BinaryOp::Ne:
+        //         res = l != r;
+        //         break;
+        //     default:
+        //         throw std::runtime_error("Unsupported op in const float expr");
+        //     }
+        //     return new ConstantInt(IntegerType::getInstance(), res);
+        // }
         auto fcmp = std::make_unique<FCmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = fcmp.get();
         currentBlock->addInstruction(std::move(fcmp));
@@ -1680,48 +1682,48 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs, int
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-        // 常量表达式直接赋值返回
-        if (isConstantValue(lhs) && isConstantValue(rhs))
-        {
-            int l, r;
-            if (auto it = dynamic_cast<GlobalVariable *>(lhs))
-            {
-                l = static_cast<ConstantInt *>(it->Initializer)->Value;
-            }
-            else
-                l = static_cast<ConstantInt *>(lhs)->Value;
-            if (auto it = dynamic_cast<GlobalVariable *>(rhs))
-            {
-                r = static_cast<ConstantInt *>(it->Initializer)->Value;
-            }
-            else
-                r = static_cast<ConstantInt *>(rhs)->Value;
-            int res = 0;
-            switch (op)
-            {
-            case BinaryOp::Lt:
-                res = l < r;
-                break;
-            case BinaryOp::Gt:
-                res = l > r;
-                break;
-            case BinaryOp::Le:
-                res = l <= r;
-                break;
-            case BinaryOp::Ge:
-                res = l >= r;
-                break;
-            case BinaryOp::Eq:
-                res = l == r;
-                break;
-            case BinaryOp::Ne:
-                res = l != r;
-                break;
-            default:
-                throw std::runtime_error("Unsupported op in const int expr");
-            }
-            return new ConstantInt(IntegerType::getInstance(), res);
-        }
+        // // 常量表达式直接赋值返回
+        // if (isConstantValue(lhs) && isConstantValue(rhs))
+        // {
+        //     int l, r;
+        //     if (auto it = dynamic_cast<GlobalVariable *>(lhs))
+        //     {
+        //         l = static_cast<ConstantInt *>(it->Initializer)->Value;
+        //     }
+        //     else
+        //         l = static_cast<ConstantInt *>(lhs)->Value;
+        //     if (auto it = dynamic_cast<GlobalVariable *>(rhs))
+        //     {
+        //         r = static_cast<ConstantInt *>(it->Initializer)->Value;
+        //     }
+        //     else
+        //         r = static_cast<ConstantInt *>(rhs)->Value;
+        //     int res = 0;
+        //     switch (op)
+        //     {
+        //     case BinaryOp::Lt:
+        //         res = l < r;
+        //         break;
+        //     case BinaryOp::Gt:
+        //         res = l > r;
+        //         break;
+        //     case BinaryOp::Le:
+        //         res = l <= r;
+        //         break;
+        //     case BinaryOp::Ge:
+        //         res = l >= r;
+        //         break;
+        //     case BinaryOp::Eq:
+        //         res = l == r;
+        //         break;
+        //     case BinaryOp::Ne:
+        //         res = l != r;
+        //         break;
+        //     default:
+        //         throw std::runtime_error("Unsupported op in const int expr");
+        //     }
+        //     return new ConstantInt(IntegerType::getInstance(), res);
+        // }
         auto icmp = std::make_unique<ICmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = icmp.get();
         currentBlock->addInstruction(std::move(icmp));

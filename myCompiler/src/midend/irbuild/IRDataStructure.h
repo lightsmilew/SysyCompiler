@@ -528,12 +528,14 @@ class AllocaInst : public Instruction
 {
 public:
     Type *AllocatedType; // 传入数组类型，返回退化后的指针
-
+    bool IsInitialized = false; // 标记数组是否需要后端初始化
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType),
                       Opcode::Alloca, name),
           AllocatedType(ty) {}
 
+    bool getIsInitialized() const;                                    // 获取是否初始化
+    void setIsInitialized(bool isInit);                               // 设置是否初始化
     int getAllocatedSize() const;                                     // 获取数组的元素总长度
     vector<size_t> getArrayEveryDimensionLength() const;              // 从左到右获取数组每一维的长度
     Value *getDest() const { return const_cast<AllocaInst *>(this); } // 获取目的操作数(本身)
@@ -671,6 +673,7 @@ public:
     unsigned getNumIncomingValues() const;                         // 获取前驱基本块和对应的值长度
     Value *getIncomingValue(unsigned index) const;                 // 获取前驱value
     BasicBlock *getIncomingBlock(unsigned index) const;            // 获取前驱基本块
+    void replaceIncomingBasicBlock(BasicBlock *oldBlock, BasicBlock *newBlock); // 替换前驱基本块
     void setIncomingBlock(unsigned index, BasicBlock *block);      // 设置前驱基本块
     Value *getDest() const { return const_cast<PhiInst *>(this); } // 获取目的操作数(本身)
     string toString() const override;
@@ -752,10 +755,12 @@ public:
 
     Instruction *getTerminator();                       // 获取终结指令
     vector<unique_ptr<Instruction>> &getInstructions(); // 获取所有指令
+    void clearInstructions();                           // 清空指令
     bool hasTerminator();                               // 检查是否有终结指令
     bool containsByName(const std::string &name) const; // 判断是否包含特定指令(通过名称)
     int getInstructionOrder(Instruction *inst) const;   // 获取指令在基本块中的顺序
     void removeSelfBasicBlock();                        // 删除基本块(从父函数中移除)
+    void setParent(Function *parent);                   // 设置父函数
     string toString() const override;
 };
 
@@ -818,6 +823,7 @@ public:
         : Value(funcTy, name), Parent(parent), isDeleted(false) {}
 
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
+    void addBasicBlock(unique_ptr<BasicBlock> block);   // 添加基本块(使用unique_ptr)
     BasicBlock *getEntryBlock();                        // 获取入口基本块
     vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块
 

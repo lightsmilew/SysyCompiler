@@ -660,7 +660,14 @@ std::string FCmpInst::toString() const
 
     return ss.str();
 }
-
+bool AllocaInst::getIsInitialized() const 
+{ 
+    return IsInitialized; 
+}
+void AllocaInst::setIsInitialized(bool isInit) 
+{ 
+    IsInitialized = isInit; 
+}
 int AllocaInst::getAllocatedSize() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
@@ -1074,6 +1081,21 @@ BasicBlock *PhiInst::getIncomingBlock(unsigned index) const
     }
     throw std::out_of_range("Invalid incoming block index");
 }
+void PhiInst::replaceIncomingBasicBlock(BasicBlock *oldBlock, BasicBlock *newBlock)
+{
+    auto it = std::find(IncomingValues.begin(), IncomingValues.end(), oldBlock);
+    if (it != IncomingValues.end())
+    {
+        unsigned index = std::distance(IncomingValues.begin(), it);
+        IncomingValues[index] = newBlock;
+        newBlock->addUser(this); // 添加到BasicBlock的用户列表中
+        oldBlock->removeUser(this); // 从旧块的用户列表中移除
+    }
+    else
+    {
+        throw std::runtime_error("PhiInst: old block not found in incoming blocks");
+    }
+}
 void PhiInst::setIncomingBlock(unsigned index, BasicBlock *block)
 {
     if (index < IncomingValues.size())
@@ -1336,6 +1358,10 @@ vector<unique_ptr<Instruction>> &BasicBlock::getInstructions()
 {
     return Instructions;
 }
+void BasicBlock::clearInstructions()
+{
+    Instructions.clear();
+} // 清空指令列表
 const vector<BasicBlock *> &BasicBlock::getPredecessors() const
 {
     return Predecessors;
@@ -1399,6 +1425,10 @@ void BasicBlock::removeSelfBasicBlock()
         removeSuccessor(succ);
     }
 }
+void BasicBlock::setParent(Function *parent)
+{
+    Parent = parent;
+} // 设置父函数
 std::string BasicBlock::toString() const
 {
     std::stringstream ss;
@@ -1431,6 +1461,12 @@ BasicBlock *Function::addBasicBlock(const string &name)
     BasicBlock *ptr = bb.get();
     BasicBlocks.push_back(std::move(bb));
     return ptr;
+}
+void Function::addBasicBlock(unique_ptr<BasicBlock> bb)
+{
+    BasicBlock *ptr = bb.get();
+    BasicBlocks.push_back(std::move(bb));
+    ptr->setParent(this);
 }
 Argument *Function::addArgument(Type *type, const string &name)
 {
@@ -1680,7 +1716,12 @@ std::string Module::toString() const
     }
     for (const auto &func : Functions)
     {
-        if (func->shouldBeOutput())
+        // if (func->shouldBeOutput())
+        // {
+        //     ss << func->toString() << "\n";
+        // }
+        // 暂时先把内联后的函数也输出，用于调试
+        if(!func->isLibraryFunction())
         {
             ss << func->toString() << "\n";
         }
