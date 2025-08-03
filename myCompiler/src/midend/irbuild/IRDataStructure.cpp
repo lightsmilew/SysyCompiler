@@ -1716,15 +1716,15 @@ std::string Module::toString() const
     }
     for (const auto &func : Functions)
     {
-        // if (func->shouldBeOutput())
-        // {
-        //     ss << func->toString() << "\n";
-        // }
-        // 暂时先把内联后的函数也输出，用于调试
-        if(!func->isLibraryFunction())
+        if (func->shouldBeOutput())
         {
             ss << func->toString() << "\n";
         }
+        // 暂时先把内联后的函数也输出，用于调试
+        // if(!func->isLibraryFunction())
+        // {
+        //     ss << func->toString() << "\n";
+        // }
     }
     return ss.str();
 }

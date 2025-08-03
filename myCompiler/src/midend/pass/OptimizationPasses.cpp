@@ -27,17 +27,17 @@ bool PassManager::runOnModule(Module *module)
             }
         }
         // 先不删除用于调试
-        // 如果是函数内联pass，则在内联后删除内联的函数
-        // if (dynamic_cast<FunctionInliningPass *>(pass.get()))
-        // {
-        //     module->Functions.erase(
-        //         std::remove_if(
-        //             module->Functions.begin(),
-        //             module->Functions.end(),
-        //             [](const auto &func)
-        //             { return func->isDeletedFunction(); }),
-        //         module->Functions.end());
-        // }
+        //如果是函数内联pass，则在内联后删除内联的函数
+        if (dynamic_cast<FunctionInliningPass *>(pass.get()))
+        {
+            module->Functions.erase(
+                std::remove_if(
+                    module->Functions.begin(),
+                    module->Functions.end(),
+                    [](const auto &func)
+                    { return func->isDeletedFunction(); }),
+                module->Functions.end());
+        }
     }
     return changed;
 }
@@ -2400,6 +2400,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // // 消除phi
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -2413,6 +2414,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
