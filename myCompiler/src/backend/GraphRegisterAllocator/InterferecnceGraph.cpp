@@ -45,7 +45,8 @@ void InterferenceGraph::removeNode(shared_ptr<RISCVRegister> reg)
         return;
 
     // 移除所有相关的边
-    for (auto neighbor : adjList[reg])
+    auto neighbors = adjList[reg]; // 拷贝一份
+    for (auto neighbor : neighbors)
     {
         adjList[neighbor].erase(reg);
         degree[neighbor]--;
