@@ -118,3 +118,46 @@ vector<Loop> ControlFlowAnalysis::findLoops(Function *func)
     }
     return loops;
 }
+// 判断从 startBB 到 endBB 的所有路径上是否有其它 store 到 arr
+bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr)
+{
+    std::unordered_set<BasicBlock *> visited;
+    std::stack<BasicBlock *> stk;
+    // 从 startBB 开始遍历所有后继
+    visited.insert(startBB);
+    for(auto *succ : startBB->getSuccessors())
+    {
+        stk.push(succ);
+    }
+    // 从 startBB 开始遍历所有后继
+    while (!stk.empty())
+    {
+        BasicBlock *cur = stk.top();
+        stk.pop();
+        if (cur == endBB)
+            continue;
+        if (visited.count(cur))
+            continue;
+        visited.insert(cur);
+
+        // 检查当前基本块是否有 store 到 arr
+        for (auto &instPtr : cur->getInstructions())
+        {
+            auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+            if (store)
+            {
+                auto *originalPtr = store->getOriginalPointer();
+                if (isSameAddr(originalPtr, arr))
+                {
+                    return true; // 找到 store 到 arr，返回 true
+                }
+            }
+        }
+        // 遍历所有后继
+        for (auto *succ : cur->getSuccessors())
+        {
+            stk.push(succ);
+        }
+    }
+    return false;
+}

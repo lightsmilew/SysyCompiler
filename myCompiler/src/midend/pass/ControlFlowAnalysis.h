@@ -17,5 +17,6 @@ namespace optimization
                         std::unordered_map<BasicBlock *, int> &inStack,
                         std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges);
         static vector<Loop> findLoops(Function *func);
+        static bool hasStoreOnPath(BasicBlock *startBB,BasicBlock *endBB,Value *arr);
     };
 }

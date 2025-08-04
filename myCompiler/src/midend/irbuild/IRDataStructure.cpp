@@ -369,11 +369,11 @@ bool Instruction::isCopy() const
 bool Instruction::mayHaveSideEffects() const
 {
     if (Op == Opcode::Store ||
-        Op == Opcode::Br    ||
-        Op == Opcode::Ret   ||
+        Op == Opcode::Br ||
+        Op == Opcode::Ret ||
         Op == Opcode::Alloca)
-        //Op == Opcode::Phi   ||
-        //Op == Opcode::Copy)
+    // Op == Opcode::Phi   ||
+    // Op == Opcode::Copy)
     {
         return true;
     }
@@ -415,6 +415,21 @@ bool Instruction::hasResult() const
     default:
         return false; // Ret, Br, Store等没有结果
     }
+}
+bool Instruction::hasExternalUse(const Loop &loop) const
+{
+    for (auto *user : this->getUsers())
+    {
+        // user 不是循环体内的指令
+        if (auto *inst = dynamic_cast<Instruction *>(user))
+        {
+            if (!loop.contains(inst))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 Instruction *Instruction::cloneWithRename(const std::unordered_map<Value *, Value *> &valueMap, string suffix) const
 {
@@ -660,13 +675,13 @@ std::string FCmpInst::toString() const
 
     return ss.str();
 }
-bool AllocaInst::getIsInitialized() const 
-{ 
-    return IsInitialized; 
+bool AllocaInst::getIsInitialized() const
+{
+    return IsInitialized;
 }
-void AllocaInst::setIsInitialized(bool isInit) 
-{ 
-    IsInitialized = isInit; 
+void AllocaInst::setIsInitialized(bool isInit)
+{
+    IsInitialized = isInit;
 }
 int AllocaInst::getAllocatedSize() const
 {
@@ -1015,7 +1030,22 @@ std::string ReturnInst::toString() const
     }
     return ss.str();
 }
-
+BasicBlock *BranchInst::getTrueBlock() const
+{
+    return TrueBlock;
+} // 获取真分支基本块
+BasicBlock *BranchInst::getFalseBlock() const
+{
+    return FalseBlock;
+} // 获取假分支基本块
+void BranchInst::setTrueBlock(BasicBlock *block)
+{
+    TrueBlock = block;
+} // 设置真分支基本块
+void BranchInst::setFalseBlock(BasicBlock *block)
+{
+    FalseBlock = block;
+} // 设置假分支基本块
 std::string BranchInst::toString() const
 {
     std::stringstream ss;
@@ -1088,7 +1118,7 @@ void PhiInst::replaceIncomingBasicBlock(BasicBlock *oldBlock, BasicBlock *newBlo
     {
         unsigned index = std::distance(IncomingValues.begin(), it);
         IncomingValues[index] = newBlock;
-        newBlock->addUser(this); // 添加到BasicBlock的用户列表中
+        newBlock->addUser(this);    // 添加到BasicBlock的用户列表中
         oldBlock->removeUser(this); // 从旧块的用户列表中移除
     }
     else
@@ -1551,6 +1581,23 @@ unsigned Function::getInstructionCount() const
         count += bb->getInstructions().size();
     }
     return count;
+}
+vector<BasicBlock *> Function::getExitBlocks() const
+{
+    std::vector<BasicBlock *> exits;
+    for (const auto &bbPtr : BasicBlocks)
+    {
+        BasicBlock *bb = bbPtr.get();
+        if (!bb->getInstructions().empty())
+        {
+            Instruction *term = bb->getTerminator();
+            if (term && term->getOpcode() == Opcode::Ret)
+            {
+                exits.push_back(bb);
+            }
+        }
+    }
+    return exits;
 }
 bool Function::isLibraryFunction() const
 {

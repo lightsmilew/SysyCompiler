@@ -16,7 +16,7 @@ class Module;
 class User;
 class ArrayType;
 class Value;
-
+struct Loop;
 // ===== Address Comparison =====
 std::string normalizeName(const std::string &name); // 归一化处理变量名
 bool isSameAddr(Value *a,Value *b);
@@ -436,6 +436,7 @@ public:
     bool isCopy() const;                               // 是否为复制指令
     bool mayHaveSideEffects() const;                   // 是否有负面作用
     bool hasResult() const;                            // 是否有结果
+    bool hasExternalUse(const Loop &loop) const;             // 是否有外部使用
     virtual string toString() const = 0;
 };
 
@@ -655,6 +656,10 @@ public:
         }
         return nullptr;
     }
+    BasicBlock *getTrueBlock() const;
+    BasicBlock *getFalseBlock() const; // 获取假分支基本块
+    void setTrueBlock(BasicBlock *block);
+    void setFalseBlock(BasicBlock *block);
     string toString() const override;
 };
 
@@ -809,6 +814,20 @@ struct Loop
             throw std::runtime_error("Loop header does not have a valid terminator instruction.");
         }
     }
+    bool IsInductionVar(const std::string &name)const
+    {
+        for(auto &inst:header->getInstructions())
+        {
+            if(inst->getName() == name)
+            {
+                if(auto phiInst = dynamic_cast<PhiInst *>(inst.get()))
+                {
+                    return true; // 如果是Phi指令，说明是归纳变量
+                }
+            }
+        }
+        return false; // 如果没有找到Phi指令，说明不是归纳变量
+    }
 };
 // ===== Function =====
 class Function : public Value
@@ -837,6 +856,7 @@ public:
     void setLoops(const vector<Loop> &loops);                   // 设置循环信息
     FunctionType *getFunctionType();                            // 获取函数类型
     unsigned getInstructionCount() const;                       // 获取指令数量
+    vector<BasicBlock *> getExitBlocks() const;                 // 获取出口基本块
     bool isLibraryFunction() const;                             // 是否为库函数
     bool isRecursive() const;                                   // 是否为递归函数
     void setDeleted(bool deleted);                              // 设置函数是否被删除
