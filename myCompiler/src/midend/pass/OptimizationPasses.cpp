@@ -1756,57 +1756,63 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
     }
     return changed;
 }
-bool ArrayEliminationPass ::runOnFunction(Function *func)
+bool ArrayEliminationPass::runOnFunction(Function *func)
 {
     bool changed = false;
     for (auto &bbPtr : func->getBasicBlocks())
     {
         BasicBlock *bb = bbPtr.get();
         auto &insts = bb->getInstructions();
-        // 1. 识别顺序赋值模式
         for (size_t i = 0; i < insts.size(); ++i)
         {
-            auto *store = dynamic_cast<StoreInst *>(insts[i].get());
-            if (!store)
+            auto *storeInst = dynamic_cast<StoreInst *>(insts[i].get());
+            if (!storeInst)
                 continue;
-            auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
-            if (!gep || gep->getIndices().size() != 1)
+            auto *gep_store = dynamic_cast<GetElementPtrInst *>(storeInst->getPointer());
+            if (!gep_store || gep_store->getIndices().size() != 1)
                 continue;
-            Value *arr = gep->getPointerOperand();
-            Value *idx = gep->getIndices()[0];
-            // 检查是否为 a[j] = expr(j)
-            // 这里只处理 a[j] = A + j 或 a[j] = j
-            auto *bin = dynamic_cast<BinaryOperator *>(store->getValueToStore());
+            Value *arr = gep_store->getPointerOperand();
+            Value *idx_store = gep_store->getIndices()[0];
             bool isSimple = false;
+            bool needTypeCast = false;
             Value *A = nullptr;
+            Opcode binOpcode;
+            auto *bin = dynamic_cast<BinaryOperator *>(storeInst->getValueToStore());
             if (bin)
             {
-                if (bin->getOpcode() == Opcode::Add)
+                if (bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::FAdd)
                 {
-                    if (bin->getLHS() == idx)
+                    binOpcode = bin->getOpcode();
+                    auto *lhs_sitofp = dynamic_cast<CastInst *>(bin->getLHS());
+                    auto *rhs_sitofp = dynamic_cast<CastInst *>(bin->getRHS());
+                    if (lhs_sitofp && lhs_sitofp->getOpcode() == Opcode::SIToFP && lhs_sitofp->getOperand() == idx_store)
                     {
+                        // a[j] = A + (float)j
                         A = bin->getRHS();
+                        needTypeCast = true;
                         isSimple = true;
                     }
-                    else if (bin->getRHS() == idx)
+                    else if (rhs_sitofp && rhs_sitofp->getOpcode() == Opcode::SIToFP && rhs_sitofp->getOperand() == idx_store)
                     {
+                        // a[j] = (float)j + A
                         A = bin->getLHS();
+                        needTypeCast = true;
                         isSimple = true;
                     }
                 }
             }
-            else if (store->getValueToStore() == idx)
+            else if (storeInst->getValueToStore() == idx_store)
             {
-                // 识别 a[j] = j
-                A = nullptr; // 没有常量项
+                A = nullptr;
                 isSimple = true;
             }
             if (!isSimple)
                 continue;
 
-            // 2. 检查所有load是否只顺序访问
+            // 2. 检查所有load是否合法
             bool canReplace = true;
             std::vector<std::tuple<BasicBlock *, Instruction *, size_t>> loadsToReplace;
+            BasicBlock *storeBB = bb;
             for (auto &bb2Ptr : func->getBasicBlocks())
             {
                 BasicBlock *bb2 = bb2Ptr.get();
@@ -1824,49 +1830,141 @@ bool ArrayEliminationPass ::runOnFunction(Function *func)
                         canReplace = false;
                         break;
                     }
-                    // 只允许 load a[j]
+                    if (bb2 == storeBB)
+                    {
+                        // 只允许store之后的load
+                        if (j <= i)
+                            continue;
+                        // 判断1:检查store和load之间有无其它store
+                        for (size_t k = i + 1; k < j; ++k)
+                        {
+                            auto *otherStore = dynamic_cast<StoreInst *>(insts2[k].get());
+                            if (otherStore)
+                            {
+                                auto *otherGep = dynamic_cast<GetElementPtrInst *>(otherStore->getPointer());
+                                if (otherGep && isSameAddr(otherGep->getPointerOperand(), arr))
+                                {
+                                    canReplace = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!canReplace)
+                        {
+                            loadsToReplace.clear();
+                            continue;
+                        }
+                    }
+                    if (!canReplace)
+                        break;
+                    // 这里合并了判断2和判断3
+                    // 判断2:检查路径上有无其它store
+                    // 判断3:load到出口是否还有store，如果有则不能替换
+                    // 判断:store到出口还要store，则不能替换
+                    for (auto &exitBB : func->getExitBlocks())
+                    {
+                        if (ControlFlowAnalysis::hasStoreOnPath(storeBB, exitBB, arr))
+                        {
+                            // 如果有store到出口块，不能进行替换
+                            if (verbose)
+                            {
+                                debugInfo << "Array Elimination: Cannot replace array access in " << bb->getName()
+                                          << " due to store on path to exit block.\n";
+                            }
+                            canReplace = false;
+                            break;
+                        }
+                    }
+                    if (!canReplace)
+                    {
+                        // 判断到有非法load，则要把loadsToReplace清空
+                        loadsToReplace.clear();
+                        break;
+                    }
+
                     loadsToReplace.emplace_back(bb2, load, j);
                 }
+                if (!canReplace)
+                    break;
             }
             if (!canReplace)
                 continue;
 
+            // 3. 如果没有找到有效的load，此时说明不能进行替换store
+            if (loadsToReplace.empty())
+            {
+                if (verbose)
+                {
+                    debugInfo << "Array Elimination: No valid loads found for array " << arr->getName() << " in " << bb->getName() << "\n";
+                }
+                continue;
+            }
             // 3. 替换所有load为表达式
             for (auto &[bb2, load, pos] : loadsToReplace)
             {
-                // 替换 load a[j] 为 (A + j)
                 auto loadinst = dynamic_cast<LoadInst *>(load);
                 if (!loadinst)
                     continue;
-                auto *gep2 = dynamic_cast<GetElementPtrInst *>(loadinst->getPointer());
-                Value *idx2 = gep2->getIndices()[0];
-                Value *newExpr = nullptr;
+                auto *gep_load = dynamic_cast<GetElementPtrInst *>(loadinst->getPointer());
+                Value *idx_load = gep_load->getIndices()[0];
+                Value *newIdx_load = idx_load;
+                Value *newExpr_load = nullptr;
+                vector<Instruction *> needToAdd;
+                // a[i]=i模式
                 if (A == nullptr)
-                    newExpr = idx2;
+                {
+                    if (needTypeCast)
+                    {
+                        newIdx_load = new CastInst(Opcode::SIToFP, idx_load, FloatType::getInstance(), "scalar_repl_cast_" + to_string(ArrayEliminationCount));
+                        needToAdd.push_back(dynamic_cast<Instruction *>(newIdx_load));
+                    }
+                    newExpr_load = newIdx_load;
+                }
+                // a[i]=A+i模式
                 else
                 {
-                    newExpr = new BinaryOperator(Opcode::Add, A, idx2, "scalar_repl");
+                    if (needTypeCast)
+                    {
+                        // 如果需要类型转换，使用CastInst
+                        newIdx_load = new CastInst(Opcode::SIToFP, idx_load, FloatType::getInstance(), "scalar_repl_cast" + to_string(ArrayEliminationCount));
+                        needToAdd.push_back(dynamic_cast<Instruction *>(newIdx_load));
+                    }
+                    newExpr_load = new BinaryOperator(binOpcode, A, newIdx_load, "scalar_repl" + to_string(ArrayEliminationCount));
                 }
-                // 确保newExpr是一个有效的指令
-                auto newExprInst = dynamic_cast<Instruction *>(newExpr);
+                auto newExprInst = dynamic_cast<Instruction *>(newExpr_load);
                 if (!newExprInst)
                     continue;
-                load->replaceAllUsesWith(newExpr);
-                // 插入新表达式
+                needToAdd.push_back(newExprInst);
+                load->replaceAllUsesWith(newExpr_load);
                 auto &insts2 = bb2->getInstructions();
-                insts2.insert(insts2.begin() + pos, std::unique_ptr<Instruction>(newExprInst));
-                // 删除原load
                 load->removeThisFromOperands();
-                needToDelete.push_back(insts2[pos + 1].release());
-                insts2.erase(insts2.begin() + pos + 1);
+                needToDelete.push_back(insts2[pos].release());
+                // 在原位置删除load指令
+                insts2.erase(insts2.begin() + pos);
+                // 在原位置插入新的表达式
+                for (size_t k = 0; k < needToAdd.size(); ++k)
+                {
+                    insts2.insert(insts2.begin() + pos + k, std::unique_ptr<Instruction>(needToAdd[k]));
+                }
                 changed = true;
+                if (verbose)
+                {
+                    debugInfo << "Array Elimination: Replaced array load " << loadinst->getName()
+                              << " with scalar expression in " << bb2->getName() << "\n";
+                }
             }
             // 4. 删除原store
-            store->removeThisFromOperands();
+            storeInst->removeThisFromOperands();
             needToDelete.push_back(insts[i].release());
             insts.erase(insts.begin() + i);
             --i;
+            ArrayEliminationCount++;
             changed = true;
+            if (verbose)
+            {
+                debugInfo << "Array Elimination: Replaced array store " << storeInst->getName()
+                          << " with scalar expression in " << bb->getName() << "\n";
+            }
         }
     }
     return changed;
@@ -2104,6 +2202,110 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
     }
     return changed;
 }
+// bool RemoveUselessWhilePass::runOnFunction(Function *func)
+// {
+//     bool changed = false;
+//     auto &loops = func->getLoops();
+//     for (const auto &loop : loops)
+//     {
+//         // 只处理简单循环
+//         if(loop.blocks.size()>2||loop.exits.size()>1)continue;
+//         // 1. 检查循环体是否只有循环变量的自增/自减
+//         bool onlyInc = true;
+//         for (auto *bb : loop.blocks)
+//         {
+//             for (auto &instPtr : bb->getInstructions())
+//             {
+//                 Instruction *inst = instPtr.get();
+//                 // 跳过phi、br等控制流指令
+//                 if (inst->getOpcode() == Opcode::Phi || inst->getOpcode() == Opcode::Br)
+//                     continue;
+//                 // 只允许循环变量的自增/自减
+//                 if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
+//                 {
+//                     if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
+//                     {
+//                         onlyInc = false;
+//                         break;
+//                     }
+//                     // 检查结果是否只赋值给循环变量
+//                     if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
+//                     {
+//                         onlyInc = false;
+//                         break;
+//                     }
+//                     {
+//                         onlyInc = false;
+//                         break;
+//                     }
+//                 }
+//                 else if (inst->mayHaveSideEffects() || inst->hasExternalUse(loop))
+//                 {
+//                     onlyInc = false;
+//                     break;
+//                 }
+//             }
+//             if (!onlyInc)
+//                 break;
+//         }
+//         if (!onlyInc)
+//             continue;
+
+//         // 标记循环体为待删除
+//         for (auto *bb : loop.blocks)
+//         {
+//             bb->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
+//         }
+//         // 删除循环体所有基本块，并修正CFG
+//         // 让循环前驱直接跳到循环出口
+//         BasicBlock *prehead=nullptr;
+//         for (auto *pred : loop.header->getPredecessors())
+//         {
+//             // 此时循环已断开连接，前驱只有一个
+//             // 修正跳转指令
+//             for (auto &instPtr : pred->getInstructions())
+//             {
+//                 Instruction *inst = instPtr.get();
+//                 if (auto *br = dynamic_cast<BranchInst *>(inst))
+//                 {
+//                     if (br->getTrueBlock() == loop.header)
+//                     {
+//                         // 如果是循环头的跳转，直接跳到循环出口
+//                         br->setTrueBlock(loop.exits[0]);
+//                     }
+//                     if( br->getFalseBlock() == loop.header)
+//                     {
+//                         // 如果是循环头的跳转，直接跳到循环出口
+//                         br->setFalseBlock(loop.exits[0]);
+//                     }
+//                 }
+//                 prehead = pred;
+//             }
+//             // 修正CFG
+//             pred->addSuccessor(loop.exits[0]);
+//             loop.exits[0]->addPredecessor(pred);
+//         }
+//         // 删除来自循环的phi指令，因为这个只能是循环变量
+//         for(auto &inst2:loop.exits[0]->getInstructions())
+//         {
+//             if(auto *phi=dynamic_cast<PhiInst *>(inst2.get()))
+//             {
+//                 // 删除phi指令
+//                 phi->removeThisFromOperands();
+//                 // 如果基本块全是循环体内，则直接删除
+
+//                 phi->replaceAllUsesWith(phi->getIncomingValue(prehead));
+//                 needToDelete.push_back(inst2.release());
+//             }
+//         }
+//         changed = true;
+//         if (verbose)
+//         {
+//             debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
+//         }
+//     }
+//     return changed;
+// }
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -2114,9 +2316,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // // 消除phi
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
@@ -2128,9 +2331,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O1)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
@@ -2196,11 +2400,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        // 这里来一轮公共子表达式消除，消除无用的函数调用
-        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        //提前进行一轮公共子表达式消除，删除无用函数调用
+        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));

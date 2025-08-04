@@ -195,7 +195,18 @@ namespace optimization
         ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "ArrayElimination"; }
+    private:
+        // 用于记录数组消除次数
+        size_t ArrayEliminationCount=0; 
     };
+    // // 14.移除无用的while循环
+    // class RemoveUselessWhilePass : public Pass
+    // {
+    // public:
+    //     RemoveUselessWhilePass(bool verbose = false) : Pass(verbose) {}
+    //     bool runOnFunction(Function *func) override;
+    //     std::string getName() const override { return "RemoveUselessWhile"; }
+    // };
     // 优化级别枚举
     enum class OptimizationLevel
     {
