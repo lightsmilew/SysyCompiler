@@ -140,6 +140,6 @@ qemu-system-riscv64 \
 
 ## 容易踩的坑
 
-![alt text](image.png)
+![alt text](docs/image.png)
 
 C++ 标准库的 shared_ptr 的 == 运算符默认比较的是指针地址（即是否指向同一块内存），不会自动调用你自定义的 `operator==`。如果需要比较内容相等，需要使用 `get()` 方法获取裸指针进行比较。
