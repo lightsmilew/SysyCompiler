@@ -215,6 +215,14 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "LoopSumReduction"; }
     };
+    // 16.删除只写数组
+    class RemoveOnlyWriteArrayPass : public Pass
+    {
+    public:
+        RemoveOnlyWriteArrayPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "RemoveOnlyWriteArray"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

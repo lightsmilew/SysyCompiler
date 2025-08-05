@@ -565,7 +565,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
                 if (auto callInst = dynamic_cast<CallInst *>(call))
                 {
                     // 如果是调用函数，且函数有副作用，则不能外提
-                    if (callInst->IsModifyingGlobalVar(loadOriginalPointer))
+                    if (callInst->HasModifiedArray(loadOriginalPointer))
                     {
                         return false;
                     }
@@ -2221,156 +2221,136 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
 {
     bool changed = false;
     auto &loops = func->getLoops();
-    for (const auto &loop : loops)
+    // 允许多次遍历，直到没有可删的无用循环
+    bool localChanged;
+    do
     {
-        // 只处理简单循环
-        // 只包含循环头、循环体、循环出口三个块
-        if (loop.blocks.size() > 2)
-            continue;
-        //  检查循环体是否只有循环变量的自增/自减
-        bool onlyInc = true;
-        BasicBlock *whilecond = nullptr;
-        BasicBlock *whilebody = nullptr;
-        for (auto *bb : loop.blocks)
+        localChanged = false;
+        for (const auto &loop : loops)
         {
-            if (bb == loop.header)
+            if (loop.blocks.size() > 2)
+                continue;
+            bool onlyInc = true;
+            BasicBlock *whilecond = nullptr;
+            BasicBlock *whilebody = nullptr;
+            for (auto *bb : loop.blocks)
             {
-                whilecond = bb; // 记录循环头
-                continue;       // 跳过循环头
-            }
-            whilebody = bb; // 记录循环体
-            if (bb->getInstructions().size() > 2)
-            {
-                // 如果有多于2条指令，则不是简单循环
-                onlyInc = false;
-                break;
-            }
-            // 只存在循环遍历指令和跳转指令
-            for (auto &instPtr : bb->getInstructions())
-            {
-                Instruction *inst = instPtr.get();
-                // 只允许循环变量的自增/自减
-                if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
+                if (bb == loop.header)
                 {
-                    if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
-                    {
-                        onlyInc = false;
-                        break;
-                    }
-                    // 检查结果是否只赋值给循环变量
-                    if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
-                    {
-                        onlyInc = false;
-                        break;
-                    }
-                    // 如果有外部引用则不是无用循环
+                    whilecond = bb;
+                    continue;
                 }
-
-                if (inst->hasExternalUse(loop))
+                whilebody = bb;
+                if (bb->getInstructions().size() > 2)
                 {
-                    onlyInc = false; // 如果有外部引用，则不是无用循环
+                    onlyInc = false;
+                    break;
+                }
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    Instruction *inst = instPtr.get();
+                    if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
+                    {
+                        if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
+                        {
+                            onlyInc = false;
+                            break;
+                        }
+                        if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
+                        {
+                            onlyInc = false;
+                            break;
+                        }
+                    }
+                    if (inst->hasExternalUse(loop))
+                    {
+                        onlyInc = false;
+                        break;
+                    }
+                }
+                if (!onlyInc)
+                    break;
+            }
+            if (!onlyInc)
+                continue;
+
+            BasicBlock *prehead = nullptr;
+            int count = 0;
+            for (auto *pred : loop.header->getPredecessors())
+            {
+                if (pred == whilebody)
+                    continue;
+                count++;
+                if (count > 1)
+                {
+                    onlyInc = false;
                     break;
                 }
             }
-            if (!onlyInc)
-                break;
-        }
-        if (!onlyInc)
-            continue;
-
-        BasicBlock *prehead = nullptr;
-        // 判断循环前驱除了whilebody是否只有一个
-        int count = 0;
-        for (auto *pred : loop.header->getPredecessors())
-        {
-            if (pred == whilebody)
-                continue; // 跳过循环体
-            count++;
-            if (count > 1)
+            BasicBlock *exitBlock = nullptr;
+            count = 0;
+            for (auto *succ : loop.header->getSuccessors())
             {
-                onlyInc = false; // 如果有多个前驱，则不是简单循环
-                break;
-            }
-        }
-        BasicBlock *exitBlock = nullptr;
-        count = 0;
-        // 遍历whilecond的每一个后继，查找到循环出口
-        for (auto *succ : loop.header->getSuccessors())
-        {
-            if (succ == whilebody)
-                continue;     // 跳过循环体
-            exitBlock = succ; // 记录循环出口
-            count++;
-            // 如果有多个出口，则不是简单循环
-            if (count > 1)
-            {
-                onlyInc = false;
-                break;
-            }
-        }
-        for (auto *pred : loop.header->getPredecessors())
-        {
-            // 如果是循环体则跳过
-            if (pred == whilebody)
-                continue;
-            // 修正跳转指令
-            for (auto &instPtr : pred->getInstructions())
-            {
-                Instruction *inst = instPtr.get();
-                if (auto *br = dynamic_cast<BranchInst *>(inst))
-                {
-                    if (br->getTrueBlock() == loop.header)
-                    {
-                        // 如果是循环头的跳转，直接跳到循环出口
-                        br->setTrueBlock(exitBlock);
-                    }
-                    if (br->getFalseBlock() == loop.header)
-                    {
-                        // 如果是循环头的跳转，直接跳到循环出口
-                        br->setFalseBlock(exitBlock);
-                    }
-                }
-                prehead = pred;
-            }
-            // 修正CFG
-            pred->addSuccessor(exitBlock);
-            exitBlock->addPredecessor(pred);
-        }
-        // 断开cfg连接
-        for (auto *bb : loop.blocks)
-        {
-            bb->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
-        }
-        // 删除来自循环的phi指令，因为这个只能是循环变量
-        auto &insts = exitBlock->getInstructions();
-        for (auto it = insts.begin(); it != insts.end();)
-        {
-            if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
-            {
-                // 如果有来自whilecond输入的phi
-                if (find(phi->getIncomingBlocks().begin(),
-                         phi->getIncomingBlocks().end(), loop.header) != phi->getIncomingBlocks().end())
-                {
-                    phi->removeThisFromOperands();
-                    needToDelete.push_back(it->release());
-                    it = insts.erase(it);
+                if (succ == whilebody)
                     continue;
+                exitBlock = succ;
+                count++;
+                if (count > 1)
+                {
+                    onlyInc = false;
+                    break;
                 }
             }
-            ++it;
+            for (auto *pred : loop.header->getPredecessors())
+            {
+                if (pred == whilebody)
+                    continue;
+                for (auto &instPtr : pred->getInstructions())
+                {
+                    Instruction *inst = instPtr.get();
+                    if (auto *br = dynamic_cast<BranchInst *>(inst))
+                    {
+                        if (br->getTrueBlock() == loop.header)
+                            br->setTrueBlock(exitBlock);
+                        if (br->getFalseBlock() == loop.header)
+                            br->setFalseBlock(exitBlock);
+                    }
+                    prehead = pred;
+                }
+                pred->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(pred);
+            }
+            for (auto *bb : loop.blocks)
+            {
+                bb->removeSelfBasicBlock();
+            }
+            auto &insts = exitBlock->getInstructions();
+            for (auto it = insts.begin(); it != insts.end();)
+            {
+                if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
+                {
+                    if (find(phi->getIncomingBlocks().begin(),
+                             phi->getIncomingBlocks().end(), loop.header) != phi->getIncomingBlocks().end())
+                    {
+                        phi->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
+                        continue;
+                    }
+                }
+                ++it;
+            }
+            localChanged = true;
+            changed = true;
+            if (verbose)
+            {
+                debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
+            }
+            break; // 只处理一个，后面会重新获取loops
         }
-        // 删除whilecond和whilebody
-
-        changed = true;
-        if (verbose)
-        {
-            debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
-        }
-        // 只删除一遍
-        if (changed)
-            break; // 如果已经进行了替换，退出函数
-    }
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+        if (localChanged)
+            func->setLoops(ControlFlowAnalysis::findLoops(func));
+    } while (localChanged);
     return changed;
 }
 // 目前只支持整型规约
@@ -2850,6 +2830,124 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
     func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
+bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    std::vector<AllocaInst *> arrayAllocas;
+
+    // 1. 收集所有数组 alloca
+    for (auto &bb : func->getBasicBlocks())
+    {
+        for (auto &inst : bb->getInstructions())
+        {
+            if (auto *alloca = dynamic_cast<AllocaInst *>(inst.get()))
+            {
+                arrayAllocas.push_back(alloca);
+                if (verbose)
+                {
+                    debugInfo << "RemoveWriteOnlyArrayPass: Found array alloca " << alloca->getName() << " in function " << func->getName() << "\n";
+                }
+            }
+        }
+    }
+
+    for (auto *alloca : arrayAllocas)
+    {
+        bool hasLoadOrCall = false;
+        std::unordered_set<Instruction *> relatedInsts;
+        std::vector<User *> worklist;
+        worklist.push_back(alloca);
+
+        // 1. 全局查找所有 load 和 call 指令
+        for (auto &bb : func->getBasicBlocks())
+        {
+            for (auto &inst : bb->getInstructions())
+            {
+                // 检查load
+                if (auto *load = dynamic_cast<LoadInst *>(inst.get()))
+                {
+                    Value *origPtr = load->getOriginalPointer();
+                    if (origPtr == alloca)
+                    {
+                        hasLoadOrCall = true;
+                        break;
+                    }
+                }
+                // 检查call
+                if (auto *call = dynamic_cast<CallInst *>(inst.get()))
+                {
+                    if (call->HasUsedArray(alloca))
+                    {
+                        hasLoadOrCall = true;
+                        break;
+                    }
+                }
+            }
+            if (hasLoadOrCall)
+                break;
+        }
+
+        // 2. 没有load/call才删除
+        if (!hasLoadOrCall)
+        {
+            // ...原有BFS收集相关指令和删除逻辑...
+            relatedInsts.insert(alloca);
+            std::vector<User *> worklist;
+            worklist.push_back(alloca);
+
+            while (!worklist.empty())
+            {
+                User *user = worklist.back();
+                worklist.pop_back();
+                for (auto *u : user->getUsers())
+                {
+                    if (auto *store = dynamic_cast<StoreInst *>(u))
+                    {
+                        relatedInsts.insert(store);
+                    }
+                    else if (auto *gep = dynamic_cast<GetElementPtrInst *>(u))
+                    {
+                        relatedInsts.insert(gep);
+                        worklist.push_back(gep);
+                    }
+                    else if (auto *bitcast = dynamic_cast<CastInst *>(u))
+                    {
+                        if (bitcast->getOpcode() != Opcode::BitCast)
+                            continue;
+                        relatedInsts.insert(bitcast);
+                        worklist.push_back(bitcast);
+                    }
+                }
+            }
+            // 删除相关指令
+            for (auto &bb : func->getBasicBlocks())
+            {
+                auto &insts = bb->getInstructions();
+                for (auto it = insts.begin(); it != insts.end();)
+                {
+                    auto *inst = it->get();
+                    if (relatedInsts.count(inst))
+                    {
+                        if (verbose)
+                        {
+                            debugInfo << "RemoveWriteOnlyArrayPass: Removing write-only array instruction " << inst->getName() << " in function " << func->getName() << "\n";
+                        }
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+            }
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -2955,6 +3053,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除

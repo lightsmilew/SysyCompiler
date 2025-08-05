@@ -597,7 +597,8 @@ public:
     vector<Value *> getFloatArguments() const; // 获取float类型参数
     vector<Value *> getPtrArguments() const;   // 获取指针类型参数
     bool hasReturnValue() const { return !getType()->isVoidTy(); }
-    bool IsModifyingGlobalVar(Value *ptr) const; // 是否有修改副作用(修改全局变量或指针指向的值)
+    bool HasModifiedArray(Value *ptr) const; // 是否有修改副作用(修改全局变量或指针指向的值)
+    bool HasUsedArray(Value *ptr) const;          // 是否有使用数组副作用(使用全局数组或指针指向的数组)
     bool ifHasSideEffects() const;               // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
     Value *getDest() const;                      // 如果是void类型 返回空指针
     string toString() const override;

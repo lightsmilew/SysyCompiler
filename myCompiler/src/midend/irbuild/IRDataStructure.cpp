@@ -893,7 +893,7 @@ vector<Value *> CallInst::getPtrArguments() const
     }
     return args;
 }
-bool CallInst::IsModifyingGlobalVar(Value *value) const
+bool CallInst::HasModifiedArray(Value *value) const
 {
     Function *func = getCalledFunction();
     if (!func)
@@ -920,10 +920,10 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
         if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
-            if (funcName == "getarray" || funcName == "getfarray")
+            if (func->isLibraryFunction()&&(funcName == "getarray" || funcName == "getfarray"))
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
             // 检查该函数是否修改了对应位置的形参
-            if (IsModifyingGlobalVar(func->getArgumentByIndex(i)))
+            if (!func->isLibraryFunction()&&HasModifiedArray(func->getArgumentByIndex(i)))
             {
                 return true;
             }
@@ -950,7 +950,7 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
                     continue;
                 }
                 // 递归检查被调用的函数是否修改了全局变量
-                if (callInst->IsModifyingGlobalVar(value))
+                if (callInst->HasModifiedArray(value))
                 {
                     return true;
                 }
@@ -958,6 +958,73 @@ bool CallInst::IsModifyingGlobalVar(Value *value) const
         }
     }
     return false; // 如果没有找到修改该全局变量的指令
+}
+bool CallInst::HasUsedArray(Value *ptr) const
+{
+    Function *func = getCalledFunction();
+    if (!func)
+        throw std::runtime_error("CallInst: function is null");
+
+    // 1. 检查参数传递
+    for (size_t i = 0; i < getArguments().size(); i++)
+    {
+        Value *origin = getArguments()[i];
+        while (true)
+        {
+            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
+            {
+                origin = gepInst->getOriginalPointerOperand();
+            }
+            else if (auto castInst = dynamic_cast<CastInst *>(origin))
+            {
+                origin = castInst->getOperand();
+            }
+            else
+            {
+                break;
+            }
+        }
+        if (isSameAddr(origin, ptr))
+        {
+            std::string funcName = func->getName();
+            if (func->isLibraryFunction() && (funcName == "putint" || funcName == "putfloat" || funcName == "putch" || funcName == "putarray" || funcName == "putfarray" || funcName == "putf"))
+                return true;
+            // 检查该函数是否“使用”对应形参
+            else if (!func->isLibraryFunction()&&HasUsedArray(func->getArgumentByIndex(i)))
+            {
+                return true;
+            }
+        }
+    }
+
+    // 2. 检查函数体内是否有load或递归调用
+    for (auto &bb : func->getBasicBlocks())
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto loadInst = dynamic_cast<LoadInst *>(inst))
+            {
+                auto loadOriginalPointer = loadInst->getOriginalPointer();
+                if (isSameAddr(loadOriginalPointer, ptr))
+                {
+                    return true; // 找到对该数组的load
+                }
+            }
+            else if (auto callInst = dynamic_cast<CallInst *>(inst))
+            {
+                // 跳过递归
+                if (callInst->getCalledFunction() == func)
+                    continue;
+                // 递归检查被调用函数是否“使用”该数组
+                if (callInst->HasUsedArray(ptr))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 bool CallInst::ifHasSideEffects() const
 {
