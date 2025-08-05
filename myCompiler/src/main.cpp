@@ -51,16 +51,6 @@ int main(int argc, const char *argv[])
                     opt_level = optimization::OptimizationLevel::O1;
                 else if (optstr == "-O2")
                     opt_level = optimization::OptimizationLevel::O2;
-                else if (optstr == "-O10")
-                    opt_level = optimization::OptimizationLevel::O10;
-                else if (optstr == "-O11")
-                    opt_level = optimization::OptimizationLevel::O11;
-                else if (optstr == "-O12")
-                    opt_level = optimization::OptimizationLevel::O12;
-                else if (optstr == "-O13")
-                    opt_level = optimization::OptimizationLevel::O13;
-                else if (optstr == "-O14")
-                    opt_level = optimization::OptimizationLevel::O14;
                 else if (optstr == "-O15")
                     opt_level = optimization::OptimizationLevel::O15;
                 else if (optstr == "-O16")
@@ -92,16 +82,6 @@ int main(int argc, const char *argv[])
                     opt_level = optimization::OptimizationLevel::O1;
                 else if (optstr == "-O2")
                     opt_level = optimization::OptimizationLevel::O2;
-                else if (optstr == "-O10")
-                    opt_level = optimization::OptimizationLevel::O10;
-                else if (optstr == "-O11")
-                    opt_level = optimization::OptimizationLevel::O11;
-                else if (optstr == "-O12")
-                    opt_level = optimization::OptimizationLevel::O12;
-                else if (optstr == "-O13")
-                    opt_level = optimization::OptimizationLevel::O13;
-                else if (optstr == "-O14")
-                    opt_level = optimization::OptimizationLevel::O14;
                 else if (optstr == "-O15")
                     opt_level = optimization::OptimizationLevel::O15;
                 else if (optstr == "-O16")
@@ -186,21 +166,6 @@ int main(int argc, const char *argv[])
             break;
         case optimization::OptimizationLevel::O2:
             opt_str = "O2";
-            break;
-        case optimization::OptimizationLevel::O10:
-            opt_str = "O10";
-            break;
-        case optimization::OptimizationLevel::O11:
-            opt_str = "O11";
-            break;
-        case optimization::OptimizationLevel::O12:
-            opt_str = "O12";
-            break;
-        case optimization::OptimizationLevel::O13:
-            opt_str = "O13";
-            break;
-        case optimization::OptimizationLevel::O14:
-            opt_str = "O14";
             break;
         case optimization::OptimizationLevel::O15:
             opt_str = "O15";

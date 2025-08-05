@@ -231,11 +231,6 @@ namespace optimization
         O2, // 更多优化
 
         // 以下是调试内容
-        O10,
-        O11,
-        O12,
-        O13,
-        O14,
         O15,
         O16
     };

@@ -2958,9 +2958,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
-        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -2978,9 +2977,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
-        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -2995,52 +2993,13 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O2)
     {
-        // 消除phi
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    // 以下为调试内容
-    else if (level == OptimizationLevel::O10)
-    {
-        // 函数内联会产生phi指令
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O11)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O12)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O13)
-    {
-        // 必须要先消除phi才能进行循环不变量外提
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-    }
-    else if (level == OptimizationLevel::O14)
-    {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
     // 测试优化
     else if (level == OptimizationLevel::O15)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        // 目前这个有问题
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
