@@ -418,15 +418,36 @@ bool Instruction::hasResult() const
 }
 bool Instruction::hasExternalUse(const Loop &loop) const
 {
+    std::set<const Instruction *> visited;
+    return hasExternalUse(loop, &visited);
+}
+bool Instruction::hasExternalUse(const Loop &loop, std::set<const Instruction *> *visited) const
+{
+    if (!visited)
+    {
+        std::set<const Instruction *> localVisited;
+        return hasExternalUse(loop, &localVisited);
+    }
+    if (visited->count(this))
+        return false; // 已访问，防止死循环
+    visited->insert(this);
+
     for (auto *user : this->getUsers())
     {
-        // user 不是循环体内的指令
-        if (auto *inst = dynamic_cast<Instruction *>(user))
+        if (auto *phiInst = dynamic_cast<PhiInst *>(user))
         {
+            // 递归判断 phi 的使用者
+            if (phiInst->hasExternalUse(loop, visited))
+                return true;
+        }
+        else if (auto *inst = dynamic_cast<Instruction *>(user))
+        {
+            // 非 phi 指令，判断是否在循环外
             if (!loop.contains(inst))
             {
                 return true;
             }
+            // 如果在循环内，不递归
         }
     }
     return false;
@@ -1137,6 +1158,10 @@ void PhiInst::setIncomingBlock(unsigned index, BasicBlock *block)
     {
         throw std::out_of_range("Invalid incoming block index");
     }
+}
+vector<BasicBlock *> PhiInst::getIncomingBlocks() const
+{
+    return IncomingValues; // 返回所有IncomingValues
 }
 std::string PhiInst::toString() const
 {

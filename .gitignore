@@ -7,5 +7,6 @@ debug_case/*
 case/**/*
 ubuntu-24.04.2-preinstalled-server-riscv64.img
 ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
-test_cases
+run.sh
+test.sh
 libsysy_riscv.a

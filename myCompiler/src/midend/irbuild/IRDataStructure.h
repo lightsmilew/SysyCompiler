@@ -423,7 +423,10 @@ public:
         : User(ty, operands, name), Op(op)
     {
     }
-
+    // ~Instruction()
+    // {
+    //     std::cout << "Instruction destructor called for " << getName() << std::endl;
+    // }
     Instruction *clone() const;             // 克隆指令
     Opcode getOpcode() const { return Op; } // 获取操作符
     Instruction *cloneWithRename(const std::unordered_map<Value *,
@@ -436,7 +439,9 @@ public:
     bool isCopy() const;                               // 是否为复制指令
     bool mayHaveSideEffects() const;                   // 是否有负面作用
     bool hasResult() const;                            // 是否有结果
-    bool hasExternalUse(const Loop &loop) const;             // 是否有外部使用
+    bool hasExternalUse(const Loop &loop) const;       // 是否有外部使用
+    bool hasExternalUse(const Loop &loop,
+         std::set<const Instruction*> *visited) const; // 是否有外部使用(递归)
     virtual string toString() const = 0;
 };
 
@@ -680,6 +685,7 @@ public:
     BasicBlock *getIncomingBlock(unsigned index) const;            // 获取前驱基本块
     void replaceIncomingBasicBlock(BasicBlock *oldBlock, BasicBlock *newBlock); // 替换前驱基本块
     void setIncomingBlock(unsigned index, BasicBlock *block);      // 设置前驱基本块
+    vector<BasicBlock *> getIncomingBlocks() const;                // 获取所有前驱基本块
     Value *getDest() const { return const_cast<PhiInst *>(this); } // 获取目的操作数(本身)
     string toString() const override;
 };

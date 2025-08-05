@@ -166,9 +166,14 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (liveInsts.count(inst) == 0)
             {
+                inst->removeThisFromOperands(); // 从操作数中移除自己
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
+                if (verbose)
+                {
+                    debugInfo << "Dead instruction: " << inst->toString() << "\n";
+                }
             }
             else
             {
@@ -2200,112 +2205,642 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
             ++it;
         }
     }
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
-// bool RemoveUselessWhilePass::runOnFunction(Function *func)
-// {
-//     bool changed = false;
-//     auto &loops = func->getLoops();
-//     for (const auto &loop : loops)
-//     {
-//         // 只处理简单循环
-//         if(loop.blocks.size()>2||loop.exits.size()>1)continue;
-//         // 1. 检查循环体是否只有循环变量的自增/自减
-//         bool onlyInc = true;
-//         for (auto *bb : loop.blocks)
-//         {
-//             for (auto &instPtr : bb->getInstructions())
-//             {
-//                 Instruction *inst = instPtr.get();
-//                 // 跳过phi、br等控制流指令
-//                 if (inst->getOpcode() == Opcode::Phi || inst->getOpcode() == Opcode::Br)
-//                     continue;
-//                 // 只允许循环变量的自增/自减
-//                 if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
-//                 {
-//                     if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
-//                     {
-//                         onlyInc = false;
-//                         break;
-//                     }
-//                     // 检查结果是否只赋值给循环变量
-//                     if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
-//                     {
-//                         onlyInc = false;
-//                         break;
-//                     }
-//                     {
-//                         onlyInc = false;
-//                         break;
-//                     }
-//                 }
-//                 else if (inst->mayHaveSideEffects() || inst->hasExternalUse(loop))
-//                 {
-//                     onlyInc = false;
-//                     break;
-//                 }
-//             }
-//             if (!onlyInc)
-//                 break;
-//         }
-//         if (!onlyInc)
-//             continue;
+bool RemoveUselessWhilePass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    auto &loops = func->getLoops();
+    for (const auto &loop : loops)
+    {
+        // 只处理简单循环
+        // 只包含循环头、循环体、循环出口三个块
+        if (loop.blocks.size() > 2)
+            continue;
+        //  检查循环体是否只有循环变量的自增/自减
+        bool onlyInc = true;
+        BasicBlock *whilecond = nullptr;
+        BasicBlock *whilebody = nullptr;
+        for (auto *bb : loop.blocks)
+        {
+            if (bb == loop.header)
+            {
+                whilecond = bb; // 记录循环头
+                continue;       // 跳过循环头
+            }
+            whilebody = bb; // 记录循环体
+            if (bb->getInstructions().size() > 2)
+            {
+                // 如果有多于2条指令，则不是简单循环
+                onlyInc = false;
+                break;
+            }
+            // 只存在循环遍历指令和跳转指令
+            for (auto &instPtr : bb->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                // 只允许循环变量的自增/自减
+                if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
+                {
+                    if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
+                    {
+                        onlyInc = false;
+                        break;
+                    }
+                    // 检查结果是否只赋值给循环变量
+                    if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
+                    {
+                        onlyInc = false;
+                        break;
+                    }
+                    // 如果有外部引用则不是无用循环            
+                }
 
-//         // 标记循环体为待删除
-//         for (auto *bb : loop.blocks)
-//         {
-//             bb->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
-//         }
-//         // 删除循环体所有基本块，并修正CFG
-//         // 让循环前驱直接跳到循环出口
-//         BasicBlock *prehead=nullptr;
-//         for (auto *pred : loop.header->getPredecessors())
-//         {
-//             // 此时循环已断开连接，前驱只有一个
-//             // 修正跳转指令
-//             for (auto &instPtr : pred->getInstructions())
-//             {
-//                 Instruction *inst = instPtr.get();
-//                 if (auto *br = dynamic_cast<BranchInst *>(inst))
-//                 {
-//                     if (br->getTrueBlock() == loop.header)
-//                     {
-//                         // 如果是循环头的跳转，直接跳到循环出口
-//                         br->setTrueBlock(loop.exits[0]);
-//                     }
-//                     if( br->getFalseBlock() == loop.header)
-//                     {
-//                         // 如果是循环头的跳转，直接跳到循环出口
-//                         br->setFalseBlock(loop.exits[0]);
-//                     }
-//                 }
-//                 prehead = pred;
-//             }
-//             // 修正CFG
-//             pred->addSuccessor(loop.exits[0]);
-//             loop.exits[0]->addPredecessor(pred);
-//         }
-//         // 删除来自循环的phi指令，因为这个只能是循环变量
-//         for(auto &inst2:loop.exits[0]->getInstructions())
-//         {
-//             if(auto *phi=dynamic_cast<PhiInst *>(inst2.get()))
-//             {
-//                 // 删除phi指令
-//                 phi->removeThisFromOperands();
-//                 // 如果基本块全是循环体内，则直接删除
+                if(inst->hasExternalUse(loop))
+                {
+                    onlyInc = false; // 如果有外部引用，则不是无用循环
+                    break;
+                }
+            }
+            if (!onlyInc)
+                break;
+        }
+        if (!onlyInc)
+            continue;
 
-//                 phi->replaceAllUsesWith(phi->getIncomingValue(prehead));
-//                 needToDelete.push_back(inst2.release());
-//             }
-//         }
-//         changed = true;
-//         if (verbose)
-//         {
-//             debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
-//         }
-//     }
-//     return changed;
-// }
+        BasicBlock *prehead = nullptr;
+        // 判断循环前驱除了whilebody是否只有一个
+        int count = 0;
+        for (auto *pred : loop.header->getPredecessors())
+        {
+            if (pred == whilebody)
+                continue; // 跳过循环体
+            count++;
+            if (count > 1)
+            {
+                onlyInc = false; // 如果有多个前驱，则不是简单循环
+                break;
+            }
+        }
+        BasicBlock *exitBlock = nullptr;
+        count = 0;
+        // 遍历whilecond的每一个后继，查找到循环出口
+        for (auto *succ : loop.header->getSuccessors())
+        {
+            if (succ == whilebody)
+                continue;     // 跳过循环体
+            exitBlock = succ; // 记录循环出口
+            count++;
+            // 如果有多个出口，则不是简单循环
+            if (count > 1)
+            {
+                onlyInc = false;
+                break;
+            }
+        }
+        for (auto *pred : loop.header->getPredecessors())
+        {
+            // 如果是循环体则跳过
+            if (pred == whilebody)
+                continue;
+            // 修正跳转指令
+            for (auto &instPtr : pred->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                if (auto *br = dynamic_cast<BranchInst *>(inst))
+                {
+                    if (br->getTrueBlock() == loop.header)
+                    {
+                        // 如果是循环头的跳转，直接跳到循环出口
+                        br->setTrueBlock(exitBlock);
+                    }
+                    if (br->getFalseBlock() == loop.header)
+                    {
+                        // 如果是循环头的跳转，直接跳到循环出口
+                        br->setFalseBlock(exitBlock);
+                    }
+                }
+                prehead = pred;
+            }
+            // 修正CFG
+            pred->addSuccessor(exitBlock);
+            exitBlock->addPredecessor(pred);
+        }
+        // 断开cfg连接
+        for (auto *bb : loop.blocks)
+        {
+            bb->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
+        }
+        // 删除来自循环的phi指令，因为这个只能是循环变量
+        auto &insts = exitBlock->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
+            {
+                // 如果有来自whilecond输入的phi
+                if (find(phi->getIncomingBlocks().begin(),
+                         phi->getIncomingBlocks().end(), loop.header) != phi->getIncomingBlocks().end())
+                {
+                    phi->removeThisFromOperands();
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    continue;
+                }
+            }
+            ++it;
+        }
+        // 删除whilecond和whilebody
+
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
+        }
+        // 只删除一遍
+        if (changed)
+            break; // 如果已经进行了替换，退出函数
+    }
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    return changed;
+}
+// 目前只支持整型规约
+bool LoopSumReductionPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    auto &loops = func->getLoops();
+    for (const auto loop : loops)
+    {
+        // 循环头
+        BasicBlock *header = loop.header;
+        // 检查是否为 while(j < n) 头部
+        // 获取终结指令前一条指令
+        auto size = header->getInstructions().size();
+        if(header->getInstructions().size() < 2)
+            continue; // 至少需要两条指令
+        auto *cmp = dynamic_cast<ICmpInst *>(header->getInstructions()[size - 2].get());
+        if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
+            continue;
+        Value *jVar = cmp->getLHS();
+        Value *nVar = cmp->getRHS();
+        Value *sumVar = nullptr;
+        int count_phi = 0;
+        bool canReduce = true;
+        for (auto &instPtr : header->getInstructions())
+        {
+            if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+            {
+                if (count_phi >= 2)
+                {
+                    canReduce = false; // 只处理两个phi指令
+                    break;             // 只处理两个phi指令
+                }
+                if (phi != jVar)
+                {
+                    sumVar = phi;
+                }
+                count_phi++;
+            }
+        }
+        if (!canReduce || !sumVar)
+            continue; // 不是while(j<n)循环，或者没有sum变量
+        // 找到循环体
+        BasicBlock *body = nullptr;
+        if (loop.blocks.size() > 2)
+            continue; // 只处理简单循环
+        for (auto *lp_block : loop.blocks)
+        {
+            if (lp_block != header)
+                body = lp_block;
+        }
+        if (!body)
+            continue; // 没有找到循环体
+        // 检查循环体是否有 sum = sum + ...; j = j + 1;
+        BinaryOperator *sumAdd = nullptr, *jInc = nullptr;
+        bool isFloat = false;
+        for (auto &instPtr : body->getInstructions())
+        {
+            if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
+            {
+                // j = j + 1
+                if (bin->getOpcode() == Opcode::Add &&
+                    (bin->getLHS() == jVar && dynamic_cast<ConstantInt *>(bin->getRHS()) || bin->getRHS() == jVar && dynamic_cast<ConstantInt *>(bin->getLHS())))
+                {
+                    jInc = bin;
+                }
+                // sum = sum + j 或 sum = sum + (a+j)*(b+j)
+                // 浮点数暂不支持后面一种，会有精度误差
+                else if ((bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::FAdd) && (bin->getLHS() == sumVar || bin->getRHS() == sumVar))
+                {
+                    isFloat = bin->getType()->isFloatTy();
+                    sumAdd = bin;
+                }
+            }
+        }
+        if (!sumAdd || !jInc)
+            continue;
+
+        // 检查sumAdd右侧是否为j，或为(a+j)*(b+j)
+        Value *sumExpr = nullptr;
+        if (sumAdd->getRHS() == jVar || sumAdd->getLHS() == jVar)
+        {
+            // sum = sum + j
+            sumExpr = jVar;
+        }
+        else if (auto *cast = dynamic_cast<CastInst *>(sumAdd->getRHS()))
+        {
+            // sum = sum + (float)j
+            if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            {
+                sumExpr = cast;
+            }
+        }
+        else if (auto *cast = dynamic_cast<CastInst *>(sumAdd->getLHS()))
+        {
+            // sum = sum + (float)j
+            if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            {
+                sumExpr = cast;
+            }
+        }
+        else if (auto *mul = dynamic_cast<BinaryOperator *>(sumAdd->getRHS()))
+        {
+            // sum = sum + (a+j)*(b+j)
+            if (mul->getOpcode() == Opcode::Mul)
+            {
+                auto *add1 = dynamic_cast<BinaryOperator *>(mul->getLHS());
+                auto *add2 = dynamic_cast<BinaryOperator *>(mul->getRHS());
+                if (add1 && add2 &&
+                    add1->getOpcode() == Opcode::Add &&
+                    add2->getOpcode() == Opcode::Add &&
+                    (add1->getLHS() == jVar || add1->getRHS() == jVar) &&
+                    (add2->getLHS() == jVar || add2->getRHS() == jVar))
+                {
+                    sumExpr = mul;
+                }
+            }
+            // else if (mul->getOpcode() == Opcode::FMul)
+            // {
+            //     auto *add1 = dynamic_cast<BinaryOperator *>(mul->getLHS());
+            //     auto *add2 = dynamic_cast<BinaryOperator *>(mul->getRHS());
+            //     if (add1 && add2 &&
+            //         add1->getOpcode() == Opcode::FAdd &&
+            //         add2->getOpcode() == Opcode::FAdd )
+            //     {
+            //         bool isValid1=false;
+            //         bool isValid2=false;
+            //         if(auto *cast=dynamic_cast<CastInst *>(add1->getLHS()))
+            //         {
+            //             if(cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            //             {
+            //                 isValid1=true;
+            //             }
+            //         }
+            //         else if(auto *cast=dynamic_cast<CastInst *>(add1->getRHS()))
+            //         {
+            //             if(cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            //             {
+            //                 isValid1=true;
+            //             }
+            //         }
+            //         if(auto *cast=dynamic_cast<CastInst *>(add2->getLHS()))
+            //         {
+            //             if(cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            //             {
+            //                 isValid2=true;
+            //             }
+            //         }
+            //         else if(auto *cast=dynamic_cast<CastInst *>(add2->getRHS()))
+            //         {
+            //             if(cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+            //             {
+            //                 isValid2=true;
+            //             }
+            //         }
+            //         if(isValid1&&isValid2)sumExpr = mul;
+            //     }
+            // }
+        }
+        if (!sumExpr)
+            continue;
+        // 从header中的phi查找到j和sum初值
+        auto *jPhi = dynamic_cast<PhiInst *>(jVar);
+        if (!jPhi)
+            continue; // j不是phi指令，无法获取初值
+        Value *jInit = nullptr;
+        size_t phiIncomingNum = jPhi->getNumIncomingValues();
+        if (phiIncomingNum > 2)
+            continue; // 只处理简单循环，phi指令的输入必须只有两个
+        for (size_t i = 0; i < phiIncomingNum; ++i)
+        {
+            if (jPhi->getIncomingBlock(i) != body)
+            {
+                jInit = jPhi->getIncomingValue(i);
+                break;
+            }
+        }
+        if (auto *constInt = dynamic_cast<ConstantInt *>(jInit))
+        {
+            if (constInt->Value != 0)
+            {
+                // 如果j初值不为0，则不需要进行归约
+                continue;
+            }
+        }
+        else
+        {
+            continue; // j初值不是常量0，无法进行归约
+        }
+        // 获取sum初值
+        auto *sumPhi = dynamic_cast<PhiInst *>(sumAdd->getLHS());
+        if (!sumPhi)
+            continue; // sum不是phi指令，无法获取初值
+        Value *sumInit = nullptr;
+        phiIncomingNum = sumPhi->getNumIncomingValues();
+        if (phiIncomingNum > 2)
+            continue; // 只处理简单循环，phi指令的输入必须只有两个
+        // 查找sum的初值
+        for (size_t i = 0; i < phiIncomingNum; ++i)
+        {
+            if (sumPhi->getIncomingBlock(i) != body)
+            {
+                sumInit = sumPhi->getIncomingValue(i);
+                break;
+            }
+        }
+        // sum的初值可以不为0，因为sum可以是任意初值
+        // 获取前驱块用于插入
+        BasicBlock *preheader = nullptr;
+        int count = 0;
+        for (auto *pred : header->getPredecessors())
+        {
+            if (pred != body)
+            {
+                preheader = pred;
+                count++;
+            }
+            if (count > 1)
+            {
+                preheader = nullptr; // 如果有多个前驱，则不处理
+                break;
+            }
+        }
+        // 获取退出块用于连接
+        BasicBlock *exitBlock = nullptr;
+        count = 0;
+        for (auto *succ : header->getSuccessors())
+        {
+            if (succ != body)
+            {
+                exitBlock = succ;
+                count++;
+            }
+            if (count > 1)
+            {
+                exitBlock = nullptr; // 如果有多个出口，则不处理
+                break;
+            }
+        }
+        if (!preheader || !exitBlock)
+            continue;
+        Instruction *formula = nullptr;
+        if (sumExpr == jVar)
+        {
+            // sum = ∑j = n(n-1)/2
+            // 这里n就是循环次数，j从0开始到n-1
+            // 计算n(n-1)/2
+            auto *n_minus_1 = new BinaryOperator(Opcode::Sub, nVar, new ConstantInt(IntegerType::getInstance(), 1), "n-1");
+            auto *n_n_minus_1 = new BinaryOperator(Opcode::Mul, nVar, n_minus_1, "n(n-1)");
+            auto *half = new BinaryOperator(Opcode::SDiv, n_n_minus_1, new ConstantInt(IntegerType::getInstance(), 2), "n(n-1)/2");
+            auto *sumInit_half = new BinaryOperator(Opcode::Add, sumInit, half, "sum_init_half");
+            Instruction *cast = nullptr;
+            if (isFloat)
+            {
+                cast = new CastInst(Opcode::SIToFP, sumInit_half, FloatType::getInstance(), "sum_init_half_cast");
+            }
+            formula = isFloat ? cast : sumInit_half;
+            // 将公式添加到preheader
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(half));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(sumInit_half));
+            if (cast)
+            {
+                preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(cast));
+            }
+        }
+        else
+        {
+            // sum = ∑(a+j)*(b+j) = n*a*b + n*(n-1)/2*(a+b) + n*(n-1)*(2n-1)/6
+            auto *a = dynamic_cast<BinaryOperator *>(sumExpr)->getLHS();
+            auto *b = dynamic_cast<BinaryOperator *>(sumExpr)->getRHS();
+            // 获得a,b，如果其中一个是j，则另一个是常量
+            if (auto *binaryInst = dynamic_cast<BinaryOperator *>(a))
+            {
+                if (binaryInst->getOpcode() != Opcode::Add) // && binaryInst->getOpcode() != Opcode::FAdd)
+                {
+                    // 如果不是加法，则不处理
+                    continue;
+                }
+                if (binaryInst->getOpcode() == Opcode::Add)
+                {
+                    if (binaryInst->getLHS() == jVar)
+                    {
+                        a = binaryInst->getRHS();
+                    }
+                    else if (binaryInst->getRHS() == jVar)
+                    {
+                        a = binaryInst->getLHS();
+                    }
+                }
+                // else if (binaryInst->getOpcode() == Opcode::FAdd)
+                // {
+                //     if(auto *cast=dynamic_cast<CastInst *>(binaryInst->getLHS()))
+                //     {
+                //         if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+                //         {
+                //             a = binaryInst->getRHS();
+                //         }
+                //     }
+                //     else if(auto *cast=dynamic_cast<CastInst *>(binaryInst->getRHS()))
+                //     {
+                //         if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+                //         {
+                //             a = binaryInst->getLHS();
+                //         }
+                //     }
+                // }
+            }
+            else
+                continue;
+            if (auto *binaryInst = dynamic_cast<BinaryOperator *>(b))
+            {
+                if (binaryInst->getOpcode() != Opcode::Add) //&& binaryInst->getOpcode() != Opcode::FAdd)
+                {
+                    // 如果不是加法，则不处理
+                    continue;
+                }
+                if (binaryInst->getOpcode() == Opcode::Add)
+                {
+                    if (binaryInst->getLHS() == jVar)
+                    {
+                        b = binaryInst->getRHS();
+                    }
+                    else if (binaryInst->getRHS() == jVar)
+                    {
+                        b = binaryInst->getLHS();
+                    }
+                }
+                // else if (binaryInst->getOpcode() == Opcode::FAdd)
+                // {
+                //     if(auto *cast=dynamic_cast<CastInst *>(binaryInst->getLHS()))
+                //     {
+                //         if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+                //         {
+                //             b = binaryInst->getRHS();
+                //         }
+                //     }
+                //     else if(auto *cast=dynamic_cast<CastInst *>(binaryInst->getRHS()))
+                //     {
+                //         if (cast->getOpcode() == Opcode::SIToFP && cast->getOperand() == jVar)
+                //         {
+                //             b = binaryInst->getLHS();
+                //         }
+                //     }
+                // }
+            }
+            else
+                continue;
+            if (isFloat)
+                continue;
+            // 这种情况暂不支持float，会有精度问题
+            // 这种情况下全部转为float再计算
+            auto addOp = isFloat ? Opcode::FAdd : Opcode::Add;
+            auto mulOp = isFloat ? Opcode::FMul : Opcode::Mul;
+            auto divOp = isFloat ? Opcode::FDiv : Opcode::SDiv;
+            auto subOp = isFloat ? Opcode::FSub : Opcode::Sub;
+            Value *One = nullptr, *Two = nullptr, *Six = nullptr;
+            if (isFloat)
+            {
+                One = new ConstantFloat(FloatType::getInstance(), 1.0f);
+                Two = new ConstantFloat(FloatType::getInstance(), 2.0f);
+                Six = new ConstantFloat(FloatType::getInstance(), 6.0f);
+                nVar = new CastInst(Opcode::SIToFP, nVar, FloatType::getInstance(), "n_float");
+                preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(dynamic_cast<Instruction *>(nVar)));
+            }
+            else
+            {
+                One = new ConstantInt(IntegerType::getInstance(), 1);
+                Two = new ConstantInt(IntegerType::getInstance(), 2);
+                Six = new ConstantInt(IntegerType::getInstance(), 6);
+            }
+            // 计算n*a*b
+            auto *a_mutiply_b = new BinaryOperator(mulOp, a, b, "ab");
+            auto *n_a_mutiply_b = new BinaryOperator(mulOp, nVar, a_mutiply_b, "nab");
+            // 计算(a+b)*n*(n-1)/2
+            auto *n_minus_1 = new BinaryOperator(subOp, nVar, One, "n-1");
+            auto *n_n_minus_1 = new BinaryOperator(mulOp, nVar, n_minus_1, "n(n-1)");
+            auto *half = new BinaryOperator(divOp, n_n_minus_1, Two, "n(n-1)/2");
+            auto *a_plus_b = new BinaryOperator(addOp, a, b, "a+b");
+            auto *n_n_minus_1_half = new BinaryOperator(mulOp, half, a_plus_b, "n(n-1)/2*(a+b)");
+            // 计算n*(n-1)*(2n-1)/6
+            auto *two_n = new BinaryOperator(mulOp, Two, nVar, "2n");
+            auto *two_n_minus_1 = new BinaryOperator(subOp, two_n, One, "2n-1");
+            auto *n_n_minus_1_two_n_minus_1 = new BinaryOperator(mulOp, n_n_minus_1, two_n_minus_1, "n(n-1)*(2n-1)");
+            auto *n_n_minus_1_two_n_minus_1_six = new BinaryOperator(divOp, n_n_minus_1_two_n_minus_1, Six, "n(n-1)*(2n-1)/6");
+            // 求和
+            auto *sum_1 = new BinaryOperator(addOp, n_a_mutiply_b, n_n_minus_1_half, "sum_1");
+            auto *sum_2 = new BinaryOperator(addOp, sum_1, n_n_minus_1_two_n_minus_1_six, "sum_2");
+            auto *sum_3 = new BinaryOperator(addOp, sum_2, sumInit, "sum_3");
+            formula = sum_3;
+            // 添加
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(a_mutiply_b));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_a_mutiply_b));
+
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(half));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(a_plus_b));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_n_minus_1_half));
+
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(two_n));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(two_n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_n_minus_1_two_n_minus_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(n_n_minus_1_two_n_minus_1_six));
+
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(sum_1));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(sum_2));
+            preheader->insertBeforeTerminator(std::unique_ptr<Instruction>(sum_3));
+        }
+        // 替换原来prehead的sumphi
+        sumPhi->replaceAllUsesWith(formula);
+        sumPhi->removeThisFromOperands();
+        // 删除原来的sumphi指令
+        needToDelete.push_back(sumPhi);
+        preheader->Instructions.erase(std::remove_if(preheader->getInstructions().begin(), preheader->getInstructions().end(),
+                                                     [sumPhi](const std::unique_ptr<Instruction> &inst)
+                                                     { return inst.get() == sumPhi; }),
+                                      preheader->getInstructions().end());
+        // 替换原来的jphi
+        jPhi->replaceAllUsesWith(nVar);
+        jPhi->removeThisFromOperands();
+        // 删除原来的jphi指令
+        needToDelete.push_back(jPhi);
+        preheader->Instructions.erase(std::remove_if(preheader->getInstructions().begin(), preheader->getInstructions().end(),
+                                                     [jPhi](const std::unique_ptr<Instruction> &inst)
+                                                     { return inst.get() == jPhi; }),
+                                      preheader->getInstructions().end());
+        // 修正prehead的跳转指令到exitBlock
+        for (auto &instPtr : preheader->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto *br = dynamic_cast<BranchInst *>(inst))
+            {
+                if (br->getTrueBlock() == header)
+                {
+                    // 如果是循环头的跳转，直接跳到循环出口
+                    br->setTrueBlock(exitBlock);
+                }
+                if (br->getFalseBlock() == header)
+                {
+                    // 如果是循环头的跳转，直接跳到循环出口
+                    br->setFalseBlock(exitBlock);
+                }
+            }
+        }
+        for (auto &bb : loop.blocks)
+        {
+            bb->removeSelfBasicBlock(); // 删除基本块的CFG连接，便于删除基本块
+        }
+        // 建立prehead到while.exit的连接
+        preheader->addSuccessor(exitBlock);
+        exitBlock->addPredecessor(preheader);
+
+        // 修正exit的phi 指令
+        auto &exitInsts = exitBlock->getInstructions();
+        for (auto it = exitInsts.begin(); it != exitInsts.end();)
+        {
+            if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
+            {
+                // 如果有来自header输入的phi
+                if (find(phi->getIncomingBlocks().begin(), phi->getIncomingBlocks().end(), header) != phi->getIncomingBlocks().end())
+                {
+                    phi->replaceIncomingBasicBlock(header, preheader); // 替换为preheader
+                    continue;
+                }
+            }
+            ++it;
+        }
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "LoopSumReductionPass: Reduced sum loop at header " << header->getName() << " to formula.\n";
+        }
+        break; // 只处理一个循环
+    }
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -2386,27 +2921,30 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
     }
+    // 测试优化
     else if (level == OptimizationLevel::O15)
     {
-        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
-        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // 目前这个有问题
+        pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //提前进行一轮公共子表达式消除，删除无用函数调用
-        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 删除无用的while循环后必须进行死代码消除
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
