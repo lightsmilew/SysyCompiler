@@ -1939,7 +1939,11 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                 auto newExprInst = dynamic_cast<Instruction *>(newExpr_load);
                 if (!newExprInst)
                     continue;
-                needToAdd.push_back(newExprInst);
+                // 只有当A+j模式时才需要额外插入一条指令，否则直接使用循环变量即可
+                if (A != nullptr)
+                {
+                    needToAdd.push_back(newExprInst);
+                }
                 load->replaceAllUsesWith(newExpr_load);
                 auto &insts2 = bb2->getInstructions();
                 load->removeThisFromOperands();
@@ -1950,6 +1954,11 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                 for (size_t k = 0; k < needToAdd.size(); ++k)
                 {
                     insts2.insert(insts2.begin() + pos + k, std::unique_ptr<Instruction>(needToAdd[k]));
+                    if (verbose)
+                    {
+                        debugInfo << "Array Elimination: Inserted scalar expression " << needToAdd[k]->getName()
+                                  << " in " << bb2->getName() << "\n";
+                    }
                 }
                 changed = true;
                 if (verbose)
@@ -2254,10 +2263,10 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
                         onlyInc = false;
                         break;
                     }
-                    // 如果有外部引用则不是无用循环            
+                    // 如果有外部引用则不是无用循环
                 }
 
-                if(inst->hasExternalUse(loop))
+                if (inst->hasExternalUse(loop))
                 {
                     onlyInc = false; // 如果有外部引用，则不是无用循环
                     break;
@@ -2376,7 +2385,7 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
         // 检查是否为 while(j < n) 头部
         // 获取终结指令前一条指令
         auto size = header->getInstructions().size();
-        if(header->getInstructions().size() < 2)
+        if (header->getInstructions().size() < 2)
             continue; // 至少需要两条指令
         auto *cmp = dynamic_cast<ICmpInst *>(header->getInstructions()[size - 2].get());
         if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
@@ -2848,12 +2857,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // // 消除phi
-        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 删除无用的while循环后必须进行死代码消除
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -2869,6 +2880,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 删除无用的while循环后必须进行死代码消除
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -2931,7 +2947,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)

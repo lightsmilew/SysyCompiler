@@ -19,7 +19,7 @@ class Value;
 struct Loop;
 // ===== Address Comparison =====
 std::string normalizeName(const std::string &name); // 归一化处理变量名
-bool isSameAddr(Value *a,Value *b);
+bool isSameAddr(Value *a, Value *b);
 // ===== Type System Implementation =====
 class Type
 {
@@ -378,7 +378,7 @@ enum class Opcode
     Mul,
     SDiv,
     SRem,
-    //左移右移(算数左移右移)
+    // 左移右移(算数左移右移)
     Sll,
     Sra,
     FAdd,
@@ -398,10 +398,10 @@ enum class Opcode
     GetElementPtr,
 
     // 类型转换符
-    SIToFP, // signed int (i32) to float
-    FPToSI, // float to signed int (i32)
-    BitCast,// 指针类型转换
-    // 其他操作
+    SIToFP,  // signed int (i32) to float
+    FPToSI,  // float to signed int (i32)
+    BitCast, // 指针类型转换
+             // 其他操作
     Call,
     Phi,
     Copy
@@ -423,10 +423,6 @@ public:
         : User(ty, operands, name), Op(op)
     {
     }
-    // ~Instruction()
-    // {
-    //     std::cout << "Instruction destructor called for " << getName() << std::endl;
-    // }
     Instruction *clone() const;             // 克隆指令
     Opcode getOpcode() const { return Op; } // 获取操作符
     Instruction *cloneWithRename(const std::unordered_map<Value *,
@@ -441,7 +437,7 @@ public:
     bool hasResult() const;                            // 是否有结果
     bool hasExternalUse(const Loop &loop) const;       // 是否有外部使用
     bool hasExternalUse(const Loop &loop,
-         std::set<const Instruction*> *visited) const; // 是否有外部使用(递归)
+                        std::set<const Instruction *> *visited) const; // 是否有外部使用(递归)
     virtual string toString() const = 0;
 };
 
@@ -533,7 +529,7 @@ public:
 class AllocaInst : public Instruction
 {
 public:
-    Type *AllocatedType; // 传入数组类型，返回退化后的指针
+    Type *AllocatedType;        // 传入数组类型，返回退化后的指针
     bool IsInitialized = false; // 标记数组是否需要后端初始化
     AllocaInst(Type *ty, const string &name = "")
         : Instruction(PointerType::getInstance(dynamic_cast<ArrayType *>(ty)->ElementType),
@@ -594,16 +590,16 @@ class CallInst : public Instruction
 public:
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
 
-    Function *getCalledFunction() const;                // 获取被调用的函数
+    Function *getCalledFunction() const; // 获取被调用的函数
 
-    vector<Value *> getArguments() const;               // 获取函数参数
-    vector<Value *> getIntArguments() const;            // 获取int类型参数
-    vector<Value *> getFloatArguments() const;          // 获取float类型参数
-    vector<Value *> getPtrArguments() const;            // 获取指针类型参数
+    vector<Value *> getArguments() const;      // 获取函数参数
+    vector<Value *> getIntArguments() const;   // 获取int类型参数
+    vector<Value *> getFloatArguments() const; // 获取float类型参数
+    vector<Value *> getPtrArguments() const;   // 获取指针类型参数
     bool hasReturnValue() const { return !getType()->isVoidTy(); }
-    bool IsModifyingGlobalVar(Value* ptr) const;        // 是否有修改副作用(修改全局变量或指针指向的值)
-    bool ifHasSideEffects() const;                      // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
-    Value *getDest() const;                             // 如果是void类型 返回空指针
+    bool IsModifyingGlobalVar(Value *ptr) const; // 是否有修改副作用(修改全局变量或指针指向的值)
+    bool ifHasSideEffects() const;               // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
+    Value *getDest() const;                      // 如果是void类型 返回空指针
     string toString() const override;
 
 private:
@@ -676,17 +672,16 @@ public:
 
     PhiInst(Type *ty, const string &name = "")
         : Instruction(ty, Opcode::Phi, name) {}
-
-    unsigned getIndexByBasicBlock(BasicBlock *block) const;        // 获取前驱基本块的索引
-    void addIncoming(Value *value, BasicBlock *block);             // 添加前驱基本块和对应的值
-    void removeIncoming(unsigned index);                           // 删除指定前驱基本块和对应的值
-    unsigned getNumIncomingValues() const;                         // 获取前驱基本块和对应的值长度
-    Value *getIncomingValue(unsigned index) const;                 // 获取前驱value
-    BasicBlock *getIncomingBlock(unsigned index) const;            // 获取前驱基本块
+    unsigned getIndexByBasicBlock(BasicBlock *block) const;                     // 获取前驱基本块的索引
+    void addIncoming(Value *value, BasicBlock *block);                          // 添加前驱基本块和对应的值
+    void removeIncoming(unsigned index);                                        // 删除指定前驱基本块和对应的值
+    unsigned getNumIncomingValues() const;                                      // 获取前驱基本块和对应的值长度
+    Value *getIncomingValue(unsigned index) const;                              // 获取前驱value
+    BasicBlock *getIncomingBlock(unsigned index) const;                         // 获取前驱基本块
     void replaceIncomingBasicBlock(BasicBlock *oldBlock, BasicBlock *newBlock); // 替换前驱基本块
-    void setIncomingBlock(unsigned index, BasicBlock *block);      // 设置前驱基本块
-    vector<BasicBlock *> getIncomingBlocks() const;                // 获取所有前驱基本块
-    Value *getDest() const { return const_cast<PhiInst *>(this); } // 获取目的操作数(本身)
+    void setIncomingBlock(unsigned index, BasicBlock *block);                   // 设置前驱基本块
+    vector<BasicBlock *> getIncomingBlocks() const;                             // 获取所有前驱基本块
+    Value *getDest() const { return const_cast<PhiInst *>(this); }              // 获取目的操作数(本身)
     string toString() const override;
 };
 
@@ -699,10 +694,10 @@ public:
         : Instruction(calculateResultType(ptr, indices), Opcode::GetElementPtr,
                       constructOperands(ptr, indices), name) {}
 
-    vector<Value *> getIndices() const;  // 获取索引操作数
-    vector<int> *getArrayStride() const; // 获取数组的步长
-    Value *getDest() const;              // 获取目的操作数(本身)
-    Value *getPointerOperand() const;    // 获取指针操作数
+    vector<Value *> getIndices() const;       // 获取索引操作数
+    vector<int> *getArrayStride() const;      // 获取数组的步长
+    Value *getDest() const;                   // 获取目的操作数(本身)
+    Value *getPointerOperand() const;         // 获取指针操作数
     Value *getOriginalPointerOperand() const; // 获取原始指针操作数(用于gep展开时递归获取最上层指针)
     string toString() const override;
 
@@ -800,33 +795,33 @@ struct Loop
                            [&](BasicBlock *bb)
                            { return bb->containsByName(inst->getName()); });
     }
-    Value *getLoopCondition()const
+    Value *getLoopCondition() const
     {
         BasicBlock *headerBlock = header;
         Instruction *terminator = headerBlock->getTerminator();
-        if(auto brInst = dynamic_cast<BranchInst *>(terminator))
+        if (auto brInst = dynamic_cast<BranchInst *>(terminator))
         {
-            if(brInst->isConditional())
+            if (brInst->isConditional())
             {
                 return brInst->getCondition();
             }
-            else 
+            else
             {
                 return new ConstantInt(IntegerType::getInstance(), 1); // 如果没有条件，返回常量1
             }
         }
-        else 
+        else
         {
             throw std::runtime_error("Loop header does not have a valid terminator instruction.");
         }
     }
-    bool IsInductionVar(const std::string &name)const
+    bool IsInductionVar(const std::string &name) const
     {
-        for(auto &inst:header->getInstructions())
+        for (auto &inst : header->getInstructions())
         {
-            if(inst->getName() == name)
+            if (inst->getName() == name)
             {
-                if(auto phiInst = dynamic_cast<PhiInst *>(inst.get()))
+                if (auto phiInst = dynamic_cast<PhiInst *>(inst.get()))
                 {
                     return true; // 如果是Phi指令，说明是归纳变量
                 }
@@ -841,9 +836,9 @@ class Function : public Value
 public:
     vector<unique_ptr<BasicBlock>> BasicBlocks;
     vector<unique_ptr<Argument>> Arguments;
-    vector<Loop> Loops;                                 // 循环信息
+    vector<Loop> Loops; // 循环信息
     Module *Parent;
-    bool isDeleted = false;                             // 标记函数是否被删除
+    bool isDeleted = false; // 标记函数是否被删除
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
         : Value(funcTy, name), Parent(parent), isDeleted(false) {}
 
@@ -857,7 +852,7 @@ public:
     const vector<Argument *> getIntArguments() const;           // 获取int类型参数
     const vector<Argument *> getFloatArguments() const;         // 获取float类型参数
     const vector<Argument *> getPtrArguments() const;           // 获取指针类型参数
-    Value* getArgumentByIndex(size_t index) const;              // 根据索引获取参数
+    Value *getArgumentByIndex(size_t index) const;              // 根据索引获取参数
     const vector<Loop> &getLoops() const;                       // 获取循环信息
     void setLoops(const vector<Loop> &loops);                   // 设置循环信息
     FunctionType *getFunctionType();                            // 获取函数类型
