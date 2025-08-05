@@ -278,7 +278,9 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, imm);
     currentBB->addInstruction(addInst);
 
-    InitAllocaArray(addrReg, inst->getAllocatedSize());
+    if (inst->getIsInitialized())
+        // 如果需要初始化数组，则调用初始化函数
+        InitAllocaArray(addrReg, inst->getAllocatedSize());
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
