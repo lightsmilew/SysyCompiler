@@ -760,8 +760,29 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     auto srcReg = getOrCreateVirtualReg(inst->getSource());
 
     // 创建临时寄存器进行复制操作
-    RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
     auto destReg = getOrCreateVirtualReg(inst->getDest());
+    RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
+    int intIndex = 0;
+    int floatIndex = 0;
+    for (auto &arg : irFunction->getArguments())
+    {
+        if (arg->getName() == inst->getDest()->getName())
+        {
+            if (arg->getType()->isFloatTy())
+            {
+                if (floatIndex < FLOAT_PARAM_REGS.size() - 1)
+                    destReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[floatIndex]);
+            }
+            else
+            {
+                if (intIndex < INT_PARAM_REGS.size())
+                    destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intIndex]);
+            }
+
+            break;
+        }
+        regType == RegisterType::FLOAT ? floatIndex++ : intIndex++;
+    }
 
     // 生成移动指令
     RISCVOpcode moveOpcode;
