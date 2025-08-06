@@ -3164,6 +3164,21 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
     }
     return changed;
 }
+bool ModLoopReductionPass ::runOnFunction(Function *func)
+{
+    bool changed = false;
+    return changed;
+}
+bool BasicBlockReorderPass ::runOnFunction(Function *func)
+{
+    bool changed = false;
+    return changed;
+}
+bool LoopUnrollingPass ::runOnFunction(Function *func)
+{
+    bool changed = false;
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -3240,7 +3255,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令

@@ -63,6 +63,7 @@ namespace optimization
     class CommonSubexpressionEliminationPass : public Pass
     {
         using ExprKey = std::pair<std::string, std::vector<std::string>>;
+
     public:
         CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
@@ -195,9 +196,10 @@ namespace optimization
         ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "ArrayElimination"; }
+
     private:
         // 用于记录数组消除次数
-        size_t ArrayEliminationCount=0; 
+        size_t ArrayEliminationCount = 0;
     };
     // 14.移除无用的while循环
     class RemoveUselessWhilePass : public Pass
@@ -238,6 +240,34 @@ namespace optimization
         BasicBlockMergePass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "BasicBlockMerge"; }
+    };
+    // 19.加法取模循环规约
+    class ModLoopReductionPass : public Pass
+    {
+    public:
+        ModLoopReductionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ModLoopReduction"; }
+    };
+    // 20.基本块重排
+    class BasicBlockReorderPass : public Pass
+    {
+    public:
+        BasicBlockReorderPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "BasicBlockReorder"; }
+    };
+    // 21.循环展开
+    class LoopUnrollingPass : public Pass
+    {
+    public:
+        LoopUnrollingPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "LoopUnrolling"; }
+
+    private:
+        // 用于记录循环展开次数
+        size_t LoopUnrollingCount = 0;
     };
     // 优化级别枚举
     enum class OptimizationLevel
