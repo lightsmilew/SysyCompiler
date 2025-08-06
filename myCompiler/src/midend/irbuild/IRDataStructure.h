@@ -846,6 +846,7 @@ public:
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
     void addBasicBlock(unique_ptr<BasicBlock> block);   // 添加基本块(使用unique_ptr)
     BasicBlock *getEntryBlock();                        // 获取入口基本块
+    vector<BasicBlock *> getExitBlocks() const;         // 获取出口基本块
     vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块
 
     Argument *addArgument(Type *type, const string &name = ""); // 添加参数
@@ -858,7 +859,6 @@ public:
     void setLoops(const vector<Loop> &loops);                   // 设置循环信息
     FunctionType *getFunctionType();                            // 获取函数类型
     unsigned getInstructionCount() const;                       // 获取指令数量
-    vector<BasicBlock *> getExitBlocks() const;                 // 获取出口基本块
     bool isLibraryFunction() const;                             // 是否为库函数
     bool isRecursive() const;                                   // 是否为递归函数
     void setDeleted(bool deleted);                              // 设置函数是否被删除

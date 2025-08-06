@@ -223,6 +223,14 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "RemoveOnlyWriteArray"; }
     };
+    // 17.尾递归消除
+    class TailRecursionEliminationPass : public Pass
+    {
+    public:
+        TailRecursionEliminationPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "TailRecursionElimination"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

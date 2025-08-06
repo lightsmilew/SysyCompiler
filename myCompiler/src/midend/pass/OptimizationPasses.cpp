@@ -642,10 +642,14 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                     {
                         auto insertPos = it - insts.begin();
                         inlineAt(call, caller, bb, insertPos);
+                        // 重新获取迭代器位置
+                        // 这里如果是单个基本块函数内联则会破坏原来基本块结构，it已失效，需要重新获取
+                        it = insts.begin() + insertPos;
                         call->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
-                        callee->setDeleted(true); // 标记为已删除
+                        // 标记为已删除
+                        callee->setDeleted(true);
                         changed = true;
                         localChanged = true;
                         // debug
@@ -741,7 +745,48 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
         bbMap[bbCallee.get()] = newBB;
         calleeBBs.push_back(bbCallee.get());
     }
-
+    // === 新增：只处理单基本块的情况 ===
+    if (callee->getBasicBlocks().size() == 1)
+    {
+        BasicBlock *calleeBB = callee->getBasicBlocks()[0].get();
+        std::vector<std::unique_ptr<Instruction>> newInsts;
+        Value *retVal = nullptr;
+        for (auto &instCallee : calleeBB->getInstructions())
+        {
+            if (instCallee.get()->getOpcode() == Opcode::Ret)
+            {
+                auto *retInst = dynamic_cast<ReturnInst *>(instCallee.get());
+                if (retInst && retInst->getReturnValue())
+                {
+                    // 记录返回值
+                    retVal = retInst->getReturnValue();
+                    if (valueMap.count(retVal))
+                        retVal = valueMap[retVal];
+                }
+                continue; // 不插入return指令
+            }
+            Instruction *newInst = instCallee->cloneWithRename(valueMap, suffix);
+            // 替换操作数为映射后的
+            for (size_t i = 0; i < newInst->getOperands().size(); ++i)
+            {
+                Value *op = newInst->getOperands()[i];
+                if (valueMap.count(op))
+                    newInst->setOperandByIndex(i, valueMap[op]);
+            }
+            valueMap[instCallee.get()] = newInst;
+            newInsts.push_back(std::unique_ptr<Instruction>(newInst));
+            num++;
+        }
+        // 插入到调用点后
+        auto &insts = bb->getInstructions();
+        insts.insert(insts.begin() + insertPos + 1,
+                     std::make_move_iterator(newInsts.begin()),
+                     std::make_move_iterator(newInsts.end()));
+        // 替换call的所有use
+        if (call->hasReturnValue() && retVal)
+            call->replaceAllUsesWith(retVal);
+        return num;
+    }
     // 复制指令，建立value映射
     for (auto *bbCallee : calleeBBs)
     {
@@ -2890,7 +2935,6 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
         // 2. 没有load/call才删除
         if (!hasLoadOrCall)
         {
-            // ...原有BFS收集相关指令和删除逻辑...
             relatedInsts.insert(alloca);
             std::vector<User *> worklist;
             worklist.push_back(alloca);
@@ -2947,7 +2991,74 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
     }
     return changed;
 }
+bool TailRecursionEliminationPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    if (func->isLibraryFunction() || func->getName() == "main")
+        return false;
 
+    auto &bbs = func->getBasicBlocks();
+    if (bbs.empty())
+        return false;
+
+    BasicBlock *entryBB = func->getEntryBlock();
+    auto exitBBs = func->getExitBlocks();
+    for (auto bb : exitBBs)
+    {
+        if (bb->getInstructions().size() < 2)
+            continue; // exit block至少需要两条指令
+        auto *ret = dynamic_cast<ReturnInst *>(bb->getInstructions().back().get());
+        auto *call = dynamic_cast<CallInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get());
+        if (!ret || !call || ret->getReturnValue() != call || call->getCalledFunction() != func)
+            continue; // 不是尾递归调用
+        auto &params = func->getArguments();
+        const auto &args = call->getArguments();
+        if (params.size() != args.size())
+            continue; // 参数数量不匹配，无法进行尾递归优化
+        // 如果参数有指针也无法进行尾递归优化
+        for (const auto &param : params)
+        {
+            if (param->getType()->isPointerTy())
+            {
+                if (verbose)
+                {
+                    debugInfo << "TailRecursionEliminationPass: Skipping tail recursion elimination for function " << func->getName()
+                              << " due to pointer parameter " << param->getName() << "\n";
+                }
+                return false; // 不支持指针参数的尾递归优化
+            }
+        }
+        for (size_t i = 0; i < params.size(); ++i)
+        {
+            Value *param = params[i].get();
+            Value *arg = args[i];
+            auto *copy = new CopyInst(arg, param->getName());
+            bb->insert(std::unique_ptr<Instruction>(copy), bb->getInstructions().size() - 2);
+        }
+        if (verbose)
+        {
+            debugInfo << "TailRecursionEliminationPass: Eliminating tail recursion in function " << func->getName() << " at block " << bb->getName() << "\n";
+        }
+        // 删除call和return
+        call->removeThisFromOperands();
+        ret->removeThisFromOperands();
+        needToDelete.push_back(call);
+        needToDelete.push_back(ret);
+        bb->getInstructions().erase(std::remove_if(bb->getInstructions().begin(), bb->getInstructions().end(),
+                                                   [&](const std::unique_ptr<Instruction> &inst)
+                                                   {
+                                                       return inst.get() == call || inst.get() == ret;
+                                                   }),
+                                    bb->getInstructions().end());
+        // 插入无条件跳转到入口
+        bb->addInstruction(std::make_unique<BranchInst>(entryBB));
+        // 更新cfg
+        entryBB->addPredecessor(bb);
+        bb->addSuccessor(entryBB);
+        changed = true;
+    }
+    return changed;
+}
 // ========== 优化管道工厂 ==========
 std::unique_ptr<PassManager> optimization::createOptimizationPipeline(OptimizationLevel level, bool verbose)
 {
@@ -3021,6 +3132,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
