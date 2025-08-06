@@ -231,6 +231,14 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "TailRecursionElimination"; }
     };
+    // 18.基本块合并
+    class BasicBlockMergePass : public Pass
+    {
+    public:
+        BasicBlockMergePass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "BasicBlockMerge"; }
+    };
     // 优化级别枚举
     enum class OptimizationLevel
     {

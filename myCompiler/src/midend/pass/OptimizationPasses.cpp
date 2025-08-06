@@ -848,7 +848,12 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
                 for (size_t i = 0; i < phi->IncomingValues.size(); ++i)
                 {
                     if (bbMap.count(phi->IncomingValues[i]))
+                    {
+                        // 更新基本块的user
+                        phi->IncomingValues[i]->removeUser(phi);
                         phi->IncomingValues[i] = bbMap[phi->IncomingValues[i]];
+                        phi->IncomingValues[i]->addUser(phi);
+                    }
                 }
             }
         }
@@ -1806,6 +1811,7 @@ bool GEPToBitCastPass::runOnFunction(Function *func)
     }
     return changed;
 }
+// 这里还有问题，如果store覆盖范围小于load，也不能简单替换
 bool ArrayEliminationPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -2996,7 +3002,6 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
     bool changed = false;
     if (func->isLibraryFunction() || func->getName() == "main")
         return false;
-
     auto &bbs = func->getBasicBlocks();
     if (bbs.empty())
         return false;
@@ -3011,6 +3016,8 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
         auto *call = dynamic_cast<CallInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get());
         if (!ret || !call || ret->getReturnValue() != call || call->getCalledFunction() != func)
             continue; // 不是尾递归调用
+        if (call->getIntArguments().size() > 8 || call->getFloatArguments().size() > 8)
+            continue; // 只处理参数不超过8个的函数
         auto &params = func->getArguments();
         const auto &args = call->getArguments();
         if (params.size() != args.size())
@@ -3056,6 +3063,104 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
         entryBB->addPredecessor(bb);
         bb->addSuccessor(entryBB);
         changed = true;
+    }
+    return changed;
+}
+bool BasicBlockMergePass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    auto &bbs = func->getBasicBlocks();
+    for (auto it = bbs.begin(); it != bbs.end();)
+    {
+        BasicBlock *bb = it->get();
+        if (!bb || bb == func->getEntryBlock())
+        {
+            ++it;
+            continue;
+        }
+        // 只合并只有一个后继且后继只有一个前驱的情况
+        auto *succ = (bb->getSuccessors().size() == 1) ? bb->getSuccessors()[0] : nullptr;
+        if (!succ || succ->getPredecessors().size() != 1)
+        {
+            ++it;
+            continue;
+        }
+        // 判断succ是否为数组初始化块
+        bool isArrayInit = false;
+        // 1. 当前块倒数第二条是AllocaInst
+        if (bb->getInstructions().size() >= 2 &&
+            dynamic_cast<AllocaInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get()))
+        {
+            isArrayInit = true;
+        }
+        // 2. 或者当前块的前驱倒数第二条是AllocaInst(因为最后一条是branch指令)
+        for (auto *pred : bb->getPredecessors())
+        {
+            if (pred->getInstructions().size() >= 2 &&
+                dynamic_cast<AllocaInst *>(pred->getInstructions()[pred->getInstructions().size() - 2].get()))
+            {
+                isArrayInit = true;
+                break;
+            }
+        }
+        if (isArrayInit)
+        {
+            ++it;
+            continue;
+        }
+        // 合并succ到bb
+        auto &bbInsts = bb->getInstructions();
+        auto &succInsts = succ->getInstructions();
+        // 移除bb末尾的跳转指令
+        if (!bbInsts.empty() && bbInsts.back()->isTerminator())
+        {
+            bbInsts.pop_back();
+        }
+        // 把succ的所有指令移动到bb
+        for (auto &inst : succInsts)
+        {
+            bbInsts.push_back(std::move(inst));
+        }
+        succInsts.clear();
+        // 替换phi输入到bb
+        for (auto &user : succ->getUsers())
+        {
+            if (auto *phi = dynamic_cast<PhiInst *>(user))
+            {
+                // 替换phi的输入块
+                for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
+                {
+                    if (phi->getIncomingBlock(i) == succ)
+                    {
+                        phi->setIncomingBlock(i, bb);
+                    }
+                }
+            }
+        }
+        // 更新CFG
+        for (auto *succSucc : succ->getSuccessors())
+        {
+            bb->addSuccessor(succSucc);
+            succSucc->removePredecessor(succ);
+            succSucc->addPredecessor(bb);
+        }
+        bb->removeSuccessor(succ);
+        // 移除succ
+        for (auto succIt = bbs.begin(); succIt != bbs.end(); ++succIt)
+        {
+            if (succIt->get() == succ)
+            {
+                needToDelete.push_back(succIt->release());
+                bbs.erase(succIt);
+                break;
+            }
+        }
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "BasicBlockMergePass: Merged " << succ->getName() << " into " << bb->getName() << "\n";
+        }
+        // 不递增it，因为当前bb可能还能继续合并
     }
     return changed;
 }
@@ -3114,6 +3219,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        // pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
@@ -3129,10 +3235,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+        // 合并基本块，便于后续操作
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
