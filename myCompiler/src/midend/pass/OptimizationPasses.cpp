@@ -280,14 +280,14 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     }
                     // 判断表达式操作数是否有load，如果有load，且defBB!=bb，则不消除
                     // 此时表示该load指令的地址有可能被跨块修改，保守起见不进行消除
-                    bool CanNotCSEWithLoadOperand = false;
+                    bool CanNotCSEWithLoadOrPhiOperand = false;
                     for (auto *op : inst->getOperands())
                     {
                         if (auto *loadInst = dynamic_cast<LoadInst *>(op))
                         {
                             if (defBB != bb.get())
                             {
-                                CanNotCSEWithLoadOperand = true;
+                                CanNotCSEWithLoadOrPhiOperand = true;
                                 break;
                             }
                             else
@@ -301,7 +301,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 if (pos1 > pos2)
                                 {
                                     // 如果defInst在inst之后，则不消除
-                                    CanNotCSEWithLoadOperand = true;
+                                    CanNotCSEWithLoadOrPhiOperand = true;
                                     break;
                                 }
                                 auto &insts = bb->getInstructions();
@@ -311,15 +311,23 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                     {
                                         if (isSameAddr(storeInst->getOriginalPointer(), addr))
                                         {
-                                            CanNotCSEWithLoadOperand = true;
+                                            CanNotCSEWithLoadOrPhiOperand = true;
                                             break;
                                         }
                                     }
                                 }
                             }
                         }
+                        else if(auto *phiInst=dynamic_cast<PhiInst*>(op))
+                        {
+                            if(defBB != bb.get())
+                            {
+                                CanNotCSEWithLoadOrPhiOperand = true;
+                                break; // 如果是phi指令，且不在同一基本块，则不消除
+                            }
+                        }
                     }
-                    if (CanNotCSEWithLoadOperand)
+                    if (CanNotCSEWithLoadOrPhiOperand)
                     {
                         // 不过可以更新exprMap，为后续可能的消除做准备
                         exprMap[key] = {inst, bb.get()};
@@ -398,14 +406,15 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
 {
-    // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
-    for (auto *v : inst->getOperands())
-    {
-        if (dynamic_cast<PhiInst *>(v))
-        {
-            return false;
-        }
-    }
+    // 操作数在后面判断
+    // // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
+    // for (auto *v : inst->getOperands())
+    // {
+    //     if (dynamic_cast<PhiInst *>(v))
+    //     {
+    //         return false;
+    //     }
+    // }
     // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||
@@ -3729,7 +3738,7 @@ bool BasicBlockReorderPass::runOnFunction(Function *func)
             dfs(child);
         }
     };
-    
+
     // 5. 从入口块开始DFS遍历
     dfs(entry);
 
