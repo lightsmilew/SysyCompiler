@@ -3813,6 +3813,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     if (level == OptimizationLevel::O0)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
@@ -3832,10 +3833,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
@@ -3855,6 +3858,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {
