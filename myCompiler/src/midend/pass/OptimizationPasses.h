@@ -63,8 +63,13 @@ namespace optimization
     class CommonSubexpressionEliminationPass : public Pass
     {
         using ExprKey = std::pair<std::string, std::vector<std::string>>;
+
     public:
-        CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose) {}
+        CommonSubexpressionEliminationPass(bool verbose = false) : Pass(verbose),recognizeMode(0) {}
+        CommonSubexpressionEliminationPass(int mode, bool verbose = false) : Pass(verbose), recognizeMode(mode) {}
+        // 设置识别模式，0代表严格识别，只要store基址相同
+        // 就不消除，1代表宽松识别，允许load和store基址相同
+        void setRecognizeMode(int mode) { recognizeMode = mode; }
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "CommonSubexpressionElimination"; }
 
@@ -73,6 +78,7 @@ namespace optimization
         {
             std::size_t operator()(const ExprKey &expr) const;
         };
+        int recognizeMode; //0代表严格识别，只要store|load基址相同就不消除
         std::unordered_map<ExprKey, std::pair<Instruction *, BasicBlock *>, ExpressionHash> exprMap;
         std::pair<std::string, std::vector<std::string>> getExpressionKey(Instruction *inst);
         bool canBeCommonSubexpression(Instruction *inst, BasicBlock *bb);
@@ -195,9 +201,10 @@ namespace optimization
         ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "ArrayElimination"; }
+
     private:
         // 用于记录数组消除次数
-        size_t ArrayEliminationCount=0; 
+        size_t ArrayEliminationCount = 0;
     };
     // 14.移除无用的while循环
     class RemoveUselessWhilePass : public Pass
@@ -230,6 +237,42 @@ namespace optimization
         TailRecursionEliminationPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "TailRecursionElimination"; }
+    };
+    // 18.基本块合并
+    class BasicBlockMergePass : public Pass
+    {
+    public:
+        BasicBlockMergePass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "BasicBlockMerge"; }
+    };
+    // 19.加法取模循环规约
+    class ModLoopReductionPass : public Pass
+    {
+    public:
+        ModLoopReductionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ModLoopReduction"; }
+    };
+    // 20.基本块重排
+    class BasicBlockReorderPass : public Pass
+    {
+    public:
+        BasicBlockReorderPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "BasicBlockReorder"; }
+    };
+    // 21.循环展开
+    class LoopUnrollingPass : public Pass
+    {
+    public:
+        LoopUnrollingPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "LoopUnrolling"; }
+
+    private:
+        // 用于记录循环展开次数
+        size_t LoopUnrollingCount = 0;
     };
     // 优化级别枚举
     enum class OptimizationLevel
