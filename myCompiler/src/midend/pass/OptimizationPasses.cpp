@@ -114,7 +114,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             {
                 if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
                 {
-                    //bool hasChanged = false;
+                    // bool hasChanged = false;
                     for (BasicBlock *delBB : toDelete)
                     {
                         unsigned index = phi->getIndexByBasicBlock(delBB);
@@ -122,11 +122,11 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                             continue; // 如果没有这个前驱块，跳过
                         // 删除对应的前驱块和值
                         phi->removeIncoming(index);
-                       // hasChanged = true;
+                        // hasChanged = true;
                     }
-                    //if(!hasChanged)
-                    //    continue;
-                    // 如果只剩一个incoming，直接替换
+                    // if(!hasChanged)
+                    //     continue;
+                    //  如果只剩一个incoming，直接替换
                     if (phi->getNumIncomingValues() == 1)
                     {
                         Value *incomingValue = phi->getIncomingValue(0);
@@ -3337,7 +3337,7 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
     for (auto it = bbs.begin(); it != bbs.end();)
     {
         BasicBlock *bb = it->get();
-        if (!bb || bb == func->getEntryBlock())
+        if (!bb)
         {
             ++it;
             continue;
@@ -3483,7 +3483,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         }
         // 4. 在所有body块中查找 sum += x; sum %= remconst; i++
         BinaryOperator *sumAdd = nullptr, *sumMod = nullptr, *iInc = nullptr;
-        Value *x = nullptr, *remconst = nullptr,*stepLength=nullptr;
+        Value *x = nullptr, *remconst = nullptr, *stepLength = nullptr;
         for (auto *bb : loop.blocks)
         {
             if (bb == headBlock)
@@ -3521,7 +3521,8 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         if (!remconstC || !xC)
             continue;
         // 超过2^16的常量不处理,因为会溢出
-        if(remconstC->Value>65536)continue; 
+        if (remconstC->Value > 65536)
+            continue;
         // 6. 生成归约公式
         // 公式 initsum%remconst+(maxindex-i/stepLength*x%remconst)&remconst
         auto *sumInitMod = new BinaryOperator(Opcode::SRem, sumInit, remconst, "sumInit_mod");
@@ -3648,9 +3649,108 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
     func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
-bool BasicBlockReorderPass ::runOnFunction(Function *func)
+bool BasicBlockReorderPass::runOnFunction(Function *func)
 {
     bool changed = false;
+    auto &bbs = func->getBasicBlocks();
+    if (bbs.empty())
+        return false;
+
+    // 1. 计算直接支配者
+    auto idom = optimization::computeIDom_LengauerTarjan(func);
+
+    // 2. 构建支配树（父->子），不跳过入口块
+    std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> domTree;
+    for (auto &p : idom)
+    {
+        domTree[p.second].push_back(p.first); // p.second 允许为 nullptr
+    }
+
+    // 3. 建立 BasicBlock* 到 unique_ptr 的映射，方便重排
+    std::unordered_map<BasicBlock *, std::unique_ptr<BasicBlock>> bbMap;
+    BasicBlock *entry = func->getEntryBlock();
+    for (auto &bbPtr : bbs)
+    {
+        bbMap[bbPtr.get()] = std::move(bbPtr);
+    }
+
+    std::vector<std::unique_ptr<BasicBlock>> newOrder;
+    std::unordered_set<BasicBlock *> visited;
+    // 4. 支配树DFS，真出口优先
+    std::function<void(BasicBlock *)> dfs = [&](BasicBlock *bb)
+    {
+        if (!bb || visited.count(bb))
+            return;
+        visited.insert(bb);
+        if (bbMap.count(bb))
+            newOrder.push_back(std::move(bbMap[bb]));
+
+        // 获取直接支配的子节点
+        auto &children = domTree[bb];
+        if (children.empty())
+            return;
+
+        // 真出口优先：如果是条件跳转，先真分支
+        std::vector<BasicBlock *> sortedChildren;
+        if (bb->getInstructions().size() > 0)
+        {
+            if (auto *br = dynamic_cast<BranchInst *>(bb->getInstructions().back().get()))
+            {
+                if (br->isConditional())
+                {
+                    auto *trueBB = br->getTrueBlock();
+                    auto *falseBB = br->getFalseBlock();
+                    if (std::find(children.begin(), children.end(), trueBB) != children.end())
+                        sortedChildren.push_back(trueBB);
+                    if (std::find(children.begin(), children.end(), falseBB) != children.end())
+                        sortedChildren.push_back(falseBB);
+                    for (auto *child : children)
+                    {
+                        if (child != trueBB && child != falseBB)
+                            sortedChildren.push_back(child);
+                    }
+                }
+                else
+                {
+                    sortedChildren = children;
+                }
+            }
+            else
+            {
+                sortedChildren = children;
+            }
+        }
+        else
+        {
+            sortedChildren = children;
+        }
+        for (auto *child : sortedChildren)
+        {
+            dfs(child);
+        }
+    };
+    
+    // 5. 从入口块开始DFS遍历
+    dfs(entry);
+
+    // 6. 补充未访问到的块（如不可达块）
+    for (auto &kv : bbMap)
+    {
+        if (!visited.count(kv.first))
+        {
+            newOrder.push_back(std::move(kv.second));
+        }
+    }
+
+    // 7. 替换原顺序
+    if (bbs.size() != newOrder.size())
+        return false;
+    bbs = std::move(newOrder);
+    changed = true;
+    if (verbose)
+    {
+        debugInfo << "BlockReorderPass: Reordered basic blocks in function " << func->getName() << "\n";
+    }
     return changed;
 }
 bool LoopUnrollingPass ::runOnFunction(Function *func)
@@ -3697,7 +3797,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        //pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -3749,6 +3849,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     return pm;
 }
