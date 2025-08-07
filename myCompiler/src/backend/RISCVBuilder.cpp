@@ -7,7 +7,10 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     this->irModule = irModule;
     initializeModule(irModule);
     generateInstructions();
+    FirstPeep();
+    instructionSheduler();
     allocateRegisters();
+    SecondPeep();
     reallocOffsetForInstructions();
     return riscvModule;
 }
@@ -16,6 +19,22 @@ string RISCVBuilder::generateAssembly(shared_ptr<RISCVModule> module)
 {
     AssemblyEmitter emitter;
     return emitter.emit(module);
+}
+
+void RISCVBuilder::printInstructions()
+{
+    for (const auto &func : riscvModule->getFunctions())
+    {
+        cout << "Function: " << func->getName() << endl;
+        for (const auto &bb : func->getBasicBlocks())
+        {
+            cout << "  BasicBlock: " << bb->getLabel() << endl;
+            for (const auto &instr : bb->getInstructions())
+            {
+                cout << "    Instruction: " << instr->toString() << endl;
+            }
+        }
+    }
 }
 
 void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
@@ -174,6 +193,13 @@ void RISCVBuilder::generateInstructions()
     }
 }
 
+void RISCVBuilder::instructionSheduler()
+{
+    // 创建指令调度器
+    InstructionScheduler scheduler;
+    scheduler.scheduleModule(riscvModule);
+}
+
 void RISCVBuilder::allocateRegisters()
 {
     // 为每个函数进行寄存器分配
@@ -182,6 +208,20 @@ void RISCVBuilder::allocateRegisters()
         GraphColorRegisterAllocator allocator;
         allocator.allocateRegisters(func, irModule);
     }
+}
+
+void RISCVBuilder::FirstPeep()
+{
+    PeepOptimizationManager peep;
+    peep.addPass(make_shared<DeadCodeEliminationPass>());
+    peep.optimizeModule(riscvModule);
+}
+
+void RISCVBuilder::SecondPeep()
+{
+    PeepOptimizationManager peep;
+    peep.addPass(make_shared<RemoveRedundantMovePass>());
+    peep.optimizeModule(riscvModule);
 }
 
 void RISCVBuilder::reallocOffsetForInstructions()

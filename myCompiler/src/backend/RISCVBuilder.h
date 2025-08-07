@@ -4,8 +4,12 @@
 #include "AssemblyEmitter.h"
 #include "InstructionSelector.h"
 #include "GraphRegisterAllocator/GraphColorRegisterAllocator.h"
+#include "InstructionScheduler.h"
+#include "PeepholeOptimizer/PeepOptimizationManager.h"
+#include "PeepholeOptimizer/PeepPass.h"
+using std::cout;
+using std::endl;
 using std::set;
-
 namespace RISCV
 {
     // 后端主流水线类
@@ -28,7 +32,10 @@ namespace RISCV
         // 流水线各阶段
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
+        void instructionSheduler();
         void allocateRegisters();
+        void FirstPeep();
+        void SecondPeep();
 
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
@@ -36,5 +43,6 @@ namespace RISCV
 
         void reallocOffsetForInstructions();
         bool isLibraryFunction(const string &funcName);
+        void printInstructions();
     };
 }
