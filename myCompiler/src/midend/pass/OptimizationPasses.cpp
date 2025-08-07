@@ -3697,7 +3697,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        //pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -3734,7 +3734,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
-        //pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 合并基本块，便于后续操作
