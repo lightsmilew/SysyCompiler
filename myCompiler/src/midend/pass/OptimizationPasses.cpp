@@ -226,7 +226,7 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
 // 判断指令是否为关键指令
 bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 {
-    return inst->mayHaveSideEffects();
+    return inst->mayHaveSideEffects() || inst->getOpcode() == Opcode::Copy;
 }
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
@@ -263,14 +263,9 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     //  或者如果操作数有load指令，则不消除
                     if (inst->getOpcode() == Opcode::Load)
                     {
-                        if (defBB != bb.get())
-                        {
-                            // 如果不是同一个基本块，则跳过
-                            ++it;
-                            continue;
-                        }
+                        // 如果不是同一个基本块，则跳过
                         // 否则判断中间是否有store指令进行修改
-                        if (!CanLoadCSE(inst, found->second.first, bb.get()))
+                        if (defBB != bb.get() || !CanLoadCSE(inst, found->second.first, bb.get()))
                         {
                             // 如果不能消除，则更新exprMap
                             exprMap[key] = {inst, bb.get()};
@@ -294,7 +289,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                             {
 
                                 // 判断是否有store对该地址进行修改
-                                Value *addr = loadInst->getOriginalPointer();
+                                Value *addr = recognizeMode == 0 ? loadInst->getOriginalPointer() : loadInst->getPointer();
                                 int pos1 = bb->getInstructionOrder(defInst);
                                 int pos2 = bb->getInstructionOrder(inst);
                                 // 检查两条指令之间是否有store指令修改了地址
@@ -309,7 +304,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 {
                                     if (auto *storeInst = dynamic_cast<StoreInst *>(insts[i].get()))
                                     {
-                                        if (isSameAddr(storeInst->getOriginalPointer(), addr))
+                                        Value *storeAddr = recognizeMode == 0 ? storeInst->getOriginalPointer() : storeInst->getPointer();
+                                        if (isSameAddr(storeAddr, addr))
                                         {
                                             CanNotCSEWithLoadOrPhiOperand = true;
                                             break;
@@ -318,9 +314,9 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 }
                             }
                         }
-                        else if(auto *phiInst=dynamic_cast<PhiInst*>(op))
+                        else if (auto *phiInst = dynamic_cast<PhiInst *>(op))
                         {
-                            if(defBB != bb.get())
+                            if (defBB != bb.get())
                             {
                                 CanNotCSEWithLoadOrPhiOperand = true;
                                 break; // 如果是phi指令，且不在同一基本块，则不消除
@@ -431,7 +427,7 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
     auto *mapLoadInst = dynamic_cast<LoadInst *>(map_inst);
     if (!loadInst || !mapLoadInst)
         return false;
-    Value *addr = loadInst->getOriginalPointer();
+    Value *addr = recognizeMode == 0 ? loadInst->getOriginalPointer() : loadInst->getPointer();
     if (!addr)
         return false;
     // std::string addrName =normalizeName(addr->getName());
@@ -445,7 +441,8 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
     {
         if (auto *store = dynamic_cast<StoreInst *>(insts[i].get()))
         {
-            if (isSameAddr(store->getOriginalPointer(), addr))
+            Value *storeAddr = recognizeMode == 0 ? store->getOriginalPointer() : store->getPointer();
+            if (isSameAddr(storeAddr, addr))
             {
                 return false; // 两条load之间有store，不能CSE
             }
@@ -1520,6 +1517,47 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
+                // 有条件跳转指令替换为无条件跳转
+                if (inst && inst->getOpcode() == Opcode::Br)
+                {
+                    auto *br = dynamic_cast<BranchInst *>(inst);
+                    if (br->isConditional())
+                    {
+                        if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
+                        {
+                            BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+
+                            // 替换为无条件跳转
+                            auto *newBr = new BranchInst(targetBB);
+                            inst->replaceAllUsesWith(newBr);
+                            // 从操作数中移除自己
+                            inst->removeThisFromOperands();
+                            needToDelete.push_back(it->release());
+                            it = insts.erase(it);
+                            bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                            // 更新cfg 从后继中删除永假块
+                            if (br->FalseBlock == targetBB)
+                            {
+                                bb->removeSuccessor(br->TrueBlock);
+                                br->TrueBlock->removePredecessor(bb.get());
+                            }
+                            else if (br->TrueBlock == targetBB)
+                            {
+                                bb->removeSuccessor(br->FalseBlock);
+                                br->FalseBlock->removePredecessor(bb.get());
+                            }
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: Conditional branch to "
+                                          << targetBB->getName() << "\n";
+                            }
+                            changed = true;
+                            localChanged = true;
+                            continue;
+                        }
+                    }
+                }
+
                 ++it;
             }
         }
@@ -3353,10 +3391,10 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         }
         // 只合并只有一个后继且后继只有一个前驱的情况
         auto *succ = (bb->getSuccessors().size() == 1) ? bb->getSuccessors()[0] : nullptr;
-        if (!succ || succ->getPredecessors().size() != 1)
+        if (!succ || succ->getPredecessors().size() != 1 || succ == func->getEntryBlock())
         {
             ++it;
-            continue;
+            continue; // 不是单一后继或后继不是单一前驱，跳过
         }
         // 判断succ是否为数组初始化块
         bool isArrayInit = false;
@@ -3835,6 +3873,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
@@ -3843,13 +3883,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+        // 合并基本块，便于后续操作
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
-        // 合并基本块，便于后续操作
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // 尾递归消除必须在函数内联之后
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
