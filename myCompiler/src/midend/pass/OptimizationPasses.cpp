@@ -114,7 +114,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             {
                 if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
                 {
-                    bool hasChanged = false;
+                    //bool hasChanged = false;
                     for (BasicBlock *delBB : toDelete)
                     {
                         unsigned index = phi->getIndexByBasicBlock(delBB);
@@ -122,10 +122,10 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                             continue; // 如果没有这个前驱块，跳过
                         // 删除对应的前驱块和值
                         phi->removeIncoming(index);
-                        hasChanged = true;
+                       // hasChanged = true;
                     }
-                    if(!hasChanged)
-                        continue;
+                    //if(!hasChanged)
+                    //    continue;
                     // 如果只剩一个incoming，直接替换
                     if (phi->getNumIncomingValues() == 1)
                     {
@@ -3378,6 +3378,7 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         // 移除bb末尾的跳转指令
         if (!bbInsts.empty() && bbInsts.back()->isTerminator())
         {
+            bbInsts.back()->removeThisFromOperands();
             bbInsts.pop_back();
         }
         // 把succ的所有指令移动到bb
@@ -3435,11 +3436,11 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
     auto &loops = func->getLoops();
     for (const auto &loop : loops)
     {
-        BasicBlock *header = loop.header;
-        if (header->getInstructions().size() < 2)
+        BasicBlock *headBlock = loop.header;
+        if (headBlock->getInstructions().size() < 2)
             continue;
         // 1. 检查循环条件 while(i < maxindex)
-        auto *cmp = dynamic_cast<ICmpInst *>(header->getInstructions()[header->getInstructions().size() - 2].get());
+        auto *cmp = dynamic_cast<ICmpInst *>(headBlock->getInstructions()[headBlock->getInstructions().size() - 2].get());
         if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
             continue;
         Value *iVar = cmp->getLHS();
@@ -3447,7 +3448,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
 
         // 2. 检查phi获取i和sum初值
         PhiInst *iPhi = nullptr, *sumPhi = nullptr;
-        for (auto &instPtr : header->getInstructions())
+        for (auto &instPtr : headBlock->getInstructions())
         {
             if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
             {
@@ -3485,7 +3486,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         Value *x = nullptr, *remconst = nullptr,*stepLength=nullptr;
         for (auto *bb : loop.blocks)
         {
-            if (bb == header)
+            if (bb == headBlock)
                 continue;
             for (auto &instPtr : bb->getInstructions())
             {
@@ -3519,7 +3520,8 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         auto *xC = dynamic_cast<ConstantInt *>(x);
         if (!remconstC || !xC)
             continue;
-        
+        // 超过2^16的常量不处理,因为会溢出
+        if(remconstC->Value>65536)continue; 
         // 6. 生成归约公式
         // 公式 initsum%remconst+(maxindex-i/stepLength*x%remconst)&remconst
         auto *sumInitMod = new BinaryOperator(Opcode::SRem, sumInit, remconst, "sumInit_mod");
@@ -3536,13 +3538,13 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         auto *i_Phi = new PhiInst(iInit->getType(), "i_phi");
         // 7. 替换循环为if-else
         BasicBlock *preBlock = nullptr;
-        for (auto *pred : header->getPredecessors())
+        for (auto *pred : headBlock->getPredecessors())
             if (find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
                 preBlock = pred;
         if (!preBlock)
             continue;
         BasicBlock *exitBlock = nullptr;
-        for (auto *succ : header->getSuccessors())
+        for (auto *succ : headBlock->getSuccessors())
             if (find(loop.blocks.begin(), loop.blocks.end(), succ) == loop.blocks.end())
                 exitBlock = succ;
         if (!exitBlock)
@@ -3605,7 +3607,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
             if (auto *br = dynamic_cast<BranchInst *>(it->get()))
             {
                 // 如果是无条件跳转，删除
-                if (!br->isConditional() && br->getTrueBlock() == header)
+                if (!br->isConditional() && br->getTrueBlock() == headBlock)
                 {
                     branchToDelete.push_back(br);
                 }
@@ -3630,9 +3632,9 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
                 // 这里需要先获取incomingBlocks再用于find比较，否则获得的是拷贝
                 auto incomingBlocks = phi->getIncomingBlocks();
                 // 如果有来自header输入的phi
-                if (find(incomingBlocks.begin(), incomingBlocks.end(), header) != incomingBlocks.end())
+                if (find(incomingBlocks.begin(), incomingBlocks.end(), headBlock) != incomingBlocks.end())
                 {
-                    phi->replaceIncomingBasicBlock(header, preBlock); // 替换为preBlock
+                    phi->replaceIncomingBasicBlock(headBlock, preBlock); // 替换为preBlock
                     continue;
                 }
             }
@@ -3640,7 +3642,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         }
         changed = true;
         if (verbose)
-            debugInfo << "LoopModuloReductionPass: Reduced loop at header " << header->getName() << " to modulo formula.\n";
+            debugInfo << "LoopModuloReductionPass: Reduced loop at header " << headBlock->getName() << " to modulo formula.\n";
         break; // 只处理一个
     }
     func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
@@ -3728,7 +3730,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 删除无用的while循环后必须进行死代码消除
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
-        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        //pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 合并基本块，便于后续操作
