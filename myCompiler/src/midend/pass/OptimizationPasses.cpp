@@ -1518,46 +1518,46 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
-                // 有条件跳转指令替换为无条件跳转
-                if (inst && inst->getOpcode() == Opcode::Br)
-                {
-                    auto *br = dynamic_cast<BranchInst *>(inst);
-                    if (br->isConditional())
-                    {
-                        if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
-                        {
-                            BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+                // // 有条件跳转指令替换为无条件跳转
+                // if (inst && inst->getOpcode() == Opcode::Br)
+                // {
+                //     auto *br = dynamic_cast<BranchInst *>(inst);
+                //     if (br->isConditional())
+                //     {
+                //         if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
+                //         {
+                //             BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
 
-                            // 替换为无条件跳转
-                            auto *newBr = new BranchInst(targetBB);
-                            inst->replaceAllUsesWith(newBr);
-                            // 从操作数中移除自己
-                            inst->removeThisFromOperands();
-                            needToDelete.push_back(it->release());
-                            it = insts.erase(it);
-                            bb->addInstruction(std::unique_ptr<Instruction>(newBr));
-                            // 更新cfg 从后继中删除永假块
-                            if (br->FalseBlock == targetBB)
-                            {
-                                bb->removeSuccessor(br->TrueBlock);
-                                br->TrueBlock->removePredecessor(bb.get());
-                            }
-                            else if (br->TrueBlock == targetBB)
-                            {
-                                bb->removeSuccessor(br->FalseBlock);
-                                br->FalseBlock->removePredecessor(bb.get());
-                            }
-                            if (verbose)
-                            {
-                                debugInfo << "Constant folding: Conditional branch to "
-                                          << targetBB->getName() << "\n";
-                            }
-                            changed = true;
-                            localChanged = true;
-                            continue;
-                        }
-                    }
-                }
+                //             // 替换为无条件跳转
+                //             auto *newBr = new BranchInst(targetBB);
+                //             inst->replaceAllUsesWith(newBr);
+                //             // 从操作数中移除自己
+                //             inst->removeThisFromOperands();
+                //             needToDelete.push_back(it->release());
+                //             it = insts.erase(it);
+                //             bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                //             // 更新cfg 从后继中删除永假块
+                //             if (br->FalseBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->TrueBlock);
+                //                 br->TrueBlock->removePredecessor(bb.get());
+                //             }
+                //             else if (br->TrueBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->FalseBlock);
+                //                 br->FalseBlock->removePredecessor(bb.get());
+                //             }
+                //             if (verbose)
+                //             {
+                //                 debugInfo << "Constant folding: Conditional branch to "
+                //                           << targetBB->getName() << "\n";
+                //             }
+                //             changed = true;
+                //             localChanged = true;
+                //             continue;
+                //         }
+                //     }
+                // }
 
                 ++it;
             }
@@ -3868,10 +3868,33 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     // 测试优化
     else if (level == OptimizationLevel::O15)
     {
+        // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
+        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 删除无用的while循环后必须进行死代码消除
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+
+            // 合并基本块，便于后续操作
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // 尾递归消除必须在函数内联之后
+        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)
