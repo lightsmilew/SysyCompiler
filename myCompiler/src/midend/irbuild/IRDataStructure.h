@@ -675,6 +675,7 @@ public:
         : Instruction(ty, Opcode::Phi, name) {}
     unsigned getIndexByBasicBlock(BasicBlock *block) const;                     // 获取前驱基本块的索引
     void addIncoming(Value *value, BasicBlock *block);                          // 添加前驱基本块和对应的值
+    void setIncomingValue(unsigned index, Value *value);                        // 设置指定前驱基本块的值
     void removeIncoming(unsigned index);                                        // 删除指定前驱基本块和对应的值
     unsigned getNumIncomingValues() const;                                      // 获取前驱基本块和对应的值长度
     Value *getIncomingValue(unsigned index) const;                              // 获取前驱value

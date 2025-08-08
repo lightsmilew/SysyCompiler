@@ -468,12 +468,14 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
     bool changed = false;
     // 记录每一轮pass后是否有外提变量，有则继续运行直到所有能外提变量全部外提
     bool localChanged;
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
+    auto loops = func->getLoops();
     do
     {
         int count = 0;
         localChanged = false;
         // 1. 查找所有循环
-        auto loops = func->getLoops();
+
         for (auto &loop : loops)
         {
             // 2. 找到循环的前置块（preheader）
@@ -683,20 +685,20 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
     } while (localChanged);
     // 更新函数的循环信息
     caller->setLoops(ControlFlowAnalysis::findLoops(caller));
-    if (verbose)
-    {
-        debugInfo << "Function: " << caller->getName() << "\n";
-        for (const auto &loop : caller->getLoops())
-        {
-            debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
-            debugInfo << "  Blocks: ";
-            for (const auto &block : loop.blocks)
-            {
-                debugInfo << block->getName() << " ";
-            }
-            debugInfo << "\n";
-        }
-    }
+    // if (verbose)
+    // {
+    //     debugInfo << "Function: " << caller->getName() << "\n";
+    //     for (const auto &loop : caller->getLoops())
+    //     {
+    //         debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
+    //         debugInfo << "  Blocks: ";
+    //         for (const auto &block : loop.blocks)
+    //         {
+    //             debugInfo << block->getName() << " ";
+    //         }
+    //         debugInfo << "\n";
+    //     }
+    // }
     return changed;
 }
 // 判断是否适合内联
@@ -1518,46 +1520,46 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
-                // 有条件跳转指令替换为无条件跳转
-                if (inst && inst->getOpcode() == Opcode::Br)
-                {
-                    auto *br = dynamic_cast<BranchInst *>(inst);
-                    if (br->isConditional())
-                    {
-                        if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
-                        {
-                            BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+                // // 有条件跳转指令替换为无条件跳转
+                // if (inst && inst->getOpcode() == Opcode::Br)
+                // {
+                //     auto *br = dynamic_cast<BranchInst *>(inst);
+                //     if (br->isConditional())
+                //     {
+                //         if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
+                //         {
+                //             BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
 
-                            // 替换为无条件跳转
-                            auto *newBr = new BranchInst(targetBB);
-                            inst->replaceAllUsesWith(newBr);
-                            // 从操作数中移除自己
-                            inst->removeThisFromOperands();
-                            needToDelete.push_back(it->release());
-                            it = insts.erase(it);
-                            bb->addInstruction(std::unique_ptr<Instruction>(newBr));
-                            // 更新cfg 从后继中删除永假块
-                            if (br->FalseBlock == targetBB)
-                            {
-                                bb->removeSuccessor(br->TrueBlock);
-                                br->TrueBlock->removePredecessor(bb.get());
-                            }
-                            else if (br->TrueBlock == targetBB)
-                            {
-                                bb->removeSuccessor(br->FalseBlock);
-                                br->FalseBlock->removePredecessor(bb.get());
-                            }
-                            if (verbose)
-                            {
-                                debugInfo << "Constant folding: Conditional branch to "
-                                          << targetBB->getName() << "\n";
-                            }
-                            changed = true;
-                            localChanged = true;
-                            continue;
-                        }
-                    }
-                }
+                //             // 替换为无条件跳转
+                //             auto *newBr = new BranchInst(targetBB);
+                //             inst->replaceAllUsesWith(newBr);
+                //             // 从操作数中移除自己
+                //             inst->removeThisFromOperands();
+                //             needToDelete.push_back(it->release());
+                //             it = insts.erase(it);
+                //             bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                //             // 更新cfg 从后继中删除永假块
+                //             if (br->FalseBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->TrueBlock);
+                //                 br->TrueBlock->removePredecessor(bb.get());
+                //             }
+                //             else if (br->TrueBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->FalseBlock);
+                //                 br->FalseBlock->removePredecessor(bb.get());
+                //             }
+                //             if (verbose)
+                //             {
+                //                 debugInfo << "Constant folding: Conditional branch to "
+                //                           << targetBB->getName() << "\n";
+                //             }
+                //             changed = true;
+                //             localChanged = true;
+                //             continue;
+                //         }
+                //     }
+                // }
 
                 ++it;
             }
@@ -1855,10 +1857,16 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                 Value *base = nullptr;
                 Instruction *cur = inst;
                 std::vector<Instruction *> chainInsts = {cur};
+                bool canReduce = true;
                 while (auto *prevAdd = dynamic_cast<BinaryOperator *>(lhs))
                 {
                     if (prevAdd->getOpcode() != Opcode::Add)
                         break;
+                    if (prevAdd->getUsers().size() > 1)
+                    {
+                        canReduce = false;
+                        break;
+                    }
                     Value *prevLhs = prevAdd->getOperands()[0];
                     Value *prevRhs = prevAdd->getOperands()[1];
                     if (prevLhs == rhs && prevRhs == rhs)
@@ -1875,6 +1883,15 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                     }
                     else
                     {
+                        break;
+                    }
+                }
+                // 检查所有链上的 add 指令都只有一个 user
+                for (auto *chainInst : chainInsts)
+                {
+                    if (chainInst->getUsers().size() > 1)
+                    {
+                        canReduce = false;
                         break;
                     }
                 }
@@ -2576,18 +2593,18 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
             ++it;
         }
     }
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 bool RemoveUselessWhilePass::runOnFunction(Function *func)
 {
     bool changed = false;
-    auto &loops = func->getLoops();
     // 允许多次遍历，直到没有可删的无用循环
     bool localChanged;
     do
     {
         localChanged = false;
+        func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
+        auto &loops = func->getLoops();
         for (const auto &loop : loops)
         {
             if (loop.blocks.size() > 2)
@@ -2711,8 +2728,6 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
             }
             break; // 只处理一个，后面会重新获取loops
         }
-        if (localChanged)
-            func->setLoops(ControlFlowAnalysis::findLoops(func));
     } while (localChanged);
     return changed;
 }
@@ -2720,6 +2735,7 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
 bool LoopSumReductionPass::runOnFunction(Function *func)
 {
     bool changed = false;
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
     auto &loops = func->getLoops();
     for (const auto loop : loops)
     {
@@ -3190,7 +3206,7 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
         }
         break; // 只处理一个循环
     }
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
@@ -3475,12 +3491,13 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         }
         // 不递增it，因为当前bb可能还能继续合并
     }
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 bool ModLoopReductionPass ::runOnFunction(Function *func)
 {
     bool changed = false;
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
     auto &loops = func->getLoops();
     for (const auto &loop : loops)
     {
@@ -3694,7 +3711,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
             debugInfo << "LoopModuloReductionPass: Reduced loop at header " << headBlock->getName() << " to modulo formula.\n";
         break; // 只处理一个
     }
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 bool BasicBlockReorderPass::runOnFunction(Function *func)
@@ -3801,9 +3818,428 @@ bool BasicBlockReorderPass::runOnFunction(Function *func)
     }
     return changed;
 }
-bool LoopUnrollingPass ::runOnFunction(Function *func)
+bool LoopUnrollingPass::runOnFunction(Function *func)
 {
     bool changed = false;
+    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    auto &loops = func->getLoops();
+    // std::cout << func->toString();
+    for (const auto &loop : loops)
+    {
+        BasicBlock *header = loop.header;
+        // 只处理简单循环
+        if (header->getInstructions().size() < 2 || loop.blocks.size() > 2)
+            continue;
+
+        // 1. 收集所有phi指令
+        std::vector<PhiInst *> headerPhis;
+        for (auto &instPtr : header->getInstructions())
+            if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+                headerPhis.push_back(phi);
+        if (headerPhis.empty())
+            continue;
+
+        // 2. 找到循环条件cmp
+        auto &headerInsts = header->getInstructions();
+
+        auto *cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
+        if (!cmp)
+            continue;
+        // 只处理 < 或 <=，否则跳过
+        if (cmp->getPredicate() != ICmpInst::ICMP_SLT && cmp->getPredicate() != ICmpInst::ICMP_SLE)
+            continue;
+        // 3. 找到induction variable phi
+        PhiInst *indPhi = nullptr;
+        Value *indVar = nullptr;
+        Value *boundVal = nullptr;
+        int cmpSide = -1;
+        for (int side = 0; side < 2; ++side)
+        {
+            Value *v = (side == 0) ? cmp->getLHS() : cmp->getRHS();
+            for (auto *phi : headerPhis)
+            {
+                if (v == phi)
+                {
+                    indVar = v;
+                    indPhi = phi;
+                    cmpSide = side;
+                    boundVal = (side == 0) ? cmp->getRHS() : cmp->getLHS();
+                    break; // 找到就退出
+                }
+            }
+            if (indPhi)
+                break;
+        }
+        if (!indVar || !indPhi || !boundVal)
+            continue;
+
+        // 4. 获取所有phi的初值和增量
+        std::unordered_map<PhiInst *, Value *> phiInit, phiInc;
+        for (auto *phi : headerPhis)
+        {
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                BasicBlock *from = phi->getIncomingBlock(i);
+                if (std::find(loop.blocks.begin(), loop.blocks.end(), from) == loop.blocks.end())
+                    phiInit[phi] = phi->getIncomingValue(i);
+                else
+                    phiInc[phi] = phi->getIncomingValue(i);
+            }
+        }
+        if (!phiInit[indPhi])
+            continue;
+
+        // 5. 获取indVar增量
+        int intcValue = -1;
+        // 如果不是i=i+1自增则跳过
+        if (auto *bin = dynamic_cast<BinaryOperator *>(phiInc[indPhi]))
+        {
+            if (bin->getOpcode() != Opcode::Add || (bin->getLHS() != indVar && bin->getRHS() != indVar))
+                continue;
+            if (auto *constVal = dynamic_cast<ConstantInt *>(bin->getRHS()))
+                intcValue = constVal->Value;
+            else if (auto *constVal = dynamic_cast<ConstantInt *>(bin->getLHS()))
+                intcValue = constVal->Value;
+            else
+                continue;
+        }
+        // 不是常数，跳过
+        if (intcValue < 0)
+            continue;
+
+        // 6. tripCount
+        int tripCount = -1;
+        auto *initConst = dynamic_cast<ConstantInt *>(phiInit[indPhi]);
+        auto *boundConst = dynamic_cast<ConstantInt *>(boundVal);
+        if (initConst && boundConst)
+        {
+            int init = initConst->Value;
+            int bound = boundConst->Value;
+            if (cmp->getPredicate() == ICmpInst::ICMP_SLT)
+                tripCount = (cmpSide == 0) ? (bound - init) : (init - bound);
+            else if (cmp->getPredicate() == ICmpInst::ICMP_SLE)
+                tripCount = (cmpSide == 0) ? (bound - init + 1) : (init - bound + 1);
+            tripCount = tripCount / intcValue;
+        }
+
+        // 7. 找到循环体
+        BasicBlock *body = nullptr;
+        for (auto *bb : loop.blocks)
+            if (bb != header)
+                body = bb;
+        if (!body)
+            continue;
+        // 新增：只处理 body 的终结指令唯一跳转回 header 的情况（防止 break）
+        auto &bodyInsts = body->getInstructions();
+        if (bodyInsts.empty() || !bodyInsts.back()->isTerminator())
+            continue;
+        auto *br = dynamic_cast<BranchInst *>(bodyInsts.back().get());
+        if (!br || br->getTrueBlock() != header || br->isConditional())
+            continue;
+        // 8. 找到preheader和exitblock
+        BasicBlock *preheader = nullptr;
+        BasicBlock *exitBlock = nullptr;
+        for (auto *pred : header->getPredecessors())
+            if (std::find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
+                preheader = pred;
+        for (auto *succ : header->getSuccessors())
+            if (std::find(loop.blocks.begin(), loop.blocks.end(), succ) == loop.blocks.end())
+                exitBlock = succ;
+        if (!preheader || !exitBlock)
+            continue;
+
+        // 9. 完全展开
+        if (tripCount > 0 && tripCount <= 16)
+        {
+            auto &preInsts = preheader->getInstructions();
+            auto insertPos = preInsts.size();
+            if (!preInsts.empty() && preInsts.back()->isTerminator())
+                insertPos--;
+            std::unordered_map<Value *, Value *> valueMap;
+            for (auto *phi : headerPhis)
+                valueMap[phi] = phiInit[phi];
+
+            for (int i = 0; i < tripCount; ++i)
+            {
+                std::vector<Instruction *> clonedInsts;
+                for (auto &instPtr : body->getInstructions())
+                {
+                    if (instPtr->isTerminator())
+                        continue;
+                    // 不跳过任何指令
+                    Instruction *cloned = instPtr->clone();
+                    cloned->setName(cloned->getName() + "_unroll" + std::to_string(i));
+                    // 替换操作数
+                    for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+                    {
+                        Value *oldOp = cloned->getOperands()[k];
+                        for (auto *phi : headerPhis)
+                        {
+                            if (oldOp == phi)
+                                cloned->setOperandByIndex(k, valueMap[phi]);
+                        }
+                        if (valueMap.count(oldOp))
+                            cloned->setOperandByIndex(k, valueMap[oldOp]);
+                    }
+                    valueMap[instPtr.get()] = cloned;
+                    clonedInsts.push_back(cloned);
+                }
+                // 插入到preheader
+                for (auto *cloned : clonedInsts)
+                    preInsts.insert(preInsts.begin() + insertPos++, std::unique_ptr<Instruction>(cloned));
+                // 递推所有phi的值
+                for (auto *phi : headerPhis)
+                {
+                    auto *inc = phiInc[phi];
+                    if (inc)
+                        valueMap[phi] = valueMap[inc];
+                }
+            }
+            // 修正preheader跳转到loop exit
+            for (auto &instPtr : preInsts)
+            {
+                if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
+                {
+                    if (br->getTrueBlock() == header)
+                        br->setTrueBlock(exitBlock);
+                    if (br->getFalseBlock() == header)
+                        br->setFalseBlock(exitBlock);
+                }
+            }
+            // 修正退出块phi的输入和基本块来源
+            for (auto &instPtr : exitBlock->getInstructions())
+            {
+                if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+                {
+                    for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
+                    {
+                        if (phi->getIncomingBlock(i) == header)
+                        {
+                            phi->setIncomingBlock(i, preheader);
+                            if (valueMap.count(phi))
+                                phi->setIncomingValue(i, valueMap[phi]);
+                        }
+                    }
+                }
+            }
+            // 替换所有phi的引用为最后一次递推的值
+            for (auto *phi : headerPhis)
+                phi->replaceAllUsesWith(valueMap[phi]);
+            // 删除原循环体
+            for (auto *bb : loop.blocks)
+                bb->removeSelfBasicBlock();
+            // 增加preheader到exit的连接
+            preheader->addSuccessor(exitBlock);
+            exitBlock->addPredecessor(preheader);
+            changed = true;
+            if (verbose)
+                debugInfo << "LoopUnrollingPass: Fully unrolled loop at " << header->getName() << " tripCount=" << tripCount << "\n";
+        }
+        // 10. 部分展开（四路展开，类似处理所有phi）
+        else
+        {
+            int unrollFactor = 4;
+            // 1. 新建展开循环块
+            auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
+            auto *unrollBody = new BasicBlock(body->getName() + "_unroll_body", func);
+            auto *unrollExit = new BasicBlock(header->getName() + "_unroll_exit", func);
+
+            // 2. 构造unrollHeader的phi（每个header phi都要新建）
+            std::unordered_map<PhiInst *, PhiInst *> phiMap;
+            for (auto *phi : headerPhis)
+            {
+                auto *newPhi = new PhiInst(phi->getType(), phi->getName() + "_unroll_phi");
+                unrollHeader->addInstruction(std::unique_ptr<Instruction>(newPhi));
+                newPhi->addIncoming(phiInit[phi], preheader);
+                phiMap[phi] = newPhi;
+            }
+            auto *unrollPhi = phiMap[indPhi];
+
+            // 2.5 复制原header的非phi、非cmp、非br指令到unrollHeader
+            std::unordered_map<Value *, Value *> headerValueMap;
+            for (auto &instPtr : header->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                // 跳过phi、cmp、br
+                if (dynamic_cast<PhiInst *>(inst) || dynamic_cast<ICmpInst *>(inst) || dynamic_cast<BranchInst *>(inst))
+                    continue;
+                Instruction *cloned = inst->clone();
+                // 替换操作数
+                for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+                {
+                    Value *oldOp = cloned->getOperands()[k];
+                    // phi变量用新phi
+                    for (auto *phi : headerPhis)
+                    {
+                        if (oldOp == phi)
+                            cloned->setOperandByIndex(k, phiMap[phi]);
+                    }
+                    // 其它header内SSA变量
+                    if (headerValueMap.count(oldOp))
+                        cloned->setOperandByIndex(k, headerValueMap[oldOp]);
+                }
+                headerValueMap[inst] = cloned;
+                unrollHeader->addInstruction(std::unique_ptr<Instruction>(cloned));
+            }
+            // 3. 构造unrollHeader的条件判断
+            Value *condLHS = unrollPhi;
+            Value *condRHS = boundVal;
+            // 替换操作数为 headerValueMap 或 phiMap 中的克隆
+            auto replaceSSA = [&](Value *v) -> Value *
+            {
+                if (headerValueMap.count(v))
+                    return headerValueMap[v];
+                for (auto *phi : headerPhis)
+                    if (v == phi)
+                        return phiMap[phi];
+                return v;
+            };
+            condLHS = replaceSSA(condLHS);
+            condRHS = replaceSSA(condRHS);
+
+            auto *unrollStep = new BinaryOperator(
+                Opcode::Add,
+                condLHS,
+                new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
+                unrollPhi->getName() + "_unroll_step");
+            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollStep));
+            auto *unrollCond = new ICmpInst(ICmpInst::ICMP_SLT, unrollStep, condRHS, "unroll_cmp");
+            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollCond));
+
+            // 4. 构造unrollHeader的分支
+            auto *unrollBr = new BranchInst(unrollCond, unrollBody, unrollExit);
+            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollBr));
+
+            // 5. 构造unrollBody：展开unrollFactor次，递推所有phi
+            // 记录每个phi在本次展开前的“当前值”
+            std::unordered_map<Value *, Value *> valueMap;
+            for (auto *phi : headerPhis)
+                valueMap[phi] = phiMap[phi];
+
+            for (int u = 0; u < unrollFactor; ++u)
+            {
+                // 克隆循环体，替换所有phi为valueMap[phi]
+                std::vector<Instruction *> clonedInsts;
+                for (auto &instPtr : body->getInstructions())
+                {
+                    if (instPtr->isTerminator())
+                        continue;
+                    Instruction *cloned = instPtr->clone();
+                    cloned->setName(cloned->getName() + "_unroll" + std::to_string(u));
+                    // 替换操作数
+                    for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+                    {
+                        Value *oldOp = cloned->getOperands()[k];
+                        for (auto *phi : headerPhis)
+                        {
+                            if (oldOp == phi)
+                                cloned->setOperandByIndex(k, valueMap[phi]);
+                        }
+                        if (valueMap.count(oldOp))
+                            cloned->setOperandByIndex(k, valueMap[oldOp]);
+                    }
+                    unrollBody->addInstruction(std::unique_ptr<Instruction>(cloned));
+                    // 递推更新
+                    valueMap[instPtr.get()] = cloned;
+                }
+                // 更新phi的值
+                for (auto *phi : headerPhis)
+                {
+                    auto *inc = phiInc[phi];
+                    if (inc)
+                    {
+                        valueMap[phi] = valueMap[inc];
+                    }
+                }
+            }
+            // 6. unrollBody末尾插入所有phi的自增和跳转
+            for (auto *phi : headerPhis)
+            {
+                if (phi == indPhi)
+                {
+                    auto *unrollInc = new BinaryOperator(
+                        Opcode::Add,
+                        phiMap[phi],
+                        new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
+                        phiMap[phi]->getName() + "_inc");
+                    unrollBody->addInstruction(std::unique_ptr<Instruction>(unrollInc));
+                    phiMap[phi]->addIncoming(unrollInc, unrollBody);
+                }
+                else
+                {
+                    // 其它phi的自增使用最后一次更新值
+                    auto *inc = phiInc[phi];
+                    if (inc)
+                    {
+                        phiMap[phi]->addIncoming(valueMap[phi], unrollBody);
+                    }
+                }
+            }
+            // 修正prehead的跳转到新循环头
+            for (auto &instPtr : preheader->getInstructions())
+            {
+                if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
+                {
+                    if (br->getTrueBlock() == header)
+                        br->setTrueBlock(unrollHeader);
+                    if (br->getFalseBlock() == header)
+                        br->setFalseBlock(unrollExit);
+                }
+            }
+            unrollBody->addInstruction(std::make_unique<BranchInst>(unrollHeader));
+            // exit添加跳转到原来的循环
+            unrollExit->addInstruction(std::make_unique<BranchInst>(header));
+            // 7. CFG连接
+            // 断开连接
+            preheader->removeSuccessor(header);
+            header->removePredecessor(preheader);
+
+            preheader->addSuccessor(unrollHeader);
+            unrollHeader->addPredecessor(preheader);
+            // 内部连接
+            unrollHeader->addSuccessor(unrollBody);
+            unrollBody->addPredecessor(unrollHeader);
+
+            unrollBody->addSuccessor(unrollHeader);
+            unrollHeader->addPredecessor(unrollBody);
+
+            unrollHeader->addSuccessor(unrollExit);
+            unrollExit->addPredecessor(unrollHeader);
+            // 外部连接
+            unrollExit->addSuccessor(header);
+            header->addPredecessor(unrollExit);
+
+            // 8. 插入新基本块到函数
+            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollHeader));
+            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollBody));
+            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollExit));
+            // 修改原来循环phi输入为第一个循环结束后的值
+            for (auto &instPtr : header->getInstructions())
+            {
+                if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+                {
+                    for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+                    {
+                        if (phi->getIncomingBlock(i) == preheader)
+                        {
+                            phi->setIncomingBlock(i, unrollExit);
+                            // 如果是原来的循环变量，则把初值替换成第一循环的phi
+                            if (phiMap.count(phi))
+                            {
+                                phi->setIncomingValue(i, phiMap[phi]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            changed = true;
+            if (verbose)
+                debugInfo << "LoopUnrollingPass: 4-way unrolled loop at " << header->getName() << " (inserted unroll loop before original)\n";
+        }
+    }
+    // std::cout << func->toString() << std::endl;
+    // std::cout << func->Parent->getBasicBlockInfo() << std::endl;
     return changed;
 }
 // ========== 优化管道工厂 ==========
@@ -3849,6 +4285,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
@@ -3868,10 +4306,39 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     // 测试优化
     else if (level == OptimizationLevel::O15)
     {
+        // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
+        // 消除数组消除pass后留下的gep指令，便于无用while消除
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 删除无用的while循环后必须进行死代码消除
+        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+        // 合并基本块，便于后续操作
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        // 进行循环展开后再来一次合并基本块
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        // 尾递归消除必须在函数内联之后
+        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        //  phi指令限制了循环不变量外提，所以必须先消除phi指令
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
+        pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O16)
@@ -3892,6 +4359,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        // 进行循环展开后再来一次合并基本块
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
