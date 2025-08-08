@@ -2027,33 +2027,33 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                     }
                 }
             }
-            // 新增：2的幂次方取模优化
-            else if (inst && inst->getOpcode() == Opcode::SRem)
-            {
-                Value *lhs = inst->getOperands()[0];
-                Value *rhs = inst->getOperands()[1];
-                if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
-                {
-                    int val = constInt->Value;
-                    if (val > 0 && (val & (val - 1)) == 0)
-                    {
-                        // 2的幂，x % 2^n == x & (2^n-1)
-                        auto *mask = new ConstantInt(IntegerType::getInstance(), val - 1);
-                        auto *andInst = new BinaryOperator(Opcode::And, lhs, mask, inst->getName() + "_rem2n");
-                        inst->removeThisFromOperands();
-                        inst->replaceAllUsesWith(andInst);
-                        needToDelete.push_back(insts[i].release());
-                        insts.erase(insts.begin() + i);
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(andInst));
-                        changed = true;
-                        if (verbose)
-                        {
-                            debugInfo << "Strength Reduction: Replaced SRem with And for " << val
-                                      << " in " << bb->getName() << "\n";
-                        }
-                    }
-                }
-            }
+            // // 新增：2的幂次方取模优化
+            // else if (inst && inst->getOpcode() == Opcode::SRem)
+            // {
+            //     Value *lhs = inst->getOperands()[0];
+            //     Value *rhs = inst->getOperands()[1];
+            //     if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
+            //     {
+            //         int val = constInt->Value;
+            //         if (val > 0 && (val & (val - 1)) == 0)
+            //         {
+            //             // 2的幂，x % 2^n == x & (2^n-1)
+            //             auto *mask = new ConstantInt(IntegerType::getInstance(), val - 1);
+            //             auto *andInst = new BinaryOperator(Opcode::And, lhs, mask, inst->getName() + "_rem2n");
+            //             inst->removeThisFromOperands();
+            //             inst->replaceAllUsesWith(andInst);
+            //             needToDelete.push_back(insts[i].release());
+            //             insts.erase(insts.begin() + i);
+            //             insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(andInst));
+            //             changed = true;
+            //             if (verbose)
+            //             {
+            //                 debugInfo << "Strength Reduction: Replaced SRem with And for " << val
+            //                           << " in " << bb->getName() << "\n";
+            //             }
+            //         }
+            //     }
+            // }
         }
     }
     return changed;
