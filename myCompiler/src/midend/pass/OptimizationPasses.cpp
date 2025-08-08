@@ -3929,6 +3929,21 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
                 body = bb;
         if (!body)
             continue;
+        // 判断内存访问比例是否超过阈值0.66
+        // 0.66对应循环体只有a[i]=b[i]这种情况
+        int totalInst = 0, memInst = 0;
+        for (auto &instPtr : body->getInstructions())
+        {
+            if (dynamic_cast<LoadInst *>(instPtr.get()) || dynamic_cast<StoreInst *>(instPtr.get()))
+            {
+                memInst++;
+                totalInst++;
+            }
+            else if (dynamic_cast<BinaryOperator *>(instPtr.get()))
+                totalInst++;
+        }
+        if (totalInst > 0 && memInst * 1.0 / totalInst > 0.66)
+            continue;
         // 新增：只处理 body 的终结指令唯一跳转回 header 的情况（防止 break）
         auto &bodyInsts = body->getInstructions();
         if (bodyInsts.empty() || !bodyInsts.back()->isTerminator())
