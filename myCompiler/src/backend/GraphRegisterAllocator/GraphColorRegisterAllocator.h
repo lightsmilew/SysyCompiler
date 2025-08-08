@@ -13,11 +13,7 @@
 
 // 调试输出控制宏
 // 定义 DEBUG_REG_ALLOC 以启用寄存器分配器的详细输出
-<<<<<<< HEAD
 // #define DEBUG_REG_ALLOC
-=======
-//#define DEBUG_REG_ALLOC
->>>>>>> af3428008b369b2066fc14457aa6fd0c9c0125cb
 
 using std::deque;
 using std::pair;
