@@ -8,7 +8,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     initializeModule(irModule);
     generateInstructions();
     FirstPeep();
-    instructionSheduler();
+    // instructionSheduler();
     allocateRegisters();
     SecondPeep();
     reallocOffsetForInstructions();
@@ -214,6 +214,7 @@ void RISCVBuilder::FirstPeep()
 {
     PeepOptimizationManager peep;
     peep.addPass(make_shared<DeadCodeEliminationPass>());
+    peep.addPass(make_shared<RemoveRedundantJalPass>());
     peep.optimizeModule(riscvModule);
 }
 

@@ -77,41 +77,21 @@ bool RemoveRedundantJalPass::isRedundantJal(shared_ptr<RISCVInstruction> instr, 
     // 检查是否为跳转指令
     if (opcode == RISCVOpcode::JAL)
     {
-        return isJumpToNextInstruction(instr, bb);
-    }
+        auto targetLabel = instr->getOperands()[1]->getLabel();
+        auto Blocks = bb->getParentFunc()->getBasicBlocks();
 
-    return false;
-}
-
-bool RemoveRedundantJalPass::isJumpToNextInstruction(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
-{
-    // 获取基本块中的指令列表
-    auto instructions = bb->getInstructions();
-
-    // 找到当前指令在基本块中的位置
-    auto it = std::find(instructions.begin(), instructions.end(), instr);
-    if (it == instructions.end() || it == instructions.end() - 1)
-    {
-        return false; // 找不到指令或者是最后一条指令
-    }
-
-    // 获取下一条指令
-    auto nextInstr = *(it + 1);
-
-    // 获取跳转目标
-    auto operands = instr->getOperands();
-    if (operands.empty())
-    {
-        return false;
-    }
-
-    // 简化处理：检查跳转目标是否为标签类型
-    // 这里需要根据实际的数据结构进行调整
-    if (operands.back()->getType() == RISCVOperand::Type::LABEL)
-    {
-        // 简化判断：假设如果是标签操作数，可能是冗余跳转
-        // 实际实现需要更复杂的标签匹配逻辑
-        return false; // 暂时保守处理，不删除
+        // 如果两个基本块是相邻的，则可以认为是冗余的
+        for (size_t i = 0; i < Blocks.size(); ++i)
+        {
+            if (Blocks[i]->getLabel() == targetLabel)
+            {
+                // 检查当前基本块和目标基本块是否相邻
+                if (i > 0 && Blocks[i - 1] == bb)
+                {
+                    return true;
+                }
+            }
+        }
     }
 
     return false;

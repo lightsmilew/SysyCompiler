@@ -24,7 +24,6 @@ public:
 
 private:
     bool isRedundantJal(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb);
-    bool isJumpToNextInstruction(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb);
 };
 
 // 冗余代码删除
