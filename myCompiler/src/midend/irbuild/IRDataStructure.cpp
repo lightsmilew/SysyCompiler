@@ -1165,6 +1165,18 @@ void PhiInst::addIncoming(Value *value, BasicBlock *block)
     // 添加到操作数列表中
     addOperand(value);
 }
+void PhiInst::setIncomingValue(unsigned index, Value *value)
+{
+    if (index < getNumOperands())
+    {
+        // 设置操作数
+        setOperandByIndex(index, value);
+    }
+    else
+    {
+        throw std::out_of_range("Invalid incoming value index");
+    }
+}
 void PhiInst::removeIncoming(unsigned index)
 {
     if (index < IncomingValues.size())
