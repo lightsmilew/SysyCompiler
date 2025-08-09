@@ -215,6 +215,7 @@ void RISCVBuilder::FirstPeep()
     PeepOptimizationManager peep;
     peep.addPass(make_shared<DeadCodeEliminationPass>());
     peep.addPass(make_shared<RemoveRedundantJalPass>());
+    peep.addPass(make_shared<StrengthReductionPass>());
     peep.optimizeModule(riscvModule);
 }
 
