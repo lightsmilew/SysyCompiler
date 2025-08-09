@@ -1,0 +1,603 @@
+#include "ConstantFoldingPass.h"
+using namespace std;
+using namespace optimization;
+// 常量折叠实现
+bool ConstantFoldingPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    bool localChanged;
+    do
+    {
+        localChanged = false;
+        for (auto &bb : func->getBasicBlocks())
+        {
+            auto &insts = bb->getInstructions();
+            for (auto it = insts.begin(); it != insts.end();)
+            {
+                Instruction *inst = it->get();
+                // 只处理二元运算且无副作用
+                if (inst && inst->isBinaryOp())
+                {
+                    auto binaryOperator = dynamic_cast<BinaryOperator *>(inst);
+                    if (!binaryOperator)
+                    {
+                        ++it;
+                        continue;
+                    }
+                    Value *lhs = binaryOperator->getLHS();
+                    Value *rhs = binaryOperator->getRHS();
+
+                    // int常量折叠
+                    if (auto *ci1 = dynamic_cast<ConstantInt *>(lhs))
+                    {
+                        if (auto *ci2 = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            int result = 0;
+                            switch (inst->getOpcode())
+                            {
+                            case Opcode::Add:
+                                result = ci1->Value + ci2->Value;
+                                break;
+                            case Opcode::Sub:
+                                result = ci1->Value - ci2->Value;
+                                break;
+                            case Opcode::Mul:
+                                result = ci1->Value * ci2->Value;
+                                break;
+                            case Opcode::SDiv:
+                                result = ci2->Value != 0 ? ci1->Value / ci2->Value : 0;
+                                break;
+                            case Opcode::SRem:
+                                result = ci2->Value != 0 ? ci1->Value % ci2->Value : 0;
+                                break;
+                            default:
+                                throw std::runtime_error("Unsupported opcode for constant folding");
+                            }
+                            auto constVal = new ConstantInt(IntegerType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal);
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                          << ci1->Value << " and " << ci2->Value
+                                          << " to " << result << "\n";
+                            }
+                            // 还要打印输出
+                            inst->removeThisFromOperands();
+                            needToDelete.push_back(it->release());
+                            it = insts.erase(it);
+                            localChanged = true;
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    // float常量折叠
+                    if (auto *cf1 = dynamic_cast<ConstantFloat *>(lhs))
+                    {
+                        if (auto *cf2 = dynamic_cast<ConstantFloat *>(rhs))
+                        {
+                            float result = 0;
+                            switch (inst->getOpcode())
+                            {
+                            case Opcode::FAdd:
+                                result = cf1->Value + cf2->Value;
+                                break;
+                            case Opcode::FSub:
+                                result = cf1->Value - cf2->Value;
+                                break;
+                            case Opcode::FMul:
+                                result = cf1->Value * cf2->Value;
+                                break;
+                            case Opcode::FDiv:
+                                result = cf2->Value != 0.0f ? cf1->Value / cf2->Value : 0.0f;
+                                break;
+                            default:
+                                throw std::runtime_error("Unsupported opcode for constant folding");
+                            }
+                            auto constVal = new ConstantFloat(FloatType::getInstance(), result);
+                            inst->replaceAllUsesWith(constVal);
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                          << cf1->Value << " and " << cf2->Value
+                                          << " to " << result << "\n";
+                            }
+                            // 还要打印输出
+                            inst->removeThisFromOperands();
+                            needToDelete.push_back(it->release());
+                            it = insts.erase(it);
+                            localChanged = true;
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    // 恒等消除：add x 0 => x, add 0 x => x
+                    if (binaryOperator->getOpcode() == Opcode::Add)
+                    {
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            if (ci->Value == 0)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        else if (auto *ci = dynamic_cast<ConstantInt *>(lhs))
+                        {
+                            if (ci->Value == 0)
+                            {
+                                inst->replaceAllUsesWith(rhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    if (binaryOperator->getOpcode() == Opcode::FAdd)
+                    {
+                        if (auto *cf = dynamic_cast<ConstantFloat *>(rhs))
+                        {
+                            if (cf->Value == 0.0f)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        else if (auto *cf = dynamic_cast<ConstantFloat *>(lhs))
+                        {
+                            if (cf->Value == 0.0f)
+                            {
+                                inst->replaceAllUsesWith(rhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    // 减0不变
+                    if (binaryOperator->getOpcode() == Opcode::Sub)
+                    {
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            if (ci->Value == 0)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    if (binaryOperator->getOpcode() == Opcode::FSub)
+                    {
+                        if (auto *cf = dynamic_cast<ConstantFloat *>(rhs))
+                        {
+                            if (cf->Value == 0.0f)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    // 乘以1不变
+                    if (binaryOperator->getOpcode() == Opcode::Mul)
+                    {
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            if (ci->Value == 1)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                            else if (ci->Value == 0)
+                            {
+                                // 乘以0等于0
+                                auto constVal = new ConstantInt(IntegerType::getInstance(), 0);
+                                inst->replaceAllUsesWith(constVal);
+                                if (verbose)
+                                {
+                                    debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                              << " to 0\n";
+                                }
+                                // 还要打印输出
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                localChanged = true;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        else if (auto *ci = dynamic_cast<ConstantInt *>(lhs))
+                        {
+                            if (ci->Value == 1)
+                            {
+                                inst->replaceAllUsesWith(rhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                            else if (ci->Value == 0)
+                            {
+                                // 乘以0等于0
+                                auto constVal = new ConstantInt(IntegerType::getInstance(), 0);
+                                inst->replaceAllUsesWith(constVal);
+                                if (verbose)
+                                {
+                                    debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                              << " to 0\n";
+                                }
+                                // 还要打印输出
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                localChanged = true;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    if (binaryOperator->getOpcode() == Opcode::FMul)
+                    {
+                        if (auto *cf = dynamic_cast<ConstantFloat *>(rhs))
+                        {
+                            if (cf->Value == 1.0f)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                            else if (cf->Value == 0.0f)
+                            {
+                                // 乘以0等于0
+                                auto constVal = new ConstantFloat(FloatType::getInstance(), 0.0f);
+                                inst->replaceAllUsesWith(constVal);
+                                if (verbose)
+                                {
+                                    debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                              << " to 0.0\n";
+                                }
+                                // 还要打印输出
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                localChanged = true;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        else if (auto *cf = dynamic_cast<ConstantFloat *>(lhs))
+                        {
+                            if (cf->Value == 1.0f)
+                            {
+                                inst->replaceAllUsesWith(rhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                            else if (cf->Value == 0.0f)
+                            {
+                                // 乘以0等于0
+                                auto constVal = new ConstantFloat(FloatType::getInstance(), 0.0f);
+                                inst->replaceAllUsesWith(constVal);
+                                if (verbose)
+                                {
+                                    debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                              << " to 0.0\n";
+                                }
+                                // 还要打印输出
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                localChanged = true;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    // 除以1不变
+                    if (binaryOperator->getOpcode() == Opcode::SDiv)
+                    {
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            if (ci->Value == 1)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    if (binaryOperator->getOpcode() == Opcode::FDiv)
+                    {
+                        if (auto *cf = dynamic_cast<ConstantFloat *>(rhs))
+                        {
+                            if (cf->Value == 1.0f)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                    // 取模1不变
+                    if (binaryOperator->getOpcode() == Opcode::SRem)
+                    {
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            if (ci->Value == 1)
+                            {
+                                inst->replaceAllUsesWith(lhs);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // int比较指令
+                if (inst && inst->getOpcode() == Opcode::ICmp)
+                {
+                    auto *icmp = dynamic_cast<ICmpInst *>(inst);
+                    auto *ci1 = dynamic_cast<ConstantInt *>(icmp->getLHS());
+                    auto *ci2 = dynamic_cast<ConstantInt *>(icmp->getRHS());
+                    if (ci1 && ci2)
+                    {
+                        int result = 0;
+                        switch (icmp->getPredicate())
+                        {
+                        case ICmpInst::ICMP_EQ:
+                            result = (ci1->Value == ci2->Value);
+                            break;
+                        case ICmpInst::ICMP_NE:
+                            result = (ci1->Value != ci2->Value);
+                            break;
+                        case ICmpInst::ICMP_SLT:
+                            result = (ci1->Value < ci2->Value);
+                            break;
+                        case ICmpInst::ICMP_SLE:
+                            result = (ci1->Value <= ci2->Value);
+                            break;
+                        case ICmpInst::ICMP_SGT:
+                            result = (ci1->Value > ci2->Value);
+                            break;
+                        case ICmpInst::ICMP_SGE:
+                            result = (ci1->Value >= ci2->Value);
+                            break;
+                        }
+                        auto constVal = new ConstantInt(IntegerType::getInstance(), result);
+                        inst->replaceAllUsesWith(constVal);
+                        if (verbose)
+                        {
+                            debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                      << ci1->Value << " and " << ci2->Value
+                                      << " to " << result << "\n";
+                        }
+                        // 还要打印输出
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
+                        localChanged = true;
+                        changed = true;
+                        continue;
+                    }
+                }
+                // float比较指令
+                if (inst && inst->getOpcode() == Opcode::FCmp)
+                {
+                    auto *fcmp = dynamic_cast<FCmpInst *>(inst);
+                    auto *cf1 = dynamic_cast<ConstantFloat *>(fcmp->getLHS());
+                    auto *cf2 = dynamic_cast<ConstantFloat *>(fcmp->getRHS());
+                    if (cf1 && cf2)
+                    {
+                        int result = 0;
+                        switch (fcmp->getPredicate())
+                        {
+                        case FCmpInst::FCMP_OEQ:
+                            result = (cf1->Value == cf2->Value);
+                            break;
+                        case FCmpInst::FCMP_ONE:
+                            result = (cf1->Value != cf2->Value);
+                            break;
+                        case FCmpInst::FCMP_OLT:
+                            result = (cf1->Value < cf2->Value);
+                            break;
+                        case FCmpInst::FCMP_OLE:
+                            result = (cf1->Value <= cf2->Value);
+                            break;
+                        case FCmpInst::FCMP_OGT:
+                            result = (cf1->Value > cf2->Value);
+                            break;
+                        case FCmpInst::FCMP_OGE:
+                            result = (cf1->Value >= cf2->Value);
+                            break;
+                        }
+                        auto constVal = new ConstantInt(IntegerType::getInstance(), result);
+                        inst->replaceAllUsesWith(constVal);
+                        if (verbose)
+                        {
+                            debugInfo << "Constant folding: " << inst->getOpcodeName() << " "
+                                      << cf1->Value << " and " << cf2->Value
+                                      << " to " << result << "\n";
+                        }
+                        // 还要打印输出
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
+                        localChanged = true;
+                        changed = true;
+                        continue;
+                    }
+                }
+                // // 有条件跳转指令替换为无条件跳转
+                // if (inst && inst->getOpcode() == Opcode::Br)
+                // {
+                //     auto *br = dynamic_cast<BranchInst *>(inst);
+                //     if (br->isConditional())
+                //     {
+                //         if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
+                //         {
+                //             BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+
+                //             // 替换为无条件跳转
+                //             auto *newBr = new BranchInst(targetBB);
+                //             inst->replaceAllUsesWith(newBr);
+                //             // 从操作数中移除自己
+                //             inst->removeThisFromOperands();
+                //             needToDelete.push_back(it->release());
+                //             it = insts.erase(it);
+                //             bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                //             // 更新cfg 从后继中删除永假块
+                //             if (br->FalseBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->TrueBlock);
+                //                 br->TrueBlock->removePredecessor(bb.get());
+                //             }
+                //             else if (br->TrueBlock == targetBB)
+                //             {
+                //                 bb->removeSuccessor(br->FalseBlock);
+                //                 br->FalseBlock->removePredecessor(bb.get());
+                //             }
+                //             if (verbose)
+                //             {
+                //                 debugInfo << "Constant folding: Conditional branch to "
+                //                           << targetBB->getName() << "\n";
+                //             }
+                //             changed = true;
+                //             localChanged = true;
+                //             continue;
+                //         }
+                //     }
+                // }
+
+                ++it;
+            }
+        }
+    } while (localChanged);
+    return changed;
+}
+bool AddChainReductionPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        // 用下标逆序遍历，避免迭代器失效
+        for (int i = insts.size() - 1; i >= 0; --i)
+        {
+            Instruction *inst = insts[i].get();
+            if (inst && inst->getOpcode() == Opcode::Add)
+            {
+                Value *lhs = inst->getOperands()[0];
+                Value *rhs = inst->getOperands()[1];
+                int chainLen = 1;
+                Value *base = nullptr;
+                Instruction *cur = inst;
+                std::vector<Instruction *> chainInsts = {cur};
+                bool canReduce = true;
+                while (auto *prevAdd = dynamic_cast<BinaryOperator *>(lhs))
+                {
+                    if (prevAdd->getOpcode() != Opcode::Add)
+                        break;
+                    if (prevAdd->getUsers().size() > 1)
+                    {
+                        canReduce = false;
+                        break;
+                    }
+                    Value *prevLhs = prevAdd->getOperands()[0];
+                    Value *prevRhs = prevAdd->getOperands()[1];
+                    if (prevLhs == rhs && prevRhs == rhs)
+                    {
+                        chainLen++;
+                        chainInsts.push_back(prevAdd);
+                        lhs = prevLhs;
+                    }
+                    else if (prevRhs == rhs)
+                    {
+                        chainLen++;
+                        chainInsts.push_back(prevAdd);
+                        lhs = prevLhs;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                // 检查所有链上的 add 指令都只有一个 user
+                for (auto *chainInst : chainInsts)
+                {
+                    if (chainInst->getUsers().size() > 1)
+                    {
+                        canReduce = false;
+                        break;
+                    }
+                }
+                if (chainLen > 1 && rhs)
+                {
+                    base = rhs;
+                    auto *mulInst = new BinaryOperator(Opcode::Mul, base, new ConstantInt(IntegerType::getInstance(), chainLen + 1), inst->getName() + "_mul");
+                    // 在链式加法最后一条指令的后面插入
+                    insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                    inst->removeThisFromOperands();
+                    inst->replaceAllUsesWith(mulInst);
+                    needToDelete.push_back(insts[i].release());
+                    insts.erase(insts.begin() + i);
+                    changed = true;
+                    // 删除链上的所有 add
+                    for (auto *chainInst : chainInsts)
+                    {
+                        if (chainInst != inst)
+                        {
+                            auto chainIt = std::find_if(insts.begin(), insts.end(),
+                                                        [chainInst](const std::unique_ptr<Instruction> &ptr)
+                                                        { return ptr.get() == chainInst; });
+                            if (chainIt != insts.end())
+                            {
+                                chainInst->removeThisFromOperands();
+                                needToDelete.push_back(chainIt->release());
+                                insts.erase(chainIt);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return changed;
+}
