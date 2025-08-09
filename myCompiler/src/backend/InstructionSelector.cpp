@@ -623,9 +623,9 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
         }
 
         // 生成条件分支指令 - 条件应该在通用寄存器中
-        auto brInst = RISCVInstruction::createBType(RISCVOpcode::BNE, condReg,
+        auto brInst = RISCVInstruction::createBType(RISCVOpcode::BEQ, condReg,
                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                    inst->TrueBlock->getName());
+                                                    inst->FalseBlock->getName());
         currentBB->addInstruction(brInst);
 
         // 生成无条件跳转到false分支
@@ -633,7 +633,7 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
         {
             auto jumpInst = RISCVInstruction::createJType(RISCVOpcode::JAL,
                                                           make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                          inst->FalseBlock->getName());
+                                                          inst->TrueBlock->getName());
             currentBB->addInstruction(jumpInst);
         }
     }
