@@ -77,6 +77,10 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::Sra:
     case Opcode::And:
     case Opcode::Or:
+    case Opcode::Xor:
+    case Opcode::Muld:
+    case Opcode::Slld:
+    case Opcode::Srad:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
         {
             visitBinaryOp(binOp);
@@ -161,6 +165,24 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitBitCastInst(bitCastInst);
         }
         break;
+    case Opcode::Sext:
+        if (auto castInst = dynamic_cast<CastInst *>(inst))
+        {
+            visitSExtInst(castInst);
+        }
+        break;
+    case Opcode::Trunc:
+        if (auto castInst = dynamic_cast<CastInst *>(inst))
+        {
+            visitTruncInst(castInst);
+        }
+        break;
+    case Opcode::Xnor:
+        if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
+        {
+            visitXnorInst(binOp);
+        }
+        break;
     default:
         // 其他指令暂时忽略
         break;
@@ -216,6 +238,18 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         break;
     case Opcode::Or:
         opcode = RISCVOpcode::OR;
+        break;
+    case Opcode::Xor:
+        opcode = RISCVOpcode::XOR;
+        break;
+    case Opcode::Muld:
+        opcode = RISCVOpcode::MUL;
+        break;
+    case Opcode::Slld:
+        opcode = RISCVOpcode::SLL; // 左移
+        break;
+    case Opcode::Srad:
+        opcode = RISCVOpcode::SRA; // 右移
         break;
     default:
         return;
@@ -817,6 +851,44 @@ void InstructionSelector::visitBitCastInst(CastInst *inst)
     currentBB->addInstruction(moveInst);
 }
 
+void InstructionSelector::visitSExtInst(CastInst *inst)
+{
+    // 处理符号扩展指令
+    auto srcReg = getOrCreateVirtualReg(inst->getOperand());
+    auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // 生成 RISC-V 的 slli 指令（左移）和 addi 指令（加法）
+    auto slliInst = RISCVInstruction::createIType(RISCVOpcode::ADDIW, destReg, srcReg, 0);
+    currentBB->addInstruction(slliInst);
+}
+
+void InstructionSelector::visitTruncInst(CastInst *inst)
+{
+    // 处理截断指令
+    auto srcReg = getOrCreateVirtualReg(inst->getOperand());
+    auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // 生成 RISC-V 的 srli 指令（右移）和 addi 指令（加法）
+    auto srliInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, destReg, srcReg, std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    currentBB->addInstruction(srliInst);
+}
+
+void InstructionSelector::visitXnorInst(BinaryOperator *inst)
+{
+    // XNOR操作可以通过先进行XOR操作，然后取反来实现
+    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+    auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // 生成XOR指令
+    auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
+    currentBB->addInstruction(xorInst);
+
+    // 生成NOT指令（使用XORI指令将结果取反）
+    auto notInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, -1);
+    currentBB->addInstruction(notInst);
+}
+
 void InstructionSelector::DealArgumentsInStart()
 {
     const auto &args = irFunction->getArguments();
@@ -1053,6 +1125,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     {
         return LiFloat(constantFloatValue->Value, isPhysical);
     }
+    else if (auto constantLong = dynamic_cast<ConstantLong *>(value))
+    {
+        return LiLong(constantLong->Value, isPhysical);
+    }
     // 全局变量
     else if (auto globlVar = dynamic_cast<GlobalVariable *>(value))
     {
@@ -1165,6 +1241,16 @@ shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue, bool is
     auto destReg = getTempFloatReg(isPhysical);
     auto FmvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, destReg, tmpReg);
     currentBB->addInstruction(FmvInst);
+
+    return destReg;
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhysical)
+{
+    auto destReg = getTempReg(isPhysical);
+    auto LiInst = RISCVInstruction::createPseudoLI(destReg, longValue);
+    currentLiInstruction = LiInst; // 保存当前的立即数指令
+    currentBB->addInstruction(LiInst);
 
     return destReg;
 }
