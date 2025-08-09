@@ -313,6 +313,16 @@ string Instruction::getOpcodeName() const
         return "and";
     case Opcode::Or:
         return "or";
+    case Opcode::Xor:
+        return "xor";
+    case Opcode::Xnor:
+        return "xnor";
+    case Opcode::Muld:
+        return "muld";
+    case Opcode::Slld:
+        return "slld";
+    case Opcode::Srad:
+        return "srad";
     case Opcode::FAdd:
         return "fadd";
     case Opcode::FSub:
@@ -337,6 +347,12 @@ string Instruction::getOpcodeName() const
         return "sitofp";
     case Opcode::FPToSI:
         return "fptosi";
+    case Opcode::BitCast:
+        return "bitcast";
+    case Opcode::Sext:
+        return "sext";
+    case Opcode::Trunc:
+        return "trunc";
     case Opcode::Call:
         return "call";
     case Opcode::Phi:
@@ -352,7 +368,8 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra;
+           Op == Opcode::Sll || Op == Opcode::Sra|| Op == Opcode::Muld || Op == Opcode::Slld || 
+           Op == Opcode::Srad||Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isComparisonOp() const
 {
@@ -372,8 +389,6 @@ bool Instruction::mayHaveSideEffects() const
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
-    // Op == Opcode::Phi   ||
-    // Op == Opcode::Copy)
     {
         return true;
     }
@@ -401,6 +416,11 @@ bool Instruction::hasResult() const
     case Opcode::Sra:
     case Opcode::And:
     case Opcode::Or:
+    case Opcode::Xor:
+    case Opcode::Xnor:
+    case Opcode::Muld:
+    case Opcode::Slld:
+    case Opcode::Srad:
     case Opcode::ICmp:
     case Opcode::FCmp:
     case Opcode::Alloca:
@@ -410,6 +430,9 @@ bool Instruction::hasResult() const
     case Opcode::GetElementPtr:
     case Opcode::SIToFP:
     case Opcode::FPToSI:
+    case Opcode::BitCast:
+    case Opcode::Sext:
+    case Opcode::Trunc:
     case Opcode::Copy:
         return true;
     default:
@@ -493,6 +516,11 @@ Instruction *Instruction::clone() const
     case Opcode::Sra:
     case Opcode::And:
     case Opcode::Or:
+    case Opcode::Xor:
+    case Opcode::Xnor:
+    case Opcode::Muld:
+    case Opcode::Slld:
+    case Opcode::Srad:
         // 对于二元操作符，直接创建新的BinaryOperator实例
         return new BinaryOperator(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::ICmp:
@@ -541,6 +569,9 @@ Instruction *Instruction::clone() const
     }
     case Opcode::SIToFP:
     case Opcode::FPToSI:
+    case Opcode::BitCast:
+    case Opcode::Sext:
+    case Opcode::Trunc:
     {
         auto *cast = static_cast<const CastInst *>(this);
         return new CastInst(Op, getOperandByIndex(0), cast->DestType, getName());
@@ -557,51 +588,7 @@ std::string BinaryOperator::toString() const
     std::stringstream ss;
     std::string opStr;
 
-    switch (Op)
-    {
-    case Opcode::Add:
-        opStr = "add";
-        break;
-    case Opcode::Sub:
-        opStr = "sub";
-        break;
-    case Opcode::Mul:
-        opStr = "mul";
-        break;
-    case Opcode::SDiv:
-        opStr = "sdiv";
-        break;
-    case Opcode::SRem:
-        opStr = "srem";
-        break;
-    case Opcode::Sll:
-        opStr = "sll";
-        break;
-    case Opcode::Sra:
-        opStr = "sra";
-        break;
-    case Opcode::And:
-        opStr = "and";
-        break;
-    case Opcode::Or:
-        opStr = "or";
-        break;
-    case Opcode::FAdd:
-        opStr = "fadd";
-        break;
-    case Opcode::FSub:
-        opStr = "fsub";
-        break;
-    case Opcode::FMul:
-        opStr = "fmul";
-        break;
-    case Opcode::FDiv:
-        opStr = "fdiv";
-        break;
-    default:
-        opStr = "unknown";
-        break;
-    }
+    opStr = getOpcodeName(); // 使用getOpcodeName获取操作码名称
 
     ss << "%" << getName() << " = " << opStr << " " << getType()->toString()
        << " " << getLHS()->toRef() << ", " << getRHS()->toRef();
@@ -1415,21 +1402,7 @@ std::string CastInst::toString() const
     std::stringstream ss;
     std::string opStr;
 
-    switch (Op)
-    {
-    case Opcode::SIToFP:
-        opStr = "sitofp";
-        break;
-    case Opcode::FPToSI:
-        opStr = "fptosi";
-        break;
-    case Opcode::BitCast:
-        opStr = "bitcast";
-        break;
-    default:
-        opStr = "cast";
-        break;
-    }
+    opStr=getOpcodeName(); // 使用getOpcodeName获取操作码名称
 
     ss << "%" << getName() << " = " << opStr << " "
        << getOperand()->getType()->toString() << " " << getOperand()->toRef()

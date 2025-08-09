@@ -28,6 +28,7 @@ public:
     {
         VoidTyID,
         IntegerTyID,
+        LongTyID,
         FloatTyID,
         StringTyID,
         PointerTyID,
@@ -45,6 +46,7 @@ public:
     TypeID getTypeID() const { return ID; }
     bool isVoidTy() const { return ID == VoidTyID; }
     bool isIntegerTy() const { return ID == IntegerTyID; }
+    bool isLongTy() const { return ID == LongTyID; }
     bool isFloatTy() const { return ID == FloatTyID; }
     bool isPointerTy() const { return ID == PointerTyID; }
     bool isArrayTy() const { return ID == ArrayTyID; }
@@ -68,7 +70,18 @@ public:
     }
     string toString() const override { return "i32"; }
 };
-
+// ===== LongType Implementation =====
+class LongType : public Type
+{
+public:
+    LongType() : Type(LongTyID) {}  
+    static LongType *getInstance()
+    {
+        static LongType instance;
+        return &instance;
+    }
+    string toString() const override { return "i64"; }
+};
 // ===== FloatType Implementation =====
 class FloatType : public Type
 {
@@ -294,7 +307,16 @@ public:
 
     string toString() const override { return to_string(Value); }
 };
+// ===== ConstantLong Implementation =====
+class ConstantLong : public Constant
+{
+public:
+    int64_t Value;
 
+    ConstantLong(LongType *ty, int64_t val) : Constant(ty), Value(val) {}
+
+    string toString() const override { return to_string(Value); }
+};
 // ===== ConstantFloat Implementation =====
 class ConstantFloat : public Constant
 {
@@ -371,7 +393,7 @@ enum class Opcode
     // 终结指令
     Ret,
     Br,
-
+    // 32位系统
     // 二元运算符
     Add,
     Sub,
@@ -385,8 +407,15 @@ enum class Opcode
     FSub,
     FMul,
     FDiv,
+    // 逻辑运算
     And,
     Or,
+    Xor,
+    Xnor,
+    // 64位系统
+    Muld,
+    Slld,
+    Srad,
     // 比较运算符
     ICmp,
     FCmp,
@@ -401,7 +430,9 @@ enum class Opcode
     SIToFP,  // signed int (i32) to float
     FPToSI,  // float to signed int (i32)
     BitCast, // 指针类型转换
-             // 其他操作
+    Sext,    // 符号扩展
+    Trunc,   // 截断
+
     Call,
     Phi,
     Copy
