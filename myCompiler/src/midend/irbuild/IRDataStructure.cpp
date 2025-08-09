@@ -359,6 +359,8 @@ string Instruction::getOpcodeName() const
         return "phi";
     case Opcode::Copy:
         return "copy";
+    case Opcode::Select:
+        return "select";
     default:
         throw std::runtime_error("Unknown opcode");
     }
@@ -368,8 +370,8 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra|| Op == Opcode::Muld || Op == Opcode::Slld || 
-           Op == Opcode::Srad||Op == Opcode::Xor || Op == Opcode::Xnor;
+           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Slld ||
+           Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isComparisonOp() const
 {
@@ -434,6 +436,7 @@ bool Instruction::hasResult() const
     case Opcode::Sext:
     case Opcode::Trunc:
     case Opcode::Copy:
+    case Opcode::Select:
         return true;
     default:
         return false; // Ret, Br, Store等没有结果
@@ -578,6 +581,11 @@ Instruction *Instruction::clone() const
     }
     case Opcode::Copy:
         return new CopyInst(getOperandByIndex(0), getName());
+    case Opcode::Select:
+    {
+        auto *select = static_cast<const SelectInst *>(this);
+        return new SelectInst(select->getCondition(), select->getTrueValue(), select->getFalseValue(), getName());
+    }
     default:
         throw std::runtime_error("Clone not implemented for this opcode");
     }
@@ -907,10 +915,10 @@ bool CallInst::HasModifiedArray(Value *value) const
         if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
-            if (func->isLibraryFunction()&&(funcName == "getarray" || funcName == "getfarray"))
+            if (func->isLibraryFunction() && (funcName == "getarray" || funcName == "getfarray"))
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
             // 检查该函数是否修改了对应位置的形参
-            if (!func->isLibraryFunction()&&HasModifiedArray(func->getArgumentByIndex(i)))
+            if (!func->isLibraryFunction() && HasModifiedArray(func->getArgumentByIndex(i)))
             {
                 return true;
             }
@@ -977,7 +985,7 @@ bool CallInst::HasUsedArray(Value *ptr) const
             if (func->isLibraryFunction() && (funcName == "putint" || funcName == "putfloat" || funcName == "putch" || funcName == "putarray" || funcName == "putfarray" || funcName == "putf"))
                 return true;
             // 检查该函数是否“使用”对应形参
-            else if (!func->isLibraryFunction()&&HasUsedArray(func->getArgumentByIndex(i)))
+            else if (!func->isLibraryFunction() && HasUsedArray(func->getArgumentByIndex(i)))
             {
                 return true;
             }
@@ -1252,7 +1260,15 @@ std::string CopyInst::toString() const
        << " " << getSource()->toRef();
     return ss.str();
 }
-
+// ===== SelectInst Implementation =====
+std::string SelectInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = select " << getCondition()->getType()->toString()
+       << " " << getCondition()->toRef() << ", " << getTrueValue()->toRef()
+       << ", " << getFalseValue()->toRef();
+    return ss.str();
+}
 // ===== GetElementPtrInst Implementation =====
 Value *GetElementPtrInst::getPointerOperand() const
 {
@@ -1402,7 +1418,7 @@ std::string CastInst::toString() const
     std::stringstream ss;
     std::string opStr;
 
-    opStr=getOpcodeName(); // 使用getOpcodeName获取操作码名称
+    opStr = getOpcodeName(); // 使用getOpcodeName获取操作码名称
 
     ss << "%" << getName() << " = " << opStr << " "
        << getOperand()->getType()->toString() << " " << getOperand()->toRef()

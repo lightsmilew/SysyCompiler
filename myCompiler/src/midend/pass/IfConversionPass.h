@@ -1,0 +1,12 @@
+#pragma once
+#include "Pass.h"
+namespace optimization
+{
+    class IfConversionPass : public Pass
+    {
+    public:
+        IfConversionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        string getName() const override { return "IfConversion"; }
+    };
+}

@@ -12,6 +12,7 @@
 #include "ConstantFoldingPass.h"
 #include "PhiEliminationPass.h"
 #include "LiveVariableAnalysisPass.h"
+#include "IfConversionPass.h"
 #include <vector>
 #include <string>
 #include <memory>

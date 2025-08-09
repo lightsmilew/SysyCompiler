@@ -435,7 +435,8 @@ enum class Opcode
 
     Call,
     Phi,
-    Copy
+    Copy,
+    Select
 };
 
 // ====== Instruction System Implementation =====
@@ -761,6 +762,18 @@ public:
 
     Value *getDest() const { return const_cast<CopyInst *>(this); } // 获取目的操作数(本身)
     Value *getSource() const { return getOperandByIndex(0); }       // 获取源操作数
+    string toString() const override;
+};
+// ===== SelectInst Implementation =====
+class SelectInst : public Instruction
+{
+public:
+    SelectInst(Value *condition, Value *trueValue, Value *falseValue, const string &name = "")
+        : Instruction(trueValue->getType(), Opcode::Select, {condition, trueValue, falseValue}, name) {}
+
+    Value *getCondition() const { return getOperandByIndex(0); } // 获取条件操作数
+    Value *getTrueValue() const { return getOperandByIndex(1); } // 获取真值操作数
+    Value *getFalseValue() const { return getOperandByIndex(2); }// 获取假值操作数
     string toString() const override;
 };
 
