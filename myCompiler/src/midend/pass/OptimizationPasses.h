@@ -177,6 +177,8 @@ namespace optimization
         StrengthReductionPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "StrengthReduction"; }
+    private:
+       std::pair<int64_t,int>compute_magic(int32_t d);
     };
     // 11.替换无用的gep指令为bitcast
     class GEPToBitCastPass : public Pass
