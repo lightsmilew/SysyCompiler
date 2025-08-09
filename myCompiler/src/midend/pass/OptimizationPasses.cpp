@@ -2027,33 +2027,59 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                     }
                 }
             }
-            // // 新增：2的幂次方取模优化
-            // else if (inst && inst->getOpcode() == Opcode::SRem)
-            // {
-            //     Value *lhs = inst->getOperands()[0];
-            //     Value *rhs = inst->getOperands()[1];
-            //     if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
-            //     {
-            //         int val = constInt->Value;
-            //         if (val > 0 && (val & (val - 1)) == 0)
-            //         {
-            //             // 2的幂，x % 2^n == x & (2^n-1)
-            //             auto *mask = new ConstantInt(IntegerType::getInstance(), val - 1);
-            //             auto *andInst = new BinaryOperator(Opcode::And, lhs, mask, inst->getName() + "_rem2n");
-            //             inst->removeThisFromOperands();
-            //             inst->replaceAllUsesWith(andInst);
-            //             needToDelete.push_back(insts[i].release());
-            //             insts.erase(insts.begin() + i);
-            //             insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(andInst));
-            //             changed = true;
-            //             if (verbose)
-            //             {
-            //                 debugInfo << "Strength Reduction: Replaced SRem with And for " << val
-            //                           << " in " << bb->getName() << "\n";
-            //             }
-            //         }
-            //     }
-            // }
+            // 新增：2的幂次方取模优化
+            else if (inst && inst->getOpcode() == Opcode::SRem)
+            {
+                Value *lhs = inst->getOperands()[0];
+                Value *rhs = inst->getOperands()[1];
+                if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
+                {
+                    int val = constInt->Value;
+                    if (val > 0 && (val & (val - 1)) == 0)
+                    {
+                        // x % 2^n == ((x + bias) & mask) - bias
+                        // bias = (x >> 31) & d
+                        int n = 0, tmp = val;
+                        while (tmp > 1)
+                        {
+                            tmp >>= 1;
+                            n++;
+                        }
+                        auto *type = IntegerType::getInstance();
+                        int mask_val=val-1;
+                        auto *mask_const = new ConstantInt(type, mask_val);
+                        auto *shift31 = new ConstantInt(type, 31);
+
+                        // sign_mask = x >> 31
+                        auto *sign_mask = new BinaryOperator(Opcode::Sra, lhs, shift31, inst->getName() + "_signmask");
+                        // bias = sign_mask & d
+                        auto *bias = new BinaryOperator(Opcode::And, sign_mask, mask_const, inst->getName() + "_bias");
+                        // x + bias
+                        auto *x_add_bias = new BinaryOperator(Opcode::Add, lhs, bias, inst->getName() + "_addbias");
+                        // (x + bias) & mask
+                        auto *and_mask = new BinaryOperator(Opcode::And, x_add_bias, mask_const, inst->getName() + "_andmask");
+                        // ((x + bias) & mask) - bias
+                        auto *final_res = new BinaryOperator(Opcode::Sub, and_mask, bias, inst->getName() + "_mod2n");
+
+                        inst->removeThisFromOperands();
+                        inst->replaceAllUsesWith(final_res);
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        // 按顺序插入新指令
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(final_res));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(and_mask));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(x_add_bias));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(bias));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sign_mask));
+                        changed = true;
+                        if (verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced SRem with ((x+bias)&mask)-bias for " << val
+                                      << " in " << bb->getName() << "\n";
+                        }
+                    }
+                }
+            }
         }
     }
     return changed;
