@@ -1,0 +1,26 @@
+#pragma once
+#include "Pass.h"
+namespace optimization
+{
+    // 13.数组消除
+    class ArrayEliminationPass : public Pass
+    {
+    public:
+        ArrayEliminationPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ArrayElimination"; }
+
+    private:
+        // 用于记录数组消除次数
+        size_t ArrayEliminationCount = 0;
+    };
+    // 16.删除只写数组
+    class RemoveOnlyWriteArrayPass : public Pass
+    {
+    public:
+        RemoveOnlyWriteArrayPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "RemoveOnlyWriteArray"; }
+    };
+
+}
