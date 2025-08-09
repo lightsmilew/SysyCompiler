@@ -48,11 +48,15 @@ private:
     void visitFPToSIInst(CastInst *inst);
     void visitCopyInst(CopyInst *inst);
     void visitBitCastInst(CastInst *inst);
+    void visitXnorInst(BinaryOperator *inst);
+    void visitSExtInst(CastInst *inst);
+    void visitTruncInst(CastInst *inst);
 
     // 获取虚拟寄存器
     shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value, bool isPhysical = true);
     shared_ptr<RISCVRegister> LiInt(int intValue, bool isPhysical = false);
     shared_ptr<RISCVRegister> LiFloat(float floatValue, bool isPhysical = false);
+    shared_ptr<RISCVRegister> LiLong(long longValue, bool isPhysical = false);
     shared_ptr<RISCVRegister> LaGlobl(GlobalVariable *globlvar);
     shared_ptr<RISCVRegister> getTempReg(bool isPhysical = false);
     shared_ptr<RISCVRegister> getTempFloatReg(bool isPhysical = false);
