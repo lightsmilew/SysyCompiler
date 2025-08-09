@@ -60,6 +60,7 @@ namespace RISCV
         SLL,
         SLLI,
         SLLW,
+        SLLIW,
         SRL,
         SRLI,
         SRLW,
@@ -393,6 +394,15 @@ namespace RISCV
         // 寄存器替换函数：用于溢出处理
         void replaceUseRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
         void replaceDefRegister(shared_ptr<RISCVRegister> oldReg, shared_ptr<RISCVRegister> newReg);
+
+        // 更换指令
+        void replaceInstruction(shared_ptr<RISCVInstruction> newInstr)
+        {
+            opcode = newInstr->getOpcode();
+            instrType = newInstr->getInstrType();
+            operands = newInstr->getOperands();
+            comment = newInstr->comment; // 保留注释
+        }
 
         string toString() const;
     };
