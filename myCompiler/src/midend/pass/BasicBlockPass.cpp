@@ -1,4 +1,5 @@
 #include "BasicBlockPass.h"
+#include <functional>
 using namespace std;
 using namespace optimization;
 bool CFGSimplificationPass::runOnFunction(Function *func)

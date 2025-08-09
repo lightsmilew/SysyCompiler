@@ -14,7 +14,7 @@ namespace optimization
         // 用于记录数组消除次数
         size_t ArrayEliminationCount = 0;
     };
-      // 16.删除只写数组
+    // 16.删除只写数组
     class RemoveOnlyWriteArrayPass : public Pass
     {
     public:
