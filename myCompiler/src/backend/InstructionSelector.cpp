@@ -869,7 +869,7 @@ void InstructionSelector::visitTruncInst(CastInst *inst)
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     // 生成 RISC-V 的 srli 指令（右移）和 addi 指令（加法）
-    auto srliInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, destReg, srcReg, RISCVRegister::PhysicalReg::ZERO);
+    auto srliInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, destReg, srcReg, std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
     currentBB->addInstruction(srliInst);
 }
 
