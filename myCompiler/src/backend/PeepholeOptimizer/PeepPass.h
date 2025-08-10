@@ -81,23 +81,19 @@ public:
     PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
 
 private:
-    // 检查指令是否可以使用立即数形式
     bool canUseImmediateForm(RISCVOpcode opcode);
-
-    // 查找寄存器的常量定义
-    optional<int64_t> findConstantValue(shared_ptr<RISCVRegister> reg,
-                                        shared_ptr<RISCVInstruction> currentInstr,
-                                        shared_ptr<RISCVBasicBlock> bb);
-
-    // 检查立即数是否在有效范围内
+    bool canPropagateSecondOperand(RISCVOpcode opcode);
     bool isValidImmediate(int64_t value, RISCVOpcode opcode);
-
-    // 创建立即数形式的指令
-    shared_ptr<RISCVInstruction> createImmediateInstruction(
-        shared_ptr<RISCVInstruction> instr,
-        int operandIndex,
-        int64_t immediateValue);
-
-    // 获取指令对应的立即数操作码
     RISCVOpcode getImmediateOpcode(RISCVOpcode opcode);
+
+    PeepOptiState performImmediatePropagation(
+        shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb,
+        vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+        vector<shared_ptr<RISCVInstruction>>::iterator liIt,
+        int64_t constant, RISCVOpcode immediateOpcode, int operandIndex);
+
+    optional<tuple<vector<shared_ptr<RISCVInstruction>>::iterator, int64_t>>
+    findLIInstruction(shared_ptr<RISCVRegister> targetReg,
+                      vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+                      vector<shared_ptr<RISCVInstruction>> &instrs);
 };
