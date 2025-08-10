@@ -8,5 +8,7 @@ namespace optimization
         IfConversionPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         string getName() const override { return "IfConversion"; }
+    private:
+        static bool isSideEffectFree(BasicBlock *bb);
     };
 }
