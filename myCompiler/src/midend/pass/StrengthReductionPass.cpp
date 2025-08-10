@@ -1,4 +1,5 @@
 #include "StrengthReductionPass.h"
+#include <cmath>
 using namespace std;
 using namespace optimization;
 
@@ -112,12 +113,13 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                 Value *rhs = inst->getOperands()[1];
                 if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
                 {
-                    int d = constInt->Value;
-                    if (d != 0 && (d & (d - 1)) == 0)
+                    int rhs_value_abs = abs(constInt->Value);
+                    int rhs_value = constInt->Value;
+                    if (rhs_value != -1 && (rhs_value_abs & (rhs_value_abs - 1)) == 0)
                     {
                         // 2的幂，直接算数右移
                         int shift = 0;
-                        int val = d;
+                        int val = rhs_value_abs;
                         while (val > 1)
                         {
                             val >>= 1;
@@ -131,8 +133,15 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         auto *addand = new BinaryOperator(Opcode::And, signedDiv, mask, inst->getName() + "_addand");
                         auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, addand, inst->getName() + "_lhsAdj");
                         auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), inst->getName() + "_sra");
+                        Instruction *finalRes = sraInst;
+                        if (rhs_value < 0)
+                        {
+                            auto *neg = new BinaryOperator(Opcode::Sub, zero, sraInst, inst->getName() + "_neg");
+                            finalRes = neg;
+                            insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(neg));
+                        }
                         inst->removeThisFromOperands();
-                        inst->replaceAllUsesWith(sraInst);
+                        inst->replaceAllUsesWith(finalRes);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sraInst));
@@ -147,10 +156,10 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         }
                     }
                     // 只处理常数且不是0、1、-1、2的幂
-                    if (d != 0 && d != 1 && d != -1 && (d & (d - 1)) != 0)
+                    else if (rhs_value != -1 && (rhs_value_abs & (rhs_value_abs - 1)) != 0)
                     {
                         // 计算magic和shift
-                        auto [magic, shift] = compute_magic(d);
+                        auto [magic, shift] = compute_magic(rhs_value_abs);
                         auto *type = IntegerType::getInstance();
                         // 1. 扩展lhs为64位
                         auto *lhs64 = new CastInst(Opcode::Sext, lhs, LongType::getInstance(), lhs->getName() + "_to64");
@@ -168,8 +177,14 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         auto *sign = new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, inst->getName() + "_divsign");
                         // q = q0 + sign
                         auto *q = new BinaryOperator(Opcode::Add, q0, sign, inst->getName() + "_divmagic_fix");
-
-                        inst->replaceAllUsesWith(q);
+                        Instruction *finalRes = q;
+                        if (rhs_value < 0)
+                        {
+                            auto *neg = new BinaryOperator(Opcode::Sub, zero, q, inst->getName() + "_neg");
+                            finalRes = neg;
+                            insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(neg));
+                        }
+                        inst->replaceAllUsesWith(finalRes);
                         inst->removeThisFromOperands();
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
@@ -183,8 +198,24 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         changed = true;
                         if (verbose)
                         {
-                            debugInfo << "Strength Reduction: Replaced SDiv with magic number+sign fix for " << d
+                            debugInfo << "Strength Reduction: Replaced SDiv with magic number+sign fix for " << rhs_value_abs
                                       << " (magic=" << magic << ", shift=" << shift << ") in " << bb->getName() << "\n";
+                        }
+                    }
+                    else if (rhs_value == -1)
+                    {
+                        // 除以-1，等价于0-lhs
+                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                        auto *neg = new BinaryOperator(Opcode::Sub, zero, lhs, inst->getName() + "_neg");
+                        inst->replaceAllUsesWith(neg);
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(neg));
+                        changed = true;
+                        if (verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced SDiv by -1 with neg in " << bb->getName() << "\n";
                         }
                     }
                 }
@@ -196,19 +227,19 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                 Value *rhs = inst->getOperands()[1];
                 if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
                 {
-                    int d = constInt->Value;
-                    if (d > 0 && (d & (d - 1)) == 0)
+                    int rhs_value_abs = abs(constInt->Value);
+                    if ((rhs_value_abs & (rhs_value_abs - 1)) == 0)
                     {
                         // x % 2^n == ((x + bias) & mask) - bias
                         // bias = (x >> 31) & mask
-                        int n = 0, tmp = d;
+                        int n = 0, tmp = rhs_value_abs;
                         while (tmp > 1)
                         {
                             tmp >>= 1;
                             n++;
                         }
                         auto *type = IntegerType::getInstance();
-                        int mask_val = d - 1;
+                        int mask_val = rhs_value_abs - 1;
                         auto *mask_const = new ConstantInt(type, mask_val);
                         auto *shift31 = new ConstantInt(type, 31);
 
@@ -236,14 +267,14 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         changed = true;
                         if (verbose)
                         {
-                            debugInfo << "Strength Reduction: Replaced SRem with ((x+bias)&mask)-bias for " << d
+                            debugInfo << "Strength Reduction: Replaced SRem with ((x+bias)&mask)-bias for " << rhs_value_abs
                                       << " in " << bb->getName() << "\n";
                         }
                     }
-                    if (d > 0 && (d & (d - 1)) != 0)
+                    if ((rhs_value_abs & (rhs_value_abs - 1)) != 0)
                     {
                         // 1. 计算magic和shift
-                        auto [magic, shift] = compute_magic(d);
+                        auto [magic, shift] = compute_magic(rhs_value_abs);
                         auto *type = IntegerType::getInstance();
                         // 2. 扩展lhs为64位
                         auto *lhs64 = new CastInst(Opcode::Sext, lhs, LongType::getInstance(), lhs->getName() + "_to64");
@@ -260,7 +291,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         auto *sign = new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, inst->getName() + "_divsign");
                         auto *q = new BinaryOperator(Opcode::Add, q0, sign, inst->getName() + "_divmagic_fix");
                         // 7. rem = lhs - q * d
-                        auto *d_const = new ConstantInt(type, d);
+                        auto *d_const = new ConstantInt(type, rhs_value_abs);
                         auto *q_mul_d = new BinaryOperator(Opcode::Mul, q, d_const, inst->getName() + "_qmul");
                         auto *rem = new BinaryOperator(Opcode::Sub, lhs, q_mul_d, inst->getName() + "_remmagic");
 
@@ -280,7 +311,7 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                         changed = true;
                         if (verbose)
                         {
-                            debugInfo << "Strength Reduction: Replaced SRem with magic number division for " << d
+                            debugInfo << "Strength Reduction: Replaced SRem with magic number division for " << rhs_value_abs
                                       << " (magic=" << magic << ", shift=" << shift << ") in " << bb->getName() << "\n";
                         }
                     }
