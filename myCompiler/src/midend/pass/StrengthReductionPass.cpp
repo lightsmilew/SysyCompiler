@@ -284,6 +284,53 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                                       << " (magic=" << magic << ", shift=" << shift << ") in " << bb->getName() << "\n";
                         }
                     }
+                    if (d < 0)
+                    {
+                        d = 0 - d;
+                        if ((d & (d - 1)) == 0)
+                            continue;
+                        // 1. 计算magic和shift
+                        auto [magic, shift] = compute_magic(d);
+                        auto *type = IntegerType::getInstance();
+                        // 2. 扩展lhs为64位
+                        auto *lhs64 = new CastInst(Opcode::Sext, lhs, LongType::getInstance(), lhs->getName() + "_to64");
+                        // 3. 乘以magic
+                        auto *magic_const = new ConstantLong(LongType::getInstance(), magic);
+                        auto *mul = new BinaryOperator(Opcode::Muld, lhs64, magic_const, inst->getName() + "_mulmagic");
+                        // 4. 取高32位（算术右移32+shift位）
+                        auto *shiftnum = new ConstantLong(LongType::getInstance(), 32 + shift);
+                        auto *sra_div = new BinaryOperator(Opcode::Srad, mul, shiftnum, inst->getName() + "_sra_div");
+                        // 5. 截断回32位
+                        auto *q0 = new CastInst(Opcode::Trunc, sra_div, type, inst->getName() + "_divmagic");
+                        // 6. 修正：被除数为负时，结果加1
+                        auto *zero = new ConstantInt(type, 0);
+                        auto *sign = new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, inst->getName() + "_divsign");
+                        auto *q = new BinaryOperator(Opcode::Add, q0, sign, inst->getName() + "_divmagic_fix");
+                        // 7. rem = lhs - q * d
+                        auto *d_const = new ConstantInt(type, d);
+                        auto *q_mul_d = new BinaryOperator(Opcode::Mul, q, d_const, inst->getName() + "_qmul");
+                        auto *rem = new BinaryOperator(Opcode::Sub, lhs, q_mul_d, inst->getName() + "_remmagic");
+
+                        inst->replaceAllUsesWith(rem);
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(insts[i].release());
+                        insts.erase(insts.begin() + i);
+                        // 按顺序插入新指令
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(rem));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q_mul_d));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sign));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q0));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sra_div));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(mul));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhs64));
+                        changed = true;
+                        if (verbose)
+                        {
+                            debugInfo << "Strength Reduction: Replaced SRem with magic number division for " << d
+                                      << " (magic=" << magic << ", shift=" << shift << ") in " << bb->getName() << "\n";
+                        }
+                    }
                 }
             }
         }
