@@ -1,6 +1,9 @@
 #include "PeepPass.h"
+#include <tuple>
+#include <optional>
 
 using namespace RISCV;
+using namespace std;
 
 // ========== RemoveRedundantMovePass ==========
 
@@ -199,7 +202,6 @@ bool DeadCodeEliminationPass::isRegisterRedefined(shared_ptr<RISCVRegister> reg,
 
 PeepOptiState StrengthReductionPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
 {
-    // 只处理乘法指令
     if (instr->getOpcode() != RISCVOpcode::MULW && instr->getOpcode() != RISCVOpcode::MUL)
     {
         return PeepOptiState::KEEP;
@@ -212,88 +214,172 @@ PeepOptiState StrengthReductionPass::optimize(shared_ptr<RISCVInstruction> instr
         return PeepOptiState::KEEP;
     }
 
-    auto prevInstr = *(it - 1);
-    if (prevInstr->getOpcode() != RISCVOpcode::LI)
-    {
-        return PeepOptiState::KEEP;
-    }
-
-    auto liTarget = prevInstr->getOperands()[0];
+    // 获取乘法指令的操作数
     auto mulOp1 = instr->getOperands()[1];
     auto mulOp2 = instr->getOperands()[2];
-    bool liTargetIsOp1 = (*liTarget->getReg() == *mulOp1->getReg());
-    bool liTargetIsOp2 = (*liTarget->getReg() == *mulOp2->getReg());
-    if (!liTargetIsOp1 && !liTargetIsOp2)
-    {
-        return PeepOptiState::KEEP;
-    }
 
-    int64_t constant = prevInstr->getOperands()[1]->getImmediate();
-
-    if (constant == 0)
+    // 向前搜索li指令
+    auto liInfo = findLIInstruction(mulOp1->getReg(), it, instrs);
+    bool isOp1 = true;
+    if (!liInfo.has_value())
     {
-        instrs.erase(it - 1); // 删除原来的立即数加载指令
-
-        auto liInst = RISCVInstruction::createPseudoLI(instr->getOperands()[0]->getReg(), 0);
-        instr->replaceInstruction(liInst);
-        return PeepOptiState::MODIFY;
-    }
-    else if (constant == 1)
-    {
-        instrs.erase(it - 1);
-
-        auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, instr->getOperands()[0]->getReg(), liTargetIsOp1 ? mulOp2->getReg() : mulOp1->getReg());
-        instr->replaceInstruction(mvInst);
-        return PeepOptiState::MODIFY;
-    }
-    else if (constant == -1)
-    {
-        instrs.erase(it - 1);
-        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, instr->getOperands()[0]->getReg(), make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), liTargetIsOp1 ? mulOp2->getReg() : mulOp1->getReg());
-        instr->replaceInstruction(negInst);
-        return PeepOptiState::MODIFY;
-    }
-    else if (isPowerOfTwo(constant))
-    {
-        int shiftAmount = static_cast<int>(log2(constant));
-        instrs.erase(it - 1);
-        auto slliInst = RISCVInstruction::createIType(instr->getOpcode() == RISCVOpcode::MUL ? RISCVOpcode::SLLI : RISCVOpcode::SLLIW,
-                                                      instr->getOperands()[0]->getReg(), liTargetIsOp1 ? mulOp2->getReg() : mulOp1->getReg(), shiftAmount);
-        instr->replaceInstruction(slliInst);
-        return PeepOptiState::MODIFY;
-    }
-    else if (constant < 0 && isPowerOfTwo(-constant))
-    {
-        int shiftAmount = static_cast<int>(log2(-constant));
-
-        size_t currentIndex = std::distance(instrs.begin(), it);
-        size_t prevIndex = currentIndex - 1;
-
-        if (!instr->getOperands()[0] || !instr->getOperands()[0]->getReg())
+        liInfo = findLIInstruction(mulOp2->getReg(), it, instrs);
+        isOp1 = false;
+        if (!liInfo.has_value())
         {
             return PeepOptiState::KEEP;
         }
-
-        auto slliInst = RISCVInstruction::createIType(instr->getOpcode() == RISCVOpcode::MUL ? RISCVOpcode::SLLI : RISCVOpcode::SLLIW,
-                                                      instr->getOperands()[0]->getReg(), liTargetIsOp1 ? mulOp2->getReg() : mulOp1->getReg(), shiftAmount);
-        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, instr->getOperands()[0]->getReg(),
-                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), instr->getOperands()[0]->getReg());
-
-        instrs.erase(instrs.begin() + prevIndex);
-
-        instrs[prevIndex] = slliInst;
-
-        instrs.insert(instrs.begin() + prevIndex + 1, negInst);
-
-        return PeepOptiState::MODIFY;
     }
 
-    return PeepOptiState::KEEP;
+    auto [liIt, constant] = liInfo.value();
+
+    // 执行强度削减优化
+    return performStrengthReduction(instr, bb, it, liIt, constant, isOp1, mulOp1, mulOp2);
 }
 
 bool StrengthReductionPass::isPowerOfTwo(int64_t n)
 {
     return n > 0 && (n & (n - 1)) == 0;
+}
+
+optional<tuple<vector<shared_ptr<RISCVInstruction>>::iterator, int64_t>>
+StrengthReductionPass::findLIInstruction(shared_ptr<RISCVRegister> targetReg,
+                                         vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+                                         vector<shared_ptr<RISCVInstruction>> &instrs)
+{
+    // 向前搜索最多10条指令（可调整这个限制）
+    const int SEARCH_LIMIT = 10;
+    int searchCount = 0;
+
+    auto it = currentIt;
+    while (it != instrs.begin() && searchCount < SEARCH_LIMIT)
+    {
+        --it;
+        searchCount++;
+
+        auto instr = *it;
+
+        // 检查是否是li指令
+        if (instr->getOpcode() == RISCVOpcode::LI && instr->getOperands().size() >= 2)
+        {
+            auto liTarget = instr->getOperands()[0]->getReg();
+            if (liTarget && *liTarget == *targetReg)
+            {
+                int64_t constant = instr->getOperands()[1]->getImmediate();
+                return make_tuple(it, constant);
+            }
+        }
+
+        // 检查这条指令是否重定义了目标寄存器
+        auto defRegs = instr->getDefRegisters();
+        for (auto defReg : defRegs)
+        {
+            if (defReg && *defReg == *targetReg)
+            {
+                return nullopt;
+            }
+        }
+    }
+
+    return nullopt;
+}
+
+PeepOptiState StrengthReductionPass::performStrengthReduction(
+    shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb,
+    vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+    vector<shared_ptr<RISCVInstruction>>::iterator liIt,
+    int64_t constant, bool isOp1,
+    shared_ptr<RISCVOperand> mulOp1, shared_ptr<RISCVOperand> mulOp2)
+{
+    auto &instrs = bb->getInstructions();
+
+    // 获取索引以避免迭代器失效
+    size_t currentIndex = std::distance(instrs.begin(), currentIt);
+    size_t liIndex = std::distance(instrs.begin(), liIt);
+
+    // 确定变量寄存器（非常量的那个操作数）
+    auto variableReg = isOp1 ? mulOp2->getReg() : mulOp1->getReg();
+    auto destReg = instr->getOperands()[0]->getReg();
+
+    if (constant == 0)
+    {
+        // x * 0 = 0
+        instrs.erase(instrs.begin() + liIndex);
+        // 如果li指令在mul指令前面，当前指令索引需要减1
+        if (liIndex < currentIndex)
+        {
+            currentIndex--;
+        }
+
+        auto liInst = RISCVInstruction::createPseudoLI(destReg, 0);
+        instrs[currentIndex] = liInst;
+        return PeepOptiState::MODIFY;
+    }
+    else if (constant == 1)
+    {
+        // x * 1 = x
+        instrs.erase(instrs.begin() + liIndex);
+        if (liIndex < currentIndex)
+        {
+            currentIndex--;
+        }
+
+        auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, variableReg);
+        instrs[currentIndex] = mvInst;
+        return PeepOptiState::MODIFY;
+    }
+    else if (constant == -1)
+    {
+        // x * -1 = -x
+        instrs.erase(instrs.begin() + liIndex);
+        if (liIndex < currentIndex)
+        {
+            currentIndex--;
+        }
+
+        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, destReg,
+                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), variableReg);
+        instrs[currentIndex] = negInst;
+        return PeepOptiState::MODIFY;
+    }
+    else if (isPowerOfTwo(constant))
+    {
+        // x * 2^n = x << n
+        int shiftAmount = static_cast<int>(log2(constant));
+        instrs.erase(instrs.begin() + liIndex);
+        if (liIndex < currentIndex)
+        {
+            currentIndex--;
+        }
+
+        auto slliInst = RISCVInstruction::createIType(
+            instr->getOpcode() == RISCVOpcode::MUL ? RISCVOpcode::SLLI : RISCVOpcode::SLLIW,
+            destReg, variableReg, shiftAmount);
+        instrs[currentIndex] = slliInst;
+        return PeepOptiState::MODIFY;
+    }
+    else if (constant < 0 && isPowerOfTwo(-constant))
+    {
+        // x * (-2^n) = -(x << n)
+        int shiftAmount = static_cast<int>(log2(-constant));
+        instrs.erase(instrs.begin() + liIndex);
+        if (liIndex < currentIndex)
+        {
+            currentIndex--;
+        }
+
+        auto slliInst = RISCVInstruction::createIType(
+            instr->getOpcode() == RISCVOpcode::MUL ? RISCVOpcode::SLLI : RISCVOpcode::SLLIW,
+            destReg, variableReg, shiftAmount);
+        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, destReg,
+                                                     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), destReg);
+
+        instrs[currentIndex] = slliInst;
+        instrs.insert(instrs.begin() + currentIndex + 1, negInst);
+        return PeepOptiState::MODIFY;
+    }
+
+    return PeepOptiState::KEEP;
 }
 
 // PeepOptiState ImmediatePropagationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

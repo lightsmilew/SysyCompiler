@@ -2,10 +2,12 @@
 
 #include "PeepOptimizationManager.h"
 #include <optional>
+#include <tuple>
 #include <cmath>
 using std::dynamic_pointer_cast;
 using std::nullopt;
 using std::optional;
+using std::tuple;
 // 删除多余move指令
 class RemoveRedundantMovePass : public PeepPass
 {
@@ -45,6 +47,7 @@ private:
 };
 
 // 强度减弱
+// 仍存在优化空间 eg:6=4+2
 class StrengthReductionPass : public PeepPass
 {
 public:
@@ -52,7 +55,21 @@ public:
     PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
 
 private:
+    // 检查是否是2的幂次
     bool isPowerOfTwo(int64_t n);
+
+    optional<tuple<vector<shared_ptr<RISCVInstruction>>::iterator, int64_t>>
+    findLIInstruction(shared_ptr<RISCVRegister> targetReg,
+                      vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+                      vector<shared_ptr<RISCVInstruction>> &instrs);
+
+    // 执行强度削减优化
+    PeepOptiState performStrengthReduction(
+        shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb,
+        vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+        vector<shared_ptr<RISCVInstruction>>::iterator liIt,
+        int64_t constant, bool isOp1,
+        shared_ptr<RISCVOperand> mulOp1, shared_ptr<RISCVOperand> mulOp2);
 };
 
 // 立即数传播优化

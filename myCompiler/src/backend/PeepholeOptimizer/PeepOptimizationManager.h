@@ -34,7 +34,8 @@ public:
 class PeepOptimizationManager
 {
 private:
-    vector<shared_ptr<PeepPass>> passes; // 存储所有的优化Pass
+    vector<shared_ptr<PeepPass>> passes;
+
 public:
     PeepOptimizationManager() {}
     ~PeepOptimizationManager() {}
