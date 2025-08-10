@@ -51,6 +51,7 @@ private:
     void visitXnorInst(BinaryOperator *inst);
     void visitSExtInst(CastInst *inst);
     void visitTruncInst(CastInst *inst);
+    void visitSelectInst(SelectInst *inst);
 
     // 获取虚拟寄存器
     shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value, bool isPhysical = true);

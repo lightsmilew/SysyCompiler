@@ -183,6 +183,12 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitXnorInst(binOp);
         }
         break;
+    case Opcode::Select:
+        if (auto selectInst = dynamic_cast<SelectInst *>(inst))
+        {
+            visitSelectInst(selectInst);
+        }
+        break;
     default:
         // 其他指令暂时忽略
         break;
@@ -887,6 +893,40 @@ void InstructionSelector::visitXnorInst(BinaryOperator *inst)
     // 生成NOT指令（使用XORI指令将结果取反）
     auto notInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, -1);
     currentBB->addInstruction(notInst);
+}
+
+void InstructionSelector::visitSelectInst(SelectInst *inst)
+{
+
+    // 选择指令根据条件选择两个值中的一个
+    // sltu  t0, x0, cond    # t0 = (cond != 0) ? 1 : 0
+    // and   t1, a, t0       # t1 = a & t0
+    // xori  t0, t0, 1       # t0 = 1 - t0
+    // and   t2, b, t0       # t2 = b & (1-t0)
+    // or    res, t1, t2     # res = t1 | t2
+    auto condReg = getOrCreateVirtualReg(inst->getCondition());
+    auto trueReg = getOrCreateVirtualReg(inst->getTrueValue());
+    auto falseReg = getOrCreateVirtualReg(inst->getFalseValue());
+    auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    auto maskReg = getTempReg(true);
+    auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, maskReg,
+                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), condReg);
+    currentBB->addInstruction(snezInst);
+
+    auto tvalReg = getTempReg(true);
+    auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, trueReg, maskReg);
+    currentBB->addInstruction(andInst1);
+
+    auto invMaskReg = getTempReg(true);
+    auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
+    currentBB->addInstruction(xoriInst);
+    auto fvalReg = getTempReg(true);
+    auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
+    currentBB->addInstruction(andInst2);
+
+    auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, tvalReg, fvalReg);
+    currentBB->addInstruction(orInst);
 }
 
 void InstructionSelector::DealArgumentsInStart()
