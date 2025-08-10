@@ -179,9 +179,7 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||
             inst->getOpcode() == Opcode::GetElementPtr ||
-            inst->getOpcode() == Opcode::Load || inst->getOpcode() == Opcode::FPToSI || inst->getOpcode() == Opcode::SIToFP ||
-            inst->getOpcode() == Opcode::BitCast || inst->getOpcode() == Opcode::Sext || inst->getOpcode() == Opcode::Trunc ||
-            inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp ||
+            inst->getOpcode() == Opcode::Load || 
             (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
