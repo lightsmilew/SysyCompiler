@@ -206,8 +206,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // 消除简单ifelse
         //pm->addPass(std::make_unique<IfConversionPass>(verbose));
-        // 
-        //
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));

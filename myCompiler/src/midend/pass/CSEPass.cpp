@@ -1,6 +1,6 @@
 #include "CSEPass.h"
 using namespace std;
-using namespace optimization; 
+using namespace optimization;
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
@@ -175,20 +175,13 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
 {
-    // 操作数在后面判断
-    // // 如果有phi作为操作数，不做CSE，因为此时变量依赖合流，不同位置的值可能不一样
-    // for (auto *v : inst->getOperands())
-    // {
-    //     if (dynamic_cast<PhiInst *>(v))
-    //     {
-    //         return false;
-    //     }
-    // }
     // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||
             inst->getOpcode() == Opcode::GetElementPtr ||
-            inst->getOpcode() == Opcode::Load ||
+            inst->getOpcode() == Opcode::Load || inst->getOpcode() == Opcode::FPToSI || inst->getOpcode() == Opcode::SIToFP ||
+            inst->getOpcode() == Opcode::BitCast || inst->getOpcode() == Opcode::Sext || inst->getOpcode() == Opcode::Trunc ||
+            inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp ||
             (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
@@ -203,7 +196,6 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
     Value *addr = recognizeMode == 0 ? loadInst->getOriginalPointer() : loadInst->getPointer();
     if (!addr)
         return false;
-    // std::string addrName =normalizeName(addr->getName());
     int pos1 = bb->getInstructionOrder(map_inst);
     int pos2 = bb->getInstructionOrder(inst);
     if (pos1 == -1 || pos2 == -1 || pos1 >= pos2)
