@@ -38,7 +38,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     {
                         // 如果不是同一个基本块，判断路径上是否有store指令
                         // 否则之间判断同一个基本块中间是否有store指令进行修改
-                        if ((defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), dynamic_cast<LoadInst *>(inst)->getOriginalPointer(), defInst, inst)) || (defBB == bb.get() && !CanLoadCSE(inst, found->second.first, bb.get())))
+                        //if ((defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), dynamic_cast<LoadInst *>(inst)->getOriginalPointer(), defInst, inst)) || (defBB == bb.get() && !CanLoadCSE(inst, found->second.first, bb.get())))
+                        if(defBB != bb.get()||!CanLoadCSE(inst, found->second.first, bb.get()))
                         {
                             // 如果不能消除，则更新exprMap
                             exprMap[key] = {inst, bb.get()};
@@ -53,7 +54,8 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     {
                         if (auto *loadInst = dynamic_cast<LoadInst *>(op))
                         {
-                            if (defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), loadInst->getOriginalPointer(), defInst, inst))
+                            //if (defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), loadInst->getOriginalPointer(), defInst, inst))
+                            if(defBB != bb.get())
                             {
                                 CanNotCSEWithLoadOrPhiOperand = true;
                                 break;
