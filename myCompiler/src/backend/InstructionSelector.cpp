@@ -897,13 +897,6 @@ void InstructionSelector::visitXnorInst(BinaryOperator *inst)
 
 void InstructionSelector::visitSelectInst(SelectInst *inst)
 {
-
-    // 选择指令根据条件选择两个值中的一个
-    // sltu  t0, x0, cond    # t0 = (cond != 0) ? 1 : 0
-    // and   t1, a, t0       # t1 = a & t0
-    // xori  t0, t0, 1       # t0 = 1 - t0
-    // and   t2, b, t0       # t2 = b & (1-t0)
-    // or    res, t1, t2     # res = t1 | t2
     auto condReg = getOrCreateVirtualReg(inst->getCondition());
     auto trueReg = getOrCreateVirtualReg(inst->getTrueValue());
     auto falseReg = getOrCreateVirtualReg(inst->getFalseValue());
@@ -911,10 +904,16 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
 
     bool isFloat = inst->getType()->isFloatTy();
 
+    // 1. 生成条件掩码 (0 或 1)
+    // 2. fullMaskReg = maskReg ? 0xFFFFFFFF : 0x00000000;
     auto maskReg = getTempReg(true);
     auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, maskReg,
                                                   make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), condReg);
     currentBB->addInstruction(snezInst);
+    auto fullMaskReg = getTempReg(true);
+    auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, fullMaskReg,
+                                                 make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), maskReg);
+    currentBB->addInstruction(negInst);
 
     auto tvalReg = getTempReg(true);
     auto invMaskReg = getTempReg(true);
@@ -922,14 +921,15 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
 
     if (isFloat)
     {
+        // 浮点数处理：转换为整数进行位运算
         auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, tvalReg, trueReg);
         currentBB->addInstruction(mvInst);
-        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, tvalReg, maskReg);
+        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, tvalReg, fullMaskReg);
         currentBB->addInstruction(andInst1);
 
         auto mvInst2 = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, fvalReg, falseReg);
         currentBB->addInstruction(mvInst2);
-        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, fullMaskReg, -1);
         currentBB->addInstruction(xoriInst);
         auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, fvalReg, invMaskReg);
         currentBB->addInstruction(andInst2);
@@ -943,11 +943,13 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
     }
     else
     {
-        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, trueReg, maskReg);
+        // 整数处理：直接使用全位掩码
+        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, trueReg, fullMaskReg);
         currentBB->addInstruction(andInst1);
 
-        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, fullMaskReg, -1);
         currentBB->addInstruction(xoriInst);
+
         auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
         currentBB->addInstruction(andInst2);
 
@@ -955,7 +957,6 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
         currentBB->addInstruction(orInst);
     }
 }
-
 void InstructionSelector::DealArgumentsInStart()
 {
     const auto &args = irFunction->getArguments();
