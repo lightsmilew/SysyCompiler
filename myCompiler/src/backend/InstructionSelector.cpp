@@ -931,7 +931,7 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
         currentBB->addInstruction(mvInst2);
         auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
         currentBB->addInstruction(xoriInst);
-        auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
+        auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, fvalReg, invMaskReg);
         currentBB->addInstruction(andInst2);
 
         auto tempReg = getTempReg(true);
