@@ -842,6 +842,17 @@ struct Loop
                            [&](BasicBlock *bb)
                            { return bb->containsByName(inst->getName()); });
     }
+    bool containsInBody(Instruction *inst) const
+    {
+        // 判断指令是否在循环体内(不包括header)
+        return std::any_of(blocks.begin(), blocks.end(),
+                           [&](BasicBlock *bb)
+                           {
+                               if (bb == header)
+                                   return false;
+                               return bb->containsByName(inst->getName());
+                           });
+    }
     Value *getLoopCondition() const
     {
         BasicBlock *headerBlock = header;

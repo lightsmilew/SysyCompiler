@@ -36,9 +36,9 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     //  或者如果操作数有load指令，则不消除
                     if (inst->getOpcode() == Opcode::Load)
                     {
-                        // 如果不是同一个基本块，则跳过
-                        // 否则判断中间是否有store指令进行修改
-                        if (defBB != bb.get() || !CanLoadCSE(inst, found->second.first, bb.get()))
+                        // 如果不是同一个基本块，判断路径上是否有store指令
+                        // 否则之间判断同一个基本块中间是否有store指令进行修改
+                        if ((defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), dynamic_cast<LoadInst *>(inst)->getOriginalPointer(), defInst, inst)) || (defBB == bb.get() && !CanLoadCSE(inst, found->second.first, bb.get())))
                         {
                             // 如果不能消除，则更新exprMap
                             exprMap[key] = {inst, bb.get()};
@@ -53,7 +53,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     {
                         if (auto *loadInst = dynamic_cast<LoadInst *>(op))
                         {
-                            if (defBB != bb.get())
+                            if (defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), loadInst->getOriginalPointer(), defInst, inst))
                             {
                                 CanNotCSEWithLoadOrPhiOperand = true;
                                 break;
@@ -87,9 +87,10 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 }
                             }
                         }
+                        // 如果phi输入全都不在路径上也可以安全消除
                         else if (auto *phiInst = dynamic_cast<PhiInst *>(op))
                         {
-                            if (defBB != bb.get())
+                            if (defBB != bb.get() && ControlFlowAnalysis::hasPhiInputOnPath(defBB, bb.get(), phiInst, defInst, inst))
                             {
                                 CanNotCSEWithLoadOrPhiOperand = true;
                                 break; // 如果是phi指令，且不在同一基本块，则不消除
@@ -111,7 +112,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                         {
                             debugInfo << inst->toString() << " replaced with "
                                       << found->second.first->toString() << " in "
-                                      << bb->getName() << endl;
+                                      << bb->getName() << " in func " << func->getName() << endl;
                         }
                         // 从操作数的user列表中移除自己
                         inst->removeThisFromOperands();
@@ -179,7 +180,10 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||
             inst->getOpcode() == Opcode::GetElementPtr ||
-            inst->getOpcode() == Opcode::Load || 
+            inst->getOpcode() == Opcode::Load ||
+            // inst->getOpcode() == Opcode::FPToSI || inst->getOpcode() == Opcode::SIToFP ||
+            // inst->getOpcode() == Opcode::BitCast || inst->getOpcode() == Opcode::Sext || inst->getOpcode() == Opcode::Trunc ||
+            // inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp ||
             (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
 // 修改load指令CSE处理，跨基本块暂时不做，难度太高
@@ -196,6 +200,7 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
         return false;
     int pos1 = bb->getInstructionOrder(map_inst);
     int pos2 = bb->getInstructionOrder(inst);
+    // error:没找到指令
     if (pos1 == -1 || pos2 == -1 || pos1 >= pos2)
         return false; // map_inst必须在inst之前
     auto &insts = bb->getInstructions();

@@ -125,9 +125,191 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
     std::stack<BasicBlock *> stk;
     // 从 startBB 开始遍历所有后继
     visited.insert(startBB);
-    for(auto *succ : startBB->getSuccessors())
+    for (auto *succ : startBB->getSuccessors())
     {
         stk.push(succ);
+    }
+    // 查找startBB是否还有其他store
+    // 从 startBB 开始遍历所有后继
+    while (!stk.empty())
+    {
+        BasicBlock *cur = stk.top();
+        stk.pop();
+        if (cur == endBB)
+            continue;
+        if (visited.count(cur))
+            continue;
+        visited.insert(cur);
+
+        // 检查当前基本块是否有 store 到 arr
+        for (auto &instPtr : cur->getInstructions())
+        {
+            auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+            if (store)
+            {
+                auto *originalPtr = store->getOriginalPointer();
+                if (isSameAddr(originalPtr, arr))
+                {
+                    return true; // 找到 store 到 arr，返回 true
+                }
+            }
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (call && call->HasModifiedArray(arr))
+            {
+                return true; // 找到调用函数修改了数组，返回 true
+            }
+        }
+        // 遍历所有后继
+        for (auto *succ : cur->getSuccessors())
+        {
+            stk.push(succ);
+        }
+    }
+    return false;
+}
+bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr, Value *inst1, Value *inst2)
+{
+    auto loops = ControlFlowAnalysis::findLoops(startBB->Parent);
+    std::unordered_set<BasicBlock *> visited;
+    std::stack<BasicBlock *> stk;
+    // 从 startBB 开始遍历所有后继
+    visited.insert(startBB);
+    for (auto *succ : startBB->getSuccessors())
+    {
+        stk.push(succ);
+    }
+    // 查找startBB的load之后以及endBB的load之前是否还有其他store
+    for (auto &inst : startBB->getInstructions())
+    {
+        auto *store = dynamic_cast<StoreInst *>(inst.get());
+        if (store)
+        {
+            auto *originalPtr = store->getOriginalPointer();
+            if (isSameAddr(originalPtr, arr))
+            {
+                // 检查inst1是否在store之前
+                int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst1));
+                int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(store));
+                if (pos2 > pos1)
+                {
+                    return true; // 在路径上
+                }
+                if (pos2 < pos1)
+                {
+                    // 如果pos2<pos1且startBB在循环中也返回true
+                    for (auto &loop : loops)
+                    {
+                        if (loop.containsInBody(dynamic_cast<Instruction *>(inst1)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        auto *call = dynamic_cast<CallInst *>(inst.get());
+        if (call && call->HasModifiedArray(arr))
+        {
+            // 检查inst1是否在store之前
+            int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst1));
+            int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(call));
+            if (pos2 > pos1)
+            {
+                return true; // 在路径上
+            }
+            if (pos2 < pos1)
+            {
+                // 如果pos2<pos1且startBB在循环中也返回true
+                for (auto &loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(inst1)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    for (auto &inst : endBB->getInstructions())
+    {
+        auto *store = dynamic_cast<StoreInst *>(inst.get());
+        if (store)
+        {
+            auto *originalPtr = store->getOriginalPointer();
+            if (isSameAddr(originalPtr, arr))
+            {
+                // 检查inst2是否在store之后
+                int pos1 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
+                int pos2 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(store));
+                if (pos2 < pos1)
+                {
+                    return true; // 在路径上
+                }
+                // 如果pos2>pos1且endBB在循环中也返回true
+                if (pos2 > pos1)
+                {
+                    for (auto &loop : loops)
+                    {
+                        if (loop.containsInBody(dynamic_cast<Instruction *>(inst2)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        auto *call = dynamic_cast<CallInst *>(inst.get());
+        if (call && call->HasModifiedArray(arr))
+        {
+            // 检查inst2是否在call之前
+            int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
+            int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(call));
+            if (pos2 < pos1)
+            {
+                return true; // 在路径上
+            }
+            if (pos2 > pos1)
+            {
+                // 如果pos2<pos1且startBB在循环中也返回true
+                for (auto &loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(inst2)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // 如果endBB是循环头，则要检测循环体内是否有对arr的store
+    for (auto &loop : loops)
+    {
+        if (endBB == loop.header)
+        {
+            for (auto *bb : loop.blocks)
+            {
+                if (bb == loop.header)
+                    continue; // 跳过循环头
+                // 检查循环体内是否有对arr的store
+                for (auto &inst3 : bb->getInstructions())
+                {
+                    auto *store = dynamic_cast<StoreInst *>(inst3.get());
+                    if (store)
+                    {
+                        auto *originalPtr = store->getOriginalPointer();
+                        if (isSameAddr(originalPtr, arr))
+                        {
+                            return true; // 找到 store 到 arr，返回 true
+                        }
+                    }
+                    auto *call = dynamic_cast<CallInst *>(inst3.get());
+                    if (call && call->HasModifiedArray(arr))
+                    {
+                        return true; // 找到调用函数修改了数组，返回 true
+                    }
+                }
+            }
+        }
     }
     // 从 startBB 开始遍历所有后继
     while (!stk.empty())
@@ -151,6 +333,73 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                 {
                     return true; // 找到 store 到 arr，返回 true
                 }
+            }
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (call && call->HasModifiedArray(arr))
+            {
+                return true; // 找到调用函数修改了数组，返回 true
+            }
+        }
+        // 遍历所有后继
+        for (auto *succ : cur->getSuccessors())
+        {
+            stk.push(succ);
+        }
+    }
+    return false;
+}
+bool ControlFlowAnalysis::hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *phi, Value *inst1, Value *inst2)
+{
+    std::unordered_set<BasicBlock *> visited;
+    std::stack<BasicBlock *> stk;
+    auto *phiInst = dynamic_cast<PhiInst *>(phi);
+    // 从 startBB 开始遍历所有后继
+    visited.insert(startBB);
+    for (auto *succ : startBB->getSuccessors())
+    {
+        stk.push(succ);
+    }
+    // 查找是否在startBB有输入或者在endBB有输入
+    for (int i = 0; i < phiInst->getNumIncomingValues(); i++)
+    {
+        if (phiInst->getIncomingBlock(i) == startBB)
+        {
+            // 如果有输入则比较定义是否在使用前面,即判断是否在inst1后面，如果在后面则算在路径上
+            int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst1));
+            int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(phiInst->getIncomingValue(i)));
+            if (pos2 > pos1)
+            {
+                return true; // 在路径上
+            }
+        }
+        else if (phiInst->getIncomingBlock(i) == endBB)
+        {
+            // 如果有输入则比较定义是否在使用前面,即判断是否在inst2前面，如果在前面则算在路径上
+            int pos1 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
+            int pos2 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(phiInst->getIncomingValue(i)));
+            if (pos2 < pos1)
+            {
+                return true; // 在路径上
+            }
+        }
+    }
+    // 从 startBB 开始遍历所有后继
+    while (!stk.empty())
+    {
+        BasicBlock *cur = stk.top();
+        stk.pop();
+        if (cur == endBB)
+            continue;
+        if (visited.count(cur))
+            continue;
+        visited.insert(cur);
+
+        // 检查当前基本块是否有 phi 输入
+        for (auto *bb : phiInst->getIncomingBlocks())
+        {
+            if (bb == cur)
+            {
+                return true;
             }
         }
         // 遍历所有后继
