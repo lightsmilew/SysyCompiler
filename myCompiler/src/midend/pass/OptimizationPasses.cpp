@@ -127,6 +127,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
@@ -165,6 +166,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 进行循环展开后再来一次合并基本块
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
