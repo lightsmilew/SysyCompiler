@@ -915,6 +915,8 @@ bool CallInst::HasModifiedArray(Value *value) const
         if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
+            if (origin->getName() == func->getArgumentByIndex(i)->getName())
+                continue; // 跳过自身，避免无限递归
             if (func->isLibraryFunction() && (funcName == "getarray" || funcName == "getfarray"))
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
             // 检查该函数是否修改了对应位置的形参
