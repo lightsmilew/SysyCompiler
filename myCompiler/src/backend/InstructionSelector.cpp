@@ -938,8 +938,8 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
         auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, tempReg, tvalReg, fvalReg);
         currentBB->addInstruction(orInst);
 
-        auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, destReg, tempReg);
-        currentBB->addInstruction(mvInst);
+        auto mvInst3 = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, destReg, tempReg);
+        currentBB->addInstruction(mvInst3);
     }
     else
     {

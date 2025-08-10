@@ -83,6 +83,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
         for (auto it = insts.begin(); it != insts.end();)
         {
             Instruction *inst = it->get();
+            //std::cout<<inst->toString()<<"\n";
             if (liveInsts.count(inst) == 0)
             {
                 inst->removeThisFromOperands(); // 从操作数中移除自己
@@ -113,6 +114,7 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
         for (auto &instPtr : bb->getInstructions())
         {
             Instruction *inst = instPtr.get();
+            //if(!inst)continue;
             // 如果是关键指令
             if (isInstructionCritical(inst))
             {
