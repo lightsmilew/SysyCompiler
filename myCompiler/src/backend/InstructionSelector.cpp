@@ -909,24 +909,51 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
     auto falseReg = getOrCreateVirtualReg(inst->getFalseValue());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
+    bool isFloat = inst->getType()->isFloatTy();
+
     auto maskReg = getTempReg(true);
     auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, maskReg,
                                                   make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), condReg);
     currentBB->addInstruction(snezInst);
 
     auto tvalReg = getTempReg(true);
-    auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, trueReg, maskReg);
-    currentBB->addInstruction(andInst1);
-
     auto invMaskReg = getTempReg(true);
-    auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
-    currentBB->addInstruction(xoriInst);
     auto fvalReg = getTempReg(true);
-    auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
-    currentBB->addInstruction(andInst2);
 
-    auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, tvalReg, fvalReg);
-    currentBB->addInstruction(orInst);
+    if (isFloat)
+    {
+        auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, tvalReg, trueReg);
+        currentBB->addInstruction(mvInst);
+        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, tvalReg, maskReg);
+        currentBB->addInstruction(andInst1);
+
+        auto mvInst2 = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, fvalReg, falseReg);
+        currentBB->addInstruction(mvInst2);
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
+        currentBB->addInstruction(xoriInst);
+        auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
+        currentBB->addInstruction(andInst2);
+
+        auto tempReg = getTempReg(true);
+        auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, tempReg, tvalReg, fvalReg);
+        currentBB->addInstruction(orInst);
+
+        auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_W_X, destReg, tempReg);
+        currentBB->addInstruction(mvInst);
+    }
+    else
+    {
+        auto andInst1 = RISCVInstruction::createRType(RISCVOpcode::AND, tvalReg, trueReg, maskReg);
+        currentBB->addInstruction(andInst1);
+
+        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, invMaskReg, maskReg, 1);
+        currentBB->addInstruction(xoriInst);
+        auto andInst2 = RISCVInstruction::createRType(RISCVOpcode::AND, fvalReg, falseReg, invMaskReg);
+        currentBB->addInstruction(andInst2);
+
+        auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, tvalReg, fvalReg);
+        currentBB->addInstruction(orInst);
+    }
 }
 
 void InstructionSelector::DealArgumentsInStart()

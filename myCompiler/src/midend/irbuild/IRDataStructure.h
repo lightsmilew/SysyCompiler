@@ -74,7 +74,7 @@ public:
 class LongType : public Type
 {
 public:
-    LongType() : Type(LongTyID) {}  
+    LongType() : Type(LongTyID) {}
     static LongType *getInstance()
     {
         static LongType instance;
@@ -630,9 +630,9 @@ public:
     vector<Value *> getPtrArguments() const;   // 获取指针类型参数
     bool hasReturnValue() const { return !getType()->isVoidTy(); }
     bool HasModifiedArray(Value *ptr) const; // 是否有修改副作用(修改全局变量或指针指向的值)
-    bool HasUsedArray(Value *ptr) const;          // 是否有使用数组副作用(使用全局数组或指针指向的数组)
-    bool ifHasSideEffects() const;               // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
-    Value *getDest() const;                      // 如果是void类型 返回空指针
+    bool HasUsedArray(Value *ptr) const;     // 是否有使用数组副作用(使用全局数组或指针指向的数组)
+    bool ifHasSideEffects() const;           // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
+    Value *getDest() const;                  // 如果是void类型 返回空指针
     string toString() const override;
 
 private:
@@ -771,9 +771,10 @@ public:
     SelectInst(Value *condition, Value *trueValue, Value *falseValue, const string &name = "")
         : Instruction(trueValue->getType(), Opcode::Select, {condition, trueValue, falseValue}, name) {}
 
-    Value *getCondition() const { return getOperandByIndex(0); } // 获取条件操作数
-    Value *getTrueValue() const { return getOperandByIndex(1); } // 获取真值操作数
-    Value *getFalseValue() const { return getOperandByIndex(2); }// 获取假值操作数
+    Value *getDest() const { return const_cast<SelectInst *>(this); } // 获取目的操作数(本身)
+    Value *getCondition() const { return getOperandByIndex(0); }      // 获取条件操作数
+    Value *getTrueValue() const { return getOperandByIndex(1); }      // 获取真值操作数
+    Value *getFalseValue() const { return getOperandByIndex(2); }     // 获取假值操作数
     string toString() const override;
 };
 
