@@ -382,250 +382,227 @@ PeepOptiState StrengthReductionPass::performStrengthReduction(
     return PeepOptiState::KEEP;
 }
 
-// PeepOptiState ImmediatePropagationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
-// {
-//     auto opcode = instr->getOpcode();
-//     auto &operands = instr->getOperands();
+// ========== ImmediatePropagationPass ==========
 
-//     // 检查是否是可以优化的指令类型
-//     if (!canUseImmediateForm(opcode) || operands.size() < 3)
-//         return PeepOptiState::KEEP;
+PeepOptiState ImmediatePropagationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    auto opcode = instr->getOpcode();
 
-//     // 检查操作数是否是寄存器
-//     for (int i = 1; i < operands.size(); ++i)
-//     {
-//         if (operands[i]->getType() != RISCVOperand::Type::REGISTER)
-//             continue;
+    if (!canUseImmediateForm(opcode))
+    {
+        return PeepOptiState::KEEP;
+    }
 
-//         auto regOperand = dynamic_pointer_cast<RISCVRegisterOperand>(operands[i]);
-//         if (!regOperand)
-//             continue;
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
 
-//         auto reg = regOperand->getRegister();
-//         if (!reg)
-//             continue;
+    auto operands = instr->getOperands();
+    if (operands.size() < 3)
+    {
+        return PeepOptiState::KEEP;
+    }
 
-//         // 查找这个寄存器的常量值
-//         auto constantValue = findConstantValue(reg, instr, bb);
-//         if (!constantValue.has_value())
-//             continue;
+    auto op1Reg = operands[1]->getReg();
+    if (op1Reg)
+    {
+        auto liInfo = findLIInstruction(op1Reg, it, instrs);
+        if (liInfo.has_value())
+        {
+            auto [liIt, constant] = liInfo.value();
 
-//         // 检查立即数是否在有效范围内
-//         RISCVOpcode immediateOpcode = getImmediateOpcode(opcode);
-//         if (immediateOpcode == RISCVOpcode::INVALID ||
-//             !isValidImmediate(*constantValue, immediateOpcode))
-//             continue;
+            RISCVOpcode immediateOpcode = getImmediateOpcode(opcode);
+            if (immediateOpcode != opcode && isValidImmediate(constant, immediateOpcode))
+            {
+                return performImmediatePropagation(instr, bb, it, liIt, constant, immediateOpcode, 1);
+            }
+        }
+    }
 
-//         // 创建使用立即数的新指令
-//         auto newInstr = createImmediateInstruction(instr, i, *constantValue);
-//         if (!newInstr)
-//             continue;
+    if (operands.size() >= 3 && canPropagateSecondOperand(opcode))
+    {
+        auto op2Reg = operands[2]->getReg();
+        if (op2Reg)
+        {
+            auto liInfo = findLIInstruction(op2Reg, it, instrs);
+            if (liInfo.has_value())
+            {
+                auto [liIt, constant] = liInfo.value();
 
-//         // 替换原指令
-//         auto &instructions = bb->getInstructions();
-//         for (auto it = instructions.begin(); it != instructions.end(); ++it)
-//         {
-//             if (*it == instr)
-//             {
-//                 *it = newInstr;
-//                 return PeepOptiState::MODIFIED;
-//             }
-//         }
-//     }
+                if (opcode == RISCVOpcode::SUB)
+                {
+                    constant = -constant;
+                }
 
-//     return PeepOptiState::NO_CHANGE;
-// }
+                RISCVOpcode immediateOpcode = getImmediateOpcode(opcode);
+                if (immediateOpcode != opcode && isValidImmediate(constant, immediateOpcode))
+                {
+                    return performImmediatePropagation(instr, bb, it, liIt, constant, immediateOpcode, 2);
+                }
+            }
+        }
+    }
 
-// bool ImmediatePropagationPass::canUseImmediateForm(RISCVOpcode opcode)
-// {
-//     switch (opcode)
-//     {
-//     case RISCVOpcode::ADD:
-//     case RISCVOpcode::SUB: // 注意：SUB 可以转为 ADDI (负数)
-//     case RISCVOpcode::AND:
-//     case RISCVOpcode::OR:
-//     case RISCVOpcode::XOR:
-//     case RISCVOpcode::SLL:
-//     case RISCVOpcode::SRL:
-//     case RISCVOpcode::SRA:
-//     case RISCVOpcode::SLT:
-//     case RISCVOpcode::SLTU:
-//         return true;
-//     default:
-//         return false;
-//     }
-// }
+    return PeepOptiState::KEEP;
+}
 
-// optional<int64_t> ImmediatePropagationPass::findConstantValue(
-//     shared_ptr<RISCVRegister> reg,
-//     shared_ptr<RISCVInstruction> currentInstr,
-//     shared_ptr<RISCVBasicBlock> bb)
-// {
-//     auto &instructions = bb->getInstructions();
+bool ImmediatePropagationPass::canUseImmediateForm(RISCVOpcode opcode)
+{
+    switch (opcode)
+    {
+    case RISCVOpcode::ADD:
+    case RISCVOpcode::SUB:
+    case RISCVOpcode::AND:
+    case RISCVOpcode::OR:
+    case RISCVOpcode::XOR:
+    case RISCVOpcode::SLL:
+    case RISCVOpcode::SRL:
+    case RISCVOpcode::SRA:
+    case RISCVOpcode::SLT:
+    case RISCVOpcode::SLTU:
+        return true;
+    default:
+        return false;
+    }
+}
 
-//     // 向前查找定义该寄存器的指令
-//     bool foundCurrent = false;
-//     for (auto it = instructions.rbegin(); it != instructions.rend(); ++it)
-//     {
-//         auto instrPtr = *it;
+bool ImmediatePropagationPass::canPropagateSecondOperand(RISCVOpcode opcode)
+{
+    switch (opcode)
+    {
+    case RISCVOpcode::ADD:
+    case RISCVOpcode::AND:
+    case RISCVOpcode::OR:
+    case RISCVOpcode::XOR:
+    case RISCVOpcode::SUB:
+        return true;
+    default:
+        return false;
+    }
+}
 
-//         if (instrPtr == currentInstr)
-//         {
-//             foundCurrent = true;
-//             continue;
-//         }
+bool ImmediatePropagationPass::isValidImmediate(int64_t value, RISCVOpcode opcode)
+{
+    switch (opcode)
+    {
+    case RISCVOpcode::ADDI:
+    case RISCVOpcode::ANDI:
+    case RISCVOpcode::ORI:
+    case RISCVOpcode::XORI:
+    case RISCVOpcode::SLTI:
+    case RISCVOpcode::SLTIU:
+        return value >= -2048 && value <= 2047;
 
-//         if (!foundCurrent)
-//             continue;
+    case RISCVOpcode::SLLI:
+    case RISCVOpcode::SRLI:
+    case RISCVOpcode::SRAI:
+        return value >= 0 && value <= 63;
 
-//         // 检查这个指令是否定义了我们要找的寄存器
-//         auto defRegs = instrPtr->getDefRegisters();
-//         bool definesTargetReg = false;
+    default:
+        return false;
+    }
+}
 
-//         for (auto defReg : defRegs)
-//         {
-//             if (defReg && reg && *defReg == *reg)
-//             {
-//                 definesTargetReg = true;
-//                 break;
-//             }
-//         }
+RISCVOpcode ImmediatePropagationPass::getImmediateOpcode(RISCVOpcode opcode)
+{
+    switch (opcode)
+    {
+    case RISCVOpcode::ADD:
+    case RISCVOpcode::SUB:
+        return RISCVOpcode::ADDI;
+    case RISCVOpcode::AND:
+        return RISCVOpcode::ANDI;
+    case RISCVOpcode::OR:
+        return RISCVOpcode::ORI;
+    case RISCVOpcode::XOR:
+        return RISCVOpcode::XORI;
+    case RISCVOpcode::SLL:
+        return RISCVOpcode::SLLI;
+    case RISCVOpcode::SRL:
+        return RISCVOpcode::SRLI;
+    case RISCVOpcode::SRA:
+        return RISCVOpcode::SRAI;
+    case RISCVOpcode::SLT:
+        return RISCVOpcode::SLTI;
+    case RISCVOpcode::SLTU:
+        return RISCVOpcode::SLTIU;
+    default:
+        return opcode;
+    }
+}
 
-//         if (!definesTargetReg)
-//             continue;
+PeepOptiState ImmediatePropagationPass::performImmediatePropagation(
+    shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb,
+    vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+    vector<shared_ptr<RISCVInstruction>>::iterator liIt,
+    int64_t constant, RISCVOpcode immediateOpcode, int operandIndex)
+{
+    auto &instrs = bb->getInstructions();
 
-//         // 检查定义指令的类型
-//         auto defOpcode = instrPtr->getOpcode();
-//         auto &defOperands = instrPtr->getOperands();
+    size_t currentIndex = std::distance(instrs.begin(), currentIt);
+    size_t liIndex = std::distance(instrs.begin(), liIt);
 
-//         if (defOpcode == RISCVOpcode::LI && defOperands.size() >= 2)
-//         {
-//             // li reg, imm 指令
-//             if (defOperands[1]->getType() == RISCVOperand::Type::IMMEDIATE)
-//             {
-//                 auto immOperand = dynamic_pointer_cast<RISCVImmediateOperand>(defOperands[1]);
-//                 if (immOperand)
-//                     return immOperand->getValue();
-//             }
-//         }
-//         else if (defOpcode == RISCVOpcode::ADDI && defOperands.size() >= 3)
-//         {
-//             // addi reg, zero, imm 指令 (等价于li)
-//             if (defOperands[1]->getType() == RISCVOperand::Type::REGISTER &&
-//                 defOperands[2]->getType() == RISCVOperand::Type::IMMEDIATE)
-//             {
-//                 auto srcRegOperand = dynamic_pointer_cast<RISCVRegisterOperand>(defOperands[1]);
-//                 auto immOperand = dynamic_pointer_cast<RISCVImmediateOperand>(defOperands[2]);
+    auto operands = instr->getOperands();
+    auto destReg = operands[0]->getReg();
 
-//                 if (srcRegOperand && immOperand)
-//                 {
-//                     auto srcReg = srcRegOperand->getRegister();
-//                     if (srcReg && srcReg->isPhysical() &&
-//                         srcReg->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO)
-//                     {
-//                         return immOperand->getValue();
-//                     }
-//                 }
-//             }
-//         }
+    shared_ptr<RISCVRegister> srcReg;
+    if (operandIndex == 1)
+    {
+        srcReg = operands[2]->getReg();
+    }
+    else
+    {
+        srcReg = operands[1]->getReg();
+    }
 
-//         // 找到定义但不是常量，返回空
-//         return nullopt;
-//     }
+    auto immediateInstr = RISCVInstruction::createIType(immediateOpcode, destReg, srcReg, constant);
 
-//     return nullopt;
-// }
+    instrs.erase(instrs.begin() + liIndex);
+    if (liIndex < currentIndex)
+    {
+        currentIndex--;
+    }
 
-// bool ImmediatePropagationPass::isValidImmediate(int64_t value, RISCVOpcode opcode)
-// {
-//     switch (opcode)
-//     {
-//     case RISCVOpcode::ADDI:
-//     case RISCVOpcode::ANDI:
-//     case RISCVOpcode::ORI:
-//     case RISCVOpcode::XORI:
-//         // 12位有符号立即数: [-2048, 2047]
-//         return value >= -2048 && value <= 2047;
+    instrs[currentIndex] = immediateInstr;
 
-//     case RISCVOpcode::SLLI:
-//     case RISCVOpcode::SRLI:
-//     case RISCVOpcode::SRAI:
-//         // 6位无符号立即数 (64位RISC-V): [0, 63]
-//         return value >= 0 && value <= 63;
+    return PeepOptiState::MODIFY;
+}
 
-//     case RISCVOpcode::SLTI:
-//     case RISCVOpcode::SLTIU:
-//         // 12位立即数: [-2048, 2047]
-//         return value >= -2048 && value <= 2047;
+optional<tuple<vector<shared_ptr<RISCVInstruction>>::iterator, int64_t>>
+ImmediatePropagationPass::findLIInstruction(shared_ptr<RISCVRegister> targetReg,
+                                            vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
+                                            vector<shared_ptr<RISCVInstruction>> &instrs)
+{
+    const int SEARCH_LIMIT = 10;
+    int searchCount = 0;
 
-//     default:
-//         return false;
-//     }
-// }
+    auto it = currentIt;
+    while (it != instrs.begin() && searchCount < SEARCH_LIMIT)
+    {
+        --it;
+        searchCount++;
 
-// shared_ptr<RISCVInstruction> ImmediatePropagationPass::createImmediateInstruction(
-//     shared_ptr<RISCVInstruction> instr,
-//     int operandIndex,
-//     int64_t immediateValue)
-// {
-//     auto opcode = instr->getOpcode();
-//     auto &operands = instr->getOperands();
+        auto instr = *it;
 
-//     // 特殊处理SUB指令：sub dst, src, reg -> addi dst, src, -imm
-//     if (opcode == RISCVOpcode::SUB && operandIndex == 2)
-//     {
-//         immediateValue = -immediateValue;
-//         opcode = RISCVOpcode::ADD; // 将被转换为ADDI
-//     }
+        // 检查是否是li指令
+        if (instr->getOpcode() == RISCVOpcode::LI && instr->getOperands().size() >= 2)
+        {
+            auto liTarget = instr->getOperands()[0]->getReg();
+            if (liTarget && *liTarget == *targetReg)
+            {
+                int64_t constant = instr->getOperands()[1]->getImmediate();
+                return make_tuple(it, constant);
+            }
+        }
 
-//     RISCVOpcode newOpcode = getImmediateOpcode(opcode);
-//     if (newOpcode == RISCVOpcode::INVALID)
-//         return nullptr;
+        auto defRegs = instr->getDefRegisters();
+        for (auto defReg : defRegs)
+        {
+            if (defReg && *defReg == *targetReg)
+            {
+                return nullopt;
+            }
+        }
+    }
 
-//     // 创建新的操作数列表
-//     vector<shared_ptr<RISCVOperand>> newOperands;
-
-//     for (int i = 0; i < operands.size(); ++i)
-//     {
-//         if (i == operandIndex)
-//         {
-//             // 替换为立即数操作数
-//             newOperands.push_back(make_shared<RISCVImmediateOperand>(immediateValue));
-//         }
-//         else
-//         {
-//             newOperands.push_back(operands[i]);
-//         }
-//     }
-
-//     return make_shared<RISCVInstruction>(newOpcode, newOperands);
-// }
-
-// RISCVOpcode ImmediatePropagationPass::getImmediateOpcode(RISCVOpcode opcode)
-// {
-//     switch (opcode)
-//     {
-//     case RISCVOpcode::ADD:
-//         return RISCVOpcode::ADDI;
-//     case RISCVOpcode::SUB:
-//         return RISCVOpcode::ADDI; // sub -> addi with negated immediate
-//     case RISCVOpcode::AND:
-//         return RISCVOpcode::ANDI;
-//     case RISCVOpcode::OR:
-//         return RISCVOpcode::ORI;
-//     case RISCVOpcode::XOR:
-//         return RISCVOpcode::XORI;
-//     case RISCVOpcode::SLL:
-//         return RISCVOpcode::SLLI;
-//     case RISCVOpcode::SRL:
-//         return RISCVOpcode::SRLI;
-//     case RISCVOpcode::SRA:
-//         return RISCVOpcode::SRAI;
-//     case RISCVOpcode::SLT:
-//         return RISCVOpcode::SLTI;
-//     case RISCVOpcode::SLTU:
-//         return RISCVOpcode::SLTIU;
-//     default:
-//         return RISCVOpcode::INVALID;
-//     }
-// }
+    return nullopt;
+}
