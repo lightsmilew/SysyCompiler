@@ -130,7 +130,6 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
     // 增加对phi指令的特殊处理，phi用于处理合流，不能外提
     // copy指令不能外提，因为是由合流产生
     return !inst->mayHaveSideEffects() && inst->getOpcode() != Opcode::Copy && inst->getOpcode() != Opcode::Phi;
-    ;
 }
 // 判断指令是否在循环不变
 bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop &loop)

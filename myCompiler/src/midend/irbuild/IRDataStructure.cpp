@@ -912,9 +912,12 @@ bool CallInst::HasModifiedArray(Value *value) const
                 break;
             }
         }
+        // 数组作为函数参数
         if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
+            if (!func->isLibraryFunction() &&origin->getName() == func->getArgumentByIndex(i)->getName())
+                continue; // 跳过自身，避免无限递归
             if (func->isLibraryFunction() && (funcName == "getarray" || funcName == "getfarray"))
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
             // 检查该函数是否修改了对应位置的形参
@@ -982,6 +985,8 @@ bool CallInst::HasUsedArray(Value *ptr) const
         if (isSameAddr(origin, ptr))
         {
             std::string funcName = func->getName();
+            if(!func->isLibraryFunction() &&origin->getName()==func->getArgumentByIndex(i)->getName())
+                continue; // 跳过自身，避免无限递归
             if (func->isLibraryFunction() && (funcName == "putint" || funcName == "putfloat" || funcName == "putch" || funcName == "putarray" || funcName == "putfarray" || funcName == "putf"))
                 return true;
             // 检查该函数是否“使用”对应形参
