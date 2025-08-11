@@ -353,6 +353,7 @@ bool ControlFlowAnalysis::hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *end
     std::unordered_set<BasicBlock *> visited;
     std::stack<BasicBlock *> stk;
     auto *phiInst = dynamic_cast<PhiInst *>(phi);
+    auto loops = ControlFlowAnalysis::findLoops(startBB->Parent);
     // 从 startBB 开始遍历所有后继
     visited.insert(startBB);
     for (auto *succ : startBB->getSuccessors())
@@ -371,6 +372,17 @@ bool ControlFlowAnalysis::hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *end
             {
                 return true; // 在路径上
             }
+            if (pos2 < pos1)
+            {
+                // 如果pos2<pos1且startBB在循环中也返回true
+                for (auto &loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(inst1)))
+                    {
+                        return true;
+                    }
+                }
+            }
         }
         else if (phiInst->getIncomingBlock(i) == endBB)
         {
@@ -380,6 +392,34 @@ bool ControlFlowAnalysis::hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *end
             if (pos2 < pos1)
             {
                 return true; // 在路径上
+            }
+            // 如果pos2>pos1且在循环中也返回true
+            if (pos2 > pos1)
+            {
+                for (auto loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(phiInst->getIncomingValue(i))))
+                    {
+                        return true; // 在循环中
+                    }
+                }
+            }
+        }
+    }
+    // 如果endBB是循环头，则要检测循环体内是否有对arr的store
+    for (auto &loop : loops)
+    {
+        if (endBB == loop.header)
+        {
+            for (auto *bb : loop.blocks)
+            {
+                if (bb == loop.header)
+                    continue; // 跳过循环头
+                for(auto *phiblock:phiInst->getIncomingBlocks())
+                {
+                    if (bb == phiblock)
+                        return true; // 如果循环体内有phi输入，则返回true
+                }
             }
         }
     }
