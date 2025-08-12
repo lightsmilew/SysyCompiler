@@ -887,6 +887,19 @@ struct Loop
         }
         return false; // 如果没有找到Phi指令，说明不是归纳变量
     }
+    BasicBlock *getPreheader()const
+    {
+        // 寻找前驱基本块
+        for (auto &bb : header->getPredecessors())
+        {
+            // 如果不在blocks中
+            if (std::find(blocks.begin(), blocks.end(), bb) == blocks.end())
+            {
+                return bb;
+            }
+        }
+        throw std::runtime_error("Loop does not have a preheader.");
+    }
 };
 // ===== Function =====
 class Function : public Value
