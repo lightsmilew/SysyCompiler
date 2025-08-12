@@ -247,8 +247,12 @@ void RISCVBuilder::reallocOffsetForInstructions()
             int offset = stackFrame.getValueOffset(argName);
             if (offset != -1)
             {
-                // 更新指令的偏移量
-                instr->setOffsetForLiInstruction(offset);
+                if (instr->getOpcode() == RISCVOpcode::LI)
+                    instr->setOffsetForLiInstruction(offset);
+                else if (instr->getOpcode() == RISCVOpcode::ADDI)
+                {
+                    instr->setOffsetForAddiInstruction(offset);
+                }
             }
             else
             {

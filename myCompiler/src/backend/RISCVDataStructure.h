@@ -385,6 +385,18 @@ namespace RISCV
             }
         }
 
+        void setOffsetForAddiInstruction(int64_t offset)
+        {
+            if (instrType == InstructionType::I_TYPE && opcode == RISCVOpcode::ADDI && operands.size() == 3)
+            {
+                // 假设第三个操作数是立即数
+                if (operands[2]->getType() == RISCVOperand::Type::IMMEDIATE)
+                {
+                    operands[2] = make_shared<RISCVOperand>(offset);
+                }
+            }
+        }
+
         // 活跃性分析：获取指令使用和定义的寄存器
         vector<shared_ptr<RISCVRegister>> getUseRegisters() const;
         vector<shared_ptr<RISCVRegister>> getDefRegisters() const;
