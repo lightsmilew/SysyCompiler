@@ -233,6 +233,7 @@ namespace RISCV
 
     public:
         // 构造函数
+        RISCVRegister() {}
         RISCVRegister(PhysicalReg reg);   // 物理寄存器
         RISCVRegister(RegisterType type); // 虚拟寄存器
         // RISCVRegister(PhysicalReg reg, RegisterType regType); // 物理寄存器指定类型

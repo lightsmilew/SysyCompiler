@@ -195,15 +195,120 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     }
 }
 
+bool InstructionSelector::isValidImmediate(int64_t value, Opcode opcode)
+{
+    switch (opcode)
+    {
+    case Opcode::Add:
+    case Opcode::Sub:
+    case Opcode::And:
+    case Opcode::Or:
+    case Opcode::Xor:
+        return value >= -2048 && value <= 2047;
+
+    case Opcode::Sll:
+    case Opcode::Sra:
+        return value >= 0 && value <= 31; // 32位移位
+
+    case Opcode::Slld:
+    case Opcode::Srad:
+        return value >= 0 && value <= 63; // 64位移位
+
+    default:
+        return false;
+    }
+}
+
 void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 {
-    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+    auto *lhsConst = dynamic_cast<ConstantInt *>(inst->getLHS());
+    auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS());
 
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
-    RISCVOpcode opcode;
+    // 尝试使用立即数形式
+    // 1. 处理可交换的运算 (Add, And, Or, Xor)
+    if ((inst->Op == Opcode::Add || inst->Op == Opcode::And ||
+         inst->Op == Opcode::Or || inst->Op == Opcode::Xor) &&
+        (lhsConst || rhsConst))
+    {
+        // 让常量在右侧
+        auto *constOperand = rhsConst ? rhsConst : lhsConst;
+        auto *varOperand = rhsConst ? inst->getLHS() : inst->getRHS();
 
+        if (isValidImmediate(constOperand->Value, inst->Op))
+        {
+            auto varReg = getOrCreateVirtualReg(varOperand);
+            RISCVOpcode opcode;
+            switch (inst->Op)
+            {
+            case Opcode::Add:
+                opcode = RISCVOpcode::ADDIW;
+                break;
+            case Opcode::And:
+                opcode = RISCVOpcode::ANDI;
+                break;
+            case Opcode::Or:
+                opcode = RISCVOpcode::ORI;
+                break;
+            case Opcode::Xor:
+                opcode = RISCVOpcode::XORI;
+                break;
+            default:
+                break;
+            }
+            auto immInst = RISCVInstruction::createIType(opcode, destReg, varReg, constOperand->Value);
+            currentBB->addInstruction(immInst);
+            return;
+        }
+    }
+
+    // 2. 处理减法 (只能处理 x - C 的形式)
+    if (inst->Op == Opcode::Sub && rhsConst && isValidImmediate(-rhsConst->Value, inst->Op))
+    {
+        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+        auto immInst = RISCVInstruction::createIType(RISCVOpcode::ADDIW, destReg, lhsReg, -rhsConst->Value);
+        currentBB->addInstruction(immInst);
+        return;
+    }
+
+    // 3. 处理移位 (只能是右操作数为常量)
+    if ((inst->Op == Opcode::Sll || inst->Op == Opcode::Sra ||
+         inst->Op == Opcode::Slld || inst->Op == Opcode::Srad) &&
+        rhsConst)
+    {
+        if (isValidImmediate(rhsConst->Value, inst->Op))
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            RISCVOpcode opcode;
+            switch (inst->Op)
+            {
+            case Opcode::Sll:
+                opcode = RISCVOpcode::SLLIW;
+                break;
+            case Opcode::Sra:
+                opcode = RISCVOpcode::SRAI;
+                break; // 没有 SRAIW，使用 SRAI
+            case Opcode::Slld:
+                opcode = RISCVOpcode::SLLI;
+                break;
+            case Opcode::Srad:
+                opcode = RISCVOpcode::SRAI;
+                break;
+            default:
+                break;
+            }
+            auto immInst = RISCVInstruction::createIType(opcode, destReg, lhsReg, rhsConst->Value);
+            currentBB->addInstruction(immInst);
+            return;
+        }
+    }
+
+    // 4. 回退到 R 型指令
+    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+
+    RISCVOpcode opcode;
     switch (inst->Op)
     {
     case Opcode::Add:
@@ -234,10 +339,10 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         opcode = RISCVOpcode::FDIV_S;
         break;
     case Opcode::Sll:
-        opcode = RISCVOpcode::SLLW; // 左移
+        opcode = RISCVOpcode::SLLW;
         break;
     case Opcode::Sra:
-        opcode = RISCVOpcode::SRAW; // 右移
+        opcode = RISCVOpcode::SRAW;
         break;
     case Opcode::And:
         opcode = RISCVOpcode::AND;
@@ -252,16 +357,15 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         opcode = RISCVOpcode::MUL;
         break;
     case Opcode::Slld:
-        opcode = RISCVOpcode::SLL; // 左移
+        opcode = RISCVOpcode::SLL;
         break;
     case Opcode::Srad:
-        opcode = RISCVOpcode::SRA; // 右移
+        opcode = RISCVOpcode::SRA;
         break;
     default:
         return;
     }
 
-    // 生成计算指令
     auto riscvInst = RISCVInstruction::createRType(opcode, destReg, lhsReg, rhsReg);
     currentBB->addInstruction(riscvInst);
 }
@@ -327,7 +431,6 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
     auto baseAddr = getOrCreateVirtualReg(inst->getPointerOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
-    auto totalOffsetReg = LiInt(0, true);
 
     auto indices = inst->getIndices();
     auto stridePtr = inst->getArrayStride();
@@ -380,9 +483,22 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
                     }
                 }
                 offset *= 4; // 每个元素占4字节
-                auto liOffsetInst = RISCVInstruction::createPseudoLI(totalOffsetReg, offset);
-                currentBB->addInstruction(liOffsetInst);
+
+                if (isValidImmediate(offset, Opcode::Add))
+                {
+                    // 如果偏移量是合法的立即数，直接使用ADDI指令
+                    auto liOffsetInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, destReg, baseAddr, offset);
+                    currentBB->addInstruction(liOffsetInst);
+                }
+                else
+                {
+                    auto totalOffsetReg = LiInt(offset, true);
+                    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
+                    currentBB->addInstruction(addInst);
+                }
             }
+
+            return;
         }
         else
         {
@@ -401,14 +517,19 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             }
 
             offset *= 4; // 每个元素占4字节
-            auto liOffsetInst = RISCVInstruction::createPseudoLI(totalOffsetReg, offset);
-            currentBB->addInstruction(liOffsetInst);
+            auto totalOffsetReg = LiInt(offset, true);
             auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, totalOffsetReg, indexReg, totalOffsetReg);
             currentBB->addInstruction(mulInst);
+
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
+            currentBB->addInstruction(addInst);
+
+            return;
         }
     }
     else
     {
+        auto totalOffsetReg = LiInt(0, true);
         auto offsetReg = LiInt(1, true);
         auto tmpReg = getTempReg(true);
         auto strideReg = getTempReg(true);
@@ -442,9 +563,10 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
                 currentBB->addInstruction(mulStrideInst);
             }
         }
+
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
+        currentBB->addInstruction(addInst);
     }
-    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
-    currentBB->addInstruction(addInst);
 }
 
 void InstructionSelector::visitCallInst(CallInst *inst)

@@ -64,6 +64,8 @@ private:
     shared_ptr<RISCVRegister> getTempPhysicalReg();
     shared_ptr<RISCVRegister> getTempPhysicalFloatReg();
 
+    bool isValidImmediate(int64_t value, Opcode opcode);
+
     // alloca需要初始化数组
     void InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size);
 

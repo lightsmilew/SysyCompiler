@@ -710,16 +710,25 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
             loadOp = RISCVOpcode::FLD; // 加载浮点数
           }
 
-          auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
-          beforeInstr.push_back(liInstr);
-          auto addInst = RISCVInstruction::createRType(
-              RISCVOpcode::ADD, addrReg,
-              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
-          beforeInstr.push_back(addInst);
+          if (offset <= 2047 && offset >= -2048)
+          {
+            auto addInst = RISCVInstruction::createIType(
+                RISCVOpcode::ADDI, addrReg,
+                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), offset);
+            beforeInstr.push_back(addInst);
+          }
+          else
+          {
+            auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
+            beforeInstr.push_back(liInstr);
+            auto addInst = RISCVInstruction::createRType(
+                RISCVOpcode::ADD, addrReg,
+                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
+            beforeInstr.push_back(addInst);
+          }
           auto loadInstr = RISCVInstruction::createIType(
               loadOp, tempReg,
               addrReg, 0); // 偏移量为0，因为addrReg已经包含了偏移量,
-
           beforeInstr.push_back(loadInstr);
           // 替换指令中的寄存器引用
           instr->replaceUseRegister(useReg, tempReg);
@@ -753,12 +762,22 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
             storeOp = RISCVOpcode::FSD; // 存储浮点数
           }
 
-          auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
-          beforeInstr.push_back(liInstr);
-          auto addInst = RISCVInstruction::createRType(
-              RISCVOpcode::ADD, addrReg,
-              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
-          beforeInstr.push_back(addInst);
+          if (offset <= 2047 && offset >= -2048)
+          {
+            auto addInst = RISCVInstruction::createIType(
+                RISCVOpcode::ADDI, addrReg,
+                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), offset);
+            beforeInstr.push_back(addInst);
+          }
+          else
+          {
+            auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
+            beforeInstr.push_back(liInstr);
+            auto addInst = RISCVInstruction::createRType(
+                RISCVOpcode::ADD, addrReg,
+                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
+            beforeInstr.push_back(addInst);
+          }
           auto storeInstr = RISCVInstruction::createSType(
               storeOp,
               addrReg, tempReg,
