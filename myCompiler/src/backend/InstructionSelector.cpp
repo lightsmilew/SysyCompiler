@@ -414,13 +414,26 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
     auto &stack = currentFunc->getStackFrame();
     stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize()); // 分配空间
-    auto imm = LiInt(stack.getValueOffset(inst->getName()), true);
-    currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
-    auto addrReg = getOrCreateVirtualReg(inst->getDest());
+    int imm = stack.getValueOffset(inst->getName());
 
     auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-    auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, imm);
-    currentBB->addInstruction(addInst);
+    auto addrReg = getOrCreateVirtualReg(inst->getDest());
+
+    if (isValidImmediate(imm, Opcode::Add))
+    {
+        auto addInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addrReg,
+                                                     spReg, imm);
+        currentBB->addInstruction(addInst);
+        currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
+    }
+    else
+    {
+        auto immReg = LiInt(imm, true);
+        currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
+
+        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);
+        currentBB->addInstruction(addInst);
+    }
 
     if (inst->getIsInitialized())
         // 如果需要初始化数组，则调用初始化函数
