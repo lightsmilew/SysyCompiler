@@ -11,7 +11,7 @@ bool PassManager::runOnModule(Module *module)
 {
     bool changed = false;
     // 初始化循环信息
-    initializeLoops(module);
+    //initializeLoops(module);
     // 先对每个 pass，依次作用于所有函数
     for (auto &pass : passes)
     {
@@ -35,6 +35,7 @@ bool PassManager::runOnModule(Module *module)
                 module->Functions.end());
         }
     }
+    initializeLoops(module);
     return changed;
 }
 void PassManager::setVerbose(bool v)
