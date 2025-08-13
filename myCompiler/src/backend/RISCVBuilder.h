@@ -7,9 +7,11 @@
 #include "InstructionScheduler.h"
 #include "PeepholeOptimizer/PeepOptimizationManager.h"
 #include "PeepholeOptimizer/PeepPass.h"
+#include <unordered_map>
 using std::cout;
 using std::endl;
 using std::set;
+using std::unordered_map;
 namespace RISCV
 {
     // 后端主流水线类
@@ -40,6 +42,16 @@ namespace RISCV
         // 全局变量初始化处理
         void processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer);
         void processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar);
+
+        // 循环信息构造
+        void buildBackendLoopInfo(shared_ptr<RISCVFunction> riscvFunc,
+                                  Function *irFunc,
+                                  const unordered_map<BasicBlock *, shared_ptr<RISCVBasicBlock>> &blockMapping);
+        int calculateLoopDepth(const Loop &targetLoop, const vector<Loop> &allLoops);
+        void establishLoopHierarchy(LoopInfo &backendLoopInfo,
+                                    const vector<Loop> &irLoops,
+                                    const unordered_map<BasicBlock *, shared_ptr<RISCVBasicBlock>> &blockMapping);
+        bool isBlockInLoop(shared_ptr<RISCVBasicBlock> block, shared_ptr<RISCVLoop> loop);
 
         void reallocOffsetForInstructions();
         bool isLibraryFunction(const string &funcName);

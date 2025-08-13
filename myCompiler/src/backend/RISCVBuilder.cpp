@@ -68,6 +68,9 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         auto riscvFunc = make_shared<RISCVFunction>(func->getName(), riscvModule);
         riscvModule->addFunction(riscvFunc);
 
+        // 建立IR基本块到RISC-V基本块的映射表
+        unordered_map<BasicBlock *, shared_ptr<RISCVBasicBlock>> blockMapping;
+
         // 为函数添加prologue基本块
         auto prologueBB = make_shared<RISCVBasicBlock>("prologue_" + func->getName(), riscvFunc);
         riscvFunc->addBasicBlock(prologueBB);
@@ -77,7 +80,11 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
         {
             auto riscvBB = make_shared<RISCVBasicBlock>(bb->getName(), riscvFunc);
             riscvFunc->addBasicBlock(riscvBB);
+            blockMapping[bb.get()] = riscvBB; // 建立映射关系
         }
+
+        // 构造后端循环信息
+        buildBackendLoopInfo(riscvFunc, func.get(), blockMapping);
 
         prologueBB->addSuccessor(riscvFunc->getBasicBlocks()[1]); // 将prologue连接到第一个基本块
     }
@@ -272,4 +279,128 @@ bool RISCVBuilder::isLibraryFunction(const string &funcName)
         "putint", "putch", "putfloat", "putarray", "putfarray", "putf",
         "_sysy_starttime", "_sysy_stoptime"};
     return libFuncs.count(funcName) > 0;
+}
+
+// 构造后端循环信息
+void RISCVBuilder::buildBackendLoopInfo(shared_ptr<RISCVFunction> riscvFunc,
+                                        Function *irFunc,
+                                        const unordered_map<BasicBlock *, shared_ptr<RISCVBasicBlock>> &blockMapping)
+{
+    LoopInfo backendLoopInfo;
+
+    // 遍历IR函数中的所有循环
+    for (const auto &irLoop : irFunc->getLoops())
+    {
+        auto riscvLoop = make_shared<RISCVLoop>();
+
+        // 映射循环头部
+        if (blockMapping.find(irLoop.header) != blockMapping.end())
+        {
+            riscvLoop->setHeader(blockMapping.at(irLoop.header));
+        }
+
+        // 映射循环体
+        for (auto irBlock : irLoop.blocks)
+        {
+            if (blockMapping.find(irBlock) != blockMapping.end())
+            {
+                riscvLoop->addBodyBlock(blockMapping.at(irBlock));
+            }
+        }
+
+        // 映射出口块
+        for (auto irExit : irLoop.exits)
+        {
+            if (blockMapping.find(irExit) != blockMapping.end())
+            {
+                riscvLoop->addExitBlock(blockMapping.at(irExit));
+            }
+        }
+
+        // 计算循环深度
+        int depth = calculateLoopDepth(irLoop, irFunc->getLoops());
+        riscvLoop->setDepth(depth);
+
+        backendLoopInfo.addLoop(riscvLoop);
+    }
+
+    // 建立循环的父子关系
+    establishLoopHierarchy(backendLoopInfo, irFunc->getLoops(), blockMapping);
+
+    // 将循环信息设置到RISC-V函数中
+    riscvFunc->setLoopInfo(backendLoopInfo);
+}
+
+// 计算循环深度
+int RISCVBuilder::calculateLoopDepth(const Loop &targetLoop, const vector<Loop> &allLoops)
+{
+    int depth = 1;
+
+    // 检查是否被其他循环包含
+    for (const auto &otherLoop : allLoops)
+    {
+        if (&otherLoop == &targetLoop)
+            continue;
+
+        // 如果targetLoop的头部在otherLoop的循环体中，说明targetLoop被包含
+        if (std::find(otherLoop.blocks.begin(), otherLoop.blocks.end(), targetLoop.header) != otherLoop.blocks.end())
+        {
+            depth++;
+        }
+    }
+
+    return depth;
+}
+
+// 建立循环的父子关系
+void RISCVBuilder::establishLoopHierarchy(LoopInfo &backendLoopInfo,
+                                          const vector<Loop> &irLoops,
+                                          const unordered_map<BasicBlock *, shared_ptr<RISCVBasicBlock>> &blockMapping)
+{
+    auto &riscvLoops = backendLoopInfo.getLoops();
+
+    // 为每个循环找到其父循环
+    for (size_t i = 0; i < riscvLoops.size(); i++)
+    {
+        for (size_t j = 0; j < riscvLoops.size(); j++)
+        {
+            if (i == j)
+                continue;
+
+            auto &potentialChild = riscvLoops[i];
+            auto &potentialParent = riscvLoops[j];
+
+            // 检查潜在子循环的头部是否在潜在父循环的循环体中
+            if (isBlockInLoop(potentialChild->getHeader(), potentialParent))
+            {
+                // 确保这是直接的父子关系（不是祖父母关系）
+                bool isDirectParent = true;
+                for (size_t k = 0; k < riscvLoops.size(); k++)
+                {
+                    if (k == i || k == j)
+                        continue;
+
+                    auto &intermediate = riscvLoops[k];
+                    if (isBlockInLoop(potentialChild->getHeader(), intermediate) &&
+                        isBlockInLoop(intermediate->getHeader(), potentialParent))
+                    {
+                        isDirectParent = false;
+                        break;
+                    }
+                }
+
+                if (isDirectParent)
+                {
+                    potentialChild->setParentLoop(potentialParent);
+                    potentialParent->addChildLoop(potentialChild);
+                }
+            }
+        }
+    }
+}
+
+// 检查基本块是否在循环中
+bool RISCVBuilder::isBlockInLoop(shared_ptr<RISCVBasicBlock> block, shared_ptr<RISCVLoop> loop)
+{
+    return loop->containsBlock(block);
 }

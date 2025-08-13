@@ -760,6 +760,68 @@ namespace RISCV
         }
     };
 
+    class RISCVLoop
+    {
+    private:
+        int depth;
+        shared_ptr<RISCVBasicBlock> header;       // 循环头部基本块
+        vector<shared_ptr<RISCVBasicBlock>> body; // 循环体基本块
+        vector<shared_ptr<RISCVBasicBlock>> exit; // 循环出口基本块
+        shared_ptr<RISCVLoop> parentLoop;         // 所在的父循环
+        vector<shared_ptr<RISCVLoop>> childLoops; // 子循环列表
+
+    public:
+        RISCVLoop() {}
+        void setHeader(shared_ptr<RISCVBasicBlock> h) { header = h; }
+        void addBodyBlock(shared_ptr<RISCVBasicBlock> block) { body.push_back(block); }
+        void addExitBlock(shared_ptr<RISCVBasicBlock> block) { exit.push_back(block); }
+        void setParentLoop(shared_ptr<RISCVLoop> parent) { parentLoop = parent; }
+        void addChildLoop(shared_ptr<RISCVLoop> child) { childLoops.push_back(child); }
+        void setDepth(int d) { depth = d; }
+        int getDepth() const { return depth; }
+        shared_ptr<RISCVBasicBlock> getHeader() const { return header; }
+        shared_ptr<RISCVLoop> getParentLoop() const { return parentLoop; }
+        const vector<shared_ptr<RISCVBasicBlock>> &getBody() const { return body; }
+        const vector<shared_ptr<RISCVLoop>> &getChildLoops() const { return childLoops; }
+        const vector<shared_ptr<RISCVBasicBlock>> &getExitBlocks() const { return exit; }
+        bool containsBlock(shared_ptr<RISCVBasicBlock> block) const
+        {
+            if (header == block)
+                return true;
+            for (const auto &b : body)
+            {
+                if (b == block)
+                    return true;
+            }
+            for (const auto &e : exit)
+            {
+                if (e == block)
+                    return true;
+            }
+            return false;
+        }
+    };
+
+    class LoopInfo
+    {
+    private:
+        vector<shared_ptr<RISCVLoop>> loops; // 存储所有循环
+    public:
+        void addLoop(shared_ptr<RISCVLoop> loop) { loops.push_back(loop); }
+        const vector<shared_ptr<RISCVLoop>> &getLoops() const { return loops; }
+        int getDepth(shared_ptr<RISCVBasicBlock> block) const
+        {
+            for (const auto &loop : loops)
+            {
+                if (loop->containsBlock(block))
+                {
+                    return loop->getDepth();
+                }
+            }
+            return 0;
+        }
+    };
+
     // RISC-V函数
     class RISCVFunction
     {
@@ -769,6 +831,7 @@ namespace RISCV
         vector<shared_ptr<RISCVBasicBlock>> basicBlocks;
         StackFrame stackFrame;
         LivenessInfo livenessInfo;                                                             // 活跃性分析结果
+        LoopInfo loopInfo;                                                                     // 循环信息
         vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs;                                 // 被调用函数使用的保存寄存器
         unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsAfterCall; // 用于函数调用后移动指令的映射
         unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset;        // 用于溢出处理的指令
@@ -823,6 +886,9 @@ namespace RISCV
         {
             usedCalleeSavedRegs.clear();
         }
+
+        void setLoopInfo(LoopInfo &info) { loopInfo = info; }
+        const LoopInfo &getLoopInfo() const { return loopInfo; }
 
         string toString() const;
     };

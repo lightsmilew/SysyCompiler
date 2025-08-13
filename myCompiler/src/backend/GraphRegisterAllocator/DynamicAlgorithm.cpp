@@ -472,11 +472,11 @@ double GraphColorRegisterAllocator::calculateSpillCost(shared_ptr<RISCVRegister>
     int defCount = 0;
     double loopDepthSum = 0.0;
     int loopDepthCount = 0;
+    auto loopInfo = currentFunc->getLoopInfo();
 
-    // 遍历所有基本块和指令，统计寄存器的使用和定义次数及循环深度
     for (auto &bb : currentFunc->getBasicBlocks())
     {
-        double bbLoopDepth = 1.0; // 实际应从循环分析获取
+        double bbLoopDepth = loopInfo.getDepth(bb);
         for (auto &instr : bb->getInstructions())
         {
             for (auto useReg : instr->getUseRegisters())
