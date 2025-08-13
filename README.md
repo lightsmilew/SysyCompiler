@@ -14,6 +14,8 @@
 java -jar /path/to/antlr-4.13.2-complete.jar -Dlanguage=Cpp -no-listener -visitor -o frontend/generate SysY.g4
 ```
 
+antlr4 下载使用教程请查看[清华大学编译原理课设教程](https://decaf-lang.github.io/minidecaf-tutorial/docs/contest/frontend.html)
+
 ### 编译
 
 ```bash
