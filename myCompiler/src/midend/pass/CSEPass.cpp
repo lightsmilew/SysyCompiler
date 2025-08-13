@@ -31,15 +31,15 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     // 只有原表达式所在基本块支配当前基本块时才可消除
                     BasicBlock *defBB = found->second.second;
                     Instruction *defInst = found->second.first;
-                    //  load特判
+                    //  修改1
                     //  如果查到的load在本load之前的块则跳过(load仅支持同基本块消除)
                     //  或者如果操作数有load指令，则不消除
                     if (inst->getOpcode() == Opcode::Load)
                     {
                         // 如果不是同一个基本块，判断路径上是否有store指令
                         // 否则之间判断同一个基本块中间是否有store指令进行修改
-                        //if ((defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), dynamic_cast<LoadInst *>(inst)->getOriginalPointer(), defInst, inst)) || (defBB == bb.get() && !CanLoadCSE(inst, found->second.first, bb.get())))
-                        if(defBB != bb.get()||!CanLoadCSE(inst, found->second.first, bb.get()))
+                        if ((defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), dynamic_cast<LoadInst *>(inst)->getOriginalPointer(), defInst, inst)) || (defBB == bb.get() && !CanLoadCSE(inst, found->second.first, bb.get())))
+                        //if(defBB != bb.get()||!CanLoadCSE(inst, found->second.first, bb.get()))
                         {
                             // 如果不能消除，则更新exprMap
                             exprMap[key] = {inst, bb.get()};
@@ -47,6 +47,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                             continue;
                         }
                     }
+                    // 修改2
                     // 判断表达式操作数是否有load，如果有load，且defBB!=bb，则不消除
                     // 此时表示该load指令的地址有可能被跨块修改，保守起见不进行消除
                     bool CanNotCSEWithLoadOrPhiOperand = false;
@@ -54,13 +55,13 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                     {
                         if (auto *loadInst = dynamic_cast<LoadInst *>(op))
                         {
-                            //if (defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), loadInst->getOriginalPointer(), defInst, inst))
-                            if(defBB != bb.get())
+                            if (defBB != bb.get() && ControlFlowAnalysis::hasStoreOnPath(defBB, bb.get(), loadInst->getOriginalPointer(), defInst, inst))
+                            //if(defBB != bb.get())
                             {
                                 CanNotCSEWithLoadOrPhiOperand = true;
                                 break;
                             }
-                            else
+                            else if(defBB == bb.get())
                             {
 
                                 // 判断是否有store对该地址进行修改
