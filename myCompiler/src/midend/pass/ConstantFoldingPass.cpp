@@ -527,44 +527,62 @@ bool AddChainReductionPass::runOnFunction(Function *func)
             Value *lhs = inst->getOperands()[0];
             Value *rhs = inst->getOperands()[1];
 
-            // 1. 常量值相同链式加法归约
-            int constChainLen = 1;
-            Value *constBase = lhs;
+            // 1. 链式常量加法归约（常量可在左或右，值可不同）
+            int totalConst = 0;
+            Value *base = nullptr;
+            std::vector<Instruction *> chainInsts = {inst};
+
+            // 当前加法指令的常量加数
+            auto *ciLhs = dynamic_cast<ConstantInt *>(lhs);
             auto *ciRhs = dynamic_cast<ConstantInt *>(rhs);
-            std::vector<Instruction *> constChainInsts = {inst};
-            while (ciRhs)
+            if (ciLhs)
+                totalConst += ciLhs->Value;
+            if (ciRhs)
+                totalConst += ciRhs->Value;
+
+            // 从链头往前遍历
+            Value *next = (ciLhs ? rhs : lhs); // 非常量的那个
+            while (auto *prevAdd = dynamic_cast<BinaryOperator *>(next))
             {
-                auto *prevAdd = dynamic_cast<BinaryOperator *>(constBase);
-                if (!prevAdd || prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
+                if (prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
                     break;
                 Value *prevLhs = prevAdd->getOperands()[0];
                 Value *prevRhs = prevAdd->getOperands()[1];
+                auto *ciPrevLhs = dynamic_cast<ConstantInt *>(prevLhs);
                 auto *ciPrevRhs = dynamic_cast<ConstantInt *>(prevRhs);
-                if (ciPrevRhs && ciPrevRhs->Value == ciRhs->Value)
+
+                if (ciPrevLhs)
                 {
-                    constChainLen++;
-                    constChainInsts.push_back(prevAdd);
-                    constBase = prevLhs;
+                    totalConst += ciPrevLhs->Value;
+                    next = prevRhs;
+                    chainInsts.push_back(prevAdd);
+                }
+                else if (ciPrevRhs)
+                {
+                    totalConst += ciPrevRhs->Value;
+                    next = prevLhs;
+                    chainInsts.push_back(prevAdd);
                 }
                 else
                 {
+                    base = (ciPrevLhs || ciPrevRhs) ? nullptr : prevLhs; // 记录链的起点
                     break;
                 }
             }
-            if (constChainLen > 1 && ciRhs)
+            // 如果链长度大于1且有常量加数
+            if (chainInsts.size() > 1 && totalConst != 0)
             {
-                // 归约为 x + c * n
-                auto *mulInst = new BinaryOperator(Opcode::Mul, rhs, new ConstantInt(IntegerType::getInstance(), constChainLen), inst->getName() + "_mul");
-                auto *addInst = new BinaryOperator(Opcode::Add, constBase, mulInst, inst->getName() + "_chainadd");
-                insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
-                insts.insert(insts.begin() + i + 2, std::unique_ptr<Instruction>(addInst));
-                inst->replaceAllUsesWith(addInst);
+                Value *addBase = base ? base : next; // 最后一个非常量
+                auto *newConst = new ConstantInt(IntegerType::getInstance(), totalConst);
+                auto *newAdd = new BinaryOperator(Opcode::Add, addBase, newConst, inst->getName() + "_chainadd");
+                insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(newAdd));
+                inst->replaceAllUsesWith(newAdd);
                 inst->removeThisFromOperands();
                 needToDelete.push_back(insts[i].release());
                 insts.erase(insts.begin() + i);
                 changed = true;
                 // 删除链上的所有 add
-                for (auto *chainInst : constChainInsts)
+                for (auto *chainInst : chainInsts)
                 {
                     if (chainInst != inst)
                     {
@@ -582,7 +600,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                 continue;
             }
 
-            // 2. 指针相等链式加法归约
+            // 2. 指针相等链式加法归约（如 x + x + x）
             int ptrChainLen = 1;
             Value *ptrBase = lhs;
             std::vector<Instruction *> ptrChainInsts = {inst};
