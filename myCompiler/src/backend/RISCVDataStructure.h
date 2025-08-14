@@ -564,6 +564,7 @@ namespace RISCV
         void addData(const string &dataStr);
         void addData(const vector<string> &dataList);
         void addStringData(const string &strData); // 添加字符串数据
+        void addZeroData(int numElements);         // 添加大量零数据的优化方法
 
         const string &getLabel() const { return label; }
         const vector<string> &getData() const { return data; }

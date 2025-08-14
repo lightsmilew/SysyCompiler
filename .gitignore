@@ -10,3 +10,4 @@ ubuntu-24.04.2-preinstalled-server-riscv64.img.xz
 run.sh
 test.sh
 libsysy_riscv.a
+compiler2023/*

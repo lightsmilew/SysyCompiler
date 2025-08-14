@@ -170,9 +170,17 @@ void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlo
     {
         int numElements = globalVar->getTotallength();
 
-        // 创建零初始化的数组
-        vector<string> zeroArray(numElements, "0");
-        globalBlock->addData(zeroArray);
+        // 对于大数组使用优化的零初始化方法，避免创建巨大的vector
+        if (numElements > 1000) // 当数组元素超过1000个时使用优化方法
+        {
+            globalBlock->addZeroData(numElements);
+        }
+        else
+        {
+            // 小数组仍使用原来的方法
+            vector<string> zeroArray(numElements, "0");
+            globalBlock->addData(zeroArray);
+        }
     }
     else
     {
