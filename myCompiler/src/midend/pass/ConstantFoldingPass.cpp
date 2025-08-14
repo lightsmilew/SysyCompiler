@@ -518,81 +518,115 @@ bool AddChainReductionPass::runOnFunction(Function *func)
     for (auto &bb : func->getBasicBlocks())
     {
         auto &insts = bb->getInstructions();
-        // 用下标逆序遍历，避免迭代器失效
         for (int i = insts.size() - 1; i >= 0; --i)
         {
             Instruction *inst = insts[i].get();
-            if (inst && inst->getOpcode() == Opcode::Add)
+            if (!inst || inst->getOpcode() != Opcode::Add)
+                continue;
+
+            Value *lhs = inst->getOperands()[0];
+            Value *rhs = inst->getOperands()[1];
+
+            // 1. 常量值相同链式加法归约
+            int constChainLen = 1;
+            Value *constBase = lhs;
+            auto *ciRhs = dynamic_cast<ConstantInt *>(rhs);
+            std::vector<Instruction *> constChainInsts = {inst};
+            while (ciRhs)
             {
-                Value *lhs = inst->getOperands()[0];
-                Value *rhs = inst->getOperands()[1];
-                int chainLen = 1;
-                Value *base = nullptr;
-                Instruction *cur = inst;
-                std::vector<Instruction *> chainInsts = {cur};
-                bool canReduce = true;
-                while (auto *prevAdd = dynamic_cast<BinaryOperator *>(lhs))
+                auto *prevAdd = dynamic_cast<BinaryOperator *>(constBase);
+                if (!prevAdd || prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
+                    break;
+                Value *prevLhs = prevAdd->getOperands()[0];
+                Value *prevRhs = prevAdd->getOperands()[1];
+                auto *ciPrevRhs = dynamic_cast<ConstantInt *>(prevRhs);
+                if (ciPrevRhs && ciPrevRhs->Value == ciRhs->Value)
                 {
-                    if (prevAdd->getOpcode() != Opcode::Add)
-                        break;
-                    if (prevAdd->getUsers().size() > 1)
-                    {
-                        canReduce = false;
-                        break;
-                    }
-                    Value *prevLhs = prevAdd->getOperands()[0];
-                    Value *prevRhs = prevAdd->getOperands()[1];
-                    if (prevLhs == rhs && prevRhs == rhs)
-                    {
-                        chainLen++;
-                        chainInsts.push_back(prevAdd);
-                        lhs = prevLhs;
-                    }
-                    else if (prevRhs == rhs)
-                    {
-                        chainLen++;
-                        chainInsts.push_back(prevAdd);
-                        lhs = prevLhs;
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    constChainLen++;
+                    constChainInsts.push_back(prevAdd);
+                    constBase = prevLhs;
                 }
-                // 检查所有链上的 add 指令都只有一个 user
-                for (auto *chainInst : chainInsts)
+                else
                 {
-                    if (chainInst->getUsers().size() > 1)
-                    {
-                        canReduce = false;
-                        break;
-                    }
+                    break;
                 }
-                if (chainLen > 1 && rhs)
+            }
+            if (constChainLen > 1 && ciRhs)
+            {
+                // 归约为 x + c * n
+                auto *mulInst = new BinaryOperator(Opcode::Mul, rhs, new ConstantInt(IntegerType::getInstance(), constChainLen), inst->getName() + "_mul");
+                auto *addInst = new BinaryOperator(Opcode::Add, constBase, mulInst, inst->getName() + "_chainadd");
+                insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                insts.insert(insts.begin() + i + 2, std::unique_ptr<Instruction>(addInst));
+                inst->replaceAllUsesWith(addInst);
+                inst->removeThisFromOperands();
+                needToDelete.push_back(insts[i].release());
+                insts.erase(insts.begin() + i);
+                changed = true;
+                // 删除链上的所有 add
+                for (auto *chainInst : constChainInsts)
                 {
-                    base = rhs;
-                    auto *mulInst = new BinaryOperator(Opcode::Mul, base, new ConstantInt(IntegerType::getInstance(), chainLen + 1), inst->getName() + "_mul");
-                    // 在链式加法最后一条指令的后面插入
-                    insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
-                    inst->removeThisFromOperands();
-                    inst->replaceAllUsesWith(mulInst);
-                    needToDelete.push_back(insts[i].release());
-                    insts.erase(insts.begin() + i);
-                    changed = true;
-                    // 删除链上的所有 add
-                    for (auto *chainInst : chainInsts)
+                    if (chainInst != inst)
                     {
-                        if (chainInst != inst)
+                        auto chainIt = std::find_if(insts.begin(), insts.end(),
+                                                    [chainInst](const std::unique_ptr<Instruction> &ptr)
+                                                    { return ptr.get() == chainInst; });
+                        if (chainIt != insts.end())
                         {
-                            auto chainIt = std::find_if(insts.begin(), insts.end(),
-                                                        [chainInst](const std::unique_ptr<Instruction> &ptr)
-                                                        { return ptr.get() == chainInst; });
-                            if (chainIt != insts.end())
-                            {
-                                chainInst->removeThisFromOperands();
-                                needToDelete.push_back(chainIt->release());
-                                insts.erase(chainIt);
-                            }
+                            chainInst->removeThisFromOperands();
+                            needToDelete.push_back(chainIt->release());
+                            insts.erase(chainIt);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // 2. 指针相等链式加法归约
+            int ptrChainLen = 1;
+            Value *ptrBase = lhs;
+            std::vector<Instruction *> ptrChainInsts = {inst};
+            while (true)
+            {
+                auto *prevAdd = dynamic_cast<BinaryOperator *>(ptrBase);
+                if (!prevAdd || prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
+                    break;
+                Value *prevLhs = prevAdd->getOperands()[0];
+                Value *prevRhs = prevAdd->getOperands()[1];
+                if (prevRhs == rhs)
+                {
+                    ptrChainLen++;
+                    ptrChainInsts.push_back(prevAdd);
+                    ptrBase = prevLhs;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if (ptrChainLen > 1)
+            {
+                // 归约为 x * n
+                auto *mulInst = new BinaryOperator(Opcode::Mul, rhs, new ConstantInt(IntegerType::getInstance(), ptrChainLen), inst->getName() + "_mul");
+                insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
+                inst->replaceAllUsesWith(mulInst);
+                inst->removeThisFromOperands();
+                needToDelete.push_back(insts[i].release());
+                insts.erase(insts.begin() + i);
+                changed = true;
+                // 删除链上的所有 add
+                for (auto *chainInst : ptrChainInsts)
+                {
+                    if (chainInst != inst)
+                    {
+                        auto chainIt = std::find_if(insts.begin(), insts.end(),
+                                                    [chainInst](const std::unique_ptr<Instruction> &ptr)
+                                                    { return ptr.get() == chainInst; });
+                        if (chainIt != insts.end())
+                        {
+                            chainInst->removeThisFromOperands();
+                            needToDelete.push_back(chainIt->release());
+                            insts.erase(chainIt);
                         }
                     }
                 }

@@ -128,6 +128,7 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                 }
                 exprMap[key] = {inst, bb.get()};
                 ++it;
+                
             }
         }
     } while (localChanged);
