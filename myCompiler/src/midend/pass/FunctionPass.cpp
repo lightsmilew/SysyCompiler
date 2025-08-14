@@ -96,7 +96,10 @@ bool FunctionInliningPass::shouldInline(Function *callee)
         if (onlyArithmetic)
             return true;
     }
-    auto size_loops = callee->getLoops().size();
+    auto loops = callee->getLoops();
+    auto size_loops = loops.size();
+    if (size_loops == 1 && loops[0].blocks.size() <= 2)
+        return true;                               // 如果只有一个循环且循环体只有一个基本块，允许内联
     size_loops = size_loops == 0 ? 1 : size_loops; // 避免除0
     auto basicBlockCount = callee->getBasicBlocks().size();
     // 不内联递归/库函数/过大函数/控制流复杂

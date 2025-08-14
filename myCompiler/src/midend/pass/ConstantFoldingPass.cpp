@@ -514,7 +514,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
 }
 bool AddChainReductionPass::runOnFunction(Function *func)
 {
-   // std::cout << func->toString() << std::endl;
+    // std::cout << func->toString() << std::endl;
     bool changed = false;
     for (auto &bb : func->getBasicBlocks())
     {
@@ -531,85 +531,87 @@ bool AddChainReductionPass::runOnFunction(Function *func)
             // 1. 链式常量加法归约（仅处理有且仅有一个常量加数的情况）
             auto *ciLhs = dynamic_cast<ConstantInt *>(lhs);
             auto *ciRhs = dynamic_cast<ConstantInt *>(rhs);
+            bool isAllConstant = true;
             if ((ciLhs && ciRhs) || (!ciRhs && !ciLhs))
-                continue; // 跳过两个都是常量或都不是常量的加法
-
-            int totalConst = 0;
-            std::vector<Instruction *> chainInsts = {inst};
-
-            // 当前加法指令的常量加数
-            if (ciLhs)
-                totalConst += ciLhs->Value;
-            else
-                totalConst += ciRhs->Value;
-
-            // 从链头往前遍历
-            Value *next = (ciLhs ? rhs : lhs); // 非常量的那个
-            while (auto *prevAdd = dynamic_cast<BinaryOperator *>(next))
+                isAllConstant = false; // 跳过两个都是常量或都不是常量的加法
+            if (isAllConstant)
             {
-                if (prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
-                    break;
-                Value *prevLhs = prevAdd->getOperands()[0];
-                Value *prevRhs = prevAdd->getOperands()[1];
-                auto *ciPrevLhs = dynamic_cast<ConstantInt *>(prevLhs);
-                auto *ciPrevRhs = dynamic_cast<ConstantInt *>(prevRhs);
+                int totalConst = 0;
+                std::vector<Instruction *> chainInsts = {inst};
 
-                if (ciPrevLhs && !ciPrevRhs)
-                {
-                    totalConst += ciPrevLhs->Value;
-                    next = prevRhs;
-                    chainInsts.push_back(prevAdd);
-                }
-                else if (ciPrevRhs && !ciPrevLhs)
-                {
-                    totalConst += ciPrevRhs->Value;
-                    next = prevLhs;
-                    chainInsts.push_back(prevAdd);
-                }
+                // 当前加法指令的常量加数
+                if (ciLhs)
+                    totalConst += ciLhs->Value;
                 else
+                    totalConst += ciRhs->Value;
+
+                // 从链头往前遍历
+                Value *next = (ciLhs ? rhs : lhs); // 非常量的那个
+                while (auto *prevAdd = dynamic_cast<BinaryOperator *>(next))
                 {
-                    break;
-                }
-            }
-            // 如果链长度大于1且有常量加数
-            if (chainInsts.size() > 1 && totalConst != 0)
-            {
-                if (verbose)
-                {
-                    debugInfo << "Found constant addition chain: ";
-                    for (auto *chainInst : chainInsts)
-                        debugInfo << chainInst->getName() << " ";
-                    debugInfo << std::endl;
-                }
-                Value *addBase = next; // 最后一个非常量
-                auto *newConst = new ConstantInt(IntegerType::getInstance(), totalConst);
-                auto *newAdd = new BinaryOperator(Opcode::Add, addBase, newConst, inst->getName() + "_chainadd");
-                insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(newAdd));
-                inst->replaceAllUsesWith(newAdd);
-                inst->removeThisFromOperands();
-                needToDelete.push_back(insts[i].release());
-                insts.erase(insts.begin() + i);
-                changed = true;
-                // 删除链上的所有 add
-                for (auto *chainInst : chainInsts)
-                {
-                    if (chainInst != inst)
+                    if (prevAdd->getOpcode() != Opcode::Add || prevAdd->getUsers().size() > 1)
+                        break;
+                    Value *prevLhs = prevAdd->getOperands()[0];
+                    Value *prevRhs = prevAdd->getOperands()[1];
+                    auto *ciPrevLhs = dynamic_cast<ConstantInt *>(prevLhs);
+                    auto *ciPrevRhs = dynamic_cast<ConstantInt *>(prevRhs);
+
+                    if (ciPrevLhs && !ciPrevRhs)
                     {
-                        auto chainIt = std::find_if(insts.begin(), insts.end(),
-                                                    [chainInst](const std::unique_ptr<Instruction> &ptr)
-                                                    { return ptr.get() == chainInst; });
-                        if (chainIt != insts.end())
-                        {
-                            chainInst->removeThisFromOperands();
-                            needToDelete.push_back(chainIt->release());
-                            insts.erase(chainIt);
-                        }
+                        totalConst += ciPrevLhs->Value;
+                        next = prevRhs;
+                        chainInsts.push_back(prevAdd);
+                    }
+                    else if (ciPrevRhs && !ciPrevLhs)
+                    {
+                        totalConst += ciPrevRhs->Value;
+                        next = prevLhs;
+                        chainInsts.push_back(prevAdd);
+                    }
+                    else
+                    {
+                        break;
                     }
                 }
-                continue;
+                // 如果链长度大于1且有常量加数
+                if (chainInsts.size() > 1 && totalConst != 0)
+                {
+                    if (verbose)
+                    {
+                        debugInfo << "Found constant addition chain: ";
+                        for (auto *chainInst : chainInsts)
+                            debugInfo << chainInst->getName() << " ";
+                        debugInfo << std::endl;
+                    }
+                    Value *addBase = next; // 最后一个非常量
+                    auto *newConst = new ConstantInt(IntegerType::getInstance(), totalConst);
+                    auto *newAdd = new BinaryOperator(Opcode::Add, addBase, newConst, inst->getName() + "_chainadd");
+                    insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(newAdd));
+                    inst->replaceAllUsesWith(newAdd);
+                    inst->removeThisFromOperands();
+                    needToDelete.push_back(insts[i].release());
+                    insts.erase(insts.begin() + i);
+                    changed = true;
+                    // 删除链上的所有 add
+                    for (auto *chainInst : chainInsts)
+                    {
+                        if (chainInst != inst)
+                        {
+                            auto chainIt = std::find_if(insts.begin(), insts.end(),
+                                                        [chainInst](const std::unique_ptr<Instruction> &ptr)
+                                                        { return ptr.get() == chainInst; });
+                            if (chainIt != insts.end())
+                            {
+                                chainInst->removeThisFromOperands();
+                                needToDelete.push_back(chainIt->release());
+                                insts.erase(chainIt);
+                            }
+                        }
+                    }
+                    continue;
+                }
             }
-
-            // 2. 指针相等链式加法归约（如 x + x + x）
+            // 2. 指针相等链式加法归约（如 y + x + x）
             int ptrChainLen = 1;
             Value *ptrBase = lhs;
             std::vector<Instruction *> ptrChainInsts = {inst};
@@ -640,10 +642,12 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                         debugInfo << chainInst->getName() << " ";
                     debugInfo << std::endl;
                 }
-                // 归约为 x * n
+                // 归约为 y + x * n
                 auto *mulInst = new BinaryOperator(Opcode::Mul, rhs, new ConstantInt(IntegerType::getInstance(), ptrChainLen), inst->getName() + "_mul");
+                auto *addInst = new BinaryOperator(Opcode::Add, ptrBase, mulInst, inst->getName() + "_add");
                 insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(mulInst));
-                inst->replaceAllUsesWith(mulInst);
+                insts.insert(insts.begin() + i + 2, std::unique_ptr<Instruction>(addInst));
+                inst->replaceAllUsesWith(addInst);
                 inst->removeThisFromOperands();
                 needToDelete.push_back(insts[i].release());
                 insts.erase(insts.begin() + i);
