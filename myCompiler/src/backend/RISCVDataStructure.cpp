@@ -710,6 +710,17 @@ namespace RISCV
         size += strData.length() + 1; // 字符串长度加上空字符
     }
 
+    void RISCVGlobalBlock::addZeroData(int numElements)
+    {
+        // 优化大数组零初始化：添加一个特殊标记而不是创建大量零值字符串
+        if (numElements > 0)
+        {
+            data.push_back("__LARGE_ZERO_ARRAY__" + std::to_string(numElements));
+            isStringData.push_back(false);
+            size += numElements * 4; // 假设每个元素4字节
+        }
+    }
+
     bool RISCVGlobalBlock::isZeroValue(const string &value) const
     {
         // 检查各种零值表示形式
@@ -774,6 +785,16 @@ namespace RISCV
                     }
                     i = j;
                 }
+            }
+            else if (data[i].find("__LARGE_ZERO_ARRAY__") == 0)
+            {
+                // 处理大数组零初始化的特殊标记
+                size_t pos = data[i].find("__LARGE_ZERO_ARRAY__");
+                string numStr = data[i].substr(pos + 20); // 提取数字部分
+                int numElements = std::stoi(numStr);
+                size_t zeroBytes = numElements * 4; // 假设每个元素4字节
+                ss << "    .zero " << zeroBytes << "\n";
+                i++;
             }
             else
             {
