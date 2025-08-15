@@ -1485,15 +1485,29 @@ shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhy
 void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size)
 {
     auto startReg = getTempReg(true);
-    auto CounterReg = LiInt(size / 4, true);
     auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, startReg, addrReg);
     currentBB->addInstruction(mvInst);
+    auto zeroReg = std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+
+    shared_ptr<RISCVRegister> CounterReg;
+    if (size % 8 != 0)
+    {
+        CounterReg = LiInt(size / 8, true);
+        auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
+        currentBB->addInstruction(swInst);
+        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 4);
+        currentBB->addInstruction(addiInst);
+    }
+    else
+    {
+        CounterReg = LiInt(size / 8, true);
+    }
 
     // loop 初始化数组为0
-    auto zeroReg = std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+
     auto nextBB = currentBB->getSuccessors()[0];
-    auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
-    nextBB->addInstruction(swInst);
+    auto sdInst = RISCVInstruction::createSType(RISCVOpcode::SD, startReg, zeroReg, 0);
+    nextBB->addInstruction(sdInst);
     auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
     nextBB->addInstruction(addiInst);
     auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 4);
