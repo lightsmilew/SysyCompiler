@@ -1510,7 +1510,7 @@ void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int
     nextBB->addInstruction(sdInst);
     auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
     nextBB->addInstruction(addiInst);
-    auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 4);
+    auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 8);
     nextBB->addInstruction(addiInst2);
     auto bneInst = RISCVInstruction::createBType(RISCVOpcode::BNE, CounterReg, zeroReg, nextBB->getLabel());
     nextBB->addInstruction(bneInst);
