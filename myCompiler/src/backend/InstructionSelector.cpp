@@ -392,7 +392,21 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
 {
-    auto valueReg = getOrCreateVirtualReg(inst->getValueToStore());
+    bool isZero = false;
+    if (auto intValue = dynamic_cast<ConstantInt *>(inst->getValueToStore()))
+    {
+        if (intValue->Value == 0)
+        {
+            isZero = true;
+        }
+    }
+
+    shared_ptr<RISCVRegister> valueReg;
+    if (!isZero)
+    {
+        valueReg = getOrCreateVirtualReg(inst->getValueToStore());
+    }
+
     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
     // 根据要存储的数据类型选择合适的存储指令
@@ -406,8 +420,18 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
         storeOpcode = RISCVOpcode::SD; // 指针存储
     }
 
-    auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
-    currentBB->addInstruction(storeInst);
+    if (isZero)
+    {
+        // 如果是存储0，则使用伪指令
+        auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, zeroReg, 0);
+        currentBB->addInstruction(storeInst);
+    }
+    else
+    {
+        auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
+        currentBB->addInstruction(storeInst);
+    }
 }
 
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
@@ -928,14 +952,23 @@ void InstructionSelector::visitFPToSIInst(CastInst *inst)
 
 void InstructionSelector::visitCopyInst(CopyInst *inst)
 {
-    // Copy指令用于将源值复制到目标位置
-    // 在我们的"所有变量溢出到栈上"策略中，这实际上是从源位置加载值，然后存储到目标位置
+    bool isValidInt = false;
+    int validInt = 0;
+    if (auto intConstant = dynamic_cast<ConstantInt *>(inst->getSource()))
+    {
+        isValidInt = true;
+        validInt = intConstant->Value;
+    }
 
-    // 获取源值的寄存器
-    auto srcReg = getOrCreateVirtualReg(inst->getSource());
+    shared_ptr<RISCVRegister> srcReg;
+    if (!isValidInt)
+    {
+        srcReg = getOrCreateVirtualReg(inst->getSource());
+    }
 
-    // 创建临时寄存器进行复制操作
     auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // 特殊处理当dest时函数参数时
     RegisterType regType = inst->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
     int intIndex = 0;
     int floatIndex = 0;
@@ -959,21 +992,26 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
         regType == RegisterType::FLOAT ? floatIndex++ : intIndex++;
     }
 
-    // 生成移动指令
     RISCVOpcode moveOpcode;
     if (inst->getType()->isFloatTy())
     {
-        // 浮点数使用 fmv.s 指令
         moveOpcode = RISCVOpcode::FMV_S;
     }
     else
     {
-        // 整数/指针使用 mv 伪指令（实际上是 addi rd, rs1, 0）
         moveOpcode = RISCVOpcode::MV;
     }
 
-    auto moveInst = RISCVInstruction::createPseudo(moveOpcode, destReg, srcReg);
-    currentBB->addInstruction(moveInst);
+    if (isValidInt)
+    {
+        auto liInst = RISCVInstruction::createPseudoLI(destReg, validInt);
+        currentBB->addInstruction(liInst);
+    }
+    else
+    {
+        auto moveInst = RISCVInstruction::createPseudo(moveOpcode, destReg, srcReg);
+        currentBB->addInstruction(moveInst);
+    }
 }
 
 void InstructionSelector::visitBitCastInst(CastInst *inst)
