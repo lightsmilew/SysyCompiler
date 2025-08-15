@@ -93,6 +93,7 @@ void InstructionSelector::visitInstruction(Instruction *inst)
         }
         break;
     case Opcode::Store:
+    case Opcode::Stored:
         if (auto storeInst = dynamic_cast<StoreInst *>(inst))
         {
             visitStoreInst(storeInst);
@@ -413,11 +414,11 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
     RISCVOpcode storeOpcode = RISCVOpcode::SW;
     if (inst->getValueToStore()->getType()->isFloatTy())
     {
-        storeOpcode = RISCVOpcode::FSW; // 浮点数存储
+        storeOpcode = inst->getOpcode() == Opcode::Stored ? RISCVOpcode::FSD : RISCVOpcode::FSW;
     }
-    else if (inst->getValueToStore()->getType()->isPointerTy())
+    else if (inst->getValueToStore()->getType()->isPointerTy() || inst->getOpcode() == Opcode::Stored)
     {
-        storeOpcode = RISCVOpcode::SD; // 指针存储
+        storeOpcode = RISCVOpcode::SD;
     }
 
     if (isZero)
