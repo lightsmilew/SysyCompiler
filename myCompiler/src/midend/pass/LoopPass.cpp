@@ -793,6 +793,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         if (headBlock->getInstructions().size() < 2)
             continue;
         // 1. 检查循环条件 while(i < maxindex)
+        // 只处理小于等于
         auto *cmp = dynamic_cast<ICmpInst *>(headBlock->getInstructions()[headBlock->getInstructions().size() - 2].get());
         if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
             continue;

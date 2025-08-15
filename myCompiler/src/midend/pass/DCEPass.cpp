@@ -83,7 +83,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
         for (auto it = insts.begin(); it != insts.end();)
         {
             Instruction *inst = it->get();
-            //std::cout<<inst->toString()<<"\n";
+            // std::cout<<inst->toString()<<"\n";
             if (liveInsts.count(inst) == 0)
             {
                 inst->removeThisFromOperands(); // 从操作数中移除自己
@@ -114,8 +114,8 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
         for (auto &instPtr : bb->getInstructions())
         {
             Instruction *inst = instPtr.get();
-            //if(!inst)continue;
-            // 如果是关键指令
+            // if(!inst)continue;
+            //  如果是关键指令
             if (isInstructionCritical(inst))
             {
                 liveInsts.insert(inst);
@@ -145,4 +145,61 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
 bool DeadCodeEliminationPass::isInstructionCritical(Instruction *inst)
 {
     return inst->mayHaveSideEffects() || inst->getOpcode() == Opcode::Copy;
+}
+bool RemoveRedundantStorePass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            Instruction *inst = insts[i].get();
+            // 判断是否为store指令
+            if (inst && inst->getOpcode() == Opcode::Store)
+            {
+                auto now_store = dynamic_cast<StoreInst *>(inst);
+                Value *addr = now_store->getPointer();
+                Value *val = now_store->getValueToStore();
+                // 检查最近一次对该地址的load
+                Instruction *lastLoad = nullptr;
+                for (int j = (int)i - 1; j >= 0; --j)
+                {
+                    Instruction *prev = insts[j].get();
+                    if (prev == nullptr)
+                        continue;
+                    if (auto loadInst = dynamic_cast<LoadInst *>(prev))
+                    {
+                        if (loadInst->getPointer() == addr)
+                        {
+                            lastLoad = prev;
+                            break;
+                        }
+                    }
+                    // 如果遇到对该地址的store则停止
+                    else if (auto storeInst = dynamic_cast<StoreInst *>(prev))
+                    {
+                        if (storeInst->getPointer() == addr)
+                        {
+                            break;
+                        }
+                    }
+                }
+                // 如果最近一次load的值和store的值相同，则该store无用
+                if (lastLoad && val == lastLoad)
+                {
+                    if (verbose)
+                    {
+                        debugInfo << "Removing redundant store: " << inst->toString() << "\n";
+                    }
+                    inst->removeThisFromOperands();
+                    needToDelete.push_back(insts[i].release());
+                    insts.erase(insts.begin() + i);
+                    --i;
+                    changed = true;
+                }
+            }
+        }
+    }
+    return changed;
 }

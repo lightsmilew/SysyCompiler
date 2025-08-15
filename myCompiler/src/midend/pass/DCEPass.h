@@ -15,4 +15,11 @@ namespace optimization
         void markLiveInstructions(Function *func, std::unordered_set<Instruction *> &liveInsts);
         bool isInstructionCritical(Instruction *inst);
     };
+    class RemoveRedundantStorePass:public Pass
+    {
+        public:
+            RemoveRedundantStorePass(bool verbose = false) : Pass(verbose) {}
+            bool runOnFunction(Function *func) override;
+            string getName() const override { return "RemoveRedundantStore"; }
+    };
 }
