@@ -2,7 +2,7 @@
 #include "Pass.h"
 namespace optimization
 {
-    // 1. 指令合并Pass
+    // 23.指令合并Pass
     class InstructionCombinePass : public Pass
     {
     public:
