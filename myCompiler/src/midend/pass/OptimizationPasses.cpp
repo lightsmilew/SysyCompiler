@@ -211,13 +211,13 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 进行循环展开后再来一次合并基本块
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         // 这里进行指令合并
+        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // 消除简单ifelse
         // pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         // 尾递归消除必须在函数内联之后
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
