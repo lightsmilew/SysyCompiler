@@ -391,23 +391,44 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
     currentBB->addInstruction(loadInst);
 }
 
+// void InstructionSelector::visitStoreInst(StoreInst *inst)
+// {
+//     auto valueReg = getOrCreateVirtualReg(inst->getValueToStore());
+//     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+
+//     // 根据要存储的数据类型选择合适的存储指令
+//     RISCVOpcode storeOpcode = RISCVOpcode::SW;
+//     if (inst->getValueToStore()->getType()->isFloatTy())
+//     {
+//         storeOpcode = RISCVOpcode::FSW; // 浮点数存储
+//     }
+//     else if (inst->getValueToStore()->getType()->isPointerTy())
+//     {
+//         storeOpcode = RISCVOpcode::SD; // 指针存储
+//     }
+
+//     auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
+//     currentBB->addInstruction(storeInst);
+// }
+
 void InstructionSelector::visitStoreInst(StoreInst *inst)
 {
-    bool isZero = false;
-    if (auto intValue = dynamic_cast<ConstantInt *>(inst->getValueToStore()))
-    {
-        if (intValue->Value == 0)
-        {
-            isZero = true;
-        }
-    }
+    // bool isZero = false;
+    // if (auto intValue = dynamic_cast<ConstantInt *>(inst->getValueToStore()))
+    // {
+    //     if (intValue->Value == 0)
+    //     {
+    //         isZero = true;
+    //     }
+    // }
 
-    shared_ptr<RISCVRegister> valueReg;
-    if (!isZero)
-    {
-        valueReg = getOrCreateVirtualReg(inst->getValueToStore());
-    }
+    // shared_ptr<RISCVRegister> valueReg;
+    // if (!isZero)
+    // {
+    //     valueReg = getOrCreateVirtualReg(inst->getValueToStore());
+    // }
 
+    auto valueReg = getOrCreateVirtualReg(inst->getValueToStore());
     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
 
     // 根据要存储的数据类型选择合适的存储指令
@@ -421,18 +442,20 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
         storeOpcode = RISCVOpcode::SD;
     }
 
-    if (isZero)
-    {
-        // 如果是存储0，则使用伪指令
-        auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-        auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, zeroReg, 0);
-        currentBB->addInstruction(storeInst);
-    }
-    else
-    {
-        auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
-        currentBB->addInstruction(storeInst);
-    }
+    // if (isZero)
+    // {
+    //     auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    //     auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, zeroReg, 0);
+    //     currentBB->addInstruction(storeInst);
+    // }
+    // else
+    // {
+    //     auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
+    //     currentBB->addInstruction(storeInst);
+    // }
+
+    auto storeInst = RISCVInstruction::createSType(storeOpcode, ptrReg, valueReg, 0);
+    currentBB->addInstruction(storeInst);
 }
 
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)

@@ -516,7 +516,7 @@ namespace RISCV
         }
 
         // 8字节对齐：如果分配8字节，当前偏移需8对齐
-        if (size == 8 || valueName == "usedCalleeSavedRegs")
+        if (size >= 8 || valueName == "usedCalleeSavedRegs")
         {
             valueOffset = (valueOffset + 7) & ~7;
         }
