@@ -424,6 +424,7 @@ enum class Opcode
     Alloca,
     Load,
     Store,
+    Stored,
     GetElementPtr,
 
     // 类型转换符
@@ -607,9 +608,11 @@ class StoreInst : public Instruction
 {
 public:
     StoreInst(Value *val, Value *ptr)
-        : Instruction(VoidType::getInstance(), Opcode::Store,
-                      vector<Value *>{val, ptr}) {}
-
+            : Instruction(VoidType::getInstance(), Opcode::Store,
+                        vector<Value *>{val, ptr}) {}
+    StoreInst(Opcode op,Value *val,Value *ptr)
+    :Instruction(VoidType::getInstance(), op,
+                        vector<Value *>{val, ptr}) {}
     Value *getValueToStore() const { return getOperandByIndex(0); } // 获取要存储的值
     Value *getPointer() const { return getOperandByIndex(1); }      // 获取存储的指针
     Value *getOriginalPointer() const;                              // 获取原始存储指针(用于gep展开时递归获取最上层指针)

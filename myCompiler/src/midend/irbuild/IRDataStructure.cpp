@@ -341,6 +341,8 @@ string Instruction::getOpcodeName() const
         return "load";
     case Opcode::Store:
         return "store";
+    case Opcode::Stored:
+        return "stored";
     case Opcode::GetElementPtr:
         return "getelementptr";
     case Opcode::SIToFP:
@@ -388,6 +390,7 @@ bool Instruction::isCopy() const
 bool Instruction::mayHaveSideEffects() const
 {
     if (Op == Opcode::Store ||
+        Op == Opcode::Stored ||
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
@@ -537,7 +540,8 @@ Instruction *Instruction::clone() const
     case Opcode::Load:
         return new LoadInst(getOperandByIndex(0), getName());
     case Opcode::Store:
-        return new StoreInst(getOperandByIndex(0), getOperandByIndex(1));
+    case Opcode::Stored:
+        return new StoreInst(getOpcode(), getOperandByIndex(0), getOperandByIndex(1));
     case Opcode::Call:
     {
         auto *call = static_cast<const CallInst *>(this);
@@ -800,7 +804,8 @@ Value *StoreInst::getOriginalPointer() const
 std::string StoreInst::toString() const
 {
     std::stringstream ss;
-    ss << "store " << getValueToStore()->getType()->toString() << " " << getValueToStore()->toRef()
+    string opcodeStr = getOpcodeName(); // 使用getOpcodeName获取操作码名称
+    ss << opcodeStr << " " << getValueToStore()->getType()->toString() << " " << getValueToStore()->toRef()
        << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
 }
@@ -916,7 +921,7 @@ bool CallInst::HasModifiedArray(Value *value) const
         if (isSameAddr(origin, value))
         {
             string funcName = func->getName();
-            if (!func->isLibraryFunction() &&origin->getName() == func->getArgumentByIndex(i)->getName())
+            if (!func->isLibraryFunction() && origin->getName() == func->getArgumentByIndex(i)->getName())
                 continue; // 跳过自身，避免无限递归
             if (func->isLibraryFunction() && (funcName == "getarray" || funcName == "getfarray"))
                 return true; // 特例：getarray和getfarray函数会修改对应位置的形参
@@ -985,7 +990,7 @@ bool CallInst::HasUsedArray(Value *ptr) const
         if (isSameAddr(origin, ptr))
         {
             std::string funcName = func->getName();
-            if(!func->isLibraryFunction() &&origin->getName()==func->getArgumentByIndex(i)->getName())
+            if (!func->isLibraryFunction() && origin->getName() == func->getArgumentByIndex(i)->getName())
                 continue; // 跳过自身，避免无限递归
             if (func->isLibraryFunction() && (funcName == "putint" || funcName == "putfloat" || funcName == "putch" || funcName == "putarray" || funcName == "putfarray" || funcName == "putf"))
                 return true;

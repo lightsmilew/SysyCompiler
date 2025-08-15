@@ -13,6 +13,7 @@
 #include "PhiEliminationPass.h"
 #include "LiveVariableAnalysisPass.h"
 #include "IfConversionPass.h"
+#include "InstructionCombinePass.h"
 #include <vector>
 #include <string>
 #include <memory>
