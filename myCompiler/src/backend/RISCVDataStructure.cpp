@@ -523,9 +523,7 @@ namespace RISCV
         int offset = valueOffset;
         valueToOffset[valueName] = offset;
         valueOffset += size;
-
-        // 更新相应的大小统计
-        valueStackSize += size;
+        valueStackSize = valueOffset;
 
         return offset;
     }
