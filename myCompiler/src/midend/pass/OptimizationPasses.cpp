@@ -64,6 +64,12 @@ void PassManager::initializeLoops(Module *module)
                 {
                     debugInfo << block->getName() << " ";
                 }
+                debugInfo << "\n"
+                          << "  Exits: ";
+                for (const auto &block : loop.exits)
+                {
+                    debugInfo << block->getName() << " ";
+                }
                 debugInfo << "\n";
             }
         }

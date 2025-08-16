@@ -113,6 +113,18 @@ vector<Loop> ControlFlowAnalysis::findLoops(Function *func)
             Loop loop;
             loop.header = header;
             loop.blocks.assign(loopBlocks.begin(), loopBlocks.end());
+
+            // 构造exit块
+            std::unordered_set<BasicBlock *> exitBlocks;
+            for (auto *bb : header->getSuccessors())
+            {
+                if (loopBlocks.count(bb) == 0)
+                {
+                    exitBlocks.insert(bb);
+                }
+            }
+            loop.exits.assign(exitBlocks.begin(), exitBlocks.end());
+
             loops.push_back(loop);
         }
     }
@@ -415,7 +427,7 @@ bool ControlFlowAnalysis::hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *end
             {
                 if (bb == loop.header)
                     continue; // 跳过循环头
-                for(auto *phiblock:phiInst->getIncomingBlocks())
+                for (auto *phiblock : phiInst->getIncomingBlocks())
                 {
                     if (bb == phiblock)
                         return true; // 如果循环体内有phi输入，则返回true
