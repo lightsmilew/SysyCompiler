@@ -1,5 +1,7 @@
 #include "LICM.h"
 #include <iostream>
+#include <map>
+using std::map;
 
 void LICM::runLICM(shared_ptr<RISCVFunction> function)
 {
@@ -82,12 +84,22 @@ void LICM::mergeLAReg(shared_ptr<RISCVInstruction> keep, vector<shared_ptr<RISCV
         {
             inst->replaceOperand(1, keep->getOperands()[0]);
         }
+        else if (inst->getOpcode() == RISCVOpcode::MV)
+        {
+            inst->replaceOperand(1, keep->getOperands()[0]);
+        }
     }
 }
 
-unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>> LICM::getInvariantMap(shared_ptr<RISCVLoop> loop)
+unordered_map<shared_ptr<RISCVInstruction>,
+              vector<shared_ptr<RISCVInstruction>>,
+              InstructionHash, InstructionEqual>
+LICM::getInvariantMap(shared_ptr<RISCVLoop> loop)
 {
-    unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>> laMap;
+    unordered_map<shared_ptr<RISCVInstruction>,
+                  vector<shared_ptr<RISCVInstruction>>,
+                  InstructionHash, InstructionEqual>
+        laMap;
 
     if (loop->getChildLoops().empty())
     {
@@ -119,6 +131,13 @@ unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>
                                 }
                             }
                             else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD || inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
+                            {
+                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+                                {
+                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
+                                }
+                            }
+                            else if (inst->getOpcode() == RISCVOpcode::MV)
                             {
                                 if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
                                 {
@@ -186,6 +205,13 @@ unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>
                                     nextInsts.push_back(bb->getInstructions()[idx + i]);
                                 }
                             }
+                            else if (inst->getOpcode() == RISCVOpcode::MV)
+                            {
+                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+                                {
+                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
+                                }
+                            }
                         }
                     }
 
@@ -238,6 +264,74 @@ unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>
 
     return laMap;
 }
+// unordered_map<shared_ptr<RISCVInstruction>,
+//               vector<shared_ptr<RISCVInstruction>>,
+//               InstructionHash, InstructionEqual>
+// LICM::getInvariantMap(shared_ptr<RISCVLoop> loop)
+// {
+//     unordered_map<shared_ptr<RISCVInstruction>,
+//                   vector<shared_ptr<RISCVInstruction>>,
+//                   InstructionHash, InstructionEqual>
+//         laMap;
+
+//     for (auto &bb : loop->getBlocks())
+//     {
+//         auto &insts = bb->getInstructions();
+//         for (size_t idx = 0; idx < insts.size(); ++idx)
+//         {
+//             if (isLoopInvariant(insts[idx]))
+//             {
+//                 auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
+//                 for (int i = 1; i < 5; i++)
+//                 {
+//                     if (idx + i < bb->getInstructions().size())
+//                     {
+//                         auto inst = bb->getInstructions()[idx + i];
+//                         if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
+//                         {
+//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+//                             {
+//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
+//                             }
+//                         }
+
+//                         else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD || inst->getOpcode() == RISCVOpcode::SLL || inst->getOpcode() == RISCVOpcode::SRL)
+//                         {
+//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
+//                             {
+//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
+//                             }
+//                         }
+//                         else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD || inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
+//                         {
+//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+//                             {
+//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
+//                             }
+//                         }
+//                     }
+//                 }
+//                 bool overLap = false;
+//                 for (auto &la : laMap)
+//                 {
+//                     if (la.first->getOperands()[1]->getLabel() == insts[idx]->getOperands()[1]->getLabel())
+//                     {
+//                         overLap = true;
+//                         la.second.insert(la.second.end(), nextInsts.begin(), nextInsts.end());
+//                     }
+//                 }
+//                 if (!overLap)
+//                 {
+//                     laMap[insts[idx]] = nextInsts;
+//                 }
+//                 insts.erase(insts.begin() + idx);
+//                 --idx;
+//             }
+//         }
+//     }
+
+//     return laMap;
+// }
 
 void printMap(unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>> &laMap)
 {
