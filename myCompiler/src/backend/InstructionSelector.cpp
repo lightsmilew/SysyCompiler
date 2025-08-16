@@ -1438,7 +1438,7 @@ shared_ptr<RISCVRegister> InstructionSelector::getTempPhysicalFloatReg()
 
 shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
 {
-    auto globReg = getTempReg(true);
+    auto globReg = getTempReg();
     globalVarMap[globlvar->getName()] = globReg;
     auto laInst = RISCVInstruction::createPseudoLA(globReg, globlvar->getName());
     currentBB->addInstruction(laInst);

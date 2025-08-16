@@ -417,6 +417,14 @@ namespace RISCV
             comment = newInstr->comment; // 保留注释
         }
 
+        void replaceOperand(int index, shared_ptr<RISCVOperand> newOperand)
+        {
+            if (index < 0 || index >= operands.size())
+                return;
+
+            operands[index] = newOperand;
+        }
+
         string toString() const;
     };
 
@@ -773,6 +781,35 @@ namespace RISCV
 
     public:
         RISCVLoop() {}
+        vector<shared_ptr<RISCVBasicBlock>> getBlocks() const
+        {
+            vector<shared_ptr<RISCVBasicBlock>> blocks;
+            if (header)
+                blocks.push_back(header);
+            blocks.insert(blocks.end(), body.begin(), body.end());
+            return blocks;
+        }
+        vector<shared_ptr<RISCVBasicBlock>> getBlocksWithoutChildren()
+        {
+            vector<shared_ptr<RISCVBasicBlock>> blocks;
+            for (const auto &b : getBlocks())
+            {
+                if (!b)
+                    continue;
+                if (!isInChildBlocks(childLoops, b))
+                    blocks.push_back(b);
+            }
+            return blocks;
+        }
+        bool isInChildBlocks(const vector<shared_ptr<RISCVLoop>> &childLoops, shared_ptr<RISCVBasicBlock> block) const
+        {
+            for (const auto &child : childLoops)
+            {
+                if (child->containsBlock(block))
+                    return true;
+            }
+            return false;
+        }
         void setHeader(shared_ptr<RISCVBasicBlock> h) { header = h; }
         void addBodyBlock(shared_ptr<RISCVBasicBlock> block) { body.push_back(block); }
         void addExitBlock(shared_ptr<RISCVBasicBlock> block) { exit.push_back(block); }
@@ -800,6 +837,17 @@ namespace RISCV
                     return true;
             }
             return false;
+        }
+        shared_ptr<RISCVBasicBlock> getPreHeader() const
+        {
+            for (const auto &pred : header->getPredecessors())
+            {
+                if (!containsBlock(pred))
+                {
+                    return pred;
+                }
+            }
+            return nullptr;
         }
     };
 

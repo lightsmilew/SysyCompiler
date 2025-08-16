@@ -8,7 +8,8 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     initializeModule(irModule);
     generateInstructions();
     FirstPeep();
-    // instructionSheduler();
+    runLICMPass();
+    // instructionScheduler();
     allocateRegisters();
     SecondPeep();
     reallocOffsetForInstructions();
@@ -411,4 +412,21 @@ void RISCVBuilder::establishLoopHierarchy(LoopInfo &backendLoopInfo,
 bool RISCVBuilder::isBlockInLoop(shared_ptr<RISCVBasicBlock> block, shared_ptr<RISCVLoop> loop)
 {
     return loop->containsBlock(block);
+}
+
+// 运行LICM优化pass
+void RISCVBuilder::runLICMPass()
+{
+    // 对每个函数运行LICM优化
+    for (auto &func : riscvModule->getFunctions())
+    {
+        // 跳过库函数
+        if (isLibraryFunction(func->getName()))
+        {
+            continue;
+        }
+
+        LICM licm;
+        licm.runLICM(func);
+    }
 }
