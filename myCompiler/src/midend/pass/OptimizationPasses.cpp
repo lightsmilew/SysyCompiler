@@ -64,6 +64,12 @@ void PassManager::initializeLoops(Module *module)
                 {
                     debugInfo << block->getName() << " ";
                 }
+                debugInfo << "\n"
+                          << "  Exits: ";
+                for (const auto &block : loop.exits)
+                {
+                    debugInfo << block->getName() << " ";
+                }
                 debugInfo << "\n";
             }
         }
@@ -104,7 +110,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        // pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
@@ -133,7 +139,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        // pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
@@ -215,7 +221,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 进行循环展开后再来一次合并基本块
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // 这里进行指令合并
-        // pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // 消除简单ifelse
         // pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));

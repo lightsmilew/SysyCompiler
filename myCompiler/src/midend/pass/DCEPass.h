@@ -3,7 +3,7 @@
 #include <unordered_set>
 namespace optimization
 {
-        // 1. 死代码消除Pass
+    // 1.死代码消除Pass
     class DeadCodeEliminationPass : public Pass
     {
     public:
@@ -15,7 +15,8 @@ namespace optimization
         void markLiveInstructions(Function *func, std::unordered_set<Instruction *> &liveInsts);
         bool isInstructionCritical(Instruction *inst);
     };
-    class RemoveRedundantStorePass:public Pass
+    // 22.无用store删除
+    class RemoveRedundantStorePass : public Pass
     {
         public:
             RemoveRedundantStorePass(bool verbose = false) : Pass(verbose) {}

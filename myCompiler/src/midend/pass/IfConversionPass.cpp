@@ -7,17 +7,19 @@ bool IfConversionPass::isSideEffectFree(BasicBlock *bb)
     {
         if (auto *br = dynamic_cast<BranchInst *>(inst.get()))
         {
+            // 条件分支可能有副作用
             if (br->isConditional())
-                return false; // 条件分支可能有副作用
+                return false;
             // 无条件跳转直接跳过
             else
             {
                 continue;
             }
         }
+        // 其他可能有副作用的指令
         if (inst->mayHaveSideEffects())
         {
-            return false; // Found an instruction with side effects
+            return false;
         }
     }
     return true;
