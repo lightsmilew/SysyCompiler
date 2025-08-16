@@ -22,19 +22,23 @@ bool InstructionCombinePass::runOnFunction(Function *func)
                 continue;
             auto indices1 = gep1->getIndices();
             auto dimsizes1 = gep1->getArrayStride();
-            // 多维数组：如果有一维长度为奇数则跳过
-            bool oddDim = false;
-            for (size_t d = 0; d < dimsizes1->size(); ++d)
+            // 一维数组不检查
+            if (dimsizes1)
             {
-                int dimSize = (*dimsizes1)[d];
-                if (dimSize % 2 != 0)
+                // 多维数组：如果有一维长度为奇数则跳过
+                bool oddDim = false;
+                for (size_t d = 0; d < (*dimsizes1).size(); ++d)
                 {
-                    oddDim = true;
-                    break;
+                    int dimSize = (*dimsizes1)[d];
+                    if (dimSize % 2 != 0)
+                    {
+                        oddDim = true;
+                        break;
+                    }
                 }
+                if (oddDim)
+                    continue;
             }
-            if (oddDim)
-                continue;
             // 检查最后一个下标是否为phi指令，且初值为0
             if (!indices1.empty())
             {
