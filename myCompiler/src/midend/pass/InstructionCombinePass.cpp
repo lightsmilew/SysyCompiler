@@ -51,7 +51,7 @@ bool InstructionCombinePass::runOnFunction(Function *func)
                     Value *initPhi = nullptr;
                     for (int i = 0; i < phi->getIncomingBlocks().size(); i++)
                     {
-                        if (phi->getIncomingBlocks()[i] != bb.get())
+                        if (phi->getIncomingBlocks()[i] == bb.get())
                             continue;
                         else
                         {
