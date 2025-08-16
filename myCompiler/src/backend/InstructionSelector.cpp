@@ -1490,28 +1490,26 @@ void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int
     auto zeroReg = std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
 
     shared_ptr<RISCVRegister> CounterReg;
-    if (size % 8 != 0)
-    {
-        CounterReg = LiInt(size / 8, true);
-        auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
-        currentBB->addInstruction(swInst);
-        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 4);
-        currentBB->addInstruction(addiInst);
-    }
-    else
-    {
-        CounterReg = LiInt(size / 8, true);
-    }
+    CounterReg = LiInt(size / 8, true);
 
     // loop 初始化数组为0
-
     auto nextBB = currentBB->getSuccessors()[0];
-    auto sdInst = RISCVInstruction::createSType(RISCVOpcode::SD, startReg, zeroReg, 0);
-    nextBB->addInstruction(sdInst);
-    auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
-    nextBB->addInstruction(addiInst);
-    auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 8);
-    nextBB->addInstruction(addiInst2);
-    auto bneInst = RISCVInstruction::createBType(RISCVOpcode::BNE, CounterReg, zeroReg, nextBB->getLabel());
-    nextBB->addInstruction(bneInst);
+    if (size / 8 != 0)
+    {
+        auto sdInst = RISCVInstruction::createSType(RISCVOpcode::SD, startReg, zeroReg, 0);
+        nextBB->addInstruction(sdInst);
+        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
+        nextBB->addInstruction(addiInst);
+        auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 8);
+        nextBB->addInstruction(addiInst2);
+        auto bneInst = RISCVInstruction::createBType(RISCVOpcode::BNE, CounterReg, zeroReg, nextBB->getLabel());
+        nextBB->addInstruction(bneInst);
+    }
+
+    auto next2BB = nextBB->getSuccessors()[0];
+    if (size % 8 != 0)
+    {
+        auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
+        next2BB->addInstruction(swInst);
+    }
 }
