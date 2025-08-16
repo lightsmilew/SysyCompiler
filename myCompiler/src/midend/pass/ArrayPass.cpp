@@ -1,7 +1,6 @@
 #include "ArrayPass.h"
 using namespace std;
 using namespace optimization;
-// 这里还有问题，如果store覆盖范围小于load，也不能简单替换
 bool ArrayEliminationPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -156,7 +155,7 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                 Value *newIdx_load = idx_load;
                 Value *newExpr_load = nullptr;
                 vector<Instruction *> needToAdd;
-                // a[i]=i模式
+                // a[i]=i结构
                 if (A == nullptr)
                 {
                     if (needTypeCast)
@@ -166,7 +165,7 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                     }
                     newExpr_load = newIdx_load;
                 }
-                // a[i]=A+i模式
+                // a[i]=A+i结构
                 else
                 {
                     if (needTypeCast)
@@ -180,7 +179,7 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                 auto newExprInst = dynamic_cast<Instruction *>(newExpr_load);
                 if (!newExprInst)
                     continue;
-                // 只有当A+j模式时才需要额外插入一条指令，否则直接使用循环变量即可
+                // 只有当A+j结构时才需要额外插入一条指令，否则直接使用循环变量即可
                 if (A != nullptr)
                 {
                     needToAdd.push_back(newExprInst);

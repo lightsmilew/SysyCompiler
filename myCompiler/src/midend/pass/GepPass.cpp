@@ -13,7 +13,7 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
             Instruction *inst = it->get();
             if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
             {
-                // 取消限制，可以增加循环不变量外提优化
+                // 取消维度限制，可以增加循环不变量外提优化
                 auto indices = gep->getIndices();
                 vector<unique_ptr<Instruction>> newgepInsts;
                 auto pointer = gep->getPointerOperand();

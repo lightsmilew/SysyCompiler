@@ -190,11 +190,11 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
             // inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp ||
             (inst->getOpcode() == Opcode::Call && !dynamic_cast<CallInst *>(inst)->ifHasSideEffects()));
 }
-// 修改load指令CSE处理，跨基本块暂时不做，难度太高
-// load需要支持，只做基本块内替换，如果第一个load后面没有store则可以替换，替换后更新哈希表load的指令
+
 bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instruction *map_inst, BasicBlock *bb)
 {
-    // 只允许同一基本块内的load做CSE，且store和load之间没有其他store
+    // 允许同一基本块内的load做CSE，且store和load之间没有其他store
+    // 跨基本块在外部判断
     auto *loadInst = dynamic_cast<LoadInst *>(inst);
     auto *mapLoadInst = dynamic_cast<LoadInst *>(map_inst);
     if (!loadInst || !mapLoadInst)

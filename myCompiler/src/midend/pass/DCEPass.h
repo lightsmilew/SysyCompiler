@@ -15,7 +15,7 @@ namespace optimization
         void markLiveInstructions(Function *func, std::unordered_set<Instruction *> &liveInsts);
         bool isInstructionCritical(Instruction *inst);
     };
-    // 22.无用store删除
+    // 23.无用store删除
     class RemoveRedundantStorePass : public Pass
     {
         public:

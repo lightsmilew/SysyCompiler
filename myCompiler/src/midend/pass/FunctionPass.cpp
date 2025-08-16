@@ -55,22 +55,8 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                 break; // 只要有内联，重新获取bbs
         }
     } while (localChanged);
-    // 更新函数的循环信息
+    // 更新函数的循环信息，用于是否适合内联判断
     caller->setLoops(ControlFlowAnalysis::findLoops(caller));
-    // if (verbose)
-    // {
-    //     debugInfo << "Function: " << caller->getName() << "\n";
-    //     for (const auto &loop : caller->getLoops())
-    //     {
-    //         debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
-    //         debugInfo << "  Blocks: ";
-    //         for (const auto &block : loop.blocks)
-    //         {
-    //             debugInfo << block->getName() << " ";
-    //         }
-    //         debugInfo << "\n";
-    //     }
-    // }
     return changed;
 }
 // 判断是否适合内联

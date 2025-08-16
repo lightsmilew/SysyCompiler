@@ -30,7 +30,6 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             {
                 if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
                 {
-                    // bool hasChanged = false;
                     for (BasicBlock *delBB : toDelete)
                     {
                         unsigned index = phi->getIndexByBasicBlock(delBB);
@@ -38,10 +37,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                             continue; // 如果没有这个前驱块，跳过
                         // 删除对应的前驱块和值
                         phi->removeIncoming(index);
-                        // hasChanged = true;
                     }
-                    // if(!hasChanged)
-                    //     continue;
                     //  如果只剩一个incoming，直接替换
                     if (phi->getNumIncomingValues() == 1)
                     {
@@ -83,7 +79,6 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
         for (auto it = insts.begin(); it != insts.end();)
         {
             Instruction *inst = it->get();
-            // std::cout<<inst->toString()<<"\n";
             if (liveInsts.count(inst) == 0)
             {
                 inst->removeThisFromOperands(); // 从操作数中移除自己

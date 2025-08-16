@@ -333,8 +333,8 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
             {
                 if (count_phi >= 2)
                 {
-                    canReduce = false; // 只处理两个phi指令
-                    break;             // 只处理两个phi指令
+                    canReduce = false; // 只处理两个phi指令->简单求和循环
+                    break;             
                 }
                 if (phi != jVar)
                 {
@@ -779,7 +779,6 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
         }
         break; // 只处理一个循环
     }
-    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 bool ModLoopReductionPass ::runOnFunction(Function *func)
@@ -1000,7 +999,6 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
             debugInfo << "LoopModuloReductionPass: Reduced loop at header " << headBlock->getName() << " to modulo formula.\n";
         break; // 只处理一个
     }
-    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }
 
@@ -1009,7 +1007,6 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
     bool changed = false;
     func->setLoops(ControlFlowAnalysis::findLoops(func));
     auto &loops = func->getLoops();
-    // std::cout << func->toString();
     for (const auto &loop : loops)
     {
         BasicBlock *header = loop.header;
@@ -1439,7 +1436,5 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
                 debugInfo << "LoopUnrollingPass: 4-way unrolled loop at " << header->getName() << " (inserted unroll loop before original)\n";
         }
     }
-    // std::cout << func->toString() << std::endl;
-    // std::cout << func->Parent->getBasicBlockInfo() << std::endl;
     return changed;
 }

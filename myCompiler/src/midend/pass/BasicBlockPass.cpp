@@ -12,7 +12,8 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
     {
         BasicBlock *bb = bbPtr.get();
         auto &insts = bb->getInstructions();
-        // 1. 检查是否为 if (i > k) 结构
+        //  1.优化 if (i > k) 嵌套结构
+        //  这种情况下可以把嵌套if转换为循环，便于后续优化
         for (size_t i = 0; i < insts.size(); ++i)
         {
             auto *icmp = dynamic_cast<ICmpInst *>(insts[i].get());
@@ -24,8 +25,7 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 continue;
             int k = kConst->Value;
 
-            // 2. 检查 then 分支是否为 s[k] = k
-            // 这里假设 then 分支是下一个基本块，且有 store 指令 s[k] = k
+            // 2. then 分支是否为 s[k] = k
             BasicBlock *thenBB = nullptr;
             BasicBlock *exitBB = nullptr;
             if (i + 1 < insts.size())
@@ -33,30 +33,29 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 if (auto *br = dynamic_cast<BranchInst *>(insts[i + 1].get()))
                 {
                     thenBB = br->TrueBlock;
-                    exitBB = br->FalseBlock; // 该模式下无else分支
+                    exitBB = br->FalseBlock; // 该结构下无else分支，故假出口则为退出块
                 }
             }
             if (!thenBB || !exitBB)
                 continue;
             auto &thenInsts = thenBB->getInstructions();
-            bool match = false;
+            bool isIfElseSentence = false;
             for (auto &tinstPtr : thenInsts)
             {
                 if (auto *store = dynamic_cast<StoreInst *>(tinstPtr.get()))
                 {
-                    // 检查store的地址和数值是否都是k
+                    // store的地址和数值是否都是循环规约量k
                     auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
                     auto *storeVal = dynamic_cast<ConstantInt *>(store->getValueToStore());
                     if (gep && storeVal && storeVal->Value == k)
                     {
-                        // 检查GEP索引是否为k
                         if (gep->getIndices().size() == 1)
                         {
                             auto *idx = dynamic_cast<ConstantInt *>(gep->getIndices()[0]);
                             if (idx && idx->Value == k)
                             {
                                 arrayAddr = gep->getPointerOperand();
-                                match = true;
+                                isIfElseSentence = true;
                                 needToDelete.push_back(insts[i].release());     // 删除原有的 if (i > k) 结构
                                 needToDelete.push_back(insts[i + 1].release()); // 删除分支指令
                                 insts.erase(insts.begin() + i);                 // 删除if指令
@@ -67,10 +66,9 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                     }
                 }
             }
-            if (!match)
+            if (!isIfElseSentence)
                 continue;
-            // 找到匹配的 if (i > k) 结构和 then 分支 s[k] = k
-            // bbsToProcess.push_back(bb);
+            // 找到嵌套的 if (i > k) 结构
             // bb即是整个循环的前驱基本块
             bbsToProcess.push_back(thenBB);
             bbsToProcess.push_back(exitBB);
@@ -146,9 +144,10 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 {
                     std::unique_ptr<Instruction> instPtrCopy = move(instPtr);
 
-                    loopExit->addInstruction(move(instPtrCopy)); // 使用move而不是insert，避免重复添加
+                    loopExit->addInstruction(move(instPtrCopy));
                 }
-                exitBB->clearInstructions(); // 清空原有退出块指令
+                // 清空原有退出块指令
+                exitBB->clearInstructions();
                 // 将原来phi输入从exitBB的指令改为loopExit
                 for (auto *user : exitBB->getUsers())
                 {
@@ -212,7 +211,7 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                     debugInfo << "CFG Simplification: Replace if-chain [" << minK << "," << maxK << "] with loop in " << bb->getName() << "\n";
             }
             bbsToProcess.clear(); // 清空待处理基本块
-            break;                // 找到一个匹配就退出当前基本块的检查
+            break;
         }
         if (changed)
             break; // 如果已经进行了替换，退出函数
