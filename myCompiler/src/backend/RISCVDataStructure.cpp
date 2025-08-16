@@ -514,8 +514,6 @@ namespace RISCV
             // 已经分配过，返回现有偏移
             return valueToOffset[valueName];
         }
-
-        // 8字节对齐：如果分配8字节，当前偏移需8对齐
         if (size >= 8 || valueName == "usedCalleeSavedRegs")
         {
             valueOffset = (valueOffset + 7) & ~7;
@@ -744,6 +742,7 @@ namespace RISCV
         std::stringstream ss;
 
         ss << ".globl " << label << "\n";
+        ss << ".p2align 3\n";
         ss << label << ":\n";
 
         // 优化连续的零数据
