@@ -76,11 +76,6 @@ private:
     shared_ptr<RISCVRegister> getCallerArgReg(Argument *arg, size_t index);
     shared_ptr<RISCVRegister> getArgReg(const string &argName, RegisterType regType);
 
-    // 数据流分析
-    // Step 1: 计算每个基本块的 USE 和 DEF 集合
-    // Step 2: 计算每个基本块的 liveIn 和 liveOut 集合
-    // Step 3: 基于 liveIn/liveOut 计算每个寄存器的活跃区间
-    // Step 4: 优化和合并重叠的活跃区间
     void buildControlFlowGraph()
     {
         // 遍历IR函数的所有基本块，构建RISC-V基本块的前驱后继关系
