@@ -305,6 +305,7 @@ namespace RISCV
         const string &getLabel() const { return label; }
         int getOffset() const { return offset; }
         bool hasLabel() const { return !label.empty(); }
+        bool hasImm() const { return type == Type::IMMEDIATE; }
 
         string toString() const;
     };
