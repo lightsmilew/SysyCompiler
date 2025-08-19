@@ -125,7 +125,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         //pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         //pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
