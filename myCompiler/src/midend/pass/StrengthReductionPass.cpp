@@ -160,10 +160,10 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                     {
                         // 计算magic和shift
                         auto [magic, shift] = compute_magic(rhs_value_abs);
-                        if (magic > 2147483647)
-                        {
-                            continue; // magic值过大，跳过,有溢出风险
-                        }
+                        // if (magic > 2147483647)
+                        // {
+                        //     continue; // magic值过大，跳过,有溢出风险
+                        // }
                         auto *type = IntegerType::getInstance();
                         // 1. 扩展lhs为64位
                         auto *lhs64 = new CastInst(Opcode::Sext, lhs, LongType::getInstance(), lhs->getName() + "_to64");
@@ -279,10 +279,10 @@ bool StrengthReductionPass::runOnFunction(Function *func)
                     {
                         // 1. 计算magic和shift
                         auto [magic, shift] = compute_magic(rhs_value_abs);
-                        if (magic > 2147483647)
-                        {
-                            continue; // magic值过大，跳过,有溢出风险
-                        }
+                        // if (magic > 2147483647)
+                        // {
+                        //     continue; // magic值过大，跳过,有溢出风险
+                        // }
                         auto *type = IntegerType::getInstance();
                         // 2. 扩展lhs为64位
                         auto *lhs64 = new CastInst(Opcode::Sext, lhs, LongType::getInstance(), lhs->getName() + "_to64");
