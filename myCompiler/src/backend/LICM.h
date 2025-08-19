@@ -82,6 +82,7 @@ struct InstructionEqual
         return false;
     }
 };
+
 class LICM
 {
 private:
