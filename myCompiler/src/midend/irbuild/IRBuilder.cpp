@@ -135,7 +135,7 @@ void IRBuilder::visitFunction(std::shared_ptr<ast::FuncNode> node)
     for (size_t i = 0; i < node->params.size(); i++)
     {
         Argument *arg = func->addArgument(paramTypes[i], node->params[i]->identifier);
-        size_t SerialNumber=varToValue.find(node->params[i]->identifier) == varToValue.end() ? 0 : varToValue[node->params[i]->identifier].getSerialNumber() + 1;
+        size_t SerialNumber = varToValue.find(node->params[i]->identifier) == varToValue.end() ? 0 : varToValue[node->params[i]->identifier].getSerialNumber() + 1;
         varToValue[node->params[i]->identifier] = ValueInfo(arg, SerialNumber);
         basicBlockVarToValue[currentBlock][node->params[i]->identifier] = ValueInfo(arg, SerialNumber);
     }
@@ -316,8 +316,9 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             // 数组用内存模型
             Value *alloca = createAlloca(varType);
             // 如果有初始值，则标记为需要初始化
-            if(node->initializer)dynamic_cast<AllocaInst *>(alloca)->setIsInitialized(true);
-            size_t SerialNumber=varToValue.find(node->identifier) == varToValue.end() ? 0 : varToValue[node->identifier].getSerialNumber()+1;
+            if (node->initializer)
+                dynamic_cast<AllocaInst *>(alloca)->setIsInitialized(true);
+            size_t SerialNumber = varToValue.find(node->identifier) == varToValue.end() ? 0 : varToValue[node->identifier].getSerialNumber() + 1;
             varToValue[node->identifier] = ValueInfo(alloca, SerialNumber);
             // 这里增加一个空块用于后端写入数组初始化赋值
             BasicBlock *arrayInitBlock = createBasicBlock(debugMode ? "array_init." + node->identifier : "");
@@ -370,8 +371,8 @@ void IRBuilder::visitDeclStmt(std::shared_ptr<ast::DeclStmtNode> node)
             // {
             //     basicBlockVarToValue[currentBlock][node->identifier].setValue(initValue);
             // }
-            if(isBlockNewDeclaredVar(node->identifier))
-            { 
+            if (isBlockNewDeclaredVar(node->identifier))
+            {
                 // 序号自增唯一确定一个变量
                 varToValue[node->identifier].plusSerialNumber();
                 basicBlockVarToValue[currentBlock][node->identifier].plusSerialNumber();
@@ -412,7 +413,7 @@ void IRBuilder::visitAssignStmt(std::shared_ptr<ast::AssignStmtNode> node)
         {
             // 如果不是新声明的变量，添加到需要写回的变量映射
             // basicBlockVarToValue用于phi合流
-            //basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
+            // basicBlockVarToValue[currentBlock][node->lvalue->identifier] = rvalue;
             needToWriteBackVarToValue[node->lvalue->identifier] = rvalue;
         }
         if (debugMode)
@@ -1173,22 +1174,24 @@ Constant *IRBuilder::evaluateConstantArray(std::shared_ptr<ast::InitExprNode> no
     flattenInitList(node, flat_inits, dims, 0);
     // 判断是否全部为0或者空指针,如果是则返回空指针用于优化{0}成{}；
     bool isAllZero = true;
-    for(int i=0;i<flat_inits.size();i++)
+    for (int i = 0; i < flat_inits.size(); i++)
     {
-        if(!flat_inits[i])continue; // 如果是空指针，跳过
-        if(auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(flat_inits[i]->singleInitVal))
+        if (!flat_inits[i])
+            continue; // 如果是空指针，跳过
+        if (auto intLiteral = std::dynamic_pointer_cast<ast::IntLiteralExprNode>(flat_inits[i]->singleInitVal))
         {
-            if(intLiteral->value != 0)
+            if (intLiteral->value != 0)
             {
                 isAllZero = false;
                 break;
             }
-            else continue; // 如果是0，继续
+            else
+                continue; // 如果是0，继续
         }
     }
     // 示例{0，0，0}，如果全部为0，则返回nullptr
     // 这种情况下，表示数组没有实际初始值，可以优化为 nullptr，减小代码体积
-    if(isAllZero)
+    if (isAllZero)
     {
         return nullptr; // 如果全部为0，返回nullptr表示空数组
     }
@@ -2095,7 +2098,8 @@ void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
     for (const auto &[name, valueInfo] : varToValue)
     {
         Value *value = valueInfo.getValue();
-        if (BlockVariantVars.empty() || std::find(BlockVariantVars.begin(), BlockVariantVars.end(), name) == BlockVariantVars.end())
+        if (BlockVariantVars.empty() ||
+            std::find(BlockVariantVars.begin(), BlockVariantVars.end(), name) == BlockVariantVars.end())
         {
             // 如果是循环不变量，直接跳过
             continue;
@@ -2106,7 +2110,7 @@ void IRBuilder::addPhiForVars(vector<std::string> &BlockVariantVars)
             PhiInst *phi = createPhi(value->getType());
             varToValue[name].setValue(phi);                         // 更新 SSA 值为 PHI 节点
             basicBlockVarToValue[currentBlock][name].setValue(phi); // 更新当前块的变量映射
-            needToWriteBackVarToValue[name] = phi;          // 添加到需要写回的变量列表
+            needToWriteBackVarToValue[name] = phi;                  // 添加到需要写回的变量列表
         }
     }
 }
@@ -2125,8 +2129,8 @@ void IRBuilder::addPhiIncomings(BasicBlock *block)
         {
             // 如果前驱块有该变量的 SSA 值,而且是同一个变量
             auto it = basicBlockVarToValue[pred].find(name);
-            if (it != basicBlockVarToValue[pred].end() && it->second.getValue() != value&&it->second.getSerialNumber() == valueInfo.getSerialNumber())
-                // 添加前驱块的值到 phi 的 incoming 列表
+            if (it != basicBlockVarToValue[pred].end() && it->second.getValue() != value && it->second.getSerialNumber() == valueInfo.getSerialNumber())
+            // 添加前驱块的值到 phi 的 incoming 列表
             {
                 phi->addIncoming(it->second.getValue(), pred); // 添加前驱块的值
             }

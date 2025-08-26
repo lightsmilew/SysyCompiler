@@ -201,6 +201,8 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
                 for (auto &instPtr : bb->getInstructions())
                 {
                     Instruction *inst = instPtr.get();
+                    if (inst->getOpcode() == Opcode::Br)
+                        continue;
                     if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
                     {
                         if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
@@ -214,6 +216,8 @@ bool RemoveUselessWhilePass::runOnFunction(Function *func)
                             break;
                         }
                     }
+                    else
+                        onlyInc = false;
                     if (inst->hasExternalUse(loop))
                     {
                         onlyInc = false;
@@ -334,7 +338,7 @@ bool LoopSumReductionPass::runOnFunction(Function *func)
                 if (count_phi >= 2)
                 {
                     canReduce = false; // 只处理两个phi指令->简单求和循环
-                    break;             
+                    break;
                 }
                 if (phi != jVar)
                 {

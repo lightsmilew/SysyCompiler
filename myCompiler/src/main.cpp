@@ -122,7 +122,6 @@ int main(int argc, const char *argv[])
     CommonTokenStream tokens(&lexer);
     SysYParser parser(&tokens);
     ParseTree *tree = parser.compUnit();
-
     // AST生成
     ASTNodeVisitor ast_visitor;
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
@@ -186,6 +185,7 @@ int main(int argc, const char *argv[])
                 cerr << "Cannot open output file: " << before_ir_file << endl;
                 return 1;
             }
+            //ast_root->print(fout_before);
             fout_before << ir_module->toString() << endl;
             if (infoMode)
             {
