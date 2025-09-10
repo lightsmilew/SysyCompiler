@@ -19,6 +19,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             if (bb != entry && bb->getPredecessors().empty())
             {
                 toDelete.push_back(bb);
+                debugInfo<<"delete block:"<<bb->getName()<<std::endl;
             }
         }
         // 对所有 phi 指令，移除对将要删除块的引用

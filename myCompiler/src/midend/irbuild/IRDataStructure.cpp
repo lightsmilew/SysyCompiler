@@ -1664,6 +1664,10 @@ void Function::setLoops(const vector<Loop> &loops)
 {
     Loops = loops;
 }
+Module *Function::getParent() const
+{
+    return Parent;
+}
 BasicBlock *Function::getEntryBlock()
 {
     return BasicBlocks.empty() ? nullptr : BasicBlocks[0].get();

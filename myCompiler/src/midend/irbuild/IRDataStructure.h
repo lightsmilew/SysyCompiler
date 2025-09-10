@@ -918,6 +918,7 @@ public:
 
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
     void addBasicBlock(unique_ptr<BasicBlock> block);   // 添加基本块(使用unique_ptr)
+    Module *getParent() const;                        // 获取父模块
     BasicBlock *getEntryBlock();                        // 获取入口基本块
     vector<BasicBlock *> getExitBlocks() const;         // 获取出口基本块
     vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块

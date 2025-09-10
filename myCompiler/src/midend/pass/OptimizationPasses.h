@@ -14,6 +14,7 @@
 #include "LiveVariableAnalysisPass.h"
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
+#include "MemoizationPass.h"
 #include <vector>
 #include <string>
 #include <memory>

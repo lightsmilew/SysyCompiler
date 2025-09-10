@@ -10,6 +10,6 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "StrengthReduction"; }
     private:
-       std::pair<int64_t,int>compute_magic(int32_t d);
+        std::pair<int64_t,int>compute_magic(int32_t d);
     };
 }
