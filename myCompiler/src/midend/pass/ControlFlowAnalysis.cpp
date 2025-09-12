@@ -130,6 +130,7 @@ vector<Loop> ControlFlowAnalysis::findLoops(Function *func)
     }
     return loops;
 }
+// 用于消除数组使用
 // 判断从 startBB 到 endBB 的所有路径上是否有其它 store 到 arr
 bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr)
 {
@@ -179,6 +180,7 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
     }
     return false;
 }
+// 用于CSE
 bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr, Value *inst1, Value *inst2)
 {
     auto loops = ControlFlowAnalysis::findLoops(startBB->Parent);
@@ -293,15 +295,15 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
             }
         }
     }
-    // 如果endBB是循环头，则要检测循环体内是否有对arr的store
+    // 如果endBB是循环块，则要检测循环体内是否有对arr的store
     for (auto &loop : loops)
     {
-        if (endBB == loop.header)
+        if (loop.containsBlock(endBB) || loop.containsBlock(startBB))
         {
             for (auto *bb : loop.blocks)
             {
-                if (bb == loop.header)
-                    continue; // 跳过循环头
+                if (bb == endBB || bb == startBB)
+                    continue; // 跳过自生
                 // 检查循环体内是否有对arr的store
                 for (auto &inst3 : bb->getInstructions())
                 {

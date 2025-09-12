@@ -319,6 +319,8 @@ string Instruction::getOpcodeName() const
         return "xnor";
     case Opcode::Muld:
         return "muld";
+    case Opcode::Mulhd:
+        return "mulhd";
     case Opcode::Slld:
         return "slld";
     case Opcode::Srad:
@@ -372,7 +374,7 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Slld ||
+           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld ||Op==Opcode::Mulhd|| Op == Opcode::Slld ||
            Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isComparisonOp() const
@@ -424,6 +426,7 @@ bool Instruction::hasResult() const
     case Opcode::Xor:
     case Opcode::Xnor:
     case Opcode::Muld:
+    case Opcode::Mulhd:
     case Opcode::Slld:
     case Opcode::Srad:
     case Opcode::ICmp:
@@ -525,6 +528,7 @@ Instruction *Instruction::clone() const
     case Opcode::Xor:
     case Opcode::Xnor:
     case Opcode::Muld:
+    case Opcode::Mulhd:
     case Opcode::Slld:
     case Opcode::Srad:
         // 对于二元操作符，直接创建新的BinaryOperator实例

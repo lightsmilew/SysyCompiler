@@ -414,6 +414,7 @@ enum class Opcode
     Xnor,
     // 64位系统
     Muld,
+    Mulhd,
     Slld,
     Srad,
     // 比较运算符
@@ -608,11 +609,11 @@ class StoreInst : public Instruction
 {
 public:
     StoreInst(Value *val, Value *ptr)
-            : Instruction(VoidType::getInstance(), Opcode::Store,
-                        vector<Value *>{val, ptr}) {}
-    StoreInst(Opcode op,Value *val,Value *ptr)
-    :Instruction(VoidType::getInstance(), op,
-                        vector<Value *>{val, ptr}) {}
+        : Instruction(VoidType::getInstance(), Opcode::Store,
+                      vector<Value *>{val, ptr}) {}
+    StoreInst(Opcode op, Value *val, Value *ptr)
+        : Instruction(VoidType::getInstance(), op,
+                      vector<Value *>{val, ptr}) {}
     Value *getValueToStore() const { return getOperandByIndex(0); } // 获取要存储的值
     Value *getPointer() const { return getOperandByIndex(1); }      // 获取存储的指针
     Value *getOriginalPointer() const;                              // 获取原始存储指针(用于gep展开时递归获取最上层指针)
@@ -845,6 +846,10 @@ struct Loop
                            [&](BasicBlock *bb)
                            { return bb->containsByName(inst->getName()); });
     }
+    bool containsBlock(BasicBlock *bb) const
+    {
+        return std::find(blocks.begin(), blocks.end(), bb) != blocks.end();
+    }
     bool containsInBody(Instruction *inst) const
     {
         // 判断指令是否在循环体内(不包括header)
@@ -890,7 +895,7 @@ struct Loop
         }
         return false; // 如果没有找到Phi指令，说明不是归纳变量
     }
-    BasicBlock *getPreheader()const
+    BasicBlock *getPreheader() const
     {
         // 寻找前驱基本块
         for (auto &bb : header->getPredecessors())
@@ -918,7 +923,7 @@ public:
 
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
     void addBasicBlock(unique_ptr<BasicBlock> block);   // 添加基本块(使用unique_ptr)
-    Module *getParent() const;                        // 获取父模块
+    Module *getParent() const;                          // 获取父模块
     BasicBlock *getEntryBlock();                        // 获取入口基本块
     vector<BasicBlock *> getExitBlocks() const;         // 获取出口基本块
     vector<unique_ptr<BasicBlock>> &getBasicBlocks();   // 获取所有基本块

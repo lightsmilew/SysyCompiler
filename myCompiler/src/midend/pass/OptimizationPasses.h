@@ -15,6 +15,7 @@
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
+#include "SRFixedPass.h"
 #include <vector>
 #include <string>
 #include <memory>
