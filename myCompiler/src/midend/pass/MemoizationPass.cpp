@@ -4,11 +4,11 @@ using namespace optimization;
 
 const int MAX_PARAMS = 4;
 const int ARRAY_SIZE = 65536;
-static const int primes[] = {131, 233, 337, 373}; // 最多支持4个参数
+static const int primes[] = {1000003, 1000033, 1000211, 1000433}; // 更大的质数，减少哈希冲突
 // 哈希索引，数组大小65536
 Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function *func)
 {
-    // 目前还有一点小瑕疵 没有判断是否产生哈希冲突 没有确保idx非负
+    // 目前还有一点小瑕疵 没有判断是否产生哈希冲突 没有确保idx非负-->已处理
     auto &module = *func->getParent();
     auto funcName = func->getName();
     auto memoFlagArrayName = getMemoFlagArrayName(funcName);
@@ -20,6 +20,9 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
     auto *valueArr = module.addGlobalVariable(ArrayType::getInstance(IntegerType::getInstance(), ARRAY_SIZE),
                                               memoValueArrayName,
                                               nullptr, false);
+    // auto *argsArr= module.addGlobalVariable(ArrayType::getInstance(ArrayType::getInstance(IntegerType::getInstance(), MAX_PARAMS), ARRAY_SIZE),
+    //                                           getMemoArgsArrayName(funcName),
+    //                                           nullptr, false);
     auto *mergeBB = func->getEntryBlock();
     // 新增block
     auto *condBB = new BasicBlock(funcName + "_memo_cond", func);
@@ -32,7 +35,7 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
     condBB->addSuccessor(mergeBB);
     thenBB->addPredecessor(condBB);
     mergeBB->addPredecessor(condBB);
-    // idx = (a * 131 + b * 233 + c * 337 + ...) % 65536
+    // idx = (a * 1000003 + b * 1000033 + c * 1000211 + ...) % 65536
     Value *idx = new ConstantInt(IntegerType::getInstance(), 0);
     // 插入获取index的指令
     for (size_t i = 0; i < args.size(); ++i)
@@ -43,15 +46,27 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
         condBB->insertBeforeTerminator(unique_ptr<Instruction>(mul));
         condBB->insertBeforeTerminator(unique_ptr<Instruction>(dynamic_cast<Instruction *>(idx)));
     }
-    auto *mod = new ConstantInt(IntegerType::getInstance(), ARRAY_SIZE);
-    idx = new BinaryOperator(Opcode::SRem, idx, mod, "rem_memo_idx");
+    auto *MODCONSTANT = new ConstantInt(IntegerType::getInstance(), ARRAY_SIZE);
+    idx = new BinaryOperator(Opcode::SRem, idx, MODCONSTANT, "rem_memo_idx");
     // 加上65536再取模一次，防止为负数
-    auto *idx_add=new BinaryOperator(Opcode::Add,idx,mod,"idx_add");
-    auto *idx_final=new BinaryOperator(Opcode::SRem,idx_add,mod,"idx_final");
+    auto *idx_add=new BinaryOperator(Opcode::Add,idx,MODCONSTANT,"idx_add");
+    auto *idx_final=new BinaryOperator(Opcode::SRem,idx_add,MODCONSTANT,"idx_final");
     // if(flagArr[idx_final]) return valueArr[idx_final];
     auto *flagPtr = new GetElementPtrInst(flagArr, {idx_final}, "gep_" + memoFlagArrayName);
     auto *flagVal = new LoadInst(flagPtr, "load_" + memoFlagArrayName);
-    auto *cond = new ICmpInst(ICmpInst::Predicate::ICMP_NE, flagVal, new ConstantInt(IntegerType::getInstance(), 0), "icmp_" + memoFlagArrayName);
+    Instruction *cond = new ICmpInst(ICmpInst::Predicate::ICMP_EQ, flagVal, new ConstantInt(IntegerType::getInstance(), 1), "icmp_" + memoFlagArrayName);
+    // for(int i=0;i<args.size();++i)
+    // {
+    //     auto *argGep=new GetElementPtrInst(argsArr,{idx_final,new ConstantInt(IntegerType::getInstance(),i)},"gep_"+getMemoArgsArrayName(funcName)+"_"+to_string(i));
+    //     auto *argLoad=new LoadInst(argGep,"load_"+getMemoArgsArrayName(funcName)+"_"+to_string(i));
+    //     auto *argCmp=new ICmpInst(ICmpInst::Predicate::ICMP_EQ,argLoad,args[i],"icmp_args_"+to_string(i));
+    //     // 如果flag==1 && argsArray[i]==args[i]
+    //     // 则表示已经计算过且没有产生哈希冲突
+    //     cond=new BinaryOperator(Opcode::And,cond,argCmp,"cond_args_"+to_string(i));
+    //     condBB->insertBeforeTerminator(unique_ptr<Instruction>(argGep));
+    //     condBB->insertBeforeTerminator(unique_ptr<Instruction>(argLoad));
+    //     condBB->insertBeforeTerminator(unique_ptr<Instruction>(argCmp));
+    // }
     auto *br = new BranchInst(cond, thenBB, mergeBB);
     condBB->insertBeforeTerminator(unique_ptr<Instruction>(dynamic_cast<Instruction *>(idx)));
     condBB->insertBeforeTerminator(unique_ptr<Instruction>(idx_add));
@@ -113,6 +128,7 @@ bool MemoizationPass::runOnFunction(Function *func)
     Value *idx = getMemoIndex(args, func);
     Value *valueArr = module.getGlobalVariable(getMemoValueArrayName(funcName));
     Value *flagArr = module.getGlobalVariable(getMemoFlagArrayName(funcName));
+    //Value *argsArr=module.getGlobalVariable(getMemoArgsArrayName(funcName));
     // 在所有return前插入写回
     for (auto &bb : func->getBasicBlocks())
     {
@@ -131,6 +147,15 @@ bool MemoizationPass::runOnFunction(Function *func)
             auto *storeFlag = new StoreInst(new ConstantInt(IntegerType::getInstance(), 1), gepFlag);
             bb->insertBeforeTerminator(unique_ptr<Instruction>(gepFlag));
             bb->insertBeforeTerminator(unique_ptr<Instruction>(storeFlag));
+            // // 把当前参数存入args数组
+            // int args_num=args.size();
+            // for(int i=0;i<args_num;++i)
+            // {
+            //     auto *gepArg=new GetElementPtrInst(argsArr,{idx,new ConstantInt(IntegerType::getInstance(),i)},"gep_"+getMemoArgsArrayName(funcName)+"_"+to_string(i));
+            //     auto *storeArg=new StoreInst(args[i],gepArg);
+            //     bb->insertBeforeTerminator(unique_ptr<Instruction>(gepArg));
+            //     bb->insertBeforeTerminator(unique_ptr<Instruction>(storeArg));
+            // }
         }
     }
     if (verbose)

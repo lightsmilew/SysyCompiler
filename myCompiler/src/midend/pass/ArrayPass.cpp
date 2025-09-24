@@ -1,6 +1,7 @@
 #include "ArrayPass.h"
 using namespace std;
 using namespace optimization;
+// 如果store和load循环范围不一致也不能简单删除
 bool ArrayEliminationPass::runOnFunction(Function *func)
 {
     bool changed = false;

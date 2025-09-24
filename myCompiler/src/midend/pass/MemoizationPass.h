@@ -20,6 +20,10 @@ namespace optimization
         {
             return "__memo_value_" + funcName;
         }
+        std::string getMemoArgsArrayName(const std::string &funcName)
+        {
+            return "__memo_args_" + funcName;
+        }
         // 生成参数索引（所有参数为int，用哈希计算对应下标，模数为65535）
         Value *getMemoIndex(const std::vector<Value *> &args, Function *func);
 
