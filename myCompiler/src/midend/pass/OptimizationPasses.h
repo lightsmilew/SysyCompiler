@@ -16,6 +16,9 @@
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
 #include "SRFixedPass.h"
+#include "NormalizationPass.h"
+#include "FusionPass.h"
+#include "LoopConditionSwapPass.h"
 #include <vector>
 #include <string>
 #include <memory>

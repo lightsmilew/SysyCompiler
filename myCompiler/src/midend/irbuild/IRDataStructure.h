@@ -16,7 +16,7 @@ class Module;
 class User;
 class ArrayType;
 class Value;
-struct Loop;
+class Loop;
 // ===== Address Comparison =====
 std::string normalizeName(const std::string &name); // 归一化处理变量名
 bool isSameAddr(Value *a, Value *b);
@@ -833,8 +833,9 @@ public:
 
     string toString() const override;
 };
-struct Loop
+class Loop
 {
+public:
     BasicBlock *header;
     // blocks是循环体内的所有基本块
     // exits是循环体的出口基本块（可能有多个）

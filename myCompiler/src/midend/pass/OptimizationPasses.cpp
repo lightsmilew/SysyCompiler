@@ -211,7 +211,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 删除冗余store，如果store的值和原来load的值相同，则删除
         // 必须在函数内联之前，否则需要进行指针别名分析
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
-        //pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 消除数组消除pass后留下的gep指令，便于无用while消除
@@ -224,7 +224,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 进行循环展开后再来一次合并基本块
-        //pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // 这里进行指令合并
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // 消除简单ifelse
