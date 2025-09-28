@@ -400,7 +400,7 @@ enum class Opcode
     Mul,
     SDiv,
     SRem,
-    // 左移右移(算数左移右移)
+    // 左移右移(算术左移右移)
     Sll,
     Sra,
     FAdd,
@@ -429,11 +429,11 @@ enum class Opcode
     GetElementPtr,
 
     // 类型转换符
-    SIToFP,  // signed int (i32) to float
-    FPToSI,  // float to signed int (i32)
+    SIToFP,  // i32转float
+    FPToSI,  // float转i32
     BitCast, // 指针类型转换
-    Sext,    // 符号扩展
-    Trunc,   // 截断
+    Sext,    // i32转i64符号扩展
+    Trunc,   // i64转i32截断
 
     Call,
     Phi,
@@ -446,21 +446,21 @@ class Instruction : public User
 {
 public:
     Opcode Op;
-
-    Instruction(Type *ty, Opcode op, const string &name = "") // 无操作数的构造函数
+    // 无操作数的构造函数
+    Instruction(Type *ty, Opcode op, const string &name = "") 
         : User(ty, {}, name), Op(op)
     {
     }
-
-    Instruction(Type *ty, Opcode op, const vector<Value *> &operands, // 带操作数的构造函数
+    // 带操作数的构造函数
+    Instruction(Type *ty, Opcode op, const vector<Value *> &operands, 
                 const string &name = "")
         : User(ty, operands, name), Op(op)
     {
     }
-    Instruction *clone() const;             // 克隆指令
-    Opcode getOpcode() const { return Op; } // 获取操作符
+    Instruction *clone() const;                        // 克隆指令
+    Opcode getOpcode() const { return Op; }            // 获取操作符
     Instruction *cloneWithRename(const std::unordered_map<Value *,
-                                                          Value *> &valueMap,
+                                 Value *> &valueMap,
                                  string suffix) const; // 复制指令并重命名操作数
     string getOpcodeName() const;                      // 获取操作符名称
     bool isBinaryOp() const;                           // 是否为二元操作
@@ -575,48 +575,43 @@ public:
     int getAllocatedSize() const;                                     // 获取数组的元素总长度
     vector<size_t> getArrayEveryDimensionLength() const;              // 从左到右获取数组每一维的长度
     Value *getDest() const { return const_cast<AllocaInst *>(this); } // 获取目的操作数(本身)
+    Type *getGroundElementType() const;                               // 获取数组的基本元素类型
     string toString() const override;
-    Type *getGroundElementType() const
-    {
-        // 获取数组的基本元素类型
-        if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
-        {
-            return arrayType->getGroundElementType();
-        }
-        return AllocatedType; // 如果不是数组类型，返回自身
-    }
 };
 
 // ===== LoadInst Implementation =====
 class LoadInst : public Instruction
 {
 public:
+    // 32位系统
     LoadInst(Value *ptr, const string &name = "")
         : Instruction(getElementType(ptr), Opcode::Load,
                       vector<Value *>{ptr}, name) {}
 
-    Value *getDest() const { return const_cast<LoadInst *>(this); } // 获取目的操作数(本身)
-    Value *getPointer() const { return getOperandByIndex(0); }      // 获取指针操作数
-    Value *getOriginalPointer() const;                              // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *getDest() const;                     // 获取目的操作数(本身)
+    Value *getPointer() const;                  // 获取指针操作数
+    Value *getOriginalPointer() const;          // 获取原始存储指针(用于gep展开时递归获取最上层指针)
     string toString() const override;
 
 private:
-    static Type *getElementType(Value *ptr); // 获取指针指向的元素类型
+    static Type *getElementType(Value *ptr);    // 获取指针指向的元素类型
 };
 
 // ===== StoreInst Implementation =====
 class StoreInst : public Instruction
 {
 public:
+    // 32位系统
     StoreInst(Value *val, Value *ptr)
         : Instruction(VoidType::getInstance(), Opcode::Store,
                       vector<Value *>{val, ptr}) {}
+    // 可支持64位系统
     StoreInst(Opcode op, Value *val, Value *ptr)
         : Instruction(VoidType::getInstance(), op,
                       vector<Value *>{val, ptr}) {}
-    Value *getValueToStore() const { return getOperandByIndex(0); } // 获取要存储的值
-    Value *getPointer() const { return getOperandByIndex(1); }      // 获取存储的指针
-    Value *getOriginalPointer() const;                              // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *getValueToStore() const;              // 获取要存储的值
+    Value *getPointer() const;                   // 获取存储的指针
+    Value *getOriginalPointer() const;           // 获取原始存储指针(用于gep展开时递归获取最上层指针)
     string toString() const override;
 };
 
@@ -626,17 +621,17 @@ class CallInst : public Instruction
 public:
     CallInst(Function *func, const vector<Value *> &args, const string &name = "");
 
-    Function *getCalledFunction() const; // 获取被调用的函数
+    Function *getCalledFunction() const;        // 获取被调用的函数
 
-    vector<Value *> getArguments() const;      // 获取函数参数
-    vector<Value *> getIntArguments() const;   // 获取int类型参数
-    vector<Value *> getFloatArguments() const; // 获取float类型参数
-    vector<Value *> getPtrArguments() const;   // 获取指针类型参数
-    bool hasReturnValue() const { return !getType()->isVoidTy(); }
-    bool HasModifiedArray(Value *ptr) const; // 是否有修改副作用(修改全局变量或指针指向的值)
-    bool HasUsedArray(Value *ptr) const;     // 是否有使用数组副作用(使用全局数组或指针指向的数组)
-    bool ifHasSideEffects() const;           // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
-    Value *getDest() const;                  // 如果是void类型 返回空指针
+    vector<Value *> getArguments() const;       // 获取函数参数
+    vector<Value *> getIntArguments() const;    // 获取int类型参数
+    vector<Value *> getFloatArguments() const;  // 获取float类型参数
+    vector<Value *> getPtrArguments() const;    // 获取指针类型参数
+    bool hasReturnValue() const;                // 是否有返回值
+    bool HasModifiedArray(Value *ptr) const;    // 是否有修改副作用(修改全局变量或指针指向的值)
+    bool HasUsedArray(Value *ptr) const;        // 是否有使用数组副作用(使用全局数组或指针指向的数组)
+    bool ifHasSideEffects() const;              // 是否有副作用，目前只粗略判断-->判断是否有store指令，如果有store指令则有副作用
+    Value *getDest() const;                     // 如果是void类型 返回空指针
     string toString() const override;
 
 private:
@@ -648,21 +643,15 @@ private:
 class ReturnInst : public Instruction
 {
 public:
-    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {} // 无返回值
-    ReturnInst(Value *retVal)                                           // 有返回值
+    // 无返回值
+    ReturnInst() : Instruction(VoidType::getInstance(), Opcode::Ret) {} 
+    // 有返回值
+    ReturnInst(Value *retVal)                                           
         : Instruction(VoidType::getInstance(), Opcode::Ret,
                       vector<Value *>{retVal})
     {
     }
-
-    Value *getReturnValue() const // 获取返回值
-    {
-        if (getNumOperands() > 0)
-        {
-            return getOperandByIndex(0);
-        }
-        return nullptr;
-    }
+    Value *getReturnValue() const;             // 获取返回值
     string toString() const override;
 };
 
@@ -673,31 +662,25 @@ public:
     BasicBlock *TrueBlock;
     BasicBlock *FalseBlock;
 
-    BranchInst(BasicBlock *target) // 无条件跳转
+    // 无条件跳转
+    BranchInst(BasicBlock *target) 
         : Instruction(VoidType::getInstance(), Opcode::Br),
           TrueBlock(target), FalseBlock(nullptr)
     {
     }
-    BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock) // 有条件跳转
+    // 有条件跳转
+    BranchInst(Value *cond, BasicBlock *trueBlock, BasicBlock *falseBlock) 
         : Instruction(VoidType::getInstance(), Opcode::Br,
                       vector<Value *>{cond}),
           TrueBlock(trueBlock), FalseBlock(falseBlock)
     {
     }
-
-    bool isConditional() const { return getNumOperands() > 0; } // 是否为条件分支
-    Value *getCondition() const                                 // 获取条件
-    {
-        if (isConditional())
-        {
-            return getOperandByIndex(0);
-        }
-        return nullptr;
-    }
-    BasicBlock *getTrueBlock() const;
-    BasicBlock *getFalseBlock() const; // 获取假分支基本块
-    void setTrueBlock(BasicBlock *block);
-    void setFalseBlock(BasicBlock *block);
+    bool isConditional() const;             // 是否为条件分支
+    Value *getCondition() const;            // 获取条件
+    BasicBlock *getTrueBlock() const;       // 获取真分支基本块
+    BasicBlock *getFalseBlock() const;      // 获取假分支基本块
+    void setTrueBlock(BasicBlock *block);   // 设置真分支基本块
+    void setFalseBlock(BasicBlock *block);  // 设置假分支基本块
     string toString() const override;
 };
 
@@ -841,84 +824,25 @@ public:
     // exits是循环体的出口基本块（可能有多个）
     vector<BasicBlock *> blocks;
     vector<BasicBlock *> exits;
-    bool contains(Instruction *inst) const
-    {
-        return std::any_of(blocks.begin(), blocks.end(),
-                           [&](BasicBlock *bb)
-                           { return bb->containsByName(inst->getName()); });
-    }
-    bool containsBlock(BasicBlock *bb) const
-    {
-        return std::find(blocks.begin(), blocks.end(), bb) != blocks.end();
-    }
-    bool containsInBody(Instruction *inst) const
-    {
-        // 判断指令是否在循环体内(不包括header)
-        return std::any_of(blocks.begin(), blocks.end(),
-                           [&](BasicBlock *bb)
-                           {
-                               if (bb == header)
-                                   return false;
-                               return bb->containsByName(inst->getName());
-                           });
-    }
-    Value *getLoopCondition() const
-    {
-        BasicBlock *headerBlock = header;
-        Instruction *terminator = headerBlock->getTerminator();
-        if (auto brInst = dynamic_cast<BranchInst *>(terminator))
-        {
-            if (brInst->isConditional())
-            {
-                return brInst->getCondition();
-            }
-            else
-            {
-                return new ConstantInt(IntegerType::getInstance(), 1); // 如果没有条件，返回常量1
-            }
-        }
-        else
-        {
-            throw std::runtime_error("Loop header does not have a valid terminator instruction.");
-        }
-    }
-    bool IsInductionVar(const std::string &name) const
-    {
-        for (auto &inst : header->getInstructions())
-        {
-            if (inst->getName() == name)
-            {
-                if (auto phiInst = dynamic_cast<PhiInst *>(inst.get()))
-                {
-                    return true; // 如果是Phi指令，说明是归纳变量
-                }
-            }
-        }
-        return false; // 如果没有找到Phi指令，说明不是归纳变量
-    }
-    BasicBlock *getPreheader() const
-    {
-        // 寻找前驱基本块
-        for (auto &bb : header->getPredecessors())
-        {
-            // 如果不在blocks中
-            if (std::find(blocks.begin(), blocks.end(), bb) == blocks.end())
-            {
-                return bb;
-            }
-        }
-        throw std::runtime_error("Loop does not have a preheader.");
-    }
+    Loop(BasicBlock *h, const vector<BasicBlock *> &b, const vector<BasicBlock *> &e)
+        : header(h), blocks(b), exits(e) {}
+    Loop() : header(nullptr) {}
+    bool containsInst(Instruction *inst) const;         // 循环中是否包含某条指令
+    bool containsBlock(BasicBlock *bb) const;           // 循环中是否包含某个基本块
+    bool containsInBody(Instruction *inst) const;       // 循环体中是否包含某条指令
+    Value *getLoopCondition() const;                    // 获取循环条件(条件分支的条件)
+    bool IsInductionVar(const std::string &name) const; // 判断变量是否为归纳变量
+    BasicBlock *getPreheader() const;                   // 获取前置块(唯一前驱且不在循环内的基本块)
 };
 // ===== Function =====
 class Function : public Value
 {
 public:
-    vector<unique_ptr<BasicBlock>> BasicBlocks;
-    vector<unique_ptr<Argument>> Arguments;
-    vector<Loop> Loops; // 循环信息
-    Module *Parent;
-    bool isDeleted = false; // 标记函数是否被删除
+    vector<unique_ptr<BasicBlock>> BasicBlocks;// 基本块
+    vector<unique_ptr<Argument>> Arguments;    // 参数
+    vector<Loop> Loops;                        // 循环信息
+    Module *Parent;                            // 所属模块
+    bool isDeleted = false;                    // 标记函数是否被删除
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
         : Value(funcTy, name), Parent(parent), isDeleted(false) {}
 
@@ -962,8 +886,8 @@ public:
     GlobalVariable *addGlobalVariable(Type *type, const string &name,  // 添加全局变量
                                       Constant *initializer = nullptr,
                                       bool isConstant = false);
-    Function *getFunction(const string &name);             // 根据名称查找函数
-    GlobalVariable *getGlobalVariable(const string &name); // 根据名称查找全局变量
+    Function *getFunction(const string &name);                         // 根据名称查找函数
+    GlobalVariable *getGlobalVariable(const string &name);             // 根据名称查找全局变量
 
     string toString() const;
 

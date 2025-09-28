@@ -128,6 +128,11 @@ bool IfConversionPass::runOnFunction(Function *func)
                 needToDelete.push_back(it->release());
                 it = mergeInsts.erase(it);
                 changed = true;
+                if(verbose)
+                {
+                    debugInfo << "If Conversion: Replaced phi " << phi->getName()
+                              << " in " << mergeBB->getName() << " with select " << select->getName() << "\n";
+                }
             }
 
             // 修改bb末尾br为无条件跳转mergeBB

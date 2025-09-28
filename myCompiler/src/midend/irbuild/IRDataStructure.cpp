@@ -374,7 +374,7 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld ||Op==Opcode::Mulhd|| Op == Opcode::Slld ||
+           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
            Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isComparisonOp() const
@@ -475,7 +475,7 @@ bool Instruction::hasExternalUse(const Loop &loop, std::set<const Instruction *>
         else if (auto *inst = dynamic_cast<Instruction *>(user))
         {
             // 非 phi 指令，判断是否在循环外
-            if (!loop.contains(inst))
+            if (!loop.containsInst(inst))
             {
                 return true;
             }
@@ -742,6 +742,15 @@ std::string AllocaInst::toString() const
     ss << "%" << getName() << " = alloca " << AllocatedType->toString();
     return ss.str();
 }
+Type *AllocaInst::getGroundElementType() const
+{
+    // 获取数组的基本元素类型
+    if (auto arrayType = dynamic_cast<ArrayType *>(AllocatedType))
+    {
+        return arrayType->getGroundElementType();
+    }
+    return AllocatedType; // 如果不是数组类型，返回自身
+}
 
 Type *LoadInst::getElementType(Value *ptr)
 {
@@ -755,6 +764,14 @@ Type *LoadInst::getElementType(Value *ptr)
     }
     // 传入不是指针报错
     throw std::runtime_error("LoadInst: operand must be a pointer type");
+}
+Value *LoadInst::getDest() const
+{
+    return const_cast<LoadInst *>(this);
+}
+Value *LoadInst::getPointer() const
+{
+    return getOperandByIndex(0);
 }
 Value *LoadInst::getOriginalPointer() const
 {
@@ -783,6 +800,15 @@ std::string LoadInst::toString() const
     ss << "%" << getName() << " = load " << getType()->toString()
        << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
     return ss.str();
+}
+
+Value *StoreInst::getValueToStore() const
+{
+    return getOperandByIndex(0);
+}
+Value *StoreInst::getPointer() const
+{
+    return getOperandByIndex(1);
 }
 Value *StoreInst::getOriginalPointer() const
 {
@@ -896,6 +922,10 @@ vector<Value *> CallInst::getPtrArguments() const
         }
     }
     return args;
+}
+bool CallInst::hasReturnValue() const
+{
+    return !getType()->isVoidTy();
 }
 bool CallInst::HasModifiedArray(Value *value) const
 {
@@ -1114,6 +1144,14 @@ std::string CallInst::toString() const
     return ss.str();
 }
 
+Value *ReturnInst::getReturnValue() const
+{
+    if (getNumOperands() > 0)
+    {
+        return getOperandByIndex(0);
+    }
+    return nullptr;
+}
 std::string ReturnInst::toString() const
 {
     std::stringstream ss;
@@ -1126,6 +1164,19 @@ std::string ReturnInst::toString() const
         ss << "ret void";
     }
     return ss.str();
+}
+
+bool BranchInst::isConditional() const
+{
+    return getNumOperands() > 0;
+}
+Value *BranchInst::getCondition() const
+{
+    if (isConditional())
+    {
+        return getOperandByIndex(0);
+    }
+    return nullptr;
 }
 BasicBlock *BranchInst::getTrueBlock() const
 {
@@ -1590,7 +1641,75 @@ std::string Argument::toString() const
 {
     return "%" + getName();
 }
-
+// ===== Loop Implementation =====
+bool Loop::containsInst(Instruction *inst) const
+{
+    return std::any_of(blocks.begin(), blocks.end(),
+                       [&](BasicBlock *bb)
+                       { return bb->containsByName(inst->getName()); });
+}
+bool Loop::containsBlock(BasicBlock *bb) const
+{
+    return std::find(blocks.begin(), blocks.end(), bb) != blocks.end();
+}
+bool Loop::containsInBody(Instruction *inst) const
+{
+    // 判断指令是否在循环体内(不包括header)
+    return std::any_of(blocks.begin(), blocks.end(),
+                       [&](BasicBlock *bb)
+                       {
+                           if (bb == header)
+                               return false;
+                           return bb->containsByName(inst->getName());
+                       });
+}
+Value *Loop::getLoopCondition() const
+{
+    BasicBlock *headerBlock = header;
+    Instruction *terminator = headerBlock->getTerminator();
+    if (auto brInst = dynamic_cast<BranchInst *>(terminator))
+    {
+        if (brInst->isConditional())
+        {
+            return brInst->getCondition();
+        }
+        else
+        {
+            return new ConstantInt(IntegerType::getInstance(), 1); // 如果没有条件，返回常量1
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Loop header does not have a valid terminator instruction.");
+    }
+}
+bool Loop::IsInductionVar(const std::string &name) const
+{
+    for (auto &inst : header->getInstructions())
+    {
+        if (inst->getName() == name)
+        {
+            if (auto phiInst = dynamic_cast<PhiInst *>(inst.get()))
+            {
+                return true; // 如果是Phi指令，说明是归纳变量
+            }
+        }
+    }
+    return false; // 如果没有找到Phi指令，说明不是归纳变量
+}
+BasicBlock *Loop::getPreheader() const
+{
+    // 寻找前驱基本块
+    for (auto &bb : header->getPredecessors())
+    {
+        // 如果不在blocks中
+        if (std::find(blocks.begin(), blocks.end(), bb) == blocks.end())
+        {
+            return bb;
+        }
+    }
+    throw std::runtime_error("Loop does not have a preheader.");
+}
 // ===== Function Implementation =====
 BasicBlock *Function::addBasicBlock(const string &name)
 {

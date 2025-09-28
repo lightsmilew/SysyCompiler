@@ -26,6 +26,11 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
+                if(verbose)
+                {
+                    debugInfo << "Phi Elimination: Replaced single-input phi " << phi->getName()
+                              << " with its incoming value in " << bb->getName() << "\n";
+                }
                 continue;
             }
             // 如果所有输入都相同，直接替换，不需要产生copy指令
@@ -46,6 +51,10 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
+                if(verbose)
+                {
+                    debugInfo<<"Phi Elimination: Replaced all-input phi " << phi->getName()<<"\n";
+                }
                 continue;
             }
             vector<Value *> operands;
@@ -65,6 +74,11 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             needToDelete.push_back(it->release());
             it = insts.erase(it);
             changed = true;
+            if(verbose)
+            {
+                debugInfo << "Phi Elimination: Replaced multi-input phi " << phi->getName()
+                          << " with copies in predecessor blocks"<<"\n";
+            }
         }
     }
     // 遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
@@ -74,11 +88,6 @@ bool PhiEliminationPass::runOnFunction(Function *func)
         for (auto it = insts.begin(); it != insts.end();)
         {
             Instruction *inst = it->get();
-            if (!inst)
-            {
-                std::cerr << "inst is nullptr!" << std::endl;
-                continue;
-            }
             if (auto *copy = dynamic_cast<CopyInst *>(inst))
             {
                 if (copy->getSource()->getName() == copy->getDest()->getName())

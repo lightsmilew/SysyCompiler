@@ -83,7 +83,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
         // 如果循环体内有对该地址的修改，则不能外提
         if (auto loadOp = dynamic_cast<Instruction *>(addr))
         {
-            if (loop.contains(loadOp))
+            if (loop.containsInst(loadOp))
             {
                 // 如果addr是循环变量，则不能外提
                 return false;
@@ -140,7 +140,7 @@ bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop 
         if (auto *def = dynamic_cast<Instruction *>(op))
         {
             // 如果操作数是循环中的变量，则不是循环不变
-            if (loop.contains(def))
+            if (loop.containsInst(def))
             {
                 return false;
             }
@@ -823,7 +823,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         for (size_t i = 0; i < iPhi->getNumIncomingValues(); ++i)
         {
             auto *iInitInst = dynamic_cast<Instruction *>(iPhi->getIncomingValue(i));
-            if (iInitInst == nullptr || !loop.contains(iInitInst))
+            if (iInitInst == nullptr || !loop.containsInst(iInitInst))
             {
                 iInit = iPhi->getIncomingValue(i);
                 break;
@@ -832,7 +832,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
         for (size_t i = 0; i < sumPhi->getNumIncomingValues(); ++i)
         {
             auto *sumInitInst = dynamic_cast<Instruction *>(sumPhi->getIncomingValue(i));
-            if (sumInitInst == nullptr || !loop.contains(sumInitInst))
+            if (sumInitInst == nullptr || !loop.containsInst(sumInitInst))
             {
                 sumInit = sumPhi->getIncomingValue(i);
                 break;

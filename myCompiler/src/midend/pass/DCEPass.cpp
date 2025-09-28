@@ -110,7 +110,6 @@ void DeadCodeEliminationPass::markLiveInstructions(Function *func, std::unordere
         for (auto &instPtr : bb->getInstructions())
         {
             Instruction *inst = instPtr.get();
-            // if(!inst)continue;
             //  如果是关键指令
             if (isInstructionCritical(inst))
             {
