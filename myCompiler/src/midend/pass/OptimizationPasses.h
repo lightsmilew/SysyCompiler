@@ -55,7 +55,8 @@ namespace optimization
 
         // 以下是调试内容
         O15,
-        O16
+        O16,
+        O17
     };
 
     // 创建优化Pass管道的工厂函数

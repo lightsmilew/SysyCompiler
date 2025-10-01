@@ -55,6 +55,8 @@ int main(int argc, const char *argv[])
                     opt_level = optimization::OptimizationLevel::O15;
                 else if (optstr == "-O16")
                     opt_level = optimization::OptimizationLevel::O16;
+                else if (optstr == "-O17")
+                    opt_level = optimization::OptimizationLevel::O17;
                 else
                 {
                     cerr << "Unknown optimization level: " << argv[i] << endl;
@@ -86,6 +88,8 @@ int main(int argc, const char *argv[])
                     opt_level = optimization::OptimizationLevel::O15;
                 else if (optstr == "-O16")
                     opt_level = optimization::OptimizationLevel::O16;
+                else if(optstr == "-O17")
+                    opt_level = optimization::OptimizationLevel::O17;
                 else
                 {
                     cerr << "Unknown optimization level: " << argv[i] << endl;
@@ -171,6 +175,9 @@ int main(int argc, const char *argv[])
             break;
         case optimization::OptimizationLevel::O16:
             opt_str = "O16";
+            break;
+        case optimization::OptimizationLevel::O17:
+            opt_str = "O17";
             break;
         default:
             opt_str = "O0";

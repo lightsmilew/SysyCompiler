@@ -377,6 +377,11 @@ bool Instruction::isBinaryOp() const
            Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
            Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
+bool Instruction::isCommutativeOp() const
+{
+    return Op == Opcode::Add || Op == Opcode::Mul || Op == Opcode::And || Op == Opcode::Or || Op == Opcode::Xor ||
+           Op == Opcode::Xnor || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::FAdd || Op == Opcode::FMul;
+}
 bool Instruction::isComparisonOp() const
 {
     return Op == Opcode::ICmp || Op == Opcode::FCmp;
@@ -599,6 +604,17 @@ Instruction *Instruction::clone() const
     }
 }
 
+void BinaryOperator::exchangeOperands()
+{
+    if (isCommutativeOp())
+    {
+        std::swap(Operands[0], Operands[1]);
+    }
+    else
+    {
+        throw std::runtime_error("exchangeOperands can only be called on commutative operators");
+    }
+}
 std::string BinaryOperator::toString() const
 {
     std::stringstream ss;
@@ -634,6 +650,36 @@ std::string UnaryOperator::toString() const
     return ss.str();
 }
 
+void ICmpInst::exchangeOperands()
+{
+    // 交换左右操作数
+    std::swap(Operands[0], Operands[1]);
+
+    // 调整谓词
+    switch (Pred)
+    {
+    case ICMP_EQ:
+        // 相等不变
+        break;
+    case ICMP_NE:
+        // 不等不变
+        break;
+    case ICMP_SLT:
+        Pred = ICMP_SGT;
+        break;
+    case ICMP_SLE:
+        Pred = ICMP_SGE;
+        break;
+    case ICMP_SGT:
+        Pred = ICMP_SLT;
+        break;
+    case ICMP_SGE:
+        Pred = ICMP_SLE;
+        break;
+    default:
+        throw std::runtime_error("Unknown ICmp predicate");
+    }
+}
 std::string ICmpInst::toString() const
 {
     std::stringstream ss;
@@ -667,6 +713,36 @@ std::string ICmpInst::toString() const
     return ss.str();
 }
 
+void FCmpInst::exchangeOperands()
+{
+    // 交换左右操作数
+    std::swap(Operands[0], Operands[1]);
+
+    // 调整谓词
+    switch (Pred)
+    {
+    case FCMP_OEQ:
+        // 相等不变
+        break;
+    case FCMP_ONE:
+        // 不等不变
+        break;
+    case FCMP_OLT:
+        Pred = FCMP_OGT;
+        break;
+    case FCMP_OLE:
+        Pred = FCMP_OGE;
+        break;
+    case FCMP_OGT:
+        Pred = FCMP_OLT;
+        break;
+    case FCMP_OGE:
+        Pred = FCMP_OLE;
+        break;
+    default:
+        throw std::runtime_error("Unknown FCmp predicate");
+    }
+}
 std::string FCmpInst::toString() const
 {
     std::stringstream ss;

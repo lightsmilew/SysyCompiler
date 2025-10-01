@@ -464,6 +464,7 @@ public:
                                  string suffix) const; // 复制指令并重命名操作数
     string getOpcodeName() const;                      // 获取操作符名称
     bool isBinaryOp() const;                           // 是否为二元操作
+    bool isCommutativeOp() const;                      // 是否为交换律操作
     bool isComparisonOp() const;                       // 是否为比较操作
     bool isTerminator() const;                         // 是否为终结指令
     bool isCopy() const;                               // 是否为复制指令
@@ -483,7 +484,7 @@ public:
                    const string &name = "")
         : Instruction(lhs->getType(), op,
                       vector<Value *>{lhs, rhs}, name) {}
-
+    void exchangeOperands();                                              // 交换左右操作数(仅对交换律操作有效)
     Value *getDest() const { return const_cast<BinaryOperator *>(this); } // 获取目的操作数(本身)
     Value *getLHS() const { return getOperandByIndex(0); }                // 获取左操作数
     Value *getRHS() const { return getOperandByIndex(1); }                // 获取右操作数
@@ -528,6 +529,7 @@ public:
     Value *getDest() const { return const_cast<ICmpInst *>(this); } // 获取目的操作数(本身)
     Value *getLHS() const { return getOperandByIndex(0); }          // 获取左操作数
     Value *getRHS() const { return getOperandByIndex(1); }          // 获取右操作数
+    void exchangeOperands();                                        // 交换左右操作数并调整谓词
     string toString() const override;
 };
 
@@ -556,6 +558,7 @@ public:
     Value *getDest() const { return const_cast<FCmpInst *>(this); } // 获取目的操作数(本身)
     Value *getLHS() const { return getOperandByIndex(0); }          // 获取左操作数
     Value *getRHS() const { return getOperandByIndex(1); }          // 获取右操作数
+    void exchangeOperands();                                        // 交换左右操作数并调整谓词
     string toString() const override;
 };
 

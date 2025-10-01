@@ -578,9 +578,9 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                 {
                     if (verbose)
                     {
-                        debugInfo << "Found constant addition chain: ";
+                        debugInfo << "Found constant addition chain: \n";
                         for (auto *chainInst : chainInsts)
-                            debugInfo << chainInst->getName() << " ";
+                            debugInfo << chainInst->toString() << "\n";
                         debugInfo << std::endl;
                     }
                     Value *addBase = next; // 最后一个非常量
@@ -637,9 +637,9 @@ bool AddChainReductionPass::runOnFunction(Function *func)
             {
                 if (verbose)
                 {
-                    debugInfo << "Found pointer addition chain: ";
+                    debugInfo << "Found pointer addition chain: \n";
                     for (auto *chainInst : ptrChainInsts)
-                        debugInfo << chainInst->getName() << " ";
+                        debugInfo << chainInst->toString() << "\n";
                     debugInfo << std::endl;
                 }
                 // 归约为 y + x * n
