@@ -236,6 +236,7 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
 }
 bool BasicBlockMergePass::runOnFunction(Function *func)
 {
+    //std::cout << func->toString() << "\n";
     bool changed = false;
     auto &bbs = func->getBasicBlocks();
     for (auto it = bbs.begin(); it != bbs.end();)
@@ -296,6 +297,27 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         {
             if (auto *phi = dynamic_cast<PhiInst *>(user))
             {
+
+                // 如果有多个输入块，且存在以下情况:
+                // 一个输入来自bb，一个输入来自succ，则把原来bb的输入删除
+                int fromBBIndex = -1, fromSuccIndex = -1;
+                for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
+                {
+                    if (phi->getIncomingBlock(i) == bb)
+                    {
+                        fromBBIndex = i;
+                    }
+                    else if (phi->getIncomingBlock(i) == succ)
+                    {
+                        fromSuccIndex = i;
+                    }
+                }
+                if (fromBBIndex != -1 && fromSuccIndex != -1)
+                {
+                    // 删除bb的输入
+                    phi->removeIncoming(fromBBIndex);
+                }
+                // 正常处理：
                 // 替换phi的输入块
                 for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
                 {
@@ -331,6 +353,7 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         }
         // 不递增it，因为当前bb可能还能继续合并
     }
+    // std::cout << func->toString() << "\n";
     // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
     return changed;
 }

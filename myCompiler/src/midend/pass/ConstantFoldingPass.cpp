@@ -465,46 +465,46 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
-                // // 有条件跳转指令替换为无条件跳转
-                // if (inst && inst->getOpcode() == Opcode::Br)
-                // {
-                //     auto *br = dynamic_cast<BranchInst *>(inst);
-                //     if (br->isConditional())
-                //     {
-                //         if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
-                //         {
-                //             BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+                // 有条件跳转指令替换为无条件跳转
+                if (inst && inst->getOpcode() == Opcode::Br)
+                {
+                    auto *br = dynamic_cast<BranchInst *>(inst);
+                    if (br->isConditional())
+                    {
+                        if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
+                        {
+                            BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
 
-                //             // 替换为无条件跳转
-                //             auto *newBr = new BranchInst(targetBB);
-                //             inst->replaceAllUsesWith(newBr);
-                //             // 从操作数中移除自己
-                //             inst->removeThisFromOperands();
-                //             needToDelete.push_back(it->release());
-                //             it = insts.erase(it);
-                //             bb->addInstruction(std::unique_ptr<Instruction>(newBr));
-                //             // 更新cfg 从后继中删除永假块
-                //             if (br->FalseBlock == targetBB)
-                //             {
-                //                 bb->removeSuccessor(br->TrueBlock);
-                //                 br->TrueBlock->removePredecessor(bb.get());
-                //             }
-                //             else if (br->TrueBlock == targetBB)
-                //             {
-                //                 bb->removeSuccessor(br->FalseBlock);
-                //                 br->FalseBlock->removePredecessor(bb.get());
-                //             }
-                //             if (verbose)
-                //             {
-                //                 debugInfo << "Constant folding: Conditional branch to "
-                //                           << targetBB->getName() << "\n";
-                //             }
-                //             changed = true;
-                //             localChanged = true;
-                //             continue;
-                //         }
-                //     }
-                // }
+                            // 替换为无条件跳转
+                            auto *newBr = new BranchInst(targetBB);
+                            inst->replaceAllUsesWith(newBr);
+                            // 从操作数中移除自己
+                            inst->removeThisFromOperands();
+                            needToDelete.push_back(it->release());
+                            it = insts.erase(it);
+                            bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                            // 更新cfg 从后继中删除永假块
+                            if (br->FalseBlock == targetBB)
+                            {
+                                bb->removeSuccessor(br->TrueBlock);
+                                br->TrueBlock->removePredecessor(bb.get());
+                            }
+                            else if (br->TrueBlock == targetBB)
+                            {
+                                bb->removeSuccessor(br->FalseBlock);
+                                br->FalseBlock->removePredecessor(bb.get());
+                            }
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: Conditional branch to "
+                                          << targetBB->getName() << "\n";
+                            }
+                            changed = true;
+                            localChanged = true;
+                            continue;
+                        }
+                    }
+                }
 
                 ++it;
             }

@@ -5,6 +5,7 @@ using namespace optimization;
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
+    //std::cout << func->toString() << "\n";
     // 先删除不可达基本块（前驱为空且不是入口块）
     auto &bbs = func->getBasicBlocks();
 
@@ -20,6 +21,14 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             {
                 toDelete.push_back(bb);
                 debugInfo<<"delete block:"<<bb->getName()<<std::endl;
+            }
+            else if(bb!=entry&&bb->getPredecessors().size()==1&&bb->getPredecessors()[0]==bb)
+            {
+                // 自己是自己的前驱，死循环块
+                toDelete.push_back(bb);
+                bb->removePredecessor(bb);
+                bb->removeSuccessor(bb);
+                debugInfo<<"delete self-loop block:"<<bb->getName()<<std::endl;
             }
         }
         // 对所有 phi 指令，移除对将要删除块的引用

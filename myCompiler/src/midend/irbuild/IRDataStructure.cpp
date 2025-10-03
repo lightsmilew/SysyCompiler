@@ -1321,6 +1321,8 @@ void PhiInst::removeIncoming(unsigned index)
         removeOperandByIndex(index);
         // 删除IncomingValues中的对应块
         IncomingValues.erase(IncomingValues.begin() + index);
+        // 删除基本块的使用关系
+        IncomingValues[index]->removeUser(this);
     }
     else
     {

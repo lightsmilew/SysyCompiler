@@ -4,6 +4,7 @@ using namespace optimization;
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func)
 {
+    //std::cout << func->toString() << "\n";
     bool changed = false;
     for (auto &bb : func->getBasicBlocks())
     {
@@ -26,7 +27,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
-                if(verbose)
+                if (verbose)
                 {
                     debugInfo << "Phi Elimination: Replaced single-input phi " << phi->getName()
                               << " with its incoming value in " << bb->getName() << "\n";
@@ -51,9 +52,9 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 needToDelete.push_back(it->release());
                 it = insts.erase(it);
                 changed = true;
-                if(verbose)
+                if (verbose)
                 {
-                    debugInfo<<"Phi Elimination: Replaced all-input phi " << phi->getName()<<"\n";
+                    debugInfo << "Phi Elimination: Replaced all-input phi " << phi->getName() << "\n";
                 }
                 continue;
             }
@@ -66,18 +67,28 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 // 在终结指令前插入
                 auto rawPtr = new CopyInst(val, phi->getName());
                 std::unique_ptr<Instruction> copyInst(rawPtr);
-                pred->insertBeforeTerminator(std::move(copyInst));
+                if (pred == bb.get())
+                {
+                    // 如果前驱块是自己，直接插入到当前位置
+                    it=insts.insert(it, std::move(copyInst));
+                    ++it;
+                }
+                else
+                {
+                    pred->insertBeforeTerminator(std::move(copyInst));
+                }
             }
             // 从基本块中删除原来指令，phi对应value仍然保留
             // 从所有phi的操作数中删除自己
             phi->removeThisFromOperands();
             needToDelete.push_back(it->release());
             it = insts.erase(it);
+            // std::cout<<func->toString()<<"\n";
             changed = true;
-            if(verbose)
+            if (verbose)
             {
-                debugInfo << "Phi Elimination: Replaced multi-input phi " << phi->getName()
-                          << " with copies in predecessor blocks"<<"\n";
+                debugInfo << "Phi Elimination: Replaced multi-input phi " << phi->toString()
+                          << " with copies in predecessor blocks" << "\n";
             }
         }
     }

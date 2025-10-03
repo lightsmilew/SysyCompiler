@@ -148,6 +148,7 @@ int main(int argc, const char *argv[])
         cerr << "Semantic analysis failed: " << e.what() << endl;
         return 1;
     }
+    // 这里修改输出的label
     IRBuilder irbuilder(debugMode);
     auto ir_module = irbuilder.buildModule(ast_root);
     // 优化
