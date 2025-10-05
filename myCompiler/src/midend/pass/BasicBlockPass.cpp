@@ -236,125 +236,206 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
 }
 bool BasicBlockMergePass::runOnFunction(Function *func)
 {
-    //std::cout << func->toString() << "\n";
+    // std::cout<<"Before BasicBlockMergePass:\n";
+    // std::cout<<func->toString()<<"\n";
     bool changed = false;
-    auto &bbs = func->getBasicBlocks();
-    for (auto it = bbs.begin(); it != bbs.end();)
+    // 如果删除不可达基本块后还能合并则继续合并
+    bool localchanged = true;
+    while (localchanged)
     {
-        BasicBlock *bb = it->get();
-        if (!bb)
+        localchanged = false;
+        auto &bbs = func->getBasicBlocks();
+        for (auto it = bbs.begin(); it != bbs.end();)
         {
-            ++it;
-            continue;
-        }
-        // 只合并只有一个后继且后继只有一个前驱的情况
-        auto *succ = (bb->getSuccessors().size() == 1) ? bb->getSuccessors()[0] : nullptr;
-        if (!succ || succ->getPredecessors().size() != 1 || succ == func->getEntryBlock())
-        {
-            ++it;
-            continue; // 不是单一后继或后继不是单一前驱，跳过
-        }
-        // 判断succ是否为数组初始化块
-        bool isArrayInit = false;
-        // 1. 当前块倒数第二条是AllocaInst
-        if (bb->getInstructions().size() >= 2 &&
-            dynamic_cast<AllocaInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get()))
-        {
-            isArrayInit = true;
-        }
-        // 2. 或者当前块的前驱倒数第二条是AllocaInst(因为最后一条是branch指令)
-        for (auto *pred : bb->getPredecessors())
-        {
-            if (pred->getInstructions().size() >= 2 &&
-                dynamic_cast<AllocaInst *>(pred->getInstructions()[pred->getInstructions().size() - 2].get()))
+            BasicBlock *bb = it->get();
+            if (!bb)
+            {
+                ++it;
+                continue;
+            }
+            // 只合并只有一个后继且后继只有一个前驱的情况
+            auto *succ = (bb->getSuccessors().size() == 1) ? bb->getSuccessors()[0] : nullptr;
+            if (!succ || succ->getPredecessors().size() != 1 || succ == func->getEntryBlock())
+            {
+                ++it;
+                continue; // 不是单一后继或后继不是单一前驱，跳过
+            }
+            // 判断succ是否为数组初始化块
+            bool isArrayInit = false;
+            // 1. 当前块倒数第二条是AllocaInst
+            if (bb->getInstructions().size() >= 2 &&
+                dynamic_cast<AllocaInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get()))
             {
                 isArrayInit = true;
-                break;
             }
-        }
-        if (isArrayInit)
-        {
-            ++it;
-            continue;
-        }
-        // 合并succ到bb
-        auto &bbInsts = bb->getInstructions();
-        auto &succInsts = succ->getInstructions();
-        // 移除bb末尾的跳转指令
-        if (!bbInsts.empty() && bbInsts.back()->isTerminator())
-        {
-            bbInsts.back()->removeThisFromOperands();
-            bbInsts.pop_back();
-        }
-        // 把succ的所有指令移动到bb
-        for (auto &inst : succInsts)
-        {
-            bbInsts.push_back(std::move(inst));
-        }
-        succInsts.clear();
-        // 替换phi输入到bb
-        for (auto &user : succ->getUsers())
-        {
-            if (auto *phi = dynamic_cast<PhiInst *>(user))
+            // 2. 或者当前块的前驱倒数第二条是AllocaInst(因为最后一条是branch指令)
+            for (auto *pred : bb->getPredecessors())
             {
+                if (pred->getInstructions().size() >= 2 &&
+                    dynamic_cast<AllocaInst *>(pred->getInstructions()[pred->getInstructions().size() - 2].get()))
+                {
+                    isArrayInit = true;
+                    break;
+                }
+            }
+            if (isArrayInit)
+            {
+                ++it;
+                continue;
+            }
+            // 合并succ到bb
+            auto &bbInsts = bb->getInstructions();
+            auto &succInsts = succ->getInstructions();
+            // 移除bb末尾的跳转指令
+            if (!bbInsts.empty() && bbInsts.back()->isTerminator())
+            {
+                bbInsts.back()->removeThisFromOperands();
+                bbInsts.pop_back();
+            }
+            // 把succ的所有指令移动到bb
+            for (auto &inst : succInsts)
+            {
+                bbInsts.push_back(std::move(inst));
+            }
+            succInsts.clear();
+            // 替换phi输入到bb
+            for (auto &user : succ->getUsers())
+            {
+                if (auto *phi = dynamic_cast<PhiInst *>(user))
+                {
 
-                // 如果有多个输入块，且存在以下情况:
-                // 一个输入来自bb，一个输入来自succ，则把原来bb的输入删除
-                int fromBBIndex = -1, fromSuccIndex = -1;
-                for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
-                {
-                    if (phi->getIncomingBlock(i) == bb)
+                    // 如果有多个输入块，且存在以下情况:
+                    // 一个输入来自bb，一个输入来自succ，则把原来bb的输入删除
+                    int fromBBIndex = -1, fromSuccIndex = -1;
+                    for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
                     {
-                        fromBBIndex = i;
+                        if (phi->getIncomingBlock(i) == bb)
+                        {
+                            fromBBIndex = i;
+                        }
+                        else if (phi->getIncomingBlock(i) == succ)
+                        {
+                            fromSuccIndex = i;
+                        }
                     }
-                    else if (phi->getIncomingBlock(i) == succ)
+                    if (fromBBIndex != -1 && fromSuccIndex != -1)
                     {
-                        fromSuccIndex = i;
+                        // 删除bb的输入
+                        phi->removeIncoming(fromBBIndex);
                     }
-                }
-                if (fromBBIndex != -1 && fromSuccIndex != -1)
-                {
-                    // 删除bb的输入
-                    phi->removeIncoming(fromBBIndex);
-                }
-                // 正常处理：
-                // 替换phi的输入块
-                for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
-                {
-                    if (phi->getIncomingBlock(i) == succ)
+                    // 正常处理：
+                    // 替换phi的输入块
+                    for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
                     {
-                        phi->setIncomingBlock(i, bb);
+                        if (phi->getIncomingBlock(i) == succ)
+                        {
+                            phi->setIncomingBlock(i, bb);
+                        }
                     }
                 }
             }
-        }
-        // 更新CFG
-        for (auto *succSucc : succ->getSuccessors())
-        {
-            bb->addSuccessor(succSucc);
-            succSucc->removePredecessor(succ);
-            succSucc->addPredecessor(bb);
-        }
-        bb->removeSuccessor(succ);
-        // 移除succ
-        for (auto succIt = bbs.begin(); succIt != bbs.end(); ++succIt)
-        {
-            if (succIt->get() == succ)
+            // 更新CFG
+            for (auto *succSucc : succ->getSuccessors())
             {
-                needToDelete.push_back(succIt->release());
-                bbs.erase(succIt);
-                break;
+                bb->addSuccessor(succSucc);
+                succSucc->removePredecessor(succ);
+                succSucc->addPredecessor(bb);
+            }
+            bb->removeSuccessor(succ);
+            // 移除succ
+            for (auto succIt = bbs.begin(); succIt != bbs.end(); ++succIt)
+            {
+                if (succIt->get() == succ)
+                {
+                    needToDelete.push_back(succIt->release());
+                    bbs.erase(succIt);
+                    break;
+                }
+            }
+            changed = true;
+            localchanged = true;
+            if (verbose)
+            {
+                debugInfo << "BasicBlockMergePass: Merged " << succ->getName() << " into " << bb->getName() << "\n";
+            }
+            // 不递增it，因为当前bb可能还能继续合并
+        }
+        // 复用死代码消除的不可达块删除代码
+        // 删除不可达基本块
+        auto &_bbs = func->getBasicBlocks();
+
+        if (!_bbs.empty())
+        {
+            BasicBlock *entry = _bbs[0].get();
+            // 先收集所有将要删除的不可达基本块
+            std::vector<BasicBlock *> toDelete;
+            for (auto &bbPtr : _bbs)
+            {
+                BasicBlock *bb = bbPtr.get();
+                if (bb != entry && bb->getPredecessors().empty())
+                {
+                    toDelete.push_back(bb);
+                    debugInfo << "delete block:" << bb->getName() << std::endl;
+                }
+                else if (bb != entry && bb->getPredecessors().size() == 1 && bb->getPredecessors()[0] == bb)
+                {
+                    // 自己是自己的前驱，死循环块
+                    toDelete.push_back(bb);
+                    bb->removePredecessor(bb);
+                    bb->removeSuccessor(bb);
+                    debugInfo << "delete self-loop block:" << bb->getName() << std::endl;
+                }
+            }
+            // 对所有 phi 指令，移除对将要删除块的引用
+            for (auto &bbPtr : bbs)
+            {
+                BasicBlock *bb = bbPtr.get();
+                auto &insts = bb->getInstructions();
+                for (auto &instPtr : insts)
+                {
+                    if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+                    {
+                        for (BasicBlock *delBB : toDelete)
+                        {
+                            unsigned index = phi->getIndexByBasicBlock(delBB);
+                            if (index == -1)
+                                continue; // 如果没有这个前驱块，跳过
+                            // 删除对应的前驱块和值
+                            phi->removeIncoming(index);
+                        }
+                        //  如果只剩一个incoming，直接替换
+                        if (phi->getNumIncomingValues() == 1)
+                        {
+                            Value *incomingValue = phi->getIncomingValue(0);
+                            phi->replaceAllUsesWith(incomingValue);
+                        }
+                    }
+                }
+            }
+            for (auto it = _bbs.begin(); it != _bbs.end();)
+            {
+                BasicBlock *bb = it->get();
+                if (bb != entry && bb->getPredecessors().empty())
+                {
+                    // 从后继中删除自身
+                    for (auto *succ : bb->getSuccessors())
+                    {
+                        succ->removePredecessor(bb);
+                    }
+                    // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
+                    needToDelete.push_back(it->release());
+                    // 从基本块列表中删除
+                    it = _bbs.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
             }
         }
-        changed = true;
-        if (verbose)
-        {
-            debugInfo << "BasicBlockMergePass: Merged " << succ->getName() << " into " << bb->getName() << "\n";
-        }
-        // 不递增it，因为当前bb可能还能继续合并
     }
-    // std::cout << func->toString() << "\n";
-    // func->setLoops(ControlFlowAnalysis::findLoops(func)); // 重新计算循环
+    // std::cout<<"After BasicBlockMergePass:\n";
+    // std::cout<<func->toString()<<"\n";
     return changed;
 }
 bool BasicBlockReorderPass::runOnFunction(Function *func)

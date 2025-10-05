@@ -1151,7 +1151,7 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
             continue;
 
         // 9. 完全展开
-        if (tripCount > 0 && tripCount <= 16)
+        if (tripCount > 0 && tripCount <= 100)
         {
             auto &preInsts = preheader->getInstructions();
             auto insertPos = preInsts.size();

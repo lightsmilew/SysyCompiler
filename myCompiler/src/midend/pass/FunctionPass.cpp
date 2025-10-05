@@ -82,16 +82,18 @@ bool FunctionInliningPass::shouldInline(Function *callee)
         if (onlyArithmetic)
             return true;
     }
-    auto loops = callee->getLoops();
-    auto size_loops = loops.size();
-    if (size_loops == 1 && loops[0].blocks.size() <= 2)
-        return true;                               // 如果只有一个循环且循环体只有一个基本块，允许内联
-    size_loops = size_loops == 0 ? 1 : size_loops; // 避免除0
-    auto basicBlockCount = callee->getBasicBlocks().size();
-    // 不内联递归/库函数/过大函数/控制流复杂
-    if (callee->getInstructionCount() > 64 || basicBlockCount / size_loops > 5)
-        return false;
-    return true;
+    // // 原来的复杂判断
+    // auto loops = callee->getLoops();
+    // auto size_loops = loops.size();
+    // if (size_loops == 1 && loops[0].blocks.size() <= 2)
+    //     return true;                               // 如果只有一个循环且循环体只有一个基本块，允许内联
+    // size_loops = size_loops == 0 ? 1 : size_loops; // 避免除0
+    // auto basicBlockCount = callee->getBasicBlocks().size();
+    // // 不内联递归/库函数/过大函数/控制流复杂
+    // if (callee->getInstructionCount() > 64 || basicBlockCount / size_loops > 5)
+    //     return false;
+    // return true;
+    return callee->getInstructionCount() <= 200; // 指令数不超过200条允许内联
 }
 // 内联实现（支持多基本块，正确处理多分支return）
 int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos)
