@@ -114,18 +114,17 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 int minK = kList.front();
                 int maxK = kList.back();
 
-                auto *minKthen = new BasicBlock("min_k_then", func);
                 auto *loopCond = new BasicBlock("loop_cond", func);
                 auto *loopBody = new BasicBlock("loop_body", func);
                 auto *loopExit = new BasicBlock("loop_exit", func);
                 // 比较指令min(i,maxK+1)
                 auto *icmpMin = new ICmpInst(ICmpInst::ICMP_SLT, iVar, new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_icmp");
-                auto *condbr = new BranchInst(icmpMin, minKthen, loopCond);
+                auto *bbBrToCond = new BranchInst(loopCond);
                 // 构建合流指令
                 auto *kPhi = new PhiInst(IntegerType::getInstance(), "tk_loop");
-                auto *min_i_maxK = new PhiInst(IntegerType::getInstance(), "min_i_maxK");
+                auto *selectMin_i_maxK = new SelectInst(icmpMin,iVar,new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_i_maxk_sel");
                 // 设置循环条件
-                auto *icmpLoop = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, min_i_maxK, "loop_cond_icmp");
+                auto *icmpLoop = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, selectMin_i_maxK, "loop_cond_icmp");
                 // 设置跳转指令
                 auto *brLoop = new BranchInst(icmpLoop, loopBody, loopExit);
                 // 设置循环体指令
@@ -137,8 +136,6 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 // 设置初始值
                 kPhi->addIncoming(new ConstantInt(IntegerType::getInstance(), minK), bb);
                 kPhi->addIncoming(incK, loopBody);
-                min_i_maxK->addIncoming(new ConstantInt(IntegerType::getInstance(), maxK + 1), bb);
-                min_i_maxK->addIncoming(iVar, minKthen);
                 // 将原来最外层if退出块指令复制到loopExit
                 for (auto &instPtr : exitBB->getInstructions())
                 {
@@ -156,13 +153,11 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                         phi->replaceIncomingBasicBlock(exitBB, loopExit);
                     }
                 }
-                bb->addInstruction(std::unique_ptr<Instruction>(icmpMin));
-                bb->addInstruction(std::unique_ptr<Instruction>(condbr));
-                // 添加then跳转到循环条件-->不需要，因为cond块刚好在then块后面
-                // minKthen->addInstruction(std::unique_ptr<Instruction>(thenBrToCond));
+                bb->addInstruction(std::unique_ptr<Instruction>(bbBrToCond));
                 // 将新构造的指令添加到基本块
                 loopCond->addInstruction(std::unique_ptr<Instruction>(kPhi));
-                loopCond->addInstruction(std::unique_ptr<Instruction>(min_i_maxK));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(icmpMin));
+                loopCond->addInstruction(std::unique_ptr<Instruction>(selectMin_i_maxK));
                 loopCond->addInstruction(std::unique_ptr<Instruction>(icmpLoop));
                 loopCond->addInstruction(std::unique_ptr<Instruction>(brLoop));
                 // 添加循环体指令
@@ -174,12 +169,6 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 // 建立原来ifthen前驱与循环条件的连接
                 bb->addSuccessor(loopCond);
                 loopCond->addPredecessor(bb);
-                // bb跳转到ifthen，即i比maxk+1小
-                bb->addSuccessor(minKthen);
-                minKthen->addPredecessor(bb);
-                // minKthen跳转到loopCond
-                loopCond->addPredecessor(minKthen);
-                minKthen->addSuccessor(loopCond);
                 // 将原来最外层的exit的后继块复制到loopExit
                 for (auto *succ : exitBB->getSuccessors())
                 {
@@ -194,8 +183,6 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 loopExit->addPredecessor(loopCond);
                 loopBody->addPredecessor(loopCond);
                 loopBody->addSuccessor(loopCond);
-                // minKthen放在最前面可以减少一条分支指令
-                func->addBasicBlock(unique_ptr<BasicBlock>(minKthen));
                 func->addBasicBlock(unique_ptr<BasicBlock>(loopCond));
                 func->addBasicBlock(unique_ptr<BasicBlock>(loopBody));
                 func->addBasicBlock(unique_ptr<BasicBlock>(loopExit));
