@@ -1,5 +1,4 @@
 myCompiler/build/
-myCompiler/3rd_party/
 myCompiler/src/.antlr
 myCompiler/src/backend/linerScan/
 .vscode/
