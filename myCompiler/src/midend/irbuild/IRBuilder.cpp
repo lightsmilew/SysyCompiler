@@ -695,10 +695,10 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a && b: 如果 a 为 false，直接返回 false，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        string rhsblock_name = debugMode ? "logical.rhs." + std::to_string(node->line) : "";
+        string rhsblock_name = debugMode ? "logical.rhs." + std::to_string(node->line) + getNextLabelName() : "";
         BasicBlock *rhsBlock = createBasicBlock(rhsblock_name);
         // "logical.end"
-        string mergeblock_name = debugMode ? "logical.end." + std::to_string(node->line) : "";
+        string mergeblock_name = debugMode ? "logical.end." + std::to_string(node->line) + getNextLabelName() : "";
         BasicBlock *mergeBlock = createBasicBlock(mergeblock_name);
 
         Value *lhs = visitExpression(node->left);
@@ -727,10 +727,10 @@ Value *IRBuilder::visitLogicalExpr(std::shared_ptr<ast::BinaryExprNode> node)
         // a || b: 如果 a 为 true，直接返回 true，否则计算 b
         BasicBlock *lhsBlock = currentBlock;
         // "logical.rhs"
-        string rhsblock_name = debugMode ? "logical.rhs." + std::to_string(node->line) : "";
+        string rhsblock_name = debugMode ? "logical.rhs." + std::to_string(node->line) + getNextLabelName() : "";
         BasicBlock *rhsBlock = createBasicBlock(rhsblock_name);
         // "logical.end"
-        string mergeblock_name = debugMode ? "logical.end." + std::to_string(node->line) : "";
+        string mergeblock_name = debugMode ? "logical.end." + std::to_string(node->line) + getNextLabelName() : "";
         BasicBlock *mergeBlock = createBasicBlock(mergeblock_name);
 
         Value *lhs = visitExpression(node->left);

@@ -56,7 +56,7 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
         }
     } while (localChanged);
     // 更新函数的循环信息，用于是否适合内联判断
-    caller->setLoops(ControlFlowAnalysis::findLoops(caller));
+    // caller->setLoops(ControlFlowAnalysis::findLoops(caller));
     return changed;
 }
 // 判断是否适合内联

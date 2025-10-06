@@ -223,8 +223,6 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
 }
 bool BasicBlockMergePass::runOnFunction(Function *func)
 {
-    // std::cout<<"Before BasicBlockMergePass:\n";
-    // std::cout<<func->toString()<<"\n";
     bool changed = false;
     // 如果删除不可达基本块后还能合并则继续合并
     bool localchanged = true;
@@ -421,8 +419,6 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
             }
         }
     }
-    // std::cout<<"After BasicBlockMergePass:\n";
-    // std::cout<<func->toString()<<"\n";
     return changed;
 }
 bool BasicBlockReorderPass::runOnFunction(Function *func)
