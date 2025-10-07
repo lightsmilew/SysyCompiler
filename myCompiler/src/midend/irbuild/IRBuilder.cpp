@@ -1529,9 +1529,11 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int l
                 res = l * r;
                 break;
             case BinaryOp::Div:
+                if(r==0)goto skip_constant_folding; // 遇到除0不进行常量折叠
                 res = l / r;
                 break;
             case BinaryOp::Mod:
+                if(r==0)goto skip_constant_folding; // 遇到除0不进行常量折叠
                 res = l % r;
                 break;
             default:
@@ -1567,6 +1569,7 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int l
                 res = l * r;
                 break;
             case BinaryOp::Div:
+                if(r==0)goto skip_constant_folding; // 遇到除0不进行常量折叠
                 res = l / r;
                 break;
             default:
@@ -1575,6 +1578,7 @@ Value *IRBuilder::createBinaryOp(ast::BinaryOp op, Value *lhs, Value *rhs, int l
             return new ConstantFloat(FloatType::getInstance(), res);
         }
     }
+skip_constant_folding:
     //  否则返回一个新的二元操作指令
     auto binOp = std::make_unique<BinaryOperator>(opcode, lhs, rhs, getNextTempName());
     Value *result = binOp.get();
