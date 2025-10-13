@@ -836,6 +836,8 @@ public:
     Value *getLoopCondition() const;                    // 获取循环条件(条件分支的条件)
     bool IsInductionVar(const std::string &name) const; // 判断变量是否为归纳变量
     BasicBlock *getPreheader() const;                   // 获取前置块(唯一前驱且不在循环内的基本块)
+    // 断开循环块的cfg连接
+    void breakCFG();
 };
 // ===== Function =====
 class Function : public Value

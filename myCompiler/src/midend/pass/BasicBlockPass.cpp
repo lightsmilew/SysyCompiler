@@ -122,7 +122,7 @@ bool CFGSimplificationPass::runOnFunction(Function *func)
                 auto *bbBrToCond = new BranchInst(loopCond);
                 // 构建合流指令
                 auto *kPhi = new PhiInst(IntegerType::getInstance(), "tk_loop");
-                auto *selectMin_i_maxK = new SelectInst(icmpMin,iVar,new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_i_maxk_sel");
+                auto *selectMin_i_maxK = new SelectInst(icmpMin, iVar, new ConstantInt(IntegerType::getInstance(), maxK + 1), "min_i_maxk_sel");
                 // 设置循环条件
                 auto *icmpLoop = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, selectMin_i_maxK, "loop_cond_icmp");
                 // 设置跳转指令
@@ -348,7 +348,20 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
         // 复用死代码消除的不可达块删除代码
         // 删除不可达基本块
         auto &_bbs = func->getBasicBlocks();
-
+        vector<Loop> loops = ControlFlowAnalysis::findLoops(func);
+        unordered_map<BasicBlock *,vector<BasicBlock*>> loopMap;
+        for(auto &loop:loops)
+        {
+            if(loopMap.count(loop.header)==0)loopMap[loop.header]=loop.blocks;
+            // 如果是小循环则替换成大循环，否则不变
+            else 
+            {
+                if(loopMap[loop.header].size()<loop.blocks.size())
+                {
+                    loopMap[loop.header]=loop.blocks;
+                }
+            }
+        }
         if (!_bbs.empty())
         {
             BasicBlock *entry = _bbs[0].get();
@@ -360,15 +373,29 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
                 if (bb != entry && bb->getPredecessors().empty())
                 {
                     toDelete.push_back(bb);
+                    bb->removeSelfBasicBlock();
                     debugInfo << "delete block:" << bb->getName() << std::endl;
                 }
                 else if (bb != entry && bb->getPredecessors().size() == 1 && bb->getPredecessors()[0] == bb)
                 {
                     // 自己是自己的前驱，死循环块
                     toDelete.push_back(bb);
-                    bb->removePredecessor(bb);
-                    bb->removeSuccessor(bb);
+                    // bb->removePredecessor(bb);
+                    // bb->removeSuccessor(bb);
+                    bb->removeSelfBasicBlock();
                     debugInfo << "delete self-loop block:" << bb->getName() << std::endl;
+                }
+            }
+            for(auto &[header,blocks]:loopMap)
+            {
+                if(header->getPredecessors().empty())
+                {
+                    for(auto *bb:blocks)
+                    {
+                        toDelete.push_back(bb);
+                        bb->removeSelfBasicBlock();
+                        debugInfo << "delete loop block:" << bb->getName() << std::endl;
+                    }
                 }
             }
             // 对所有 phi 指令，移除对将要删除块的引用
@@ -402,14 +429,29 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
                 BasicBlock *bb = it->get();
                 if (bb != entry && bb->getPredecessors().empty())
                 {
-                    // 从后继中删除自身
-                    for (auto *succ : bb->getSuccessors())
-                    {
-                        succ->removePredecessor(bb);
-                    }
+                    // // 从后继中删除自身
+                    // for (auto *succ : bb->getSuccessors())
+                    // {
+                    //     succ->removePredecessor(bb);
+                    //     bb->removeSuccessor(succ);
+                    // }
+                    bb->removeSelfBasicBlock();
                     // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
                     needToDelete.push_back(it->release());
                     // 从基本块列表中删除
+                    it = _bbs.erase(it);
+                }
+                else if(bb != entry && bb->getPredecessors().size() == 1 && bb->getPredecessors()[0] == bb)
+                {
+                    // 自己是自己的前驱，死循环块
+                    // // 从后继中删除自身
+                    // for (auto *succ : bb->getSuccessors())
+                    // {
+                    //     succ->removePredecessor(bb);
+                    //     bb->removeSuccessor(succ);
+                    // }
+                    bb->removeSelfBasicBlock();
+                    needToDelete.push_back(it->release());
                     it = _bbs.erase(it);
                 }
                 else

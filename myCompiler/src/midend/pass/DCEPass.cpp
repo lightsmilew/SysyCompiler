@@ -19,16 +19,42 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             BasicBlock *bb = bbPtr.get();
             if (bb != entry && bb->getPredecessors().empty())
             {
+                // for(auto *succ:bb->getSuccessors())
+                // {
+                //     succ->removePredecessor(bb);
+                //     bb->removeSuccessor(succ);
+                // }
                 toDelete.push_back(bb);
+                bb->removeSelfBasicBlock();
                 debugInfo<<"delete block:"<<bb->getName()<<std::endl;
             }
             else if(bb!=entry&&bb->getPredecessors().size()==1&&bb->getPredecessors()[0]==bb)
             {
                 // 自己是自己的前驱，死循环块
                 toDelete.push_back(bb);
-                bb->removePredecessor(bb);
-                bb->removeSuccessor(bb);
+                // bb->removePredecessor(bb);
+                // bb->removeSuccessor(bb);
+                // for(auto *succ:bb->getSuccessors())
+                // {
+                //     succ->removePredecessor(bb);
+                //     bb->removeSuccessor(succ);
+                // }
+                bb->removeSelfBasicBlock();
                 debugInfo<<"delete self-loop block:"<<bb->getName()<<std::endl;
+            }
+        }
+        vector<Loop>loops=ControlFlowAnalysis::findLoops(func);
+        for(auto loop:loops)
+        {
+            if(loop.header->getPredecessors().empty())
+            {
+                // 删除循环块的cfg连接
+                loop.breakCFG();
+                for(auto *bb:loop.blocks)
+                {
+                    toDelete.push_back(bb);
+                    debugInfo<<"delete loop block:"<<bb->getName()<<std::endl;
+                }
             }
         }
         // 对所有 phi 指令，移除对将要删除块的引用
@@ -63,13 +89,27 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             if (bb != entry && bb->getPredecessors().empty())
             {
                 // 从后继中删除自身
-                for (auto *succ : bb->getSuccessors())
-                {
-                    succ->removePredecessor(bb);
-                }
+                // for (auto *succ : bb->getSuccessors())
+                // {
+                //     succ->removePredecessor(bb);
+                //     bb->removeSuccessor(succ);
+                // }
+                bb->removeSelfBasicBlock();
                 // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
                 needToDelete.push_back(it->release());
                 // 从基本块列表中删除
+                it = bbs.erase(it);
+            }
+            else if(bb->getPredecessors().size()==1&&bb->getPredecessors()[0]==bb)
+            {
+                // 自己是自己的前驱，死循环块
+                // for (auto *succ : bb->getSuccessors())
+                // {
+                //     succ->removePredecessor(bb);
+                //     bb->removeSuccessor(succ);
+                // }
+                bb->removeSelfBasicBlock();
+                needToDelete.push_back(it->release());
                 it = bbs.erase(it);
             }
             else

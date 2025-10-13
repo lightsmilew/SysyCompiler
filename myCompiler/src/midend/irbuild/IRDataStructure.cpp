@@ -1788,6 +1788,14 @@ BasicBlock *Loop::getPreheader() const
     }
     throw std::runtime_error("Loop does not have a preheader.");
 }
+void Loop::breakCFG()
+{
+    for (auto bb : blocks)
+    {
+        // 删除前驱和后继的连接
+        bb->removeSelfBasicBlock();
+    }
+}
 // ===== Function Implementation =====
 BasicBlock *Function::addBasicBlock(const string &name)
 {
