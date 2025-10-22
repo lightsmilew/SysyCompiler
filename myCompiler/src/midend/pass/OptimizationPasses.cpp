@@ -264,7 +264,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
-        pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        //pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         // 合并基本块，便于后续操作
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
