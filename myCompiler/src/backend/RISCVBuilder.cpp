@@ -9,7 +9,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     generateInstructions();
     FirstPeep();
     runLICMPass();
-    // instructionScheduler();
+    //instructionScheduler();
     allocateRegisters();
     SecondPeep();
     reallocOffsetForInstructions();
