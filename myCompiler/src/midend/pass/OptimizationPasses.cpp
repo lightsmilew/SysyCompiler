@@ -54,8 +54,11 @@ void PassManager::initializeLoops(Module *module)
         if (verbose)
         {
             debugInfo << "Function: " << func->getName() << "\n";
+            debugInfo << "Loops Found: " << func->getLoops().size() << "\n";
+            int loopIdx = 0;
             for (const auto &loop : func->getLoops())
             {
+                debugInfo << "Loop " << loopIdx++ << ":\n";
                 debugInfo << "  Loop Header: " << loop.header->getName() << "\n";
                 debugInfo << "  Blocks: ";
                 for (const auto &block : loop.blocks)
@@ -83,7 +86,7 @@ std::string PassManager::toString() const
     }
     if (verbose)
     {
-        ss << "Debug Info:\n"
+        ss << "Final Debug Info:\n"
            << debugInfo.str();
     }
     return ss.str();
@@ -95,11 +98,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        //pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        //pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
@@ -124,9 +127,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O1)
     {
-        //pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        // pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
-        //pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
+        // pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
@@ -161,8 +164,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<MemoizationPass>(verbose));     
-        // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
+        // pm->addPass(std::make_unique<MemoizationPass>(verbose));
+        //  消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         // 删除冗余store，如果store的值和原来load的值相同，则删除
         // 必须在函数内联之前，否则需要进行指针别名分析
@@ -192,8 +195,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 尾递归消除必须在函数内联之后
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
-        //pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        // phi指令限制了循环不变量外提，所以必须先消除phi指令
+        // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        //  phi指令限制了循环不变量外提，所以必须先消除phi指令
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -205,13 +208,13 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<MemoizationPass>(verbose));     
-        // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
+        // pm->addPass(std::make_unique<MemoizationPass>(verbose));
+        //  消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         // 删除冗余store，如果store的值和原来load的值相同，则删除
         // 必须在函数内联之前，否则需要进行指针别名分析
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
-        //pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        // pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 消除数组消除pass后留下的gep指令，便于无用while消除
@@ -224,7 +227,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 进行循环展开后再来一次合并基本块
-        //pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        // pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // 这里进行指令合并
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // 消除简单ifelse
@@ -242,7 +245,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
-        //pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        // pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
@@ -250,7 +253,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<MemoizationPass>(verbose));     
+        // pm->addPass(std::make_unique<MemoizationPass>(verbose));
         // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         // 删除冗余store，如果store的值和原来load的值相同，则删除
@@ -264,7 +267,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
-        //pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
+        // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         // 合并基本块，便于后续操作
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
@@ -283,7 +286,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        
+
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         // 尾递归消除必须在函数内联之后
@@ -295,14 +298,14 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
-        //pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        // pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
     }
     // 已有优化展示
-    else if(level==OptimizationLevel::O18)
+    else if (level == OptimizationLevel::O18)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        pm->addPass(std::make_unique<MemoizationPass>(verbose));     
+        pm->addPass(std::make_unique<MemoizationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
