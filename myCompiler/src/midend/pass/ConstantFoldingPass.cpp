@@ -1,6 +1,7 @@
 #include "ConstantFoldingPass.h"
 using namespace std;
 using namespace optimization;
+
 // 常量折叠实现
 bool ConstantFoldingPass::runOnFunction(Function *func)
 {
@@ -473,7 +474,28 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                     {
                         if (auto *cond = dynamic_cast<ConstantInt *>(br->getCondition()))
                         {
+                            // 真假目标相同：已是单边后继（IRBuilder 会去重），直接换成无条件跳转即可
+                            if (br->TrueBlock == br->FalseBlock)
+                            {
+                                BasicBlock *only = br->TrueBlock;
+                                auto *newBr = new BranchInst(only);
+                                inst->replaceAllUsesWith(newBr);
+                                inst->removeThisFromOperands();
+                                needToDelete.push_back(it->release());
+                                it = insts.erase(it);
+                                bb->addInstruction(std::unique_ptr<Instruction>(newBr));
+                                if (verbose)
+                                {
+                                    debugInfo << "Constant folding: Conditional branch same targets -> "
+                                              << only->getName() << "\n";
+                                }
+                                changed = true;
+                                localChanged = true;
+                                continue;
+                            }
+
                             BasicBlock *targetBB = cond->Value ? br->TrueBlock : br->FalseBlock;
+                            BasicBlock *deadBB = (targetBB == br->TrueBlock) ? br->FalseBlock : br->TrueBlock;
 
                             // 替换为无条件跳转
                             auto *newBr = new BranchInst(targetBB);
@@ -483,7 +505,7 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             needToDelete.push_back(it->release());
                             it = insts.erase(it);
                             bb->addInstruction(std::unique_ptr<Instruction>(newBr));
-                            // 更新cfg 从后继中删除永假块
+                            // 更新 cfg：从后继中删除永不走的一边
                             if (br->FalseBlock == targetBB)
                             {
                                 bb->removeSuccessor(br->TrueBlock);
@@ -494,6 +516,8 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                                 bb->removeSuccessor(br->FalseBlock);
                                 br->FalseBlock->removePredecessor(bb.get());
                             }
+                            // 同步删除 deadBB 上来自当前块的前驱边在 Phi 中的 incoming
+                            removePhiIncomingFromPredecessor(deadBB, bb.get());
                             if (verbose)
                             {
                                 debugInfo << "Constant folding: Conditional branch to "

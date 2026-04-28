@@ -171,139 +171,103 @@ BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop)
 bool RemoveUselessWhilePass::runOnFunction(Function *func)
 {
     bool changed = false;
-    // 允许多次遍历，直到没有可删的无用循环
     bool localChanged;
     do
     {
         localChanged = false;
-        func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
+        func->setLoops(ControlFlowAnalysis::findLoops(func));
         auto &loops = func->getLoops();
         for (const auto &loop : loops)
         {
-            if (loop.blocks.size() > 2)
+            // 只处理 header + 单 body 的典型 while
+            if (loop.blocks.size() != 2)
                 continue;
-            bool onlyInc = true;
-            BasicBlock *whilecond = nullptr;
+
             BasicBlock *whilebody = nullptr;
             for (auto *bb : loop.blocks)
             {
-                if (bb == loop.header)
-                {
-                    whilecond = bb;
-                    continue;
-                }
-                whilebody = bb;
-                if (bb->getInstructions().size() > 2)
-                {
-                    onlyInc = false;
-                    break;
-                }
-                for (auto &instPtr : bb->getInstructions())
-                {
-                    Instruction *inst = instPtr.get();
-                    if (inst->getOpcode() == Opcode::Br)
-                        continue;
-                    if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
-                    {
-                        if (!(bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub))
-                        {
-                            onlyInc = false;
-                            break;
-                        }
-                        if (!loop.IsInductionVar(bin->getLHS()->getName()) && !loop.IsInductionVar(bin->getRHS()->getName()))
-                        {
-                            onlyInc = false;
-                            break;
-                        }
-                    }
-                    else
-                        onlyInc = false;
-                    if (inst->hasExternalUse(loop))
-                    {
-                        onlyInc = false;
-                        break;
-                    }
-                }
-                if (!onlyInc)
-                    break;
+                if (bb != loop.header)
+                    whilebody = bb;
             }
-            if (!onlyInc)
+            if (!whilebody)
                 continue;
 
-            BasicBlock *prehead = nullptr;
-            int count = 0;
+            auto *term = dynamic_cast<BranchInst *>(loop.header->getTerminator());
+            if (!term || !term->isConditional())
+                continue;
+
+            // 出口：header 后继中不是 body 的那一边
+            BasicBlock *exitBlock = nullptr;
+            {
+                int sc = 0;
+                for (auto *succ : loop.header->getSuccessors())
+                {
+                    if (succ == whilebody)
+                        continue;
+                    exitBlock = succ;
+                    ++sc;
+                    if (sc > 1)
+                        break;
+                }
+            }
+            if (!exitBlock || loop.header->getSuccessors().size() != 2)
+                continue;
+
+            // 可证「零次进入 body」：条件为常量，且恒定走 exit 一边
+            auto *ci = dynamic_cast<ConstantInt *>(term->getCondition());
+            if (!ci)
+                continue;
+            BasicBlock *taken = (ci->Value != 0) ? term->getTrueBlock() : term->getFalseBlock();
+            if (taken != exitBlock)
+                continue;
+
+            // 循环外进入 header 的前驱只能有一个（典型 preheader）
+            int outerPreds = 0;
             for (auto *pred : loop.header->getPredecessors())
             {
                 if (pred == whilebody)
                     continue;
-                count++;
-                if (count > 1)
-                {
-                    onlyInc = false;
+                ++outerPreds;
+                if (outerPreds > 1)
                     break;
-                }
             }
-            BasicBlock *exitBlock = nullptr;
-            count = 0;
-            for (auto *succ : loop.header->getSuccessors())
-            {
-                if (succ == whilebody)
-                    continue;
-                exitBlock = succ;
-                count++;
-                if (count > 1)
-                {
-                    onlyInc = false;
-                    break;
-                }
-            }
+            if (outerPreds != 1)
+                continue;
+
+            // 先改前驱到出口，避免删块后悬空
             for (auto *pred : loop.header->getPredecessors())
             {
                 if (pred == whilebody)
                     continue;
                 for (auto &instPtr : pred->getInstructions())
                 {
-                    Instruction *inst = instPtr.get();
-                    if (auto *br = dynamic_cast<BranchInst *>(inst))
-                    {
-                        if (br->getTrueBlock() == loop.header)
-                            br->setTrueBlock(exitBlock);
-                        if (br->getFalseBlock() == loop.header)
-                            br->setFalseBlock(exitBlock);
-                    }
-                    prehead = pred;
+                    auto *br = dynamic_cast<BranchInst *>(instPtr.get());
+                    if (!br)
+                        continue;
+                    if (br->getTrueBlock() == loop.header)
+                        br->setTrueBlock(exitBlock);
+                    if (br->getFalseBlock() == loop.header)
+                        br->setFalseBlock(exitBlock);
                 }
                 pred->addSuccessor(exitBlock);
                 exitBlock->addPredecessor(pred);
             }
+
+            // 删掉「从 exit 角度来自 header」的 Phi 边，并在仅余一条 incoming 时用单值替换 Phi
+            removePhiIncomingFromPredecessor(exitBlock, loop.header);
+
+            const string removedHeaderName = loop.header->getName();
             for (auto *bb : loop.blocks)
-            {
                 bb->removeSelfBasicBlock();
-            }
-            auto &insts = exitBlock->getInstructions();
-            for (auto it = insts.begin(); it != insts.end();)
-            {
-                if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
-                {
-                    auto incomingBlocks = phi->getIncomingBlocks();
-                    if (find(incomingBlocks.begin(),
-                             incomingBlocks.end(), loop.header) != phi->getIncomingBlocks().end())
-                    {
-                        phi->removeThisFromOperands();
-                        needToDelete.push_back(it->release());
-                        it = insts.erase(it);
-                        continue;
-                    }
-                }
-                ++it;
-            }
+
             localChanged = true;
             changed = true;
             if (verbose)
             {
-                debugInfo << "RemoveUselessWhilePass: Removed useless while loop at header " << loop.header->getName() << "\n";
+                debugInfo << "RemoveUselessWhilePass: Removed zero-trip while at header "
+                          << removedHeaderName << "\n";
             }
-            break; // 只处理一个，后面会重新获取loops
+            break;
         }
     } while (localChanged);
     return changed;
