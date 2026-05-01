@@ -4,6 +4,7 @@
 #include "FunctionPass.h"
 #include "ArrayPass.h"
 #include "LoopPass.h"
+#include "PolyhedralLoopPass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"
@@ -11,14 +12,12 @@
 #include "StrengthReductionPass.h"
 #include "ConstantFoldingPass.h"
 #include "PhiEliminationPass.h"
-#include "LiveVariableAnalysisPass.h"
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
 #include "SRFixedPass.h"
 #include "NormalizationPass.h"
 #include "FusionPass.h"
-#include "LoopConditionSwapPass.h"
 #include <vector>
 #include <string>
 #include <memory>

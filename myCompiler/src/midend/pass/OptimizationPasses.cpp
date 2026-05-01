@@ -253,7 +253,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        // pm->addPass(std::make_unique<MemoizationPass>(verbose));
+        //pm->addPass(std::make_unique<MemoizationPass>(verbose));
         // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         // 删除冗余store，如果store的值和原来load的值相同，则删除
@@ -266,9 +266,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // 多面体循环变换：优先在循环规约/展开之前尝试 tiling 和 fusion
+        pm->addPass(std::make_unique<PolyhedralLoopOptimizePass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+        //pm->addPass(std::make_unique<PolyhedralLoopOptimizePass>(verbose));
         // 合并基本块，便于后续操作
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));

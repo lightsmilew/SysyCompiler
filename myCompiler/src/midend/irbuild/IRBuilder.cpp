@@ -1616,48 +1616,6 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs, int
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-        // // 如果是常量表达式，直接计算结果
-        // if (isConstantValue(lhs) && isConstantValue(rhs))
-        // {
-        //     float l, r;
-        //     if (auto it = dynamic_cast<GlobalVariable *>(lhs))
-        //     {
-        //         l = static_cast<ConstantFloat *>(it->Initializer)->Value;
-        //     }
-        //     else
-        //         l = static_cast<ConstantFloat *>(lhs)->Value;
-        //     if (auto it = dynamic_cast<GlobalVariable *>(rhs))
-        //     {
-        //         r = static_cast<ConstantFloat *>(it->Initializer)->Value;
-        //     }
-        //     else
-        //         r = static_cast<ConstantFloat *>(rhs)->Value;
-        //     int res = 0;
-        //     switch (op)
-        //     {
-        //     case BinaryOp::Lt:
-        //         res = l < r;
-        //         break;
-        //     case BinaryOp::Gt:
-        //         res = l > r;
-        //         break;
-        //     case BinaryOp::Le:
-        //         res = l <= r;
-        //         break;
-        //     case BinaryOp::Ge:
-        //         res = l >= r;
-        //         break;
-        //     case BinaryOp::Eq:
-        //         res = l == r;
-        //         break;
-        //     case BinaryOp::Ne:
-        //         res = l != r;
-        //         break;
-        //     default:
-        //         throw std::runtime_error("Unsupported op in const float expr");
-        //     }
-        //     return new ConstantInt(IntegerType::getInstance(), res);
-        // }
         auto fcmp = std::make_unique<FCmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = fcmp.get();
         currentBlock->addInstruction(std::move(fcmp));
@@ -1689,48 +1647,6 @@ Value *IRBuilder::createComparison(ast::BinaryOp op, Value *lhs, Value *rhs, int
         default:
             throw std::runtime_error("Invalid comparison operator");
         }
-        // // 常量表达式直接赋值返回
-        // if (isConstantValue(lhs) && isConstantValue(rhs))
-        // {
-        //     int l, r;
-        //     if (auto it = dynamic_cast<GlobalVariable *>(lhs))
-        //     {
-        //         l = static_cast<ConstantInt *>(it->Initializer)->Value;
-        //     }
-        //     else
-        //         l = static_cast<ConstantInt *>(lhs)->Value;
-        //     if (auto it = dynamic_cast<GlobalVariable *>(rhs))
-        //     {
-        //         r = static_cast<ConstantInt *>(it->Initializer)->Value;
-        //     }
-        //     else
-        //         r = static_cast<ConstantInt *>(rhs)->Value;
-        //     int res = 0;
-        //     switch (op)
-        //     {
-        //     case BinaryOp::Lt:
-        //         res = l < r;
-        //         break;
-        //     case BinaryOp::Gt:
-        //         res = l > r;
-        //         break;
-        //     case BinaryOp::Le:
-        //         res = l <= r;
-        //         break;
-        //     case BinaryOp::Ge:
-        //         res = l >= r;
-        //         break;
-        //     case BinaryOp::Eq:
-        //         res = l == r;
-        //         break;
-        //     case BinaryOp::Ne:
-        //         res = l != r;
-        //         break;
-        //     default:
-        //         throw std::runtime_error("Unsupported op in const int expr");
-        //     }
-        //     return new ConstantInt(IntegerType::getInstance(), res);
-        // }
         auto icmp = std::make_unique<ICmpInst>(pred, lhs, rhs, getNextTempName());
         Value *result = icmp.get();
         currentBlock->addInstruction(std::move(icmp));
@@ -1824,59 +1740,6 @@ void IRBuilder::createBranch(BasicBlock *target)
 
 void IRBuilder::createCondBranch(Value *condition, BasicBlock *trueBlock, BasicBlock *falseBlock)
 {
-    // 如果condition已知，直接产生无条件跳转
-    //  if (isConstantValue(condition))
-    //  {
-    //      if(auto IntValue=dynamic_cast<ConstantInt*>(condition))
-    //      {
-    //          if(IntValue->Value!=0)
-    //          {
-    //              createBranch(trueBlock);
-    //          }
-    //          else
-    //          {
-    //              createBranch(falseBlock);
-    //          }
-    //      }
-    //      else if(auto FloatValue=dynamic_cast<ConstantFloat*>(condition))
-    //      {
-    //          if(FloatValue->Value!=0.0f)
-    //          {
-    //              createBranch(trueBlock);
-    //          }
-    //          else
-    //          {
-    //              createBranch(falseBlock);
-    //          }
-    //      }
-    //      else if(auto GlobalValue=dynamic_cast<GlobalVariable*>(condition))
-    //      {
-    //          if(auto IntValue=dynamic_cast<ConstantInt*>(GlobalValue->Initializer))
-    //          {
-    //              if(IntValue->Value!=0)
-    //              {
-    //                  createBranch(trueBlock);
-    //              }
-    //              else
-    //              {
-    //                  createBranch(falseBlock);
-    //              }
-    //          }
-    //          else if(auto FloatValue=dynamic_cast<ConstantFloat*>(GlobalValue->Initializer))
-    //          {
-    //              if(FloatValue->Value!=0.0f)
-    //              {
-    //                  createBranch(trueBlock);
-    //              }
-    //              else
-    //              {
-    //                  createBranch(falseBlock);
-    //              }
-    //          }
-    //      }
-    //      return; // 已处理常量情况，直接返回
-    //  }
-    //  否则走正常的条件分支逻辑
     auto brInst = std::make_unique<BranchInst>(condition, trueBlock, falseBlock);
     currentBlock->addInstruction(std::move(brInst));
     // 更新 CFG
