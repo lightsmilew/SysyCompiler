@@ -1,6 +1,7 @@
 myCompiler/build/
 myCompiler/src/.antlr
 myCompiler/src/backend/linerScan/
+myCompiler/3rd_party
 .vscode/
 debug_case/*
 case/**/*
