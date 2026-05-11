@@ -545,7 +545,10 @@ Instruction *Instruction::clone() const
         return new FCmpInst(static_cast<const FCmpInst *>(this)->getPredicate(),
                             getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::Alloca:
-        return new AllocaInst(static_cast<const AllocaInst *>(this)->AllocatedType, getName());
+        auto *alloca = static_cast<const AllocaInst *>(this);
+        auto *newAlloca = new AllocaInst(alloca->AllocatedType, getName());
+        newAlloca->setIsInitialized(alloca->getIsInitialized());
+        return newAlloca;
     case Opcode::Load:
         return new LoadInst(getOperandByIndex(0), getName());
     case Opcode::Store:
