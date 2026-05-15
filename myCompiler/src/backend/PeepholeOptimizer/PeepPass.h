@@ -33,10 +33,10 @@ private:
 };
 
 // 折叠比较 + 条件跳转
-class CombineCompareBranchPass : public PeepPass
+class FoldCompareBranchPass : public PeepPass
 {
 public:
-    CombineCompareBranchPass() : PeepPass("CombineCompareBranch") {}
+    FoldCompareBranchPass() : PeepPass("FoldCompareBranch") {}
 
     PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
 
