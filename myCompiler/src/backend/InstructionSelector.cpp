@@ -230,7 +230,9 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     // 尝试使用立即数形式
     // 1. 处理可交换的运算 (Add, And, Or, Xor)
     if ((inst->Op == Opcode::Add || inst->Op == Opcode::And ||
-         inst->Op == Opcode::Or || inst->Op == Opcode::Xor) &&
+         inst->Op == Opcode::Or || inst->Op == Opcode::Xor ||
+         inst->Op == Opcode::Mulhd || inst->Op == Opcode::Muld ||
+         inst->Op == Opcode::Mul) &&
         (lhsConst || rhsConst))
     {
         // 让常量在右侧
@@ -255,6 +257,14 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
             case Opcode::Xor:
                 opcode = RISCVOpcode::XORI;
                 break;
+            case Opcode::Mulhd:
+                opcode = RISCVOpcode::MULDH;
+                break;
+            case Opcode::Muld:
+                opcode = RISCVOpcode::MUL;
+                break;
+            case Opcode::Mul:
+                opcode = RISCVOpcode::MULW;
             default:
                 break;
             }
@@ -356,6 +366,9 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         break;
     case Opcode::Muld:
         opcode = RISCVOpcode::MUL;
+        break;
+    case Opcode::Mulhd:
+        opcode = RISCVOpcode::MULDH;
         break;
     case Opcode::Slld:
         opcode = RISCVOpcode::SLL;

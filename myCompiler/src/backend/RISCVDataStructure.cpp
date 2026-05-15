@@ -296,6 +296,8 @@ namespace RISCV
                 return "mul";
             case RISCVOpcode::MULW:
                 return "mulw";
+            case RISCVOpcode::MULDH:
+                return "mulh";
             case RISCVOpcode::DIV:
                 return "div";
             case RISCVOpcode::DIVW:
