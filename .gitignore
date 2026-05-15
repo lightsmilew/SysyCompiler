@@ -11,3 +11,4 @@ run.sh
 test.sh
 libsysy_riscv.a
 compiler2023/*
+fpga-remote-debugging/*
