@@ -2,6 +2,82 @@
 #include <functional>
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+bool sameValueForAccess(Value *lhs, Value *rhs)
+{
+    if (lhs == rhs)
+    {
+        return true;
+    }
+
+    auto *lhsConstInt = dynamic_cast<ConstantInt *>(lhs);
+    auto *rhsConstInt = dynamic_cast<ConstantInt *>(rhs);
+    if (lhsConstInt && rhsConstInt)
+    {
+        return lhsConstInt->Value == rhsConstInt->Value;
+    }
+
+    if (!lhs || !rhs)
+    {
+        return false;
+    }
+
+    return isSameAddr(lhs, rhs);
+}
+
+bool collectAccessPattern(Value *value, Value *&baseValue, vector<Value *> &indices)
+{
+    if (!value)
+    {
+        return false;
+    }
+
+    if (auto *castInst = dynamic_cast<CastInst *>(value))
+    {
+        return collectAccessPattern(castInst->getOperand(), baseValue, indices);
+    }
+
+    if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(value))
+    {
+        if (!collectAccessPattern(gepInst->getPointerOperand(), baseValue, indices))
+        {
+            return false;
+        }
+
+        auto gepIndices = gepInst->getIndices();
+        indices.insert(indices.end(), gepIndices.begin(), gepIndices.end());
+        return true;
+    }
+
+    if (!baseValue)
+    {
+        baseValue = value;
+        return true;
+    }
+
+    return sameValueForAccess(baseValue, value);
+}
+
+bool sameAccessPattern(const vector<Value *> &lhs, const vector<Value *> &rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); ++i)
+    {
+        if (!sameValueForAccess(lhs[i], rhs[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+} // namespace
 // ========== 循环不变代码移动 ==========
 bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 {
@@ -1486,6 +1562,11 @@ bool LoopCopyCallCollapsePass::isPureCopyLoop(const Loop &loop, Value *&srcArray
     srcArray = nullptr;
     dstArray = nullptr;
 
+    int loadCount = 0;
+    int storeCount = 0;
+    vector<Value *> loadIndices;
+    vector<Value *> storeIndices;
+
     for (auto *bb : loop.blocks)
     {
         for (auto &instPtr : bb->getInstructions())
@@ -1498,16 +1579,22 @@ bool LoopCopyCallCollapsePass::isPureCopyLoop(const Loop &loop, Value *&srcArray
 
             if (auto *load = dynamic_cast<LoadInst *>(inst))
             {
-                Value *origin = load->getOriginalPointer();
-                if (!origin)
+                if (++loadCount > 1)
+                {
+                    return false;
+                }
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(load->getPointer(), origin, indices) || !origin)
                 {
                     return false;
                 }
                 if (!srcArray)
                 {
                     srcArray = origin;
+                    loadIndices = std::move(indices);
                 }
-                else if (!isSameAddr(srcArray, origin))
+                else if (!isSameAddr(srcArray, origin) || !sameAccessPattern(loadIndices, indices))
                 {
                     return false;
                 }
@@ -1516,16 +1603,22 @@ bool LoopCopyCallCollapsePass::isPureCopyLoop(const Loop &loop, Value *&srcArray
 
             if (auto *store = dynamic_cast<StoreInst *>(inst))
             {
-                Value *origin = store->getOriginalPointer();
-                if (!origin)
+                if (++storeCount > 1)
+                {
+                    return false;
+                }
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(store->getPointer(), origin, indices) || !origin)
                 {
                     return false;
                 }
                 if (!dstArray)
                 {
                     dstArray = origin;
+                    storeIndices = std::move(indices);
                 }
-                else if (!isSameAddr(dstArray, origin))
+                else if (!isSameAddr(dstArray, origin) || !sameAccessPattern(storeIndices, indices))
                 {
                     return false;
                 }
@@ -1547,7 +1640,12 @@ bool LoopCopyCallCollapsePass::isPureCopyLoop(const Loop &loop, Value *&srcArray
         }
     }
 
-    if (!srcArray || !dstArray || isSameAddr(srcArray, dstArray))
+    if (loadCount != 1 || storeCount != 1 || !srcArray || !dstArray || isSameAddr(srcArray, dstArray))
+    {
+        return false;
+    }
+
+    if (!sameAccessPattern(loadIndices, storeIndices))
     {
         return false;
     }
@@ -1656,10 +1754,18 @@ void LoopCopyCallCollapsePass::redirectAndRemoveLoop(Function *func, const Loop 
         {
             if (br->getTrueBlock() == loop.header)
             {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
                 br->setTrueBlock(exitBlock);
             }
             if (br->getFalseBlock() == loop.header)
             {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
                 br->setFalseBlock(exitBlock);
             }
         }
