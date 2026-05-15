@@ -1759,3 +1759,98 @@ bool LoopCopyCallCollapsePass::runOnFunction(Function *func)
 
     return changed;
 }
+
+bool SysYTimePlacementPass::runOnFunction(Function *func)
+{
+    if (!func || func->isLibraryFunction())
+    {
+        return false;
+    }
+
+    CallInst *lastStart = nullptr;
+    BasicBlock *lastStartBB = nullptr;
+    size_t lastStartIndex = 0;
+
+    CallInst *targetStart = nullptr;
+    BasicBlock *targetStartBB = nullptr;
+    size_t targetStartIndex = 0;
+
+    CallInst *targetStop = nullptr;
+    BasicBlock *targetStopBB = nullptr;
+    size_t targetStopIndex = 0;
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            auto *callInst = dynamic_cast<CallInst *>(insts[i].get());
+            if (!callInst)
+                continue;
+            Function *callee = callInst->getCalledFunction();
+            if (!callee)
+                continue;
+
+            const std::string &calleeName = callee->getName();
+            if (calleeName == "_sysy_starttime")
+            {
+                lastStart = callInst;
+                lastStartBB = bb;
+                lastStartIndex = i;
+            }
+            else if (calleeName == "_sysy_stoptime")
+            {
+                if (lastStart)
+                {
+                    targetStart = lastStart;
+                    targetStartBB = lastStartBB;
+                    targetStartIndex = lastStartIndex;
+
+                    targetStop = callInst;
+                    targetStopBB = bb;
+                    targetStopIndex = i;
+                }
+            }
+        }
+    }
+
+    if (!targetStart || !targetStop)
+    {
+        return false;
+    }
+
+    if (targetStartBB == targetStopBB && targetStartIndex + 1 == targetStopIndex)
+    {
+        return false;
+    }
+
+    auto &startInsts = targetStartBB->getInstructions();
+    if (targetStartIndex >= startInsts.size())
+    {
+        return false;
+    }
+
+    std::unique_ptr<Instruction> movedInst = std::move(startInsts[targetStartIndex]);
+    startInsts.erase(startInsts.begin() + targetStartIndex);
+
+    if (targetStartBB == targetStopBB && targetStartIndex < targetStopIndex)
+    {
+        targetStopIndex--;
+    }
+
+    auto &stopInsts = targetStopBB->getInstructions();
+    if (targetStopIndex > stopInsts.size())
+    {
+        return false;
+    }
+    stopInsts.insert(stopInsts.begin() + targetStopIndex, std::move(movedInst));
+
+    if (verbose)
+    {
+        debugInfo << "SysYTimePlacement: moved _sysy_starttime before _sysy_stoptime in "
+                  << func->getName() << "\n";
+    }
+
+    return true;
+}

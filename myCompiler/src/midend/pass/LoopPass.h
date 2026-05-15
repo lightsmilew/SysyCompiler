@@ -71,4 +71,13 @@ namespace optimization
         void redirectAndRemoveLoop(Function *func, const Loop &loop);
     };
 
+    // 将 _sysy_starttime 移动到 _sysy_stoptime 前一条
+    class SysYTimePlacementPass : public Pass
+    {
+    public:
+        SysYTimePlacementPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "SysYTimePlacement"; }
+    };
+
 }
