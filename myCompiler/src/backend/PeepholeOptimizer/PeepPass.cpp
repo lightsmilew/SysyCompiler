@@ -100,6 +100,172 @@ bool RemoveRedundantJalPass::isRedundantJal(shared_ptr<RISCVInstruction> instr, 
     return false;
 }
 
+// ========== CombineCompareBranchPass ==========
+
+PeepOptiState CombineCompareBranchPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto nextIt = it;
+    ++nextIt;
+    if (nextIt == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    shared_ptr<RISCVRegister> lhsReg;
+    shared_ptr<RISCVRegister> rhsReg;
+    RISCVOpcode branchOpcode;
+    string branchLabel;
+    if (!canCombine(instr, *nextIt, lhsReg, rhsReg, branchOpcode, branchLabel))
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto newBranch = RISCVInstruction::createBType(branchOpcode, lhsReg, rhsReg, branchLabel);
+    instr->replaceInstruction(newBranch);
+    instrs.erase(nextIt);
+
+    return PeepOptiState::MODIFY;
+}
+
+bool CombineCompareBranchPass::isZeroRegister(shared_ptr<RISCVOperand> operand) const
+{
+    if (!operand || operand->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return false;
+    }
+
+    auto reg = operand->getReg();
+    return reg && reg->isPhysical() && reg->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO;
+}
+
+bool CombineCompareBranchPass::canCombine(shared_ptr<RISCVInstruction> instr,
+                                          shared_ptr<RISCVInstruction> nextInstr,
+                                          shared_ptr<RISCVRegister> &lhsReg,
+                                          shared_ptr<RISCVRegister> &rhsReg,
+                                          RISCVOpcode &branchOpcode,
+                                          string &branchLabel) const
+{
+    if (!instr || !nextInstr)
+    {
+        return false;
+    }
+
+    if (nextInstr->getInstrType() != RISCV::InstructionType::B_TYPE)
+    {
+        return false;
+    }
+
+    auto compareOperands = instr->getOperands();
+    if (compareOperands.size() != 3)
+    {
+        return false;
+    }
+
+    auto compareOpcode = instr->getOpcode();
+    auto branchOpcodeValue = nextInstr->getOpcode();
+    if (branchOpcodeValue != RISCVOpcode::BEQ && branchOpcodeValue != RISCVOpcode::BNE)
+    {
+        return false;
+    }
+
+    switch (compareOpcode)
+    {
+    case RISCVOpcode::SLT:
+        if (compareOperands[1]->getType() != RISCVOperand::Type::REGISTER ||
+            compareOperands[2]->getType() != RISCVOperand::Type::REGISTER)
+        {
+            return false;
+        }
+        lhsReg = compareOperands[1]->getReg();
+        rhsReg = compareOperands[2]->getReg();
+        branchOpcode = branchOpcodeValue == RISCVOpcode::BEQ ? RISCVOpcode::BGE : RISCVOpcode::BLT;
+        break;
+
+    case RISCVOpcode::SLTU:
+    {
+        if (compareOperands[1]->getType() != RISCVOperand::Type::REGISTER ||
+            compareOperands[2]->getType() != RISCVOperand::Type::REGISTER)
+        {
+            return false;
+        }
+
+        lhsReg = compareOperands[1]->getReg();
+        rhsReg = compareOperands[2]->getReg();
+        branchOpcode = branchOpcodeValue == RISCVOpcode::BEQ ? RISCVOpcode::BGEU : RISCVOpcode::BLTU;
+        break;
+    }
+
+    case RISCVOpcode::SLTI:
+    {
+        if (compareOperands[1]->getType() != RISCVOperand::Type::REGISTER ||
+            compareOperands[2]->getType() != RISCVOperand::Type::IMMEDIATE ||
+            compareOperands[2]->getImmediate() != 0)
+        {
+            return false;
+        }
+
+        lhsReg = compareOperands[1]->getReg();
+        rhsReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        branchOpcode = branchOpcodeValue == RISCVOpcode::BEQ ? RISCVOpcode::BGE : RISCVOpcode::BLT;
+        break;
+    }
+
+    case RISCVOpcode::SLTIU:
+    {
+        if (compareOperands[1]->getType() != RISCVOperand::Type::REGISTER ||
+            compareOperands[2]->getType() != RISCVOperand::Type::IMMEDIATE ||
+            compareOperands[2]->getImmediate() != 1)
+        {
+            return false;
+        }
+
+        lhsReg = compareOperands[1]->getReg();
+        rhsReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        branchOpcode = branchOpcodeValue == RISCVOpcode::BEQ ? RISCVOpcode::BNE : RISCVOpcode::BEQ;
+        break;
+    }
+
+    default:
+        return false;
+    }
+
+    if (!lhsReg || !rhsReg)
+    {
+        return false;
+    }
+
+    auto branchOperands = nextInstr->getOperands();
+    if (branchOperands.size() != 3)
+    {
+        return false;
+    }
+
+    auto resultReg = compareOperands[0]->getReg();
+    if (!resultReg)
+    {
+        return false;
+    }
+
+    auto branchRs1 = branchOperands[0];
+    auto branchRs2 = branchOperands[1];
+    bool resultOnLeft = branchRs1 && branchRs1->getType() == RISCVOperand::Type::REGISTER && branchRs1->getReg() && *branchRs1->getReg() == *resultReg && isZeroRegister(branchRs2);
+    bool resultOnRight = branchRs2 && branchRs2->getType() == RISCVOperand::Type::REGISTER && branchRs2->getReg() && *branchRs2->getReg() == *resultReg && isZeroRegister(branchRs1);
+    if (!resultOnLeft && !resultOnRight)
+    {
+        return false;
+    }
+
+    branchLabel = branchOperands[2]->getLabel();
+    return true;
+}
+
 // ========== DeadCodeEliminationPass ==========
 
 PeepOptiState DeadCodeEliminationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

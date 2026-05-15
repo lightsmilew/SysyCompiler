@@ -32,6 +32,24 @@ private:
     bool isRedundantJal(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb);
 };
 
+// 折叠比较 + 条件跳转
+class CombineCompareBranchPass : public PeepPass
+{
+public:
+    CombineCompareBranchPass() : PeepPass("CombineCompareBranch") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+
+private:
+    bool isZeroRegister(shared_ptr<RISCVOperand> operand) const;
+    bool canCombine(shared_ptr<RISCVInstruction> instr,
+                    shared_ptr<RISCVInstruction> nextInstr,
+                    shared_ptr<RISCVRegister> &lhsReg,
+                    shared_ptr<RISCVRegister> &rhsReg,
+                    RISCVOpcode &branchOpcode,
+                    string &branchLabel) const;
+};
+
 // 冗余代码删除
 class DeadCodeEliminationPass : public PeepPass
 {
