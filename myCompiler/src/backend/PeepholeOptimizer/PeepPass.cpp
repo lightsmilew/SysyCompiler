@@ -142,6 +142,35 @@ PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstructi
     if (itUsers == usersMap.end() || itUsers->second.empty())
         return PeepOptiState::KEEP;
 
+    // 如果目标寄存器在后续指令中有自增/自修改（例如 addi t0, t0, imm），
+    // 则不应该把地址计算折叠并删除原指令（会破坏循环中的指针更新）。
+    int N = static_cast<int>(parentFunc->instrList.size());
+    for (int i = defIdx + 1; i < N; ++i)
+    {
+        auto laterInstr = parentFunc->getInstructionByIndex(i);
+        if (!laterInstr)
+            continue;
+
+        auto laterDefs = laterInstr->getDefRegisters();
+        for (auto &dreg : laterDefs)
+        {
+            if (dreg && addrDestReg && *dreg == *addrDestReg)
+            {
+                // 该指令定义了同一寄存器，检查是否同时使用该寄存器（自修改）
+                auto laterUses = laterInstr->getUseRegisters();
+                for (auto &ureg : laterUses)
+                {
+                    if (ureg && addrDestReg && *ureg == *addrDestReg)
+                    {
+                        return PeepOptiState::KEEP;
+                    }
+                }
+                // 如果定义了同一寄存器但不使用自身（如 mv t0, ...），也当作不安全
+                return PeepOptiState::KEEP;
+            }
+        }
+    }
+
     int64_t baseImm = addrImmOp->getImmediate();
     vector<pair<int, shared_ptr<RISCVInstruction>>> replacements;
     replacements.reserve(itUsers->second.size());
@@ -854,6 +883,149 @@ PeepOptiState ImmediatePropagationPass::optimize(shared_ptr<RISCVInstruction> in
     }
 
     return PeepOptiState::KEEP;
+}
+
+// ========== FoldShiftSequencePass ==========
+
+PeepOptiState FoldShiftSequencePass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb)
+        return PeepOptiState::KEEP;
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+        return PeepOptiState::KEEP;
+
+    // 仅处理可融合的 I 型二元计算指令（例如 ADDI/ANDI/ORI/XORI/SLLI/SRLI/SRAI）
+    auto opc = instr->getOpcode();
+    if (!isFusibleITypeOpcode(opc))
+        return PeepOptiState::KEEP;
+
+    auto nextIt = it;
+    ++nextIt;
+    if (nextIt == instrs.end())
+        return PeepOptiState::KEEP;
+
+    auto firstOps = instr->getOperands();
+    auto second = *nextIt;
+    if (!second || second->getOpcode() != opc || !isFusibleITypeOpcode(second->getOpcode()))
+        return PeepOptiState::KEEP;
+
+    auto secondOps = second->getOperands();
+    // 需要形如: opc rd1, rs, imm1  ; opc rd2, rd1, imm2
+    if (firstOps.size() < 3 || secondOps.size() < 3)
+        return PeepOptiState::KEEP;
+
+    if (firstOps[0]->getType() != RISCVOperand::Type::REGISTER || firstOps[1]->getType() != RISCVOperand::Type::REGISTER ||
+        firstOps[2]->getType() != RISCVOperand::Type::IMMEDIATE)
+        return PeepOptiState::KEEP;
+
+    if (secondOps[0]->getType() != RISCVOperand::Type::REGISTER || secondOps[1]->getType() != RISCVOperand::Type::REGISTER ||
+        secondOps[2]->getType() != RISCVOperand::Type::IMMEDIATE)
+        return PeepOptiState::KEEP;
+
+    auto rd1 = firstOps[0]->getReg();
+    auto rs = firstOps[1]->getReg();
+    auto imm1 = firstOps[2]->getImmediate();
+
+    auto rd2 = secondOps[0]->getReg();
+    auto rs2 = secondOps[1]->getReg();
+    auto imm2 = secondOps[2]->getImmediate();
+
+    // 要求第二条指令的源寄存器等于第一条的目标寄存器
+    if (!rd1 || !rs || !rd2 || !rs2)
+        return PeepOptiState::KEEP;
+
+    if (!(*rs2 == *rd1))
+        return PeepOptiState::KEEP;
+
+    // 在寄存器分配前（FirstPeep）进行融合：需要确保第一个计算得到的中间量
+    // 没有多处使用（user-def 检测）。如果该定义被多个指令使用，则不能融合。
+    auto parentFunc = bb->getParentFunc();
+    if (parentFunc)
+    {
+        int defIdx = parentFunc->getInstructionIndex(instr);
+        if (defIdx >= 0)
+        {
+            const auto &instrUsers = parentFunc->getInstrUsers();
+            auto it = instrUsers.find(defIdx);
+            if (it != instrUsers.end())
+            {
+                // 如果定义有多于 1 个使用者，则不安全融合
+                if (it->second.size() > 1)
+                    return PeepOptiState::KEEP;
+            }
+        }
+    }
+
+    // 根据指令类型计算合并后的立即数并检查合法性
+    int64_t merged = 0;
+    switch (opc)
+    {
+    case RISCVOpcode::ADDI:
+    case RISCVOpcode::ADDIW:
+        merged = imm1 + imm2;
+        if (merged < -2048 || merged > 2047)
+            return PeepOptiState::KEEP;
+        break;
+    case RISCVOpcode::ANDI:
+        merged = imm1 & imm2;
+        if (merged < -2048 || merged > 2047)
+            return PeepOptiState::KEEP;
+        break;
+    case RISCVOpcode::ORI:
+        merged = imm1 | imm2;
+        if (merged < -2048 || merged > 2047)
+            return PeepOptiState::KEEP;
+        break;
+    case RISCVOpcode::XORI:
+        merged = imm1 ^ imm2;
+        if (merged < -2048 || merged > 2047)
+            return PeepOptiState::KEEP;
+        break;
+    case RISCVOpcode::SLLI:
+    case RISCVOpcode::SRLI:
+    case RISCVOpcode::SRAI:
+    case RISCVOpcode::SLLIW:
+        merged = imm1 + imm2;
+        if (merged < 0 || merged > 63)
+            return PeepOptiState::KEEP;
+        break;
+    default:
+        return PeepOptiState::KEEP;
+    }
+
+    // 创建融合后的指令：opc rd2, rs, merged
+    auto fused = RISCVInstruction::createIType(opc, rd2, rs, merged);
+
+    // 替换第二条指令为融合指令，并删除第一条
+    (*nextIt)->replaceInstruction(fused);
+    return PeepOptiState::DELETE;
+}
+
+bool FoldShiftSequencePass::isArithmeticShiftOpcode(RISCVOpcode opc) const
+{
+    return opc == RISCVOpcode::SRAI;
+}
+
+bool FoldShiftSequencePass::isFusibleITypeOpcode(RISCVOpcode opc) const
+{
+    switch (opc)
+    {
+    case RISCVOpcode::ADDI:
+    case RISCVOpcode::ADDIW:
+    case RISCVOpcode::ANDI:
+    case RISCVOpcode::ORI:
+    case RISCVOpcode::XORI:
+    case RISCVOpcode::SLLI:
+    case RISCVOpcode::SRLI:
+    case RISCVOpcode::SRAI:
+    case RISCVOpcode::SLLIW:
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool ImmediatePropagationPass::canUseImmediateForm(RISCVOpcode opcode)

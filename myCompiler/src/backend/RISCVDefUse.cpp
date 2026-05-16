@@ -1,8 +1,10 @@
 #include "RISCVDataStructure.h"
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <limits>
 #include <functional>
+#include <algorithm>
 
 using namespace RISCV;
 

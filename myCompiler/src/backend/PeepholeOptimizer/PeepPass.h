@@ -132,7 +132,8 @@ private:
                       vector<shared_ptr<RISCVInstruction>> &instrs);
 };
 
-// 融合连续的算术右移指令（例如: srai t3, t1, imm1; srai t1, t3, imm2）
+// 融合连续的 I 型二元计算指令（例如: addi/andi/ori/xori/slli/srai ...）
+// 支持将两条连续的同类 I 指令合并为一条（需保证第一个定义只有单一使用）
 class FoldShiftSequencePass : public PeepPass
 {
 public:
@@ -142,4 +143,5 @@ public:
 
 private:
     bool isArithmeticShiftOpcode(RISCVOpcode opc) const;
+    bool isFusibleITypeOpcode(RISCVOpcode opc) const;
 };
