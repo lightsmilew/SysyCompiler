@@ -16,7 +16,9 @@ namespace RISCV
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S6),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S7),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S8),
-        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S9)};
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::S11)};
 
     const vector<shared_ptr<RISCVRegister>> CalleeSavedFloatRegs = {
         // 保存浮点寄存器 (callee-saved)
