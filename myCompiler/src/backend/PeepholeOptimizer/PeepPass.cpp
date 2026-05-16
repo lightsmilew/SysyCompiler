@@ -142,33 +142,11 @@ PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstructi
     if (itUsers == usersMap.end() || itUsers->second.empty())
         return PeepOptiState::KEEP;
 
-    // 如果目标寄存器在后续指令中有自增/自修改（例如 addi t0, t0, imm），
-    // 则不应该把地址计算折叠并删除原指令（会破坏循环中的指针更新）。
-    int N = static_cast<int>(parentFunc->instrList.size());
-    for (int i = defIdx + 1; i < N; ++i)
+    // 只检查当前这条地址计算本身是否为自修改形式，例如 addi t0, t0, imm。
+    // 这类指令不能被折叠删除，否则会破坏后续的指针更新。
+    if (*addrDestReg == *baseReg)
     {
-        auto laterInstr = parentFunc->getInstructionByIndex(i);
-        if (!laterInstr)
-            continue;
-
-        auto laterDefs = laterInstr->getDefRegisters();
-        for (auto &dreg : laterDefs)
-        {
-            if (dreg && addrDestReg && *dreg == *addrDestReg)
-            {
-                // 该指令定义了同一寄存器，检查是否同时使用该寄存器（自修改）
-                auto laterUses = laterInstr->getUseRegisters();
-                for (auto &ureg : laterUses)
-                {
-                    if (ureg && addrDestReg && *ureg == *addrDestReg)
-                    {
-                        return PeepOptiState::KEEP;
-                    }
-                }
-                // 如果定义了同一寄存器但不使用自身（如 mv t0, ...），也当作不安全
-                return PeepOptiState::KEEP;
-            }
-        }
+        return PeepOptiState::KEEP;
     }
 
     int64_t baseImm = addrImmOp->getImmediate();
