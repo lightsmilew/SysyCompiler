@@ -334,7 +334,7 @@ PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstructi
                 }
 
                 auto fused = RISCVInstruction::createSType(scanOpcode, baseReg, storeValueReg, mergedImm);
-                
+
                 // 将 store 保持在原位置：替换原 store 指令为融合指令，然后删除早先的地址计算指令
                 size_t addrIndex = std::distance(instrs.begin(), it);
                 size_t storeIndex = std::distance(instrs.begin(), scanIt);

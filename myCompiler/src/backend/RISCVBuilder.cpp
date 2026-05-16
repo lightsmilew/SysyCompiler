@@ -9,7 +9,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     generateInstructions();
     FirstPeep();
     runLICMPass();
-    //instructionScheduler();
+    // instructionScheduler();
     allocateRegisters();
     SecondPeep();
     reallocOffsetForInstructions();
@@ -239,8 +239,8 @@ void RISCVBuilder::FirstPeep()
 void RISCVBuilder::SecondPeep()
 {
     PeepOptimizationManager peep;
-    //地址融合目前还有问题，先关闭
-    //peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
+    // 地址融合目前还有问题，先关闭
+    peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
     peep.addPass(make_shared<RemoveRedundantMovePass>());
     peep.optimizeModule(riscvModule);
 }

@@ -545,8 +545,6 @@ bool AddChainReductionPass::runOnFunction(Function *func)
         auto &insts = bb->getInstructions();
         for (int i = insts.size() - 1; i >= 0; --i)
         {
-            if (!insts[i])
-                continue;
             Instruction *inst = insts[i].get();
             if (!inst || inst->getOpcode() != Opcode::Add)
                 continue;
@@ -695,6 +693,7 @@ bool AddChainReductionPass::runOnFunction(Function *func)
                         }
                     }
                 }
+                i = i - (ptrChainInsts.size() - 1); // 跳过已经处理的链上的指令
             }
         }
     }
