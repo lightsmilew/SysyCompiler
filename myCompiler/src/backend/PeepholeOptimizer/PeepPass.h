@@ -20,6 +20,24 @@ private:
     bool isRedundantMove(shared_ptr<RISCVInstruction> instr);
 };
 
+// 融合相邻的li+mv和地址计算+load/store
+class FoldAdjacentMoveAndAddressPass : public PeepPass
+{
+public:
+    FoldAdjacentMoveAndAddressPass() : PeepPass("FoldAdjacentMoveAndAddress") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+
+private:
+    bool isLegalMemoryImmediate(int64_t value) const;
+    bool isAddressCalcOpcode(RISCVOpcode opcode) const;
+    bool isLoadOpcode(RISCVOpcode opcode) const;
+    bool isStoreOpcode(RISCVOpcode opcode) const;
+    bool isRegUsedBeforeRedef(shared_ptr<RISCVRegister> reg,
+                              vector<shared_ptr<RISCVInstruction>>::iterator startIt,
+                              vector<shared_ptr<RISCVInstruction>>::iterator endIt) const;
+};
+
 // 删除多余jal指令
 class RemoveRedundantJalPass : public PeepPass
 {
