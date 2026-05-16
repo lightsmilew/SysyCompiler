@@ -278,12 +278,6 @@ void RISCVBuilder::FirstPeep()
 void RISCVBuilder::SecondPeep()
 {
     PeepOptimizationManager peep;
-<<<<<<< HEAD
-
-=======
-    // 地址融合目前还有问题，先关闭
-    peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
->>>>>>> e7c3582b2addc200ee2b427767260a8cdbb5f156
     peep.addPass(make_shared<RemoveRedundantMovePass>());
     peep.optimizeModule(riscvModule);
 }

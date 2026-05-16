@@ -131,3 +131,15 @@ private:
                       vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
                       vector<shared_ptr<RISCVInstruction>> &instrs);
 };
+
+// 融合连续的算术右移指令（例如: srai t3, t1, imm1; srai t1, t3, imm2）
+class FoldShiftSequencePass : public PeepPass
+{
+public:
+    FoldShiftSequencePass() : PeepPass("FoldShiftSequence") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+
+private:
+    bool isArithmeticShiftOpcode(RISCVOpcode opc) const;
+};
