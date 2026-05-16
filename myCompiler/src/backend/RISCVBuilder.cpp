@@ -240,7 +240,7 @@ void RISCVBuilder::SecondPeep()
 {
     PeepOptimizationManager peep;
     // 地址融合目前还有问题，先关闭
-    peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
+    // peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
     peep.addPass(make_shared<RemoveRedundantMovePass>());
     peep.optimizeModule(riscvModule);
 }
