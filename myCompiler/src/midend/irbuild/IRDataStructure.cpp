@@ -550,7 +550,7 @@ Instruction *Instruction::clone() const
         auto *newAlloca = new AllocaInst(alloca->AllocatedType, getName());
         newAlloca->setIsInitialized(alloca->getIsInitialized());
         return newAlloca;
-    }     
+    }
     case Opcode::Load:
         return new LoadInst(getOperandByIndex(0), getName());
     case Opcode::Store:
@@ -1171,7 +1171,8 @@ bool CallInst::ifHasSideEffects() const
             {
                 auto storeOriginalPointer = storeInst->getOriginalPointer();
                 // 如果store指令的原始指针是函数参数或全局变量，则有副作用
-                if (std::find(getArguments().begin(), getArguments().end(), storeOriginalPointer) != getArguments().end() ||
+                auto args = getArguments();
+                if (std::find(args.begin(), args.end(), storeOriginalPointer) != args.end() ||
                     (storeOriginalPointer->isGlobal()))
                 {
                     return true; // 找到修改全局变量或函数参数的store指令
