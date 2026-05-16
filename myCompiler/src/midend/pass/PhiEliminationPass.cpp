@@ -1,14 +1,79 @@
 #include "PhiEliminationPass.h"
+#include <unordered_map>
+#include <unordered_set>
+
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+struct PendingCopy
+{
+    Value *destValue;
+    Value *sourceValue;
+    std::string destName;
+};
+
+void emitParallelCopies(BasicBlock *pred, std::vector<PendingCopy> copies, size_t &tempIndex)
+{
+    std::vector<PendingCopy> remaining = std::move(copies);
+    while (!remaining.empty())
+    {
+        std::unordered_set<Value *> sourceSet;
+        sourceSet.reserve(remaining.size());
+        for (const auto &copy : remaining)
+        {
+            sourceSet.insert(copy.sourceValue);
+        }
+
+        size_t readyIndex = remaining.size();
+        for (size_t i = 0; i < remaining.size(); ++i)
+        {
+            if (sourceSet.find(remaining[i].destValue) == sourceSet.end())
+            {
+                readyIndex = i;
+                break;
+            }
+        }
+
+        if (readyIndex < remaining.size())
+        {
+            pred->insertBeforeTerminator(std::make_unique<CopyInst>(remaining[readyIndex].sourceValue,
+                                                                    remaining[readyIndex].destName));
+            remaining.erase(remaining.begin() + static_cast<vector<PendingCopy>::difference_type>(readyIndex));
+            continue;
+        }
+
+        auto chosen = remaining.front();
+        auto tempName = pred->getName() + ".phi_tmp." + std::to_string(tempIndex++);
+        auto tempCopy = std::make_unique<CopyInst>(chosen.destValue, tempName);
+        auto *tempValue = tempCopy.get();
+        pred->insertBeforeTerminator(std::move(tempCopy));
+        pred->insertBeforeTerminator(std::make_unique<CopyInst>(chosen.sourceValue, chosen.destName));
+        remaining.erase(remaining.begin());
+        for (auto &copy : remaining)
+        {
+            if (copy.sourceValue == chosen.destValue)
+            {
+                copy.sourceValue = tempValue;
+            }
+        }
+    }
+}
+} // namespace
+
 // phi消除
 bool PhiEliminationPass::runOnFunction(Function *func)
 {
-    //std::cout << func->toString() << "\n";
     bool changed = false;
     for (auto &bb : func->getBasicBlocks())
     {
         auto &insts = bb->getInstructions();
+        vector<BasicBlock *> predOrder;
+        unordered_map<BasicBlock *, vector<PendingCopy>> pendingCopiesByPred;
+        unordered_set<Instruction *> multiInputPhis;
+        vector<string> multiInputPhiNames;
+
         for (auto it = insts.begin(); it != insts.end();)
         {
             Instruction *inst = it->get();
@@ -18,7 +83,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 ++it;
                 continue;
             }
-            // 1. 只有一个输入，直接替换
+
             if (phi->getNumIncomingValues() == 1)
             {
                 Value *incomingValue = phi->getIncomingValue(0);
@@ -34,7 +99,7 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 }
                 continue;
             }
-            // 如果所有输入都相同，直接替换，不需要产生copy指令
+
             bool allSame = true;
             Value *firstVal = phi->getIncomingValue(0);
             for (size_t i = 1; i < phi->getNumIncomingValues(); ++i)
@@ -58,41 +123,57 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 }
                 continue;
             }
-            vector<Value *> operands;
-            // 2. 多输入phi，插入move/copy到前驱块末尾
+
+            multiInputPhis.insert(phi);
+            multiInputPhiNames.push_back(phi->getName());
             for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
             {
                 BasicBlock *pred = phi->getIncomingBlock(i);
                 Value *val = phi->getIncomingValue(i);
-                // 在终结指令前插入
-                auto rawPtr = new CopyInst(val, phi->getName());
-                std::unique_ptr<Instruction> copyInst(rawPtr);
-                if (pred == bb.get())
+                auto &copies = pendingCopiesByPred[pred];
+                if (copies.empty())
                 {
-                    // 如果前驱块是自己，直接插入到当前位置
-                    it=insts.insert(it, std::move(copyInst));
-                    ++it;
+                    predOrder.push_back(pred);
                 }
-                else
-                {
-                    pred->insertBeforeTerminator(std::move(copyInst));
-                }
+                copies.push_back(PendingCopy{phi, val, phi->getName()});
             }
-            // 从基本块中删除原来指令，phi对应value仍然保留
-            // 从所有phi的操作数中删除自己
-            phi->removeThisFromOperands();
-            needToDelete.push_back(it->release());
-            it = insts.erase(it);
-            // std::cout<<func->toString()<<"\n";
-            changed = true;
-            if (verbose)
+            ++it;
+        }
+
+        size_t tempIndex = 0;
+        for (auto *pred : predOrder)
+        {
+            emitParallelCopies(pred, pendingCopiesByPred[pred], tempIndex);
+        }
+
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (multiInputPhis.find(inst) != multiInputPhis.end())
             {
-                debugInfo << "Phi Elimination: Replaced multi-input phi " << phi->toString()
+                auto *phi = dynamic_cast<PhiInst *>(inst);
+                if (phi)
+                {
+                    phi->removeThisFromOperands();
+                }
+                needToDelete.push_back(it->release());
+                it = insts.erase(it);
+                changed = true;
+                continue;
+            }
+            ++it;
+        }
+
+        if (verbose)
+        {
+            for (const auto &phiName : multiInputPhiNames)
+            {
+                debugInfo << "Phi Elimination: Replaced multi-input phi " << phiName
                           << " with copies in predecessor blocks" << "\n";
             }
         }
     }
-    // 遍历所有基本块的所有指令，如果替换后的copy指令源操作数名字与目的操作数名字相同则删除
+
     for (auto &bb : func->getBasicBlocks())
     {
         auto &insts = bb->getInstructions();
@@ -103,7 +184,6 @@ bool PhiEliminationPass::runOnFunction(Function *func)
             {
                 if (copy->getSource()->getName() == copy->getDest()->getName())
                 {
-                    // 删除无效的copy指令
                     copy->removeThisFromOperands();
                     needToDelete.push_back(it->release());
                     it = insts.erase(it);

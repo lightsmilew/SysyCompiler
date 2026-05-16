@@ -141,7 +141,8 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
     // 如果是getelementptr指令，特殊处理，补的0不需要添加
     if (auto *gep = dynamic_cast<GetElementPtrInst *>(inst))
     {
-        for (int i = 0; i < gep->getNumOperands() - gep->num_addedzero; i++)
+        int usefulOperandCount = static_cast<int>(gep->getNumOperands()) - std::max(0, gep->num_addedzero);
+        for (int i = 0; i < usefulOperandCount; i++)
         {
             auto *op = gep->getOperandByIndex(i);
             if (auto *ci = dynamic_cast<ConstantInt *>(op))
