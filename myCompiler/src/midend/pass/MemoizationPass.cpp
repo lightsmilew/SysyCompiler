@@ -5,6 +5,63 @@ using namespace optimization;
 const int MAX_PARAMS = 4;
 const int ARRAY_SIZE = 65536;
 static const int primes[] = {1000003, 1000033, 1000211, 1000433}; // 更大的质数，减少哈希冲突
+static std::vector<CallInst *> getRecursiveCallInstr(Function *function);
+
+static bool hasSideEffects(Function *function)
+{
+    for (auto &bbPtr : function->getBasicBlocks())
+    {
+        for (auto &instPtr : bbPtr->getInstructions())
+        {
+            if (dynamic_cast<StoreInst *>(instPtr.get()))
+                return true;
+            if (auto *call = dynamic_cast<CallInst *>(instPtr.get()))
+            {
+                if (call->ifHasSideEffects())
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool hasTailRecursiveCall(Function *function)
+{
+    bool hasRecursiveCall = false;
+    for (auto *bb : function->getExitBlocks())
+    {
+        if (!bb || bb->getInstructions().size() < 2)
+            continue;
+
+        auto *ret = dynamic_cast<ReturnInst *>(bb->getInstructions().back().get());
+        auto *call = dynamic_cast<CallInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get());
+        if (!ret || !call)
+            continue;
+        if (call->getCalledFunction() == function && ret->getReturnValue() == call)
+            hasRecursiveCall = true;
+    }
+
+    for (auto &bbPtr : function->getBasicBlocks())
+    {
+        auto &insts = bbPtr->getInstructions();
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            auto *call = dynamic_cast<CallInst *>(insts[i].get());
+            if (!call || call->getCalledFunction() != function)
+                continue;
+
+            hasRecursiveCall = true;
+            if (i + 1 >= insts.size())
+                return false;
+
+            auto *ret = dynamic_cast<ReturnInst *>(insts[i + 1].get());
+            if (!ret || ret->getReturnValue() != call)
+                return false;
+        }
+    }
+
+    return hasRecursiveCall;
+}
 // 哈希索引，数组大小65536
 Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function *func)
 {
@@ -97,31 +154,37 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
 
 bool MemoizationPass::isMemoizable(Function *func)
 {
+    auto reject = [&](const std::string &reason) -> bool
+    {
+        if (verbose)
+        {
+            debugInfo << "MemoizationPass: skip function " << func->getName()
+                      << " because " << reason << "\n";
+        }
+        return false;
+    };
+
     auto *funcTy = dynamic_cast<FunctionType *>(func->getType());
     if (!funcTy || funcTy->ReturnType->isVoidTy())
-        return false;
+        return reject("return type is void or function type is invalid");
     if (func->getArguments().size() > MAX_PARAMS)
-        return false;
+        return reject("argument count exceeds memoization limit");
     // 参数必须全为int/float类型
     for (auto &argPtr : func->getArguments())
     {
         Argument *arg = argPtr.get();
         if (!arg->getType()->isIntegerTy() && !arg->getType()->isFloatTy())
-            return false;
+            return reject("argument " + arg->getName() + " is not int/float");
     }
-    // 简单判断：递归（调用自身）
-    for (auto &bb : func->getBasicBlocks())
-    {
-        for (auto &inst : bb->getInstructions())
-        {
-            if (auto *call = dynamic_cast<CallInst *>(inst.get()))
-            {
-                if (call->getCalledFunction() == func && !call->ifHasSideEffects())
-                    return true;
-            }
-        }
-    }
-    return false;
+    if (hasSideEffects(func))
+        return reject("function has side effects");
+    auto recursiveCalls = getRecursiveCallInstr(func);
+    if (recursiveCalls.size() < 2)
+        return reject("recursive call count is less than 2");
+    if (hasTailRecursiveCall(func))
+        return reject("function matches tail recursion pattern");
+
+    return true;
 }
 
 // Helper: 将val在blk中取模并保证非负，返回产生结果的 Instruction*
