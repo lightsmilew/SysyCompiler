@@ -196,8 +196,12 @@ void RISCVBuilder::generateInstructions()
     InstructionSelector selector;
 
     // 为每个函数生成指令
-    for (const auto &func : irModule->Functions)
+    for (const auto &funcPtr : irModule->Functions)
     {
+        Function *func = funcPtr.get();
+        if (!func)
+            continue;
+
         if (isLibraryFunction(func->getName()))
             continue;
 
@@ -205,7 +209,40 @@ void RISCVBuilder::generateInstructions()
         if (!riscvFunc)
             continue;
 
-        selector.selectInstructions(riscvFunc, func.get());
+        selector.selectInstructions(riscvFunc, func);
+        // 构建函数级别的指令 def-use 链，供后续 peephole / 优化使用（一次性构建）
+        riscvFunc->buildDefUseChains();
+        // 收集 IR value 的使用者列表，便于后续分析/调试
+        for (const auto &argPtr : func->Arguments)
+        {
+            auto arg = argPtr.get();
+            if (arg && !arg->getName().empty())
+            {
+                for (auto *user : arg->getUsers())
+                {
+                    if (user)
+                    {
+                        riscvFunc->addIRValueUser(arg->getName(), user->toString());
+                    }
+                }
+            }
+        }
+
+        // 指令操作数
+        for (const auto &bb : func->BasicBlocks)
+        {
+            for (const auto &instrPtr : bb->Instructions)
+            {
+                auto instr = instrPtr.get();
+                for (auto *operand : instr->getOperands())
+                {
+                    if (operand && !operand->getName().empty())
+                    {
+                        riscvFunc->addIRValueUser(operand->getName(), instr->toString());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -240,7 +277,7 @@ void RISCVBuilder::SecondPeep()
 {
     PeepOptimizationManager peep;
     // 地址融合目前还有问题，先关闭
-    // peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
+    peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
     peep.addPass(make_shared<RemoveRedundantMovePass>());
     peep.optimizeModule(riscvModule);
 }

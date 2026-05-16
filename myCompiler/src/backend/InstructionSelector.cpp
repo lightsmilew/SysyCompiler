@@ -1393,6 +1393,11 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
         auto dataType = value->getType()->isFloatTy() ? RegisterType::FLOAT : RegisterType::INT;
         auto virtualReg = make_shared<RISCVRegister>(dataType);
         registerMap[valueName] = virtualReg;
+        // 将 IR value 名称映射记录到后端函数，供后续 peephole 使用
+        if (currentFunc)
+        {
+            currentFunc->addIRValueMapping(valueName, virtualReg);
+        }
         return virtualReg;
     }
 

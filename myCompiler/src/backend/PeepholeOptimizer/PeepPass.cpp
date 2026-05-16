@@ -3,6 +3,7 @@
 #include <limits>
 #include <tuple>
 #include <optional>
+#include "../DefUse.h"
 
 using namespace RISCV;
 using namespace std;
@@ -50,7 +51,9 @@ bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr
                 operands[2]->getImmediate() == 0)
             {
                 // 检查源寄存器和目标寄存器是否相同
-                if (*operands[0]->getReg() == *operands[1]->getReg())
+                if (operands[0]->getType() == RISCVOperand::Type::REGISTER &&
+                    operands[1]->getType() == RISCVOperand::Type::REGISTER &&
+                    *operands[0]->getReg() == *operands[1]->getReg())
                 {
                     return true;
                 }
@@ -64,7 +67,6 @@ bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr
         auto operands = instr->getOperands();
         if (operands.size() == 2)
         {
-            // 检查源寄存器和目标寄存器是否相同
             if (operands[0]->getType() == RISCVOperand::Type::REGISTER &&
                 operands[1]->getType() == RISCVOperand::Type::REGISTER &&
                 *operands[0]->getReg() == *operands[1]->getReg())
@@ -75,6 +77,152 @@ bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr
     }
 
     return false;
+    }
+
+PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb)
+        return PeepOptiState::KEEP;
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+        return PeepOptiState::KEEP;
+
+    auto currentOpcode = instr->getOpcode();
+    auto parentFunc = bb->getParentFunc();
+
+    // 1) li + mv -> li (替换 mv 为 li，删除原 li)
+    if (instr->getOpcode() == RISCVOpcode::LI)
+    {
+        auto nextIt = it;
+        ++nextIt;
+        if (nextIt != instrs.end() && (*nextIt)->getOpcode() == RISCVOpcode::MV)
+        {
+            auto liOps = instr->getOperands();
+            auto mvOps = (*nextIt)->getOperands();
+            if (liOps.size() >= 2 && mvOps.size() >= 2 &&
+                liOps[0]->getType() == RISCVOperand::Type::REGISTER &&
+                mvOps[1]->getType() == RISCVOperand::Type::REGISTER &&
+                *liOps[0]->getReg() == *mvOps[1]->getReg())
+            {
+                auto dest = mvOps[0]->getReg();
+                int64_t imm = liOps[1]->getImmediate();
+                auto newLi = RISCVInstruction::createPseudoLI(dest, imm);
+                (*nextIt)->replaceInstruction(newLi);
+                return PeepOptiState::DELETE;
+            }
+        }
+    }
+
+    // 2) addi/addiw + load/store（跨基本块全量融合：一次收集所有使用点并同时替换）
+    if (!parentFunc || !isAddressCalcOpcode(currentOpcode))
+        return PeepOptiState::KEEP;
+
+    auto addrOps = instr->getOperands();
+    if (addrOps.size() < 3 || !addrOps[0] || !addrOps[1] || !addrOps[2])
+        return PeepOptiState::KEEP;
+
+    auto addrDestReg = addrOps[0]->getReg();
+    auto baseReg = addrOps[1]->getReg();
+    auto addrImmOp = addrOps[2];
+    if (!addrDestReg || !baseReg || addrImmOp->getType() != RISCVOperand::Type::IMMEDIATE)
+        return PeepOptiState::KEEP;
+
+    int defIdx = parentFunc->getInstructionIndex(instr);
+    if (defIdx < 0)
+        return PeepOptiState::KEEP;
+
+    auto defBB = parentFunc->getInstructionBB(defIdx);
+    if (!defBB)
+        return PeepOptiState::KEEP;
+
+    auto usersMap = parentFunc->getInstrUsers();
+    auto itUsers = usersMap.find(defIdx);
+    if (itUsers == usersMap.end() || itUsers->second.empty())
+        return PeepOptiState::KEEP;
+
+    int64_t baseImm = addrImmOp->getImmediate();
+    vector<pair<int, shared_ptr<RISCVInstruction>>> replacements;
+    replacements.reserve(itUsers->second.size());
+
+    for (int userIdx : itUsers->second)
+    {
+        auto userInstr = parentFunc->getInstructionByIndex(userIdx);
+        auto userBB = parentFunc->getInstructionBB(userIdx);
+        if (!userInstr || !userBB || !parentFunc->dominates(defBB, userBB))
+        {
+            return PeepOptiState::KEEP;
+        }
+
+        auto uopcode = userInstr->getOpcode();
+        auto userOps = userInstr->getOperands();
+
+        if (isLoadOpcode(uopcode) && userOps.size() >= 3)
+        {
+            auto loadDestReg = userOps[0]->getReg();
+            auto loadBaseReg = userOps[1]->getReg();
+            auto loadImmOp = userOps[2];
+            if (!loadDestReg || !loadBaseReg || !loadImmOp || loadImmOp->getType() != RISCVOperand::Type::IMMEDIATE ||
+                !(*loadBaseReg == *addrDestReg))
+            {
+                return PeepOptiState::KEEP;
+            }
+
+            int64_t merged = baseImm + loadImmOp->getImmediate();
+            if (!isLegalMemoryImmediate(merged))
+            {
+                return PeepOptiState::KEEP;
+            }
+
+            auto fused = RISCVInstruction::createIType(uopcode, loadDestReg, baseReg, merged);
+            replacements.emplace_back(userIdx, fused);
+        }
+        else if (isStoreOpcode(uopcode) && userOps.size() >= 3)
+        {
+            auto storeBaseReg = userOps[0]->getReg();
+            auto storeValueReg = userOps[1]->getReg();
+            auto storeImmOp = userOps[2];
+            if (!storeBaseReg || !storeValueReg || !storeImmOp || storeImmOp->getType() != RISCVOperand::Type::IMMEDIATE ||
+                !(*storeBaseReg == *addrDestReg))
+            {
+                return PeepOptiState::KEEP;
+            }
+
+            int64_t merged = baseImm + storeImmOp->getImmediate();
+            if (!isLegalMemoryImmediate(merged))
+            {
+                return PeepOptiState::KEEP;
+            }
+
+            auto fused = RISCVInstruction::createSType(uopcode, baseReg, storeValueReg, merged);
+            replacements.emplace_back(userIdx, fused);
+        }
+        else
+        {
+            return PeepOptiState::KEEP;
+        }
+    }
+
+    if (replacements.empty())
+        return PeepOptiState::KEEP;
+
+    for (const auto &rp : replacements)
+    {
+        auto userInstr = parentFunc->getInstructionByIndex(rp.first);
+        if (userInstr)
+        {
+            userInstr->replaceInstruction(rp.second);
+        }
+    }
+
+    return PeepOptiState::DELETE;
+}
+
+
+bool FoldAdjacentMoveAndAddressPass::isLegalMemoryImmediate(int64_t value) const
+{
+    return value >= -2048 && value <= 2047;
 }
 
 // ========== RemoveRedundantJalPass ==========
@@ -117,270 +265,6 @@ bool RemoveRedundantJalPass::isRedundantJal(shared_ptr<RISCVInstruction> instr, 
     return false;
 }
 
-// ========== FoldAdjacentMoveAndAddressPass ==========
-
-PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
-{
-    if (!instr || !bb)
-    {
-        return PeepOptiState::KEEP;
-    }
-
-    auto &instrs = bb->getInstructions();
-    auto it = find(instrs.begin(), instrs.end(), instr);
-    if (it == instrs.end())
-    {
-        return PeepOptiState::KEEP;
-    }
-
-    auto nextIt = std::next(it);
-    if (nextIt == instrs.end())
-    {
-        return PeepOptiState::KEEP;
-    }
-
-    auto currentOpcode = instr->getOpcode();
-    auto nextInstr = *nextIt;
-
-    // 1) li rd, imm; mv rs, rd  ->  li rs, imm
-    if (currentOpcode == RISCVOpcode::LI && instr->getOperands().size() >= 2 &&
-        nextInstr->getOpcode() == RISCVOpcode::MV && nextInstr->getOperands().size() >= 2)
-    {
-        auto sourceReg = instr->getOperands()[0]->getReg();
-        auto moveDestReg = nextInstr->getOperands()[0]->getReg();
-        auto moveSourceReg = nextInstr->getOperands()[1]->getReg();
-
-        if (!sourceReg || !moveDestReg || !moveSourceReg || !(*sourceReg == *moveSourceReg))
-        {
-            return PeepOptiState::KEEP;
-        }
-
-        if (isRegUsedBeforeRedef(sourceReg, std::next(nextIt), instrs.end()))
-        {
-            return PeepOptiState::KEEP;
-        }
-
-        bool matched = false;
-        for (auto scanIt = nextIt; scanIt != instrs.end(); ++scanIt)
-        {
-            auto scanInstr = *scanIt;
-            if (!scanInstr)
-            {
-                continue;
-            }
-
-            if (scanInstr->getOpcode() == RISCVOpcode::MV && scanInstr->getOperands().size() >= 2)
-            {
-                auto scanDestReg = scanInstr->getOperands()[0]->getReg();
-                auto scanSourceReg = scanInstr->getOperands()[1]->getReg();
-                if (scanDestReg && scanSourceReg && *scanSourceReg == *sourceReg)
-                {
-                    auto imm = instr->getOperands()[1]->getImmediate();
-                    auto foldedLi = RISCVInstruction::createPseudoLI(scanDestReg, imm);
-                    instr->replaceInstruction(foldedLi);
-                    instrs.erase(scanIt);
-                    matched = true;
-                    break;
-                }
-            }
-
-            auto usedRegs = scanInstr->getUseRegisters();
-            if (containsRegister(usedRegs, sourceReg))
-            {
-                return PeepOptiState::KEEP;
-            }
-
-            auto definedRegs = scanInstr->getDefRegisters();
-            if (containsRegister(definedRegs, sourceReg))
-            {
-                return PeepOptiState::KEEP;
-            }
-        }
-
-        if (matched)
-        {
-            return PeepOptiState::MODIFY;
-        }
-    }
-
-    // 2) addi/addiw rd, base, imm; ld/lw/... rt, off(rd) -> ld/lw/... rt, imm+off(base)
-    // NOTE: 临时禁用 addi+load/store 融合以避免运行时段错误（待进一步诊断并实现更保守的融合条件）
-    if (isAddressCalcOpcode(currentOpcode))
-    {
-        return PeepOptiState::KEEP;
-    }
-
-    if (isAddressCalcOpcode(currentOpcode) && instr->getOperands().size() >= 3 &&
-        nextInstr->getOperands().size() >= 3)
-    {
-        auto addrDestReg = instr->getOperands()[0]->getReg();
-        auto baseReg = instr->getOperands()[1]->getReg();
-        auto addrImmOp = instr->getOperands()[2];
-
-        if (!addrDestReg || !baseReg || !addrImmOp || addrImmOp->getType() != RISCVOperand::Type::IMMEDIATE)
-        {
-            return PeepOptiState::KEEP;
-        }
-
-        int64_t baseImm = addrImmOp->getImmediate();
-
-        bool matched = false;
-        for (auto scanIt = nextIt; scanIt != instrs.end(); ++scanIt)
-        {
-            auto scanInstr = *scanIt;
-            if (!scanInstr)
-            {
-                continue;
-            }
-
-            auto scanOpcode = scanInstr->getOpcode();
-
-            if (isLoadOpcode(scanOpcode) && scanInstr->getOperands().size() >= 3)
-            {
-                auto loadDestReg = scanInstr->getOperands()[0]->getReg();
-                auto loadBaseReg = scanInstr->getOperands()[1]->getReg();
-                auto loadImmOp = scanInstr->getOperands()[2];
-
-                if (!loadDestReg || !loadBaseReg || !loadImmOp || loadImmOp->getType() != RISCVOperand::Type::IMMEDIATE)
-                {
-                    return PeepOptiState::KEEP;
-                }
-
-                if (!(*loadBaseReg == *addrDestReg))
-                {
-                    goto address_scan_continue;
-                }
-
-                // 检查 addrDestReg 在 addr 计算后是否仅被这个 load 使用一次
-                int useCount = 0;
-                for (auto chkIt = nextIt; chkIt != instrs.end(); ++chkIt)
-                {
-                    auto ci = *chkIt;
-                    if (!ci)
-                        continue;
-
-                    auto usedRegsChk = ci->getUseRegisters();
-                    if (containsRegister(usedRegsChk, addrDestReg))
-                    {
-                        useCount++;
-                    }
-
-                    auto defRegsChk = ci->getDefRegisters();
-                    if (containsRegister(defRegsChk, addrDestReg))
-                    {
-                        // 遇到重定义后停止计数
-                        break;
-                    }
-                }
-
-                if (useCount > 1)
-                {
-                    // 多次使用，放弃融合以避免只替换部分使用
-                    return PeepOptiState::KEEP;
-                }
-
-                int64_t mergedImm = baseImm + loadImmOp->getImmediate();
-                if (!isLegalMemoryImmediate(mergedImm))
-                {
-                    return PeepOptiState::KEEP;
-                }
-
-                auto fused = RISCVInstruction::createIType(scanOpcode, loadDestReg, baseReg, mergedImm);
-                // 保持内存访问在原位置：用融合指令替换原 load 指令，然后删除早先的地址计算指令
-                size_t addrIndex = std::distance(instrs.begin(), it);
-                size_t loadIndex = std::distance(instrs.begin(), scanIt);
-                if (addrIndex < loadIndex)
-                {
-                    // 先删除早先的地址计算指令，随后目标索引会左移一位
-                    instrs.erase(instrs.begin() + addrIndex);
-                    loadIndex -= 1;
-                    instrs[loadIndex] = fused;
-                }
-                else
-                {
-                    // 地址计算位于目标指令之后，直接替换目标再删除地址计算
-                    instrs[loadIndex] = fused;
-                    instrs.erase(instrs.begin() + addrIndex);
-                }
-                matched = true;
-                break;
-            }
-
-            if (isStoreOpcode(scanOpcode) && scanInstr->getOperands().size() >= 3)
-            {
-                auto storeBaseReg = scanInstr->getOperands()[0]->getReg();
-                auto storeValueReg = scanInstr->getOperands()[1]->getReg();
-                auto storeImmOp = scanInstr->getOperands()[2];
-
-                if (!storeBaseReg || !storeValueReg || !storeImmOp || storeImmOp->getType() != RISCVOperand::Type::IMMEDIATE)
-                {
-                    return PeepOptiState::KEEP;
-                }
-
-                if (!(*storeBaseReg == *addrDestReg))
-                {
-                    goto address_scan_continue;
-                }
-
-                if (isRegUsedBeforeRedef(addrDestReg, std::next(scanIt), instrs.end()))
-                {
-                    return PeepOptiState::KEEP;
-                }
-
-                int64_t mergedImm = baseImm + storeImmOp->getImmediate();
-                if (!isLegalMemoryImmediate(mergedImm))
-                {
-                    return PeepOptiState::KEEP;
-                }
-
-                auto fused = RISCVInstruction::createSType(scanOpcode, baseReg, storeValueReg, mergedImm);
-
-                // 将 store 保持在原位置：替换原 store 指令为融合指令，然后删除早先的地址计算指令
-                size_t addrIndex = std::distance(instrs.begin(), it);
-                size_t storeIndex = std::distance(instrs.begin(), scanIt);
-                if (addrIndex < storeIndex)
-                {
-                    instrs.erase(instrs.begin() + addrIndex);
-                    storeIndex -= 1;
-                    instrs[storeIndex] = fused;
-                }
-                else
-                {
-                    instrs[storeIndex] = fused;
-                    instrs.erase(instrs.begin() + addrIndex);
-                }
-                matched = true;
-                break;
-            }
-
-        address_scan_continue:
-            auto usedRegs = scanInstr->getUseRegisters();
-            if (containsRegister(usedRegs, addrDestReg))
-            {
-                return PeepOptiState::KEEP;
-            }
-
-            auto definedRegs = scanInstr->getDefRegisters();
-            if (containsRegister(definedRegs, addrDestReg))
-            {
-                return PeepOptiState::KEEP;
-            }
-        }
-
-        if (matched)
-        {
-            return PeepOptiState::MODIFY;
-        }
-    }
-
-    return PeepOptiState::KEEP;
-}
-
-bool FoldAdjacentMoveAndAddressPass::isLegalMemoryImmediate(int64_t value) const
-{
-    return value >= -2048 && value <= 2047;
-}
-
 bool FoldAdjacentMoveAndAddressPass::isAddressCalcOpcode(RISCVOpcode opcode) const
 {
     return opcode == RISCVOpcode::ADDI || opcode == RISCVOpcode::ADDIW;
@@ -397,34 +281,6 @@ bool FoldAdjacentMoveAndAddressPass::isStoreOpcode(RISCVOpcode opcode) const
 {
     return opcode == RISCVOpcode::SB || opcode == RISCVOpcode::SH || opcode == RISCVOpcode::SW ||
            opcode == RISCVOpcode::SD || opcode == RISCVOpcode::FSW || opcode == RISCVOpcode::FSD;
-}
-
-bool FoldAdjacentMoveAndAddressPass::isRegUsedBeforeRedef(shared_ptr<RISCVRegister> reg,
-                                                          vector<shared_ptr<RISCVInstruction>>::iterator startIt,
-                                                          vector<shared_ptr<RISCVInstruction>>::iterator endIt) const
-{
-    for (auto it = startIt; it != endIt; ++it)
-    {
-        auto nextInstr = *it;
-        if (!nextInstr)
-        {
-            continue;
-        }
-
-        auto usedRegs = nextInstr->getUseRegisters();
-        if (containsRegister(usedRegs, reg))
-        {
-            return true;
-        }
-
-        auto definedRegs = nextInstr->getDefRegisters();
-        if (containsRegister(definedRegs, reg))
-        {
-            return false;
-        }
-    }
-
-    return false;
 }
 
 // ========== FoldCompareBranchPass ==========

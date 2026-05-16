@@ -887,6 +887,10 @@ namespace RISCV
         vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs;                                 // 被调用函数使用的保存寄存器
         unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsAfterCall; // 用于函数调用后移动指令的映射
         unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset;        // 用于溢出处理的指令
+        // 中端 IR 到 后端寄存器映射（Value name -> RISCVRegister）
+        unordered_map<string, shared_ptr<RISCVRegister>> irValueToRegMap;
+        // 中端 IR 使用者列表（Value name -> 使用它的 IR 指令/值描述）
+        unordered_map<string, vector<string>> irValueUsersMap;
 
     public:
         RISCVFunction(const string &name, shared_ptr<RISCVModule> module);
@@ -929,6 +933,51 @@ namespace RISCV
 
         void addUsedCalleeSavedReg(shared_ptr<RISCVRegister> reg);
 
+        // IR 映射接口
+        void addIRValueMapping(const string &irName, shared_ptr<RISCVRegister> reg)
+        {
+            irValueToRegMap[irName] = reg;
+        }
+
+        shared_ptr<RISCVRegister> getRegForIRValue(const string &irName) const
+        {
+            auto it = irValueToRegMap.find(irName);
+            if (it != irValueToRegMap.end())
+                return it->second;
+            return nullptr;
+        }
+
+        // 反向查找：给定寄存器，返回对应的 IR 名称（若存在）
+        string getIRValueNameForReg(shared_ptr<RISCVRegister> reg) const
+        {
+            for (const auto &p : irValueToRegMap)
+            {
+                if (p.second && reg && *p.second == *reg)
+                    return p.first;
+            }
+            return string();
+        }
+
+        void addIRValueUser(const string &irName, const string &userDesc)
+        {
+            if (!irName.empty() && !userDesc.empty())
+            {
+                irValueUsersMap[irName].push_back(userDesc);
+            }
+        }
+
+        const unordered_map<string, vector<string>> &getIRValueUsers() const
+        {
+            return irValueUsersMap;
+        }
+
+        const vector<string> &getIRValueUsers(const string &irName) const
+        {
+            static const vector<string> empty;
+            auto it = irValueUsersMap.find(irName);
+            return it != irValueUsersMap.end() ? it->second : empty;
+        }
+
         const vector<shared_ptr<RISCVRegister>> &getUsedCalleeSavedRegs() const
         {
             return usedCalleeSavedRegs;
@@ -943,6 +992,35 @@ namespace RISCV
         const LoopInfo &getLoopInfo() const { return loopInfo; }
 
         string toString() const;
+        // ---------- Def-Use chains (instruction-level) ----------
+        // instrIndex -> list of user instr indices (defs -> uses)
+        unordered_map<int, vector<int>> instrUsers;
+        // instrIndex -> list of def instr indices that this instr uses (uses -> defs)
+        unordered_map<int, vector<int>> instrUsedDefs;
+        // instruction index -> instruction pointer
+        vector<shared_ptr<RISCVInstruction>> instrList;
+        // instruction index -> owning basic block
+        vector<shared_ptr<RISCVBasicBlock>> instrBBList;
+        // 支配集合：node -> set of dominators
+        unordered_map<shared_ptr<RISCVBasicBlock>, unordered_set<shared_ptr<RISCVBasicBlock>>> dominatorSets;
+
+        // 构建函数级别的 def-use 链（在指令生成完成后调用）
+        void buildDefUseChains();
+
+        // 查询 API
+        const unordered_map<int, vector<int>> &getInstrUsers() const { return instrUsers; }
+        const unordered_map<int, vector<int>> &getInstrUsedDefs() const { return instrUsedDefs; }
+        int getInstructionIndex(shared_ptr<RISCVInstruction> instr) const;
+        // 获取指令所属基本块
+        shared_ptr<RISCVBasicBlock> getInstructionBB(int instrIdx) const;
+
+        // 支配分析：在构建 def-use 后可调用 computeDominators
+        // 计算并缓存基本块的支配集合
+        void computeDominators();
+        bool dominates(shared_ptr<RISCVBasicBlock> dom, shared_ptr<RISCVBasicBlock> node) const;
+
+        // 通过索引获取指令
+        shared_ptr<RISCVInstruction> getInstructionByIndex(int idx) const;
     };
 
     // RISC-V模块

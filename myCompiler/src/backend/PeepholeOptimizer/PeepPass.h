@@ -33,9 +33,7 @@ private:
     bool isAddressCalcOpcode(RISCVOpcode opcode) const;
     bool isLoadOpcode(RISCVOpcode opcode) const;
     bool isStoreOpcode(RISCVOpcode opcode) const;
-    bool isRegUsedBeforeRedef(shared_ptr<RISCVRegister> reg,
-                              vector<shared_ptr<RISCVInstruction>>::iterator startIt,
-                              vector<shared_ptr<RISCVInstruction>>::iterator endIt) const;
+    
 };
 
 // 删除多余jal指令
