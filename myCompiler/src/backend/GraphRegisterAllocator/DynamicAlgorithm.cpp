@@ -466,57 +466,39 @@ void GraphColorRegisterAllocator::selectSpillCandidates()
 // 计算溢出代价
 double GraphColorRegisterAllocator::calculateSpillCost(shared_ptr<RISCVRegister> reg)
 {
-    // 获取寄存器的使用和定义次数
-
-    int useCount = 0;
-    int defCount = 0;
-    double loopDepthSum = 0.0;
-    int loopDepthCount = 0;
+    double weightedCost = 0.0;
     auto loopInfo = currentFunc->getLoopInfo();
+    const double loadCost = 1.0;
+    const double storeCost = 1.0;
 
     for (auto &bb : currentFunc->getBasicBlocks())
     {
         double bbLoopDepth = loopInfo.getDepth(bb);
+        double execWeight = std::pow(10.0, bbLoopDepth);
         for (auto &instr : bb->getInstructions())
         {
             for (auto useReg : instr->getUseRegisters())
             {
                 if (useReg == reg)
                 {
-                    useCount++;
-                    loopDepthSum += bbLoopDepth;
-                    loopDepthCount++;
+                    weightedCost += execWeight * loadCost;
                 }
             }
             for (auto defReg : instr->getDefRegisters())
             {
                 if (defReg == reg)
                 {
-                    defCount++;
-                    loopDepthSum += bbLoopDepth;
-                    loopDepthCount++;
+                    weightedCost += execWeight * storeCost;
                 }
             }
         }
     }
 
-    double avgLoopDepth = loopDepthCount ? (loopDepthSum / loopDepthCount) : 1.0;
-
-    // 获取寄存器的活跃长度
-    const auto &livenessInfo = currentFunc->getLivenessInfo();
-    int liveLength = 0;
-
-    if (livenessInfo.liveRanges.find(reg) != livenessInfo.liveRanges.end())
+    int degree = interferenceGraph.getDegree(reg);
+    if (degree <= 0)
     {
-        const auto &ranges = livenessInfo.liveRanges.at(reg);
-        for (const auto &range : ranges)
-        {
-            liveLength += (range.end - range.start);
-        }
+        degree = 1;
     }
 
-    // 分母加1，避免除以零并平滑极端情况
-    double cost = (useCount + defCount) * std::pow(2, avgLoopDepth) / (liveLength + 1);
-
-    return cost;
+    return weightedCost / degree;
 }

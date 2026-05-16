@@ -51,8 +51,6 @@ bool WorklistManager::isEmpty(WorklistType type) const
     if (it == worklists.end())
         return true;
 
-    // 需要检查队列中是否有有效的寄存器
-    // 这是一个简化的实现，实际中可能需要更复杂的逻辑
     return it->second.empty();
 }
 
@@ -70,7 +68,6 @@ WorklistManager::getWorklistType(shared_ptr<RISCVRegister> reg) const
     {
         return it->second;
     }
-    // 默认返回SIMPLIFY，实际使用中应该处理这种情况
     return WorklistType::SIMPLIFY;
 }
 
