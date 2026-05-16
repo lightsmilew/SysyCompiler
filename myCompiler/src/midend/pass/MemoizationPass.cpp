@@ -109,19 +109,33 @@ bool MemoizationPass::isMemoizable(Function *func)
         if (!arg->getType()->isIntegerTy() && !arg->getType()->isFloatTy())
             return false;
     }
-    // 简单判断：递归（调用自身）
-    for (auto &bb : func->getBasicBlocks())
+    auto recursiveCalls = getRecursiveCallInstr(func);
+    if (recursiveCalls.size() < 2)
+        return false;
+
+    auto &formalArgs = func->getArguments();
+    bool hasStableContextArg = false;
+    for (size_t argIdx = 0; argIdx < formalArgs.size(); ++argIdx)
     {
-        for (auto &inst : bb->getInstructions())
+        Argument *formalArg = formalArgs[argIdx].get();
+        bool preservedAcrossAllCalls = true;
+        for (auto *call : recursiveCalls)
         {
-            if (auto *call = dynamic_cast<CallInst *>(inst.get()))
+            auto callArgs = call->getArguments();
+            if (argIdx >= callArgs.size() || callArgs[argIdx] != formalArg)
             {
-                if (call->getCalledFunction() == func && !call->ifHasSideEffects())
-                    return true;
+                preservedAcrossAllCalls = false;
+                break;
             }
         }
+        if (preservedAcrossAllCalls)
+        {
+            hasStableContextArg = true;
+            break;
+        }
     }
-    return false;
+
+    return hasStableContextArg;
 }
 
 // Helper: 将val在blk中取模并保证非负，返回产生结果的 Instruction*
