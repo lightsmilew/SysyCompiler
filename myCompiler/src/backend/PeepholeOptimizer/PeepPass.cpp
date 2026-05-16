@@ -100,6 +100,234 @@ bool RemoveRedundantJalPass::isRedundantJal(shared_ptr<RISCVInstruction> instr, 
     return false;
 }
 
+// ========== FoldCompareBranchPass ==========
+
+namespace
+{
+    bool isSupportedCompareOpcode(RISCVOpcode opcode)
+    {
+        return opcode == RISCVOpcode::SLT || opcode == RISCVOpcode::SLTU ||
+               opcode == RISCVOpcode::SLTI || opcode == RISCVOpcode::SLTIU;
+    }
+
+    bool isBranchOpcode(RISCVOpcode opcode)
+    {
+        return opcode == RISCVOpcode::BEQ || opcode == RISCVOpcode::BNE;
+    }
+
+    bool isCompareResultUseOrDef(const shared_ptr<RISCVInstruction> &instr,
+                                 const shared_ptr<RISCVRegister> &reg)
+    {
+        auto usedRegs = instr->getUseRegisters();
+        for (const auto &usedReg : usedRegs)
+        {
+            if (usedReg && reg && *usedReg == *reg)
+            {
+                return true;
+            }
+        }
+
+        auto definedRegs = instr->getDefRegisters();
+        for (const auto &definedReg : definedRegs)
+        {
+            if (definedReg && reg && *definedReg == *reg)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    RISCVOpcode mapDirectBranchOpcode(RISCVOpcode compareOpcode, bool branchOnCompareTrue)
+    {
+        switch (compareOpcode)
+        {
+        case RISCVOpcode::SLT:
+        case RISCVOpcode::SLTI:
+            return branchOnCompareTrue ? RISCVOpcode::BLT : RISCVOpcode::BGE;
+        case RISCVOpcode::SLTU:
+            return branchOnCompareTrue ? RISCVOpcode::BLTU : RISCVOpcode::BGEU;
+        case RISCVOpcode::SLTIU:
+            return branchOnCompareTrue ? RISCVOpcode::BEQ : RISCVOpcode::BNE;
+        default:
+            return compareOpcode;
+        }
+    }
+
+    bool isAllowedCompareImmediate(RISCVOpcode compareOpcode, int64_t immediate)
+    {
+        if (compareOpcode == RISCVOpcode::SLTI)
+        {
+            return immediate == 0;
+        }
+
+        if (compareOpcode == RISCVOpcode::SLTIU)
+        {
+            return immediate == 1;
+        }
+
+        return false;
+    }
+}
+
+PeepOptiState FoldCompareBranchPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb || !isSupportedCompareOpcode(instr->getOpcode()))
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto compareOperands = instr->getOperands();
+    if (compareOperands.size() != 3 || !compareOperands[0] || compareOperands[0]->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto resultReg = compareOperands[0]->getReg();
+    if (!resultReg)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto scanIt = it;
+    ++scanIt;
+    if (scanIt == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    bool hasXori = false;
+    auto xoriIt = instrs.end();
+
+    if ((*scanIt)->getOpcode() == RISCVOpcode::XORI)
+    {
+        auto xoriOperands = (*scanIt)->getOperands();
+        if (xoriOperands.size() != 3 || !xoriOperands[0] || !xoriOperands[1] || !xoriOperands[2] ||
+            xoriOperands[0]->getType() != RISCVOperand::Type::REGISTER ||
+            xoriOperands[1]->getType() != RISCVOperand::Type::REGISTER ||
+            xoriOperands[2]->getType() != RISCVOperand::Type::IMMEDIATE)
+        {
+            return PeepOptiState::KEEP;
+        }
+
+        if (!(*xoriOperands[0]->getReg() == *resultReg) || !(*xoriOperands[1]->getReg() == *resultReg) || xoriOperands[2]->getImmediate() != 1)
+        {
+            return PeepOptiState::KEEP;
+        }
+
+        hasXori = true;
+        xoriIt = scanIt;
+        ++scanIt;
+        if (scanIt == instrs.end())
+        {
+            return PeepOptiState::KEEP;
+        }
+    }
+
+    auto compareOpcode = instr->getOpcode();
+    auto branchSearchStart = scanIt;
+    auto branchIt = instrs.end();
+    for (auto candidateIt = branchSearchStart; candidateIt != instrs.end(); ++candidateIt)
+    {
+        auto candidate = *candidateIt;
+        if (candidate == instr)
+        {
+            continue;
+        }
+
+        if (hasXori && candidateIt == xoriIt)
+        {
+            continue;
+        }
+
+        if (!isBranchOpcode(candidate->getOpcode()))
+        {
+            if (isCompareResultUseOrDef(candidate, resultReg))
+            {
+                return PeepOptiState::KEEP;
+            }
+            continue;
+        }
+
+        auto branchOperands = candidate->getOperands();
+        if (branchOperands.size() != 3 || !branchOperands[2] || branchOperands[2]->getType() != RISCVOperand::Type::LABEL)
+        {
+            continue;
+        }
+
+        bool resultOnLeft = branchOperands[0] && branchOperands[0]->getType() == RISCVOperand::Type::REGISTER &&
+                            branchOperands[0]->getReg() && *branchOperands[0]->getReg() == *resultReg &&
+                            branchOperands[1] && branchOperands[1]->getType() == RISCVOperand::Type::REGISTER &&
+                            branchOperands[1]->getReg() && branchOperands[1]->getReg()->isPhysical() &&
+                            branchOperands[1]->getReg()->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO;
+        bool resultOnRight = branchOperands[1] && branchOperands[1]->getType() == RISCVOperand::Type::REGISTER &&
+                             branchOperands[1]->getReg() && *branchOperands[1]->getReg() == *resultReg &&
+                             branchOperands[0] && branchOperands[0]->getType() == RISCVOperand::Type::REGISTER &&
+                             branchOperands[0]->getReg() && branchOperands[0]->getReg()->isPhysical() &&
+                             branchOperands[0]->getReg()->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO;
+        if (!resultOnLeft && !resultOnRight)
+        {
+            continue;
+        }
+
+        bool branchOnCompareTrue = (candidate->getOpcode() == RISCVOpcode::BNE) ^ hasXori;
+        auto newBranchOpcode = mapDirectBranchOpcode(compareOpcode, branchOnCompareTrue);
+        auto lhsReg = compareOperands[1]->getReg();
+        if (!lhsReg)
+        {
+            return PeepOptiState::KEEP;
+        }
+
+        shared_ptr<RISCVRegister> rhsReg;
+        if (compareOpcode == RISCVOpcode::SLT || compareOpcode == RISCVOpcode::SLTU)
+        {
+            if (compareOperands[2]->getType() != RISCVOperand::Type::REGISTER)
+            {
+                return PeepOptiState::KEEP;
+            }
+            rhsReg = compareOperands[2]->getReg();
+        }
+        else
+        {
+            if (compareOperands[2]->getType() != RISCVOperand::Type::IMMEDIATE || !isAllowedCompareImmediate(compareOpcode, compareOperands[2]->getImmediate()))
+            {
+                return PeepOptiState::KEEP;
+            }
+            rhsReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        }
+
+        if (!rhsReg)
+        {
+            return PeepOptiState::KEEP;
+        }
+
+        branchIt = candidateIt;
+        auto directBranch = RISCVInstruction::createBType(newBranchOpcode, lhsReg, rhsReg, branchOperands[2]->getLabel());
+        candidate->replaceInstruction(directBranch);
+        break;
+    }
+
+    if (branchIt == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    if (hasXori && xoriIt != instrs.end())
+    {
+        instrs.erase(xoriIt);
+    }
+
+    return PeepOptiState::DELETE;
+}
+
 // ========== DeadCodeEliminationPass ==========
 
 PeepOptiState DeadCodeEliminationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

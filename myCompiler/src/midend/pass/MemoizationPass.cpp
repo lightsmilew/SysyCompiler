@@ -20,6 +20,7 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
     auto *valueArr = module.addGlobalVariable(ArrayType::getInstance(IntegerType::getInstance(), ARRAY_SIZE),
                                               memoValueArrayName,
                                               nullptr, false);
+    //1
     // auto *argsArr= module.addGlobalVariable(ArrayType::getInstance(ArrayType::getInstance(IntegerType::getInstance(), MAX_PARAMS), ARRAY_SIZE),
     //                                           getMemoArgsArrayName(funcName),
     //                                           nullptr, false);
@@ -55,6 +56,7 @@ Value *MemoizationPass::getMemoIndex(const std::vector<Value *> &args, Function 
     auto *flagPtr = new GetElementPtrInst(flagArr, {idx_final}, "gep_" + memoFlagArrayName);
     auto *flagVal = new LoadInst(flagPtr, "load_" + memoFlagArrayName);
     Instruction *cond = new ICmpInst(ICmpInst::Predicate::ICMP_EQ, flagVal, new ConstantInt(IntegerType::getInstance(), 1), "icmp_" + memoFlagArrayName);
+    //2
     // for(int i=0;i<args.size();++i)
     // {
     //     auto *argGep=new GetElementPtrInst(argsArr,{idx_final,new ConstantInt(IntegerType::getInstance(),i)},"gep_"+getMemoArgsArrayName(funcName)+"_"+to_string(i));
@@ -128,7 +130,8 @@ bool MemoizationPass::runOnFunction(Function *func)
     Value *idx = getMemoIndex(args, func);
     Value *valueArr = module.getGlobalVariable(getMemoValueArrayName(funcName));
     Value *flagArr = module.getGlobalVariable(getMemoFlagArrayName(funcName));
-    //Value *argsArr=module.getGlobalVariable(getMemoArgsArrayName(funcName));
+    //3
+    // Value *argsArr=module.getGlobalVariable(getMemoArgsArrayName(funcName));
     // 在所有return前插入写回
     for (auto &bb : func->getBasicBlocks())
     {
@@ -148,6 +151,7 @@ bool MemoizationPass::runOnFunction(Function *func)
             bb->insertBeforeTerminator(unique_ptr<Instruction>(gepFlag));
             bb->insertBeforeTerminator(unique_ptr<Instruction>(storeFlag));
             // // 把当前参数存入args数组
+            //4
             // int args_num=args.size();
             // for(int i=0;i<args_num;++i)
             // {

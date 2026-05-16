@@ -52,4 +52,23 @@ namespace optimization
         size_t LoopUnrollingCount = 0;
     };
 
+    // 折叠固定次数的外层拷贝+调用循环
+    class LoopCopyCallCollapsePass : public Pass
+    {
+    public:
+        LoopCopyCallCollapsePass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "LoopCopyCallCollapse"; }
+
+    private:
+        bool getFixedTripCountLoopInfo(const Loop &loop,
+                                       ICmpInst *&cmp,
+                                       ConstantInt *&boundConst,
+                                       int &tripCount) const;
+        bool isPureCopyLoop(const Loop &loop, Value *&srcArray, Value *&dstArray) const;
+        CallInst *findDominantCallInLoop(const Loop &outerLoop, const Loop &copyLoop, Value *dstArray) const;
+        void replaceValueInFunction(Function *func, Value *oldValue, Value *newValue, const std::set<BasicBlock *> &skipBlocks) const;
+        void redirectAndRemoveLoop(Function *func, const Loop &loop);
+    };
+
 }

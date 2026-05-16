@@ -2,6 +2,82 @@
 #include <functional>
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+bool sameValueForAccess(Value *lhs, Value *rhs)
+{
+    if (lhs == rhs)
+    {
+        return true;
+    }
+
+    auto *lhsConstInt = dynamic_cast<ConstantInt *>(lhs);
+    auto *rhsConstInt = dynamic_cast<ConstantInt *>(rhs);
+    if (lhsConstInt && rhsConstInt)
+    {
+        return lhsConstInt->Value == rhsConstInt->Value;
+    }
+
+    if (!lhs || !rhs)
+    {
+        return false;
+    }
+
+    return isSameAddr(lhs, rhs);
+}
+
+bool collectAccessPattern(Value *value, Value *&baseValue, vector<Value *> &indices)
+{
+    if (!value)
+    {
+        return false;
+    }
+
+    if (auto *castInst = dynamic_cast<CastInst *>(value))
+    {
+        return collectAccessPattern(castInst->getOperand(), baseValue, indices);
+    }
+
+    if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(value))
+    {
+        if (!collectAccessPattern(gepInst->getPointerOperand(), baseValue, indices))
+        {
+            return false;
+        }
+
+        auto gepIndices = gepInst->getIndices();
+        indices.insert(indices.end(), gepIndices.begin(), gepIndices.end());
+        return true;
+    }
+
+    if (!baseValue)
+    {
+        baseValue = value;
+        return true;
+    }
+
+    return sameValueForAccess(baseValue, value);
+}
+
+bool sameAccessPattern(const vector<Value *> &lhs, const vector<Value *> &rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); ++i)
+    {
+        if (!sameValueForAccess(lhs[i], rhs[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+} // namespace
 // ========== 循环不变代码移动 ==========
 bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
 {
@@ -1406,3 +1482,387 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
     }
     return changed;
 }
+
+bool LoopCopyCallCollapsePass::getFixedTripCountLoopInfo(const Loop &loop,
+                                                         ICmpInst *&cmp,
+                                                         ConstantInt *&boundConst,
+                                                         int &tripCount) const
+{
+    cmp = nullptr;
+    boundConst = nullptr;
+    tripCount = -1;
+
+    BasicBlock *header = loop.header;
+    if (!header)
+    {
+        return false;
+    }
+
+    auto &headerInsts = header->getInstructions();
+    if (headerInsts.size() < 2)
+    {
+        return false;
+    }
+
+    auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+    if (!br || !br->isConditional())
+    {
+        return false;
+    }
+
+    cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
+    if (!cmp)
+    {
+        return false;
+    }
+
+    if (cmp->getPredicate() != ICmpInst::ICMP_SLT && cmp->getPredicate() != ICmpInst::ICMP_SLE)
+    {
+        return false;
+    }
+
+    auto *lhsPhi = dynamic_cast<PhiInst *>(cmp->getLHS());
+    auto *rhsPhi = dynamic_cast<PhiInst *>(cmp->getRHS());
+    if (!lhsPhi && !rhsPhi)
+    {
+        return false;
+    }
+
+    auto *lhsConst = dynamic_cast<ConstantInt *>(cmp->getLHS());
+    auto *rhsConst = dynamic_cast<ConstantInt *>(cmp->getRHS());
+
+    if (lhsPhi && rhsConst)
+    {
+        boundConst = rhsConst;
+        for (size_t i = 0; i < lhsPhi->getNumIncomingValues(); ++i)
+        {
+            if (std::find(loop.blocks.begin(), loop.blocks.end(), lhsPhi->getIncomingBlock(i)) == loop.blocks.end())
+            {
+                auto *initConst = dynamic_cast<ConstantInt *>(lhsPhi->getIncomingValue(i));
+                if (!initConst || initConst->Value != 0)
+                {
+                    return false;
+                }
+                tripCount = (cmp->getPredicate() == ICmpInst::ICMP_SLT) ? boundConst->Value : boundConst->Value + 1;
+                return tripCount > 0;
+            }
+        }
+    }
+    else if (rhsPhi && lhsConst)
+    {
+        // 形式翻转时保持保守，仅处理常见的「phi < const」模式
+        return false;
+    }
+
+    return false;
+}
+
+bool LoopCopyCallCollapsePass::isPureCopyLoop(const Loop &loop, Value *&srcArray, Value *&dstArray) const
+{
+    srcArray = nullptr;
+    dstArray = nullptr;
+
+    int loadCount = 0;
+    int storeCount = 0;
+    vector<Value *> loadIndices;
+    vector<Value *> storeIndices;
+
+    for (auto *bb : loop.blocks)
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (dynamic_cast<CallInst *>(inst))
+            {
+                return false;
+            }
+
+            if (auto *load = dynamic_cast<LoadInst *>(inst))
+            {
+                if (++loadCount > 1)
+                {
+                    return false;
+                }
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(load->getPointer(), origin, indices) || !origin)
+                {
+                    return false;
+                }
+                if (!srcArray)
+                {
+                    srcArray = origin;
+                    loadIndices = std::move(indices);
+                }
+                else if (!isSameAddr(srcArray, origin) || !sameAccessPattern(loadIndices, indices))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (auto *store = dynamic_cast<StoreInst *>(inst))
+            {
+                if (++storeCount > 1)
+                {
+                    return false;
+                }
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(store->getPointer(), origin, indices) || !origin)
+                {
+                    return false;
+                }
+                if (!dstArray)
+                {
+                    dstArray = origin;
+                    storeIndices = std::move(indices);
+                }
+                else if (!isSameAddr(dstArray, origin) || !sameAccessPattern(storeIndices, indices))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (dynamic_cast<BranchInst *>(inst) ||
+                dynamic_cast<ICmpInst *>(inst) ||
+                dynamic_cast<PhiInst *>(inst) ||
+                dynamic_cast<BinaryOperator *>(inst) ||
+                dynamic_cast<CastInst *>(inst) ||
+                dynamic_cast<GetElementPtrInst *>(inst) ||
+                dynamic_cast<CopyInst *>(inst))
+            {
+                continue;
+            }
+
+            return false;
+        }
+    }
+
+    if (loadCount != 1 || storeCount != 1 || !srcArray || !dstArray || isSameAddr(srcArray, dstArray))
+    {
+        return false;
+    }
+
+    if (!sameAccessPattern(loadIndices, storeIndices))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+CallInst *LoopCopyCallCollapsePass::findDominantCallInLoop(const Loop &outerLoop, const Loop &copyLoop, Value *dstArray) const
+{
+    for (auto *bb : outerLoop.blocks)
+    {
+        if (std::find(copyLoop.blocks.begin(), copyLoop.blocks.end(), bb) != copyLoop.blocks.end())
+        {
+            continue;
+        }
+
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (!call)
+            {
+                continue;
+            }
+
+            if (call->HasModifiedArray(dstArray))
+            {
+                return call;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+void LoopCopyCallCollapsePass::replaceValueInFunction(Function *func,
+                                                     Value *oldValue,
+                                                     Value *newValue,
+                                                     const std::set<BasicBlock *> &skipBlocks) const
+{
+    if (!func || !oldValue || !newValue)
+    {
+        return;
+    }
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        if (skipBlocks.count(bb))
+        {
+            continue;
+        }
+
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            for (size_t i = 0; i < inst->getOperands().size(); ++i)
+            {
+                if (inst->getOperandByIndex(i) == oldValue)
+                {
+                    inst->setOperandByIndex(i, newValue);
+                }
+            }
+        }
+    }
+}
+
+void LoopCopyCallCollapsePass::redirectAndRemoveLoop(Function *func, const Loop &loop)
+{
+    if (!func || !loop.header)
+    {
+        return;
+    }
+
+    std::set<BasicBlock *> loopBlocks(loop.blocks.begin(), loop.blocks.end());
+
+    BasicBlock *preheader = nullptr;
+    int externalPreds = 0;
+    for (auto *pred : loop.header->getPredecessors())
+    {
+        if (!loopBlocks.count(pred))
+        {
+            preheader = pred;
+            ++externalPreds;
+        }
+    }
+
+    BasicBlock *exitBlock = nullptr;
+    int externalSuccs = 0;
+    for (auto *succ : loop.header->getSuccessors())
+    {
+        if (!loopBlocks.count(succ))
+        {
+            exitBlock = succ;
+            ++externalSuccs;
+        }
+    }
+
+    if (externalPreds != 1 || externalSuccs != 1 || !preheader || !exitBlock)
+    {
+        return;
+    }
+
+    for (auto &instPtr : preheader->getInstructions())
+    {
+        if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
+        {
+            if (br->getTrueBlock() == loop.header)
+            {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
+                br->setTrueBlock(exitBlock);
+            }
+            if (br->getFalseBlock() == loop.header)
+            {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
+                br->setFalseBlock(exitBlock);
+            }
+        }
+    }
+
+    for (auto *bb : loop.blocks)
+    {
+        for (auto *succ : bb->getSuccessors())
+        {
+            if (!loopBlocks.count(succ))
+            {
+                removePhiIncomingFromPredecessor(succ, bb);
+            }
+        }
+    }
+
+    for (auto *bb : loop.blocks)
+    {
+        bb->removeSelfBasicBlock();
+    }
+
+    auto &bbs = func->getBasicBlocks();
+    for (auto it = bbs.begin(); it != bbs.end();)
+    {
+        if (loopBlocks.count(it->get()))
+        {
+            needToDelete.push_back(it->release());
+            it = bbs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+
+bool LoopCopyCallCollapsePass::runOnFunction(Function *func)
+{
+    bool changed = false;
+    if (!func || func->isLibraryFunction())
+    {
+        return false;
+    }
+
+    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    auto loops = func->getLoops();
+
+    for (const auto &outerLoop : loops)
+    {
+        int tripCount = -1;
+        ICmpInst *cmp = nullptr;
+        ConstantInt *boundConst = nullptr;
+        if (!getFixedTripCountLoopInfo(outerLoop, cmp, boundConst, tripCount) || tripCount <= 1)
+        {
+            continue;
+        }
+
+        for (const auto &innerLoop : loops)
+        {
+            if (innerLoop.header == outerLoop.header)
+            {
+                continue;
+            }
+            if (std::find(outerLoop.blocks.begin(), outerLoop.blocks.end(), innerLoop.header) == outerLoop.blocks.end())
+            {
+                continue;
+            }
+
+            Value *srcArray = nullptr;
+            Value *dstArray = nullptr;
+            if (!isPureCopyLoop(innerLoop, srcArray, dstArray))
+            {
+                continue;
+            }
+
+            // 将外层循环和后续代码里所有对工作数组的访问直接改到源数组上。
+            replaceValueInFunction(func, dstArray, srcArray, {});
+
+            // 将外层固定次数循环压成一轮。
+            cmp->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 1));
+
+            // 删除内层纯拷贝循环块。
+            redirectAndRemoveLoop(func, innerLoop);
+
+            changed = true;
+            if (verbose)
+            {
+                debugInfo << "LoopCopyCallCollapse: collapsed outer loop " << outerLoop.header->getName()
+                          << " and removed copy loop " << innerLoop.header->getName() << " using "
+                          << dstArray->getName() << " -> " << srcArray->getName() << "\n";
+            }
+
+            func->setLoops(ControlFlowAnalysis::findLoops(func));
+            return changed;
+        }
+    }
+
+    return changed;
+}
+

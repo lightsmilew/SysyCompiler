@@ -79,6 +79,7 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::Or:
     case Opcode::Xor:
     case Opcode::Muld:
+    case Opcode::Mulhd:
     case Opcode::Slld:
     case Opcode::Srad:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
