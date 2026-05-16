@@ -18,7 +18,7 @@ bool GEPExpansionPass ::runOnFunction(Function *func)
                 vector<unique_ptr<Instruction>> newgepInsts;
                 auto pointer = gep->getPointerOperand();
                 std::string basename = gep->getName();
-                int size = indices.size() - gep->num_addedzero;
+                int size = static_cast<int>(indices.size()) - std::max(0, gep->num_addedzero);
                 for (int i = 0; i < size; i++)
                 {
                     auto newgep = std::make_unique<GetElementPtrInst>(pointer, vector<Value *>{indices[i]}, basename + "_gep" + std::to_string(i));
