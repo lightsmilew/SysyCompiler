@@ -1,4 +1,5 @@
 #include "ArrayPass.h"
+#include <regex>
 using namespace std;
 using namespace optimization;
 // 如果store和load循环范围不一致也不能简单删除
@@ -338,5 +339,91 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
             changed = true;
         }
     }
+    return changed;
+}
+
+namespace
+{
+    string stripInlineSuffix(const string &name)
+    {
+        static const regex inlRegex("(_inl\\d+)");
+        return regex_replace(name, inlRegex, "");
+    }
+}
+
+string ArrayStoreLoadForwardPass::buildArrayIndexKey(Value *ptr) const
+{
+    auto *gep = dynamic_cast<GetElementPtrInst *>(ptr);
+    if (!gep)
+        return "";
+
+    const auto indices = gep->getIndices();
+    if (indices.size() != 1 || !indices[0])
+        return "";
+
+    Value *base = gep->getOriginalPointerOperand();
+    if (!base)
+        return "";
+
+    return stripInlineSuffix(base->getName()) + "#" + stripInlineSuffix(indices[0]->getName());
+}
+
+bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        unordered_map<string, Value *> latestStoredValue;
+
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+
+            if (auto *loadInst = dynamic_cast<LoadInst *>(inst))
+            {
+                string key = buildArrayIndexKey(loadInst->getPointer());
+                auto found = key.empty() ? latestStoredValue.end() : latestStoredValue.find(key);
+                if (found != latestStoredValue.end() && found->second)
+                {
+                    loadInst->replaceAllUsesWith(found->second);
+                    if (verbose)
+                    {
+                        debugInfo << "ArrayStoreLoadForward: replaced load " << loadInst->getName()
+                                  << " in " << bb->getName() << " of func " << func->getName() << "\n";
+                    }
+                    loadInst->removeThisFromOperands();
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    changed = true;
+                    continue;
+                }
+            }
+
+            // 保守失效策略：调用可能读写任意内存，先清空再继续。
+            if (dynamic_cast<CallInst *>(inst))
+            {
+                latestStoredValue.clear();
+                ++it;
+                continue;
+            }
+
+            if (auto *storeInst = dynamic_cast<StoreInst *>(inst))
+            {
+                // 保守起见，任何store先清空已记录映射，再记录当前store。
+                latestStoredValue.clear();
+                string key = buildArrayIndexKey(storeInst->getPointer());
+                if (!key.empty())
+                {
+                    latestStoredValue[key] = storeInst->getValueToStore();
+                }
+            }
+
+            ++it;
+        }
+    }
+
     return changed;
 }

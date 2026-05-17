@@ -136,14 +136,8 @@ namespace
             return false;
         }
 
-
         auto *funcTy = func->getFunctionType();
         if (!funcTy || !funcTy->ReturnType || !funcTy->ReturnType->isIntegerTy())
-        {
-            return false;
-        }
-
-        if (func->getInstructionCount() > 200)
         {
             return false;
         }
