@@ -365,7 +365,8 @@ string ArrayStoreLoadForwardPass::buildArrayIndexKey(Value *ptr) const
     if (!base)
         return "";
 
-    return stripInlineSuffix(base->getName()) + "#" + stripInlineSuffix(indices[0]->getName());
+    // 用结构化文本而不是名字，避免常量下标或未命名SSA值被错误合并。
+    return base->toRef() + "#" + indices[0]->toRef();
 }
 
 bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
