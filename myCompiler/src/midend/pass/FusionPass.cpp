@@ -51,6 +51,84 @@ namespace
         }
     }
 
+    bool isUncondJumpTo(BasicBlock *from, BasicBlock *to)
+    {
+        if (!from || !to)
+        {
+            return false;
+        }
+        auto *term = dynamic_cast<BranchInst *>(from->getTerminator());
+        return term && !term->isConditional() && term->getTrueBlock() == to;
+    }
+
+    bool isNeZeroOnEqOne(Value *value)
+    {
+        auto *ne = dynamic_cast<ICmpInst *>(stripTrivialWrappers(value));
+        if (!ne || ne->getPredicate() != ICmpInst::ICMP_NE)
+        {
+            return false;
+        }
+
+        auto *lhs = stripTrivialWrappers(ne->getLHS());
+        auto *rhs = stripTrivialWrappers(ne->getRHS());
+        ICmpInst *eq = nullptr;
+        if (isConstInt(lhs, 0))
+        {
+            eq = dynamic_cast<ICmpInst *>(rhs);
+        }
+        else if (isConstInt(rhs, 0))
+        {
+            eq = dynamic_cast<ICmpInst *>(lhs);
+        }
+        if (!eq || eq->getPredicate() != ICmpInst::ICMP_EQ)
+        {
+            return false;
+        }
+
+        return isConstInt(eq->getLHS(), 1) || isConstInt(eq->getRHS(), 1);
+    }
+
+    void detectLogicalAndOr(const Loop &loop, bool &hasAndPattern, bool &hasOrPattern)
+    {
+        for (auto *bb : loop.blocks)
+        {
+            if (!bb)
+            {
+                continue;
+            }
+
+            auto *term = dynamic_cast<BranchInst *>(bb->getTerminator());
+            if (!term || !term->isConditional())
+            {
+                continue;
+            }
+            if (!isNeZeroOnEqOne(term->getCondition()))
+            {
+                continue;
+            }
+
+            auto *t = term->getTrueBlock();
+            auto *f = term->getFalseBlock();
+            if (!t || !f || !loop.containsBlock(t) || !loop.containsBlock(f))
+            {
+                continue;
+            }
+
+            // && lowering: cond ? rhs : end, and rhs unconditionally jumps to end.
+            if (isUncondJumpTo(t, f))
+            {
+                hasAndPattern = true;
+                continue;
+            }
+            // || lowering: cond ? end : rhs, and rhs unconditionally jumps to end.
+            if (isUncondJumpTo(f, t))
+            {
+                hasOrPattern = true;
+                continue;
+            }
+        }
+    }
+
     bool matchBitwiseReductionShape(Function *func, Opcode &reducedOpcode)
     {
         if (!func || func->isLibraryFunction())
@@ -87,8 +165,9 @@ namespace
             int divByTwo = 0;
             int mulByTwo = 0;
             int counterInit32 = 0;
-            int eqToOne = 0;
             int directNeOnData = 0;
+            bool hasAndPattern = false;
+            bool hasOrPattern = false;
             bool hasUnsupportedInst = false;
 
             for (auto *bb : loop.blocks)
@@ -135,11 +214,7 @@ namespace
                         auto *lhs = stripTrivialWrappers(cmp->getLHS());
                         auto *rhs = stripTrivialWrappers(cmp->getRHS());
 
-                        if (cmp->getPredicate() == ICmpInst::ICMP_EQ && (isConstInt(lhs, 1) || isConstInt(rhs, 1)))
-                        {
-                            ++eqToOne;
-                        }
-                        else if (cmp->getPredicate() == ICmpInst::ICMP_NE)
+                        if (cmp->getPredicate() == ICmpInst::ICMP_NE)
                         {
                             bool lhsIsCmp = dynamic_cast<ICmpInst *>(lhs) || dynamic_cast<FCmpInst *>(lhs);
                             bool rhsIsCmp = dynamic_cast<ICmpInst *>(rhs) || dynamic_cast<FCmpInst *>(rhs);
@@ -167,6 +242,8 @@ namespace
                 }
             }
 
+            detectLogicalAndOr(loop, hasAndPattern, hasOrPattern);
+
             if (hasUnsupportedInst)
             {
                 continue;
@@ -179,9 +256,14 @@ namespace
                     reducedOpcode = Opcode::Xor;
                     return true;
                 }
-                if (eqToOne >= 2)
+                if (hasAndPattern && !hasOrPattern)
                 {
                     reducedOpcode = Opcode::And;
+                    return true;
+                }
+                if (hasOrPattern && !hasAndPattern)
+                {
+                    reducedOpcode = Opcode::Or;
                     return true;
                 }
             }
@@ -257,8 +339,21 @@ bool FusionPass::runOnFunction(Function *func)
         changed = true;
         if (verbose)
         {
+            const char *opName = "unknown";
+            if (reducedOpcode == Opcode::Xor)
+            {
+                opName = "xor";
+            }
+            else if (reducedOpcode == Opcode::And)
+            {
+                opName = "and";
+            }
+            else if (reducedOpcode == Opcode::Or)
+            {
+                opName = "or";
+            }
             debugInfo << "BitwiseLoopFusion: Reduced structural bitwise loop in " << func->getName()
-                      << " to direct " << (reducedOpcode == Opcode::And ? "and" : "xor") << "\n";
+                      << " to direct " << opName << "\n";
         }
     }
 
