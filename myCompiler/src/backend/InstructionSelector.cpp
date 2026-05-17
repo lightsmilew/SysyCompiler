@@ -828,16 +828,15 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
-    auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-    auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
-    auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     switch (inst->Pred)
     {
     case ICmpInst::ICMP_EQ:
     {
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         if (dynamic_cast<ConstantInt *>(inst->getRHS()))
         {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
             auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, lhsReg, dynamic_cast<ConstantInt *>(inst->getRHS())->Value);
             currentBB->addInstruction(xoriInst);
             auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
@@ -845,6 +844,7 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
         }
         else if (dynamic_cast<ConstantInt *>(inst->getLHS()))
         {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
             auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, rhsReg, dynamic_cast<ConstantInt *>(inst->getLHS())->Value);
             currentBB->addInstruction(xoriInst);
             auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
@@ -852,6 +852,8 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
         }
         else
         {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
             auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
             currentBB->addInstruction(xorInst);
             auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
@@ -861,8 +863,10 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     break;
     case ICmpInst::ICMP_NE:
     {
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         if (dynamic_cast<ConstantInt *>(inst->getRHS()) && dynamic_cast<ConstantInt *>(inst->getRHS())->Value <= 2047 && dynamic_cast<ConstantInt *>(inst->getRHS())->Value >= -2048)
         {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
             auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, lhsReg, dynamic_cast<ConstantInt *>(inst->getRHS())->Value);
             currentBB->addInstruction(xoriInst);
             auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
@@ -872,6 +876,7 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
         }
         else if (dynamic_cast<ConstantInt *>(inst->getLHS()) && dynamic_cast<ConstantInt *>(inst->getLHS())->Value <= 2047 && dynamic_cast<ConstantInt *>(inst->getLHS())->Value >= -2048)
         {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
             auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, rhsReg, dynamic_cast<ConstantInt *>(inst->getLHS())->Value);
             currentBB->addInstruction(xoriInst);
             auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
@@ -881,6 +886,8 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
         }
         else
         {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
             auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
             currentBB->addInstruction(xorInst);
             auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
@@ -892,12 +899,18 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     break;
     case ICmpInst::ICMP_SLT:
     {
+        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
         currentBB->addInstruction(cmpInst);
     }
     break;
     case ICmpInst::ICMP_SLE:
     {
+        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
         currentBB->addInstruction(sltInst);
         auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
@@ -906,12 +919,18 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     break;
     case ICmpInst::ICMP_SGT:
     {
+        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
         currentBB->addInstruction(cmpInst);
     }
     break;
     case ICmpInst::ICMP_SGE:
     {
+        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+        auto destReg = getOrCreateVirtualReg(inst->getDest());
         auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
         currentBB->addInstruction(sltInst);
         auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
