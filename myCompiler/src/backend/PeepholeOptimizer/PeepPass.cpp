@@ -142,6 +142,7 @@ PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstructi
     if (itUsers == usersMap.end() || itUsers->second.empty())
         return PeepOptiState::KEEP;
 
+
     // 只检查当前这条地址计算本身是否为自修改形式，例如 addi t0, t0, imm。
     // 这类指令不能被折叠删除，否则会破坏后续的指针更新。
     if (*addrDestReg == *baseReg)

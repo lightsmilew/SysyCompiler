@@ -1,5 +1,12 @@
 #include "PeepOptimizationManager.h"
 #include <iostream>
+
+namespace
+{
+    constexpr size_t kMaxAddressFusionBlockInstrCount = 3000;
+    const string kAddressFusionPassName = "FoldAdjacentMoveAndAddress";
+}
+
 void PeepOptimizationManager::addPass(shared_ptr<PeepPass> pass)
 {
     if (pass)
@@ -15,13 +22,24 @@ void PeepOptimizationManager::optimizeFunction(shared_ptr<RISCVFunction> func)
         return;
     }
 
+    size_t totalInstructionCount = 0;
     for (auto &bb : func->getBasicBlocks())
     {
-        optimizeBasicBlock(bb);
+        if (bb)
+        {
+            totalInstructionCount += bb->getInstructions().size();
+        }
+    }
+
+    const bool skipAddressFusion = totalInstructionCount > kMaxAddressFusionBlockInstrCount;
+
+    for (auto &bb : func->getBasicBlocks())
+    {
+        optimizeBasicBlock(bb, skipAddressFusion);
     }
 }
 
-void PeepOptimizationManager::optimizeBasicBlock(shared_ptr<RISCVBasicBlock> bb)
+void PeepOptimizationManager::optimizeBasicBlock(shared_ptr<RISCVBasicBlock> bb, bool skipAddressFusion)
 {
     if (!bb)
     {
@@ -29,33 +47,27 @@ void PeepOptimizationManager::optimizeBasicBlock(shared_ptr<RISCVBasicBlock> bb)
     }
 
     auto &instructions = bb->getInstructions();
-    auto it = instructions.begin();
-
-    while (it != instructions.end())
+    for (auto &pass : passes)
     {
-        auto currentInstr = *it;
-        bool shouldDelete = false;
-
-        // 对当前指令应用所有优化pass
-        for (auto &pass : passes)
+        if (skipAddressFusion && pass && pass->getName() == kAddressFusionPassName)
         {
+            continue;
+        }
+
+        auto it = instructions.begin();
+        while (it != instructions.end())
+        {
+            auto currentInstr = *it;
             auto state = pass->optimize(currentInstr, bb);
 
             if (state == PeepOptiState::DELETE)
             {
-                shouldDelete = true;
-                break;
+                it = instructions.erase(it);
             }
-        }
-
-        if (shouldDelete)
-        {
-            it = instructions.erase(it);
-        }
-        else
-        {
-            // 移动到下一条指令
-            ++it;
+            else
+            {
+                ++it;
+            }
         }
     }
 }

@@ -42,6 +42,6 @@ public:
 
     void addPass(shared_ptr<PeepPass> pass);
     void optimizeFunction(shared_ptr<RISCVFunction> func);
-    void optimizeBasicBlock(shared_ptr<RISCVBasicBlock> bb);
+    void optimizeBasicBlock(shared_ptr<RISCVBasicBlock> bb, bool skipAddressFusion = false);
     void optimizeModule(shared_ptr<RISCVModule> module);
 };
