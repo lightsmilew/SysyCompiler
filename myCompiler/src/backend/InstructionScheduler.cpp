@@ -852,6 +852,10 @@ namespace RISCV
 
         // 更新基本块的指令序列
         bb->setInstructions(newInstructions);
+        if (auto parentFunc = bb->getParentFunc())
+        {
+            parentFunc->buildDefUseChains();
+        }
     }
 
     void InstructionScheduler::printSchedulingComparison(

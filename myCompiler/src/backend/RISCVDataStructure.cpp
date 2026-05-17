@@ -654,39 +654,23 @@ namespace RISCV
     void RISCVBasicBlock::addInstruction(shared_ptr<RISCVInstruction> instr)
     {
         instructions.push_back(instr);
-        if (parentFunc)
-        {
-            parentFunc->buildDefUseChains();
-        }
     }
 
     void RISCVBasicBlock::insertInstruction(int index, shared_ptr<RISCVInstruction> instr)
     {
         if (index >= 0 && index <= static_cast<int>(instructions.size()))
             instructions.insert(instructions.begin() + index, instr);
-        if (parentFunc)
-        {
-            parentFunc->buildDefUseChains();
-        }
     }
 
     void RISCVBasicBlock::removeInstruction(int index)
     {
         if (index >= 0 && index < static_cast<int>(instructions.size()))
             instructions.erase(instructions.begin() + index);
-        if (parentFunc)
-        {
-            parentFunc->buildDefUseChains();
-        }
     }
 
     void RISCVBasicBlock::setInstructions(const vector<shared_ptr<RISCVInstruction>> &instrs)
     {
         instructions = instrs;
-        if (parentFunc)
-        {
-            parentFunc->buildDefUseChains();
-        }
     }
 
     string RISCVBasicBlock::toString() const

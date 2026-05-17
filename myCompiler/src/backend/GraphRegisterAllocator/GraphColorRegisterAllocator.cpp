@@ -806,6 +806,11 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
   }
   // 清空溢出寄存器集合，因为它们已经被处理
   spilledRegs.clear();
+
+  if (currentFunc)
+  {
+    currentFunc->buildDefUseChains();
+  }
 }
 // ============================================================================
 // 应用分配结果
