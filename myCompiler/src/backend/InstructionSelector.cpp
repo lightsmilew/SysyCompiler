@@ -836,20 +836,58 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     {
     case ICmpInst::ICMP_EQ:
     {
-        auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(xorInst);
-        auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
-        currentBB->addInstruction(seqzInst);
+        if (dynamic_cast<ConstantInt *>(inst->getRHS()))
+        {
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, lhsReg, dynamic_cast<ConstantInt *>(inst->getRHS())->Value);
+            currentBB->addInstruction(xoriInst);
+            auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
+            currentBB->addInstruction(seqzInst);
+        }
+        else if (dynamic_cast<ConstantInt *>(inst->getLHS()))
+        {
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, rhsReg, dynamic_cast<ConstantInt *>(inst->getLHS())->Value);
+            currentBB->addInstruction(xoriInst);
+            auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
+            currentBB->addInstruction(seqzInst);
+        }
+        else
+        {
+            auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
+            currentBB->addInstruction(xorInst);
+            auto seqzInst = RISCVInstruction::createIType(RISCVOpcode::SLTIU, destReg, destReg, 1);
+            currentBB->addInstruction(seqzInst);
+        }
     }
     break;
     case ICmpInst::ICMP_NE:
     {
-        auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(xorInst);
-        auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
-                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                      destReg);
-        currentBB->addInstruction(snezInst);
+        if (dynamic_cast<ConstantInt *>(inst->getRHS()) && dynamic_cast<ConstantInt *>(inst->getRHS())->Value <= 2047 && dynamic_cast<ConstantInt *>(inst->getRHS())->Value >= -2048)
+        {
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, lhsReg, dynamic_cast<ConstantInt *>(inst->getRHS())->Value);
+            currentBB->addInstruction(xoriInst);
+            auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
+                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                          destReg);
+            currentBB->addInstruction(snezInst);
+        }
+        else if (dynamic_cast<ConstantInt *>(inst->getLHS()) && dynamic_cast<ConstantInt *>(inst->getLHS())->Value <= 2047 && dynamic_cast<ConstantInt *>(inst->getLHS())->Value >= -2048)
+        {
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, rhsReg, dynamic_cast<ConstantInt *>(inst->getLHS())->Value);
+            currentBB->addInstruction(xoriInst);
+            auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
+                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                          destReg);
+            currentBB->addInstruction(snezInst);
+        }
+        else
+        {
+            auto xorInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, lhsReg, rhsReg);
+            currentBB->addInstruction(xorInst);
+            auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, destReg,
+                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                                                          destReg);
+            currentBB->addInstruction(snezInst);
+        }
     }
     break;
     case ICmpInst::ICMP_SLT:

@@ -159,6 +159,6 @@ C++ 标准库的 shared_ptr 的 == 运算符默认比较的是指针地址（即
 
 ## 后续优化
 
-- 多面体优化，复杂可以最后实现 conv many_mat_cal
+- 多面体优化，复杂可以最后实现 conv many_mat_cal sl
 - multiply 位运算识别
 - 插入临时变量，减少数据依赖，增加指令级并行度 optimaization_scheduling
