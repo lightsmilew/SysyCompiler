@@ -1,4 +1,4 @@
-#include "FusionPass.h"
+#include "BitwiseLoopFusionPass.h"
 #include <algorithm>
 using namespace std;
 using namespace optimization;
@@ -322,7 +322,7 @@ namespace
     }
 }
 
-bool FusionPass::runOnFunction(Function *func)
+bool BitwiseLoopFusionPass::runOnFunction(Function *func)
 {
     bool changed = false;
     Opcode reducedOpcode;

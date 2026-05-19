@@ -4,7 +4,7 @@
 #include "FunctionPass.h"
 #include "ArrayPass.h"
 #include "LoopPass.h"
-#include "PolyhedralLoopPass.h"
+#include "LoopFusionPass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"
@@ -17,7 +17,7 @@
 #include "MemoizationPass.h"
 #include "SRFixedPass.h"
 #include "NormalizationPass.h"
-#include "FusionPass.h"
+#include "BitwiseLoopFusionPass.h"
 #include <vector>
 #include <string>
 #include <memory>

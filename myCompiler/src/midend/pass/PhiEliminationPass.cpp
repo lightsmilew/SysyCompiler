@@ -84,6 +84,18 @@ bool PhiEliminationPass::runOnFunction(Function *func)
                 continue;
             }
 
+            if (phi->getNumIncomingValues() == 0 ||
+                phi->getNumOperands() != phi->getNumIncomingValues())
+            {
+                if (verbose)
+                {
+                    debugInfo << "Phi Elimination: Skipping malformed phi " << phi->getName()
+                              << " in " << bb->getName() << "\n";
+                }
+                ++it;
+                continue;
+            }
+
             if (phi->getNumIncomingValues() == 1)
             {
                 Value *incomingValue = phi->getIncomingValue(0);
