@@ -353,20 +353,39 @@ namespace
 
 string ArrayStoreLoadForwardPass::buildArrayIndexKey(Value *ptr) const
 {
-    auto *gep = dynamic_cast<GetElementPtrInst *>(ptr);
-    if (!gep)
+    if (!ptr)
         return "";
 
-    const auto indices = gep->getIndices();
-    if (indices.size() != 1 || !indices[0])
-        return "";
+    // 自顶向下沿 GEP 链收集各级有效下标（GEP 展开后每级仅一个下标，须拼接完整路径）
+    vector<string> indexParts;
+    Value *current = ptr;
+    while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+    {
+        const auto indices = gep->getIndices();
+        const int usefulCount =
+            static_cast<int>(indices.size()) - std::max(0, gep->num_addedzero);
+        if (usefulCount <= 0)
+            return "";
 
-    Value *base = gep->getOriginalPointerOperand();
-    if (!base)
-        return "";
+        vector<string> level;
+        level.reserve(static_cast<size_t>(usefulCount));
+        for (int i = 0; i < usefulCount; ++i)
+        {
+            if (!indices[static_cast<size_t>(i)])
+                return "";
+            level.push_back(indices[static_cast<size_t>(i)]->toRef());
+        }
+        indexParts.insert(indexParts.begin(), level.begin(), level.end());
+        current = gep->getPointerOperand();
+    }
 
-    // 用结构化文本而不是名字，避免常量下标或未命名SSA值被错误合并。
-    return base->toRef() + "#" + indices[0]->toRef();
+    string key = current->toRef();
+    for (const auto &part : indexParts)
+    {
+        key += "#";
+        key += part;
+    }
+    return key;
 }
 
 bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
@@ -378,6 +397,8 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
         BasicBlock *bb = bbPtr.get();
         auto &insts = bb->getInstructions();
         unordered_map<string, Value *> latestStoredValue;
+        Value *lastStorePtr = nullptr;
+        Value *lastStoreVal = nullptr;
 
         for (auto it = insts.begin(); it != insts.end();)
         {
@@ -385,11 +406,20 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
 
             if (auto *loadInst = dynamic_cast<LoadInst *>(inst))
             {
+                Value *forwardVal = nullptr;
                 string key = buildArrayIndexKey(loadInst->getPointer());
-                auto found = key.empty() ? latestStoredValue.end() : latestStoredValue.find(key);
-                if (found != latestStoredValue.end() && found->second)
+                if (!key.empty())
                 {
-                    loadInst->replaceAllUsesWith(found->second);
+                    auto found = latestStoredValue.find(key);
+                    if (found != latestStoredValue.end())
+                        forwardVal = found->second;
+                }
+                if (!forwardVal && lastStorePtr && loadInst->getPointer() == lastStorePtr)
+                    forwardVal = lastStoreVal;
+
+                if (forwardVal)
+                {
+                    loadInst->replaceAllUsesWith(forwardVal);
                     if (verbose)
                     {
                         debugInfo << "ArrayStoreLoadForward: replaced load " << loadInst->getName()
@@ -407,6 +437,8 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
             if (dynamic_cast<CallInst *>(inst))
             {
                 latestStoredValue.clear();
+                lastStorePtr = nullptr;
+                lastStoreVal = nullptr;
                 ++it;
                 continue;
             }
@@ -415,10 +447,12 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
             {
                 // 保守起见，任何store先清空已记录映射，再记录当前store。
                 latestStoredValue.clear();
+                lastStorePtr = storeInst->getPointer();
+                lastStoreVal = storeInst->getValueToStore();
                 string key = buildArrayIndexKey(storeInst->getPointer());
                 if (!key.empty())
                 {
-                    latestStoredValue[key] = storeInst->getValueToStore();
+                    latestStoredValue[key] = lastStoreVal;
                 }
             }
 
