@@ -89,7 +89,7 @@ namespace optimization
 
         void recordFusion(const CanonicalLoopShape &first, const CanonicalLoopShape &second,
                           FusionLinkKind linkKind, bool sharedBoundaryAdjacent, bool sequentialInnerGlue,
-                          const std::vector<BasicBlock *> &glueBlocks);
+                          const std::vector<BasicBlock *> &glueBlocks, bool glueWrapperOuter = false);
     };
 
 } // namespace optimization

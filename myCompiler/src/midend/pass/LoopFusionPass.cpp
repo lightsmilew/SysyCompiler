@@ -1172,6 +1172,74 @@ void retargetSecondLoopPhiLatches(const Loop &secondLoop, PhiInst *secondIndPhi,
     }
 }
 
+bool blockIsConditionalLoopHeader(BasicBlock *bb)
+{
+    if (!bb)
+        return false;
+    auto *br = dynamic_cast<BranchInst *>(bb->getTerminator());
+    if (!br || !br->isConditional())
+        return false;
+    for (auto &instPtr : bb->getInstructions())
+    {
+        if (dynamic_cast<PhiInst *>(instPtr.get()))
+            return true;
+    }
+    return false;
+}
+
+bool gluePathLeadsToHeader(const vector<BasicBlock *> &glue, BasicBlock *target, int maxHops = 12)
+{
+    if (glue.empty() || !target)
+        return false;
+    queue<BasicBlock *> q;
+    unordered_set<BasicBlock *> visited;
+    for (BasicBlock *bb : glue)
+    {
+        if (bb)
+            visited.insert(bb);
+    }
+    if (BasicBlock *tail = glue.back())
+        q.push(tail);
+    while (!q.empty())
+    {
+        BasicBlock *cur = q.front();
+        q.pop();
+        if (cur == target)
+            return true;
+        if (static_cast<int>(visited.size()) > maxHops + static_cast<int>(glue.size()))
+            break;
+        auto *br = dynamic_cast<BranchInst *>(cur->getTerminator());
+        if (!br)
+            continue;
+        auto enqueue = [&](BasicBlock *succ) {
+            if (!succ || visited.count(succ))
+                return;
+            visited.insert(succ);
+            q.push(succ);
+        };
+        if (br->isConditional())
+        {
+            enqueue(br->getTrueBlock());
+            enqueue(br->getFalseBlock());
+        }
+        else
+        {
+            enqueue(br->getTrueBlock());
+        }
+    }
+    return false;
+}
+
+// glue 首块为外层 while 头、路径通向 second.header：应保留 glue 串联，禁止 body-merge 断开
+bool gluePathIsWrapperOuterLoop(const vector<BasicBlock *> &glueBlocks, BasicBlock *secondHeader)
+{
+    if (glueBlocks.empty() || !secondHeader)
+        return false;
+    if (!blockIsConditionalLoopHeader(glueBlocks.front()))
+        return false;
+    return gluePathLeadsToHeader(glueBlocks, secondHeader);
+}
+
 bool glueBlocksSafe(const vector<BasicBlock *> &glue, PhiInst *innerIndPhi)
 {
     for (BasicBlock *bb : glue)
@@ -1513,6 +1581,27 @@ void retargetTerminatorAwayFrom(BasicBlock *from,
     }
 }
 
+void retargetExternalPredecessorsOfBlocks(const vector<BasicBlock *> &deadBlocks, BasicBlock *liveTarget)
+{
+    if (!liveTarget || deadBlocks.empty())
+        return;
+    unordered_set<BasicBlock *> deadSet(deadBlocks.begin(), deadBlocks.end());
+    const auto targetsDead = [&](BasicBlock *t) { return t && deadSet.count(t); };
+    unordered_set<BasicBlock *> visitedPreds;
+    for (BasicBlock *dead : deadBlocks)
+    {
+        if (!dead)
+            continue;
+        vector<BasicBlock *> preds(dead->getPredecessors());
+        for (BasicBlock *pred : preds)
+        {
+            if (!pred || !visitedPreds.insert(pred).second)
+                continue;
+            retargetTerminatorAwayFrom(pred, targetsDead, liveTarget);
+        }
+    }
+}
+
 void forceUnconditionalBranchTo(BasicBlock *from, BasicBlock *target)
 {
     if (!from || !target)
@@ -1563,6 +1652,30 @@ bool blockBranchesTo(BasicBlock *from, BasicBlock *to)
     if (br->isConditional())
         return br->getTrueBlock() == to || br->getFalseBlock() == to;
     return br->getTrueBlock() == to;
+}
+
+void finalizeGlueWrapperFusion(BasicBlock *firstHeader, BasicBlock *firstExit, BasicBlock *secondExit,
+                               const vector<BasicBlock *> &glueBlocks)
+{
+    if (glueBlocks.empty())
+        return;
+    BasicBlock *outerHeader = glueBlocks.front();
+    if (secondExit && firstHeader && !blockBranchesTo(secondExit, firstHeader))
+    {
+        BasicBlock *succ = getUnconditionalBranchTarget(secondExit);
+        if (succ && succ != firstHeader)
+            (void)replaceBranchTarget(secondExit, succ, firstHeader);
+    }
+    if (firstExit && outerHeader && !blockBranchesTo(firstExit, outerHeader))
+    {
+        auto *exitBr = dynamic_cast<BranchInst *>(firstExit->getTerminator());
+        if (exitBr && !exitBr->isConditional())
+        {
+            BasicBlock *succ = exitBr->getTrueBlock();
+            if (succ && succ != outerHeader)
+                (void)replaceBranchTarget(firstExit, succ, outerHeader);
+        }
+    }
 }
 
 void finalizeSharedBoundaryFusion(BasicBlock *firstHeader, BasicBlock *firstBody, BasicBlock *firstExit,
@@ -1749,17 +1862,9 @@ void fullyDisconnectBodyMergedSecondLoop(const Loop &secondLoop, BasicBlock *fir
         retargetTerminatorAwayFrom(secondPreheader, shouldRetarget, epilogue);
     }
 
-    Function *func = firstHeader ? firstHeader->Parent : nullptr;
-    if (func)
-    {
-        for (auto &bbPtr : func->getBasicBlocks())
-        {
-            BasicBlock *bb = bbPtr.get();
-            if (!bb || secondLoop.containsBlock(bb))
-                continue;
-            retargetTerminatorAwayFrom(bb, shouldRetarget, epilogue);
-        }
-    }
+    // 仅断开 second 环路与 glue 内部边；勿把 while.exit.36 等外部入口改到 epilogue
+    if (!glueBlocks.empty() && firstHeader)
+        retargetExternalPredecessorsOfBlocks(glueBlocks, firstHeader);
 
     for (BasicBlock *loopBb : secondLoop.blocks)
     {
@@ -1796,6 +1901,9 @@ void fullyDisconnectBodyMergedSecondLoop(const Loop &secondLoop, BasicBlock *fir
 
     if (secondExit && secondExit != epilogue)
         forceUnconditionalBranchTo(secondExit, epilogue);
+
+    if (!glueBlocks.empty() && firstHeader)
+        retargetExternalPredecessorsOfBlocks(glueBlocks, firstHeader);
 }
 
 const Loop *findMinimalContainingLoop(const vector<Loop> &loops, BasicBlock *innerHeader)
@@ -2603,8 +2711,6 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
     PhiInst *secondLocalInd =
         findLocalInductionPhiInHeader(second.header, second.latch);
     PhiInst *secondCarriedInd = secondLocalInd ? secondLocalInd : second.indPhi;
-    if (!sequentialInnerGlue && secondCarriedInd && secondCarriedInd != first.indPhi)
-        valueMap[secondCarriedInd] = first.indPhi;
 
     auto rejectFusion = [&](const string &reason) {
         rejectReason = reason;
@@ -2616,6 +2722,13 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
 
     const bool sharedBoundaryAdjacent =
         linkKind == FusionLinkKind::DirectAdjacent && second.preheader == first.exit;
+    const bool glueWrapperOuter =
+        linkKind == FusionLinkKind::GlueToSecondHeader &&
+        gluePathIsWrapperOuterLoop(glueBlocks, second.header);
+
+    if (!sequentialInnerGlue && !glueWrapperOuter && secondCarriedInd &&
+        secondCarriedInd != first.indPhi)
+        valueMap[secondCarriedInd] = first.indPhi;
 
     Value *outerFirstIv = nullptr;
     Value *outerSecondIv = nullptr;
@@ -2634,7 +2747,7 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
         }
     }
 
-    if (!sequentialInnerGlue && blockHasPhi(second.exit))
+    if (!sequentialInnerGlue && !glueWrapperOuter && blockHasPhi(second.exit))
     {
         for (auto &instPtr : second.exit->getInstructions())
         {
@@ -2734,8 +2847,8 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
         return false;
     }
 
-    const bool bodyMergeGlue =
-        !sequentialInnerGlue && linkKind == FusionLinkKind::GlueToSecondHeader && !sharedBoundaryAdjacent;
+    const bool bodyMergeGlue = !sequentialInnerGlue && linkKind == FusionLinkKind::GlueToSecondHeader &&
+                               !sharedBoundaryAdjacent && !glueWrapperOuter;
 
     if (!sequentialInnerGlue)
     {
@@ -2749,9 +2862,13 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
                 return false;
             }
         }
-        remapSecondLoopInduction(secondLoop, secondCarriedInd, first.indPhi, valueMap);
-        if (!bodyMergeGlue)
-            retargetSecondLoopPhiLatches(secondLoop, secondCarriedInd, second.latch, first.latch);
+        // glue 外层包装：min/store 各自保留内层归纳变量，禁止映射到 first.indPhi
+        if (!glueWrapperOuter)
+        {
+            remapSecondLoopInduction(secondLoop, secondCarriedInd, first.indPhi, valueMap);
+            if (!bodyMergeGlue)
+                retargetSecondLoopPhiLatches(secondLoop, secondCarriedInd, second.latch, first.latch);
+        }
         if (sharedBoundaryAdjacent)
         {
             LoopFusionPass::linkSharedBoundaryHalfBound(first.preheader, first.exit, secondLoop, valueMap);
@@ -2862,6 +2979,10 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
             applyValueMapToBlocks({first.exit, epilogue}, valueMap);
         }
     }
+    else if (glueWrapperOuter)
+    {
+        finalizeGlueWrapperFusion(first.header, first.exit, second.exit, glueBlocks);
+    }
     else if (!sequentialInnerGlue)
     {
         if (!replaceBranchTarget(first.latch, first.header, second.header))
@@ -2882,7 +3003,7 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
     {
         forceHeaderLoopExitTo(first.header, first.body, second.exit);
     }
-    else if (!sequentialInnerGlue && second.preheader != first.exit)
+    else if (!sequentialInnerGlue && second.preheader != first.exit && !glueWrapperOuter)
     {
         if (!bodyMergeGlue)
             (void)LoopFusionPass::spliceExitInitsBeforeBranch(second.exit, first.exit);
@@ -2908,7 +3029,7 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
             }
         }
     }
-    else if (glueExitFrom && glueExitOldSucc && !sequentialInnerGlue && !bodyMergeGlue)
+    else if (glueExitFrom && glueExitOldSucc && !sequentialInnerGlue && !bodyMergeGlue && !glueWrapperOuter)
     {
         BasicBlock *glueTarget = second.header;
         if (blockBranchesTo(glueExitFrom, glueExitOldSucc) &&
@@ -3007,20 +3128,23 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
         }
     }
 
-    recordFusion(first, second, linkKind, sharedBoundaryAdjacent, sequentialInnerGlue, glueBlocks);
+    recordFusion(first, second, linkKind, sharedBoundaryAdjacent, sequentialInnerGlue, glueBlocks,
+                 glueWrapperOuter);
     return true;
 }
 
 void LoopFusionPass::recordFusion(const CanonicalLoopShape &first, const CanonicalLoopShape &second,
                                   FusionLinkKind linkKind, bool sharedBoundaryAdjacent,
-                                  bool sequentialInnerGlue,
-                                  const vector<BasicBlock *> &glueBlocks)
+                                  bool sequentialInnerGlue, const vector<BasicBlock *> &glueBlocks,
+                                  bool glueWrapperOuter)
 {
     const char *kind = "adjacent";
     if (sequentialInnerGlue)
         kind = "sequential-sibling-inner";
     else if (sharedBoundaryAdjacent)
         kind = "shared-boundary-adjacent";
+    else if (glueWrapperOuter)
+        kind = "glue-wrapper";
     else if (linkKind == FusionLinkKind::GlueToSecondHeader)
         kind = "glue-body-merged";
 

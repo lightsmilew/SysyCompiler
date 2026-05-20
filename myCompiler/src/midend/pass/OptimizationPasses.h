@@ -15,6 +15,7 @@
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
+#include "MemoizationV2Pass.h"
 #include "SRFixedPass.h"
 #include "NormalizationPass.h"
 #include "BitwiseLoopFusionPass.h"

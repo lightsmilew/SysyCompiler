@@ -355,14 +355,15 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                         }
                     }
-                    // 取模1不变
+                    // 取模1余数为0
                     if (binaryOperator->getOpcode() == Opcode::SRem)
                     {
                         if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
                         {
                             if (ci->Value == 1)
                             {
-                                inst->replaceAllUsesWith(lhs);
+                                auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+                                inst->replaceAllUsesWith(zero);
                                 inst->removeThisFromOperands();
                                 needToDelete.push_back(it->release());
                                 it = insts.erase(it);
