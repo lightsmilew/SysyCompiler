@@ -70,6 +70,7 @@ namespace optimization
         static bool validateFuseLoopPair(const Loop &firstLoop, const Loop &secondLoop,
                                          const CanonicalLoopShape &first, const CanonicalLoopShape &second,
                                          FusionLinkKind linkKind, std::string &rejectReason,
+                                         const std::vector<Loop> &allLoops,
                                          const SequentialSiblingGlueInfo *seqGlue = nullptr);
 
         bool findSequentialInnerGluePath(const std::vector<Loop> &allLoops, const Loop &firstInnerLoop,
@@ -83,6 +84,7 @@ namespace optimization
                                  CanonicalLoopShape &second, FusionLinkKind linkKind,
                                  const std::vector<BasicBlock *> &glueBlocks, BasicBlock *glueExitFrom,
                                  BasicBlock *glueExitOldSucc, std::string &rejectReason,
+                                 const std::vector<Loop> &allLoops,
                                  const SequentialSiblingGlueInfo *seqGlue = nullptr);
 
         bool tryFuseAdjacentLoops(Function *func, const std::vector<Loop> &loops);

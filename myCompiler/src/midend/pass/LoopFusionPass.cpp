@@ -2,6 +2,7 @@
 #include "ControlFlowAnalysis.h"
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <queue>
 #include <set>
 #include <unordered_map>
@@ -2490,13 +2491,56 @@ bool LoopFusionPass::findSequentialInnerGluePath(const vector<Loop> &allLoops,
     return true;
 }
 
+// outer 是否真包含 inner（不同 header，且 inner 的 header 在 outer 的循环体内）
+bool loopProperlyContains(const Loop &outer, const Loop &inner)
+{
+    if (!outer.header || !inner.header || outer.header == inner.header)
+        return false;
+    return find(outer.blocks.begin(), outer.blocks.end(), inner.header) != outer.blocks.end();
+}
+
+const Loop *findImmediateParentLoop(const Loop &inner, const vector<Loop> &allLoops)
+{
+    const Loop *parent = nullptr;
+    size_t minBlocks = numeric_limits<size_t>::max();
+    for (const Loop &cand : allLoops)
+    {
+        if (!loopProperlyContains(cand, inner))
+            continue;
+        if (cand.blocks.size() < minBlocks)
+        {
+            minBlocks = cand.blocks.size();
+            parent = &cand;
+        }
+    }
+    return parent;
+}
+
+bool loopsSameImmediateNestingLevel(const Loop &first, const Loop &second, const vector<Loop> &allLoops)
+{
+    const Loop *p1 = findImmediateParentLoop(first, allLoops);
+    const Loop *p2 = findImmediateParentLoop(second, allLoops);
+    if (p1 == p2)
+        return true;
+    if (p1 && p2 && p1->header == p2->header)
+        return true;
+    return false;
+}
+
 bool LoopFusionPass::validateFuseLoopPair(const Loop &firstLoop, const Loop &secondLoop,
                                                       const CanonicalLoopShape &first,
                                                       const CanonicalLoopShape &second, FusionLinkKind linkKind,
-                                                      string &rejectReason,
+                                                      string &rejectReason, const vector<Loop> &allLoops,
                                                       const SequentialSiblingGlueInfo *seqGlue)
 {
     rejectReason.clear();
+
+    // 仅融合同一嵌套层的循环；sequential-inner glue 由专用路径处理不同外层下的兄弟内层
+    if (!(seqGlue && seqGlue->active) && !loopsSameImmediateNestingLevel(firstLoop, secondLoop, allLoops))
+    {
+        rejectReason = "loops are not at the same nesting level";
+        return false;
+    }
 
     // 共享边界：first.exit 即 second 的 preheader（两段 while 首尾相接）
     if (linkKind == FusionLinkKind::DirectAdjacent && second.preheader == first.exit)
@@ -2702,7 +2746,7 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
                                                      FusionLinkKind linkKind,
                                                      const vector<BasicBlock *> &glueBlocks,
                                                      BasicBlock *glueExitFrom, BasicBlock *glueExitOldSucc,
-                                                     string &rejectReason,
+                                                     string &rejectReason, const vector<Loop> &allLoops,
                                                      const SequentialSiblingGlueInfo *seqGlue)
 {
     rejectReason.clear();
@@ -2716,8 +2760,8 @@ bool LoopFusionPass::attemptFuseLoopPair(const Loop &firstLoop, const Loop &seco
         rejectReason = reason;
     };
 
-    if (!LoopFusionPass::validateFuseLoopPair(firstLoop, secondLoop, first, second, linkKind,
-                                              rejectReason, seqGlue))
+    if (!LoopFusionPass::validateFuseLoopPair(firstLoop, secondLoop, first, second, linkKind, rejectReason,
+                                              allLoops, seqGlue))
         return false;
 
     const bool sharedBoundaryAdjacent =
@@ -3281,7 +3325,9 @@ bool LoopFusionPass::runOnFunction(Function *func)
 
     debugInfo.str("");
     debugInfo.clear();
-
+    //检查指令数量是否过多，过多则分析复杂度太高，不进行融合
+    if (func->getInstructionCount() > 3000)
+        return false;
     // 每轮至多融合一对，然后重新建循环信息，直到无法再融
     bool changed = false;
     for (int round = 0; round < 32; ++round)
@@ -3375,12 +3421,12 @@ bool LoopFusionPass::tryFuseAdjacentLoops(Function *func, const vector<Loop> &lo
 
         string rejectReason;
         const SequentialSiblingGlueInfo *seqGluePtr = seqGlue.active ? &seqGlue : nullptr;
-        if (!LoopFusionPass::validateFuseLoopPair(loops[i], loops[j], first, second, linkKind,
-                                                  rejectReason, seqGluePtr))
+        if (!LoopFusionPass::validateFuseLoopPair(loops[i], loops[j], first, second, linkKind, rejectReason,
+                                                  loops, seqGluePtr))
             return false;
 
         return attemptFuseLoopPair(loops[i], loops[j], first, second, linkKind, glueBlocks, glueExitFrom,
-                                   glueExitOldSucc, rejectReason, seqGluePtr);
+                                   glueExitOldSucc, rejectReason, loops, seqGluePtr);
     };
 
     for (size_t i = 0; i < loops.size(); ++i)
