@@ -1,4 +1,5 @@
 #include "ArrayPass.h"
+#include <regex>
 using namespace std;
 using namespace optimization;
 // 如果store和load循环范围不一致也不能简单删除
@@ -338,5 +339,126 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
             changed = true;
         }
     }
+    return changed;
+}
+
+namespace
+{
+    string stripInlineSuffix(const string &name)
+    {
+        static const regex inlRegex("(_inl\\d+)");
+        return regex_replace(name, inlRegex, "");
+    }
+}
+
+string ArrayStoreLoadForwardPass::buildArrayIndexKey(Value *ptr) const
+{
+    if (!ptr)
+        return "";
+
+    // 自顶向下沿 GEP 链收集各级有效下标（GEP 展开后每级仅一个下标，须拼接完整路径）
+    vector<string> indexParts;
+    Value *current = ptr;
+    while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+    {
+        const auto indices = gep->getIndices();
+        const int usefulCount =
+            static_cast<int>(indices.size()) - std::max(0, gep->num_addedzero);
+        if (usefulCount <= 0)
+            return "";
+
+        vector<string> level;
+        level.reserve(static_cast<size_t>(usefulCount));
+        for (int i = 0; i < usefulCount; ++i)
+        {
+            if (!indices[static_cast<size_t>(i)])
+                return "";
+            level.push_back(indices[static_cast<size_t>(i)]->toRef());
+        }
+        indexParts.insert(indexParts.begin(), level.begin(), level.end());
+        current = gep->getPointerOperand();
+    }
+
+    string key = current->toRef();
+    for (const auto &part : indexParts)
+    {
+        key += "#";
+        key += part;
+    }
+    return key;
+}
+
+bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
+{
+    bool changed = false;
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        unordered_map<string, Value *> latestStoredValue;
+        Value *lastStorePtr = nullptr;
+        Value *lastStoreVal = nullptr;
+
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+
+            if (auto *loadInst = dynamic_cast<LoadInst *>(inst))
+            {
+                Value *forwardVal = nullptr;
+                string key = buildArrayIndexKey(loadInst->getPointer());
+                if (!key.empty())
+                {
+                    auto found = latestStoredValue.find(key);
+                    if (found != latestStoredValue.end())
+                        forwardVal = found->second;
+                }
+                if (!forwardVal && lastStorePtr && loadInst->getPointer() == lastStorePtr)
+                    forwardVal = lastStoreVal;
+
+                if (forwardVal)
+                {
+                    loadInst->replaceAllUsesWith(forwardVal);
+                    if (verbose)
+                    {
+                        debugInfo << "ArrayStoreLoadForward: replaced load " << loadInst->getName()
+                                  << " in " << bb->getName() << " of func " << func->getName() << "\n";
+                    }
+                    loadInst->removeThisFromOperands();
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    changed = true;
+                    continue;
+                }
+            }
+
+            // 保守失效策略：调用可能读写任意内存，先清空再继续。
+            if (dynamic_cast<CallInst *>(inst))
+            {
+                latestStoredValue.clear();
+                lastStorePtr = nullptr;
+                lastStoreVal = nullptr;
+                ++it;
+                continue;
+            }
+
+            if (auto *storeInst = dynamic_cast<StoreInst *>(inst))
+            {
+                // 保守起见，任何store先清空已记录映射，再记录当前store。
+                latestStoredValue.clear();
+                lastStorePtr = storeInst->getPointer();
+                lastStoreVal = storeInst->getValueToStore();
+                string key = buildArrayIndexKey(storeInst->getPointer());
+                if (!key.empty())
+                {
+                    latestStoredValue[key] = lastStoreVal;
+                }
+            }
+
+            ++it;
+        }
+    }
+
     return changed;
 }

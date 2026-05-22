@@ -1,7 +1,100 @@
 #include "DCEPass.h"
 #include <stack>
+#include <unordered_set>
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+bool replaceBranchTarget(BasicBlock *from, BasicBlock *oldSucc, BasicBlock *newSucc)
+{
+    if (!from || !oldSucc || !newSucc || oldSucc == newSucc)
+        return false;
+    auto *br = dynamic_cast<BranchInst *>(from->getTerminator());
+    if (!br)
+        return false;
+
+    bool changed = false;
+    if (br->isConditional())
+    {
+        if (br->getTrueBlock() == oldSucc)
+        {
+            br->setTrueBlock(newSucc);
+            changed = true;
+        }
+        if (br->getFalseBlock() == oldSucc)
+        {
+            br->setFalseBlock(newSucc);
+            changed = true;
+        }
+    }
+    else if (br->getTrueBlock() == oldSucc)
+    {
+        br->setTrueBlock(newSucc);
+        changed = true;
+    }
+
+    if (!changed)
+        return false;
+
+    from->removeSuccessor(oldSucc);
+    oldSucc->removePredecessor(from);
+    from->addSuccessor(newSucc);
+    newSucc->addPredecessor(from);
+    return true;
+}
+
+BasicBlock *forwardThroughDeleted(BasicBlock *bb, const std::unordered_set<BasicBlock *> &deleted)
+{
+    std::unordered_set<BasicBlock *> visited;
+    while (bb && deleted.count(bb))
+    {
+        if (!visited.insert(bb).second)
+            return nullptr;
+        auto *br = dynamic_cast<BranchInst *>(bb->getTerminator());
+        if (!br || br->isConditional())
+            return nullptr;
+        bb = br->getTrueBlock();
+    }
+    return bb;
+}
+
+void retargetBranchesAwayFromDeleted(Function *func, const std::vector<BasicBlock *> &deleted)
+{
+    if (!func || deleted.empty())
+        return;
+
+    std::unordered_set<BasicBlock *> deletedSet(deleted.begin(), deleted.end());
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        if (!bb || deletedSet.count(bb))
+            continue;
+        auto *br = dynamic_cast<BranchInst *>(bb->getTerminator());
+        if (!br)
+            continue;
+
+        auto fixTarget = [&](BasicBlock *target) {
+            if (!target || !deletedSet.count(target))
+                return;
+            BasicBlock *fwd = forwardThroughDeleted(target, deletedSet);
+            if (fwd && fwd != target)
+                (void)replaceBranchTarget(bb, target, fwd);
+        };
+
+        if (br->isConditional())
+        {
+            fixTarget(br->getTrueBlock());
+            fixTarget(br->getFalseBlock());
+        }
+        else
+        {
+            fixTarget(br->getTrueBlock());
+        }
+    }
+}
+} // namespace
+
 // ========== 死代码消除 ==========
 bool DeadCodeEliminationPass::runOnFunction(Function *func)
 {
@@ -74,8 +167,12 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                         // 删除对应的前驱块和值
                         phi->removeIncoming(index);
                     }
-                    //  如果只剩一个incoming，直接替换
-                    if (phi->getNumIncomingValues() == 1)
+                    if (phi->getNumIncomingValues() == 0)
+                    {
+                        phi->removeThisFromOperands();
+                    }
+                    else if (phi->getNumIncomingValues() == 1 &&
+                             phi->getNumOperands() == phi->getNumIncomingValues())
                     {
                         Value *incomingValue = phi->getIncomingValue(0);
                         phi->replaceAllUsesWith(incomingValue);
@@ -83,6 +180,7 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                 }
             }
         }
+        retargetBranchesAwayFromDeleted(func, toDelete);
         for (auto it = bbs.begin(); it != bbs.end();)
         {
             BasicBlock *bb = it->get();

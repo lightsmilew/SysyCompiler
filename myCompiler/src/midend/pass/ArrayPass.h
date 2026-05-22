@@ -23,4 +23,16 @@ namespace optimization
         std::string getName() const override { return "RemoveOnlyWriteArray"; }
     };
 
+    // 17. 数组同元素写后读转发
+    class ArrayStoreLoadForwardPass : public Pass
+    {
+    public:
+        ArrayStoreLoadForwardPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "ArrayStoreLoadForward"; }
+
+    private:
+        std::string buildArrayIndexKey(Value *ptr) const;
+    };
+
 }
