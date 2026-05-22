@@ -101,6 +101,12 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitStoreInst(storeInst);
         }
         break;
+    case Opcode::StorePair:
+        if (auto storePair = dynamic_cast<StorePairInst *>(inst))
+        {
+            visitStorePairInst(storePair);
+        }
+        break;
     case Opcode::Call:
         if (auto callInst = dynamic_cast<CallInst *>(inst))
         {
@@ -436,6 +442,54 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
     auto loadInst = RISCVInstruction::createIType(loadOpcode, destReg, ptrReg, 0);
     currentBB->addInstruction(loadInst);
+}
+
+shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Value *lo, bool isPhysical)
+{
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+
+    shared_ptr<RISCVRegister> hiRaw;
+    if (auto *hiConst = dynamic_cast<ConstantInt *>(hi))
+    {
+        hiRaw = LiInt(hiConst->Value, isPhysical);
+    }
+    else
+    {
+        hiRaw = getOrCreateVirtualReg(hi, isPhysical);
+    }
+    auto hiZext = getTempReg(isPhysical);
+    auto hiZextInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, hiZext, hiRaw, zeroReg);
+    currentBB->addInstruction(hiZextInst);
+
+    auto hiShifted = getTempReg(isPhysical);
+    auto slliInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, hiShifted, hiZext, 32);
+    currentBB->addInstruction(slliInst);
+
+    shared_ptr<RISCVRegister> loRaw;
+    if (auto *loConst = dynamic_cast<ConstantInt *>(lo))
+    {
+        loRaw = LiInt(loConst->Value, isPhysical);
+    }
+    else
+    {
+        loRaw = getOrCreateVirtualReg(lo, isPhysical);
+    }
+    auto loZext = getTempReg(isPhysical);
+    auto loZextInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, loZext, loRaw, zeroReg);
+    currentBB->addInstruction(loZextInst);
+
+    auto destReg = getTempReg(isPhysical);
+    auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, hiShifted, loZext);
+    currentBB->addInstruction(orInst);
+    return destReg;
+}
+
+void InstructionSelector::visitStorePairInst(StorePairInst *inst)
+{
+    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+    auto valueReg = packI64FromHalves(inst->getHigh(), inst->getLow());
+    auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SD, ptrReg, valueReg, 0);
+    currentBB->addInstruction(storeInst);
 }
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
