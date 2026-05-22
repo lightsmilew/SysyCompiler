@@ -317,6 +317,8 @@ string Instruction::getOpcodeName() const
         return "xor";
     case Opcode::Xnor:
         return "xnor";
+    case Opcode::Addd:
+        return "addd";
     case Opcode::Muld:
         return "muld";
     case Opcode::Mulhd:
@@ -374,13 +376,13 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
+           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Addd || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
            Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isCommutativeOp() const
 {
     return Op == Opcode::Add || Op == Opcode::Mul || Op == Opcode::And || Op == Opcode::Or || Op == Opcode::Xor ||
-           Op == Opcode::Xnor || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::FAdd || Op == Opcode::FMul;
+           Op == Opcode::Xnor || Op == Opcode::Addd || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::FAdd || Op == Opcode::FMul;
 }
 bool Instruction::isComparisonOp() const
 {
@@ -430,6 +432,7 @@ bool Instruction::hasResult() const
     case Opcode::Or:
     case Opcode::Xor:
     case Opcode::Xnor:
+    case Opcode::Addd:
     case Opcode::Muld:
     case Opcode::Mulhd:
     case Opcode::Slld:
@@ -532,6 +535,7 @@ Instruction *Instruction::clone() const
     case Opcode::Or:
     case Opcode::Xor:
     case Opcode::Xnor:
+    case Opcode::Addd:
     case Opcode::Muld:
     case Opcode::Mulhd:
     case Opcode::Slld:

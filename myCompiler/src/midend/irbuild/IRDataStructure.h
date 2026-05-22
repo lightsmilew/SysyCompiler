@@ -413,6 +413,7 @@ enum class Opcode
     Xor,
     Xnor,
     // 64位系统
+    Addd,
     Muld,
     Mulhd,
     Slld,

@@ -80,6 +80,7 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::Xor:
     case Opcode::Muld:
     case Opcode::Mulhd:
+    case Opcode::Addd:
     case Opcode::Slld:
     case Opcode::Srad:
         if (auto binOp = dynamic_cast<BinaryOperator *>(inst))
@@ -202,6 +203,7 @@ bool InstructionSelector::isValidImmediate(int64_t value, Opcode opcode)
     switch (opcode)
     {
     case Opcode::Add:
+    case Opcode::Addd:
     case Opcode::Sub:
     case Opcode::And:
     case Opcode::Or:
@@ -229,18 +231,42 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     // 尝试使用立即数形式
-    // 1. 处理可交换的运算 (Add, And, Or, Xor)
-    if ((inst->Op == Opcode::Add || inst->Op == Opcode::And ||
+    // 1. 处理可交换的运算 (Add, Addd, And, Or, Xor, ...)
+    int64_t immVal = 0;
+    Value *varOperand = nullptr;
+    bool hasImmOperand = false;
+    if (rhsConst)
+    {
+        immVal = rhsConst->Value;
+        varOperand = inst->getLHS();
+        hasImmOperand = true;
+    }
+    else if (lhsConst)
+    {
+        immVal = lhsConst->Value;
+        varOperand = inst->getRHS();
+        hasImmOperand = true;
+    }
+    else if (auto *rhsLong = dynamic_cast<ConstantLong *>(inst->getRHS()))
+    {
+        immVal = rhsLong->Value;
+        varOperand = inst->getLHS();
+        hasImmOperand = true;
+    }
+    else if (auto *lhsLong = dynamic_cast<ConstantLong *>(inst->getLHS()))
+    {
+        immVal = lhsLong->Value;
+        varOperand = inst->getRHS();
+        hasImmOperand = true;
+    }
+
+    if ((inst->Op == Opcode::Add || inst->Op == Opcode::Addd || inst->Op == Opcode::And ||
          inst->Op == Opcode::Or || inst->Op == Opcode::Xor ||
          inst->Op == Opcode::Mulhd || inst->Op == Opcode::Muld ||
          inst->Op == Opcode::Mul) &&
-        (lhsConst || rhsConst))
+        hasImmOperand)
     {
-        // 让常量在右侧
-        auto *constOperand = rhsConst ? rhsConst : lhsConst;
-        auto *varOperand = rhsConst ? inst->getLHS() : inst->getRHS();
-
-        if (isValidImmediate(constOperand->Value, inst->Op))
+        if (isValidImmediate(immVal, inst->Op))
         {
             auto varReg = getOrCreateVirtualReg(varOperand);
             RISCVOpcode opcode;
@@ -248,6 +274,9 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
             {
             case Opcode::Add:
                 opcode = RISCVOpcode::ADDIW;
+                break;
+            case Opcode::Addd:
+                opcode = RISCVOpcode::ADDI;
                 break;
             case Opcode::And:
                 opcode = RISCVOpcode::ANDI;
@@ -266,10 +295,11 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
                 break;
             case Opcode::Mul:
                 opcode = RISCVOpcode::MULW;
+                break;
             default:
                 break;
             }
-            auto immInst = RISCVInstruction::createIType(opcode, destReg, varReg, constOperand->Value);
+            auto immInst = RISCVInstruction::createIType(opcode, destReg, varReg, immVal);
             currentBB->addInstruction(immInst);
             return;
         }
@@ -325,6 +355,9 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     {
     case Opcode::Add:
         opcode = RISCVOpcode::ADDW;
+        break;
+    case Opcode::Addd:
+        opcode = RISCVOpcode::ADD;
         break;
     case Opcode::Sub:
         opcode = RISCVOpcode::SUBW;

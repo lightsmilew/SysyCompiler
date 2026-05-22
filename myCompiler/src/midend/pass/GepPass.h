@@ -19,4 +19,13 @@ namespace optimization
         std::string getName() const override { return "GEPToBitCast"; }
     };
 
+    // 12. 合并同基址、偏移呈递推关系的 GEP 链为 1 个锚点 GEP + 64 位字节偏移加法
+    class GEPChainFoldPass : public Pass
+    {
+    public:
+        GEPChainFoldPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "GEPChainFold"; }
+    };
+
 }
