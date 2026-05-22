@@ -1079,12 +1079,13 @@ void InstructionSelector::visitBitCastInst(CastInst *inst)
     // 获取源值的寄存器
     auto srcReg = getOrCreateVirtualReg(inst->getOperand());
 
-    // 创建目标寄存器
-    auto destReg = getOrCreateVirtualReg(inst->getDest());
+    registerMap[inst->getDest()->getName()] = srcReg; 
+    // // 创建目标寄存器
+    // auto destReg = getOrCreateVirtualReg(inst->getDest());
 
-    // 生成移动指令
-    auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, srcReg);
-    currentBB->addInstruction(moveInst);
+    // // 生成移动指令
+    // auto moveInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, srcReg);
+    // currentBB->addInstruction(moveInst);
 }
 
 void InstructionSelector::visitSExtInst(CastInst *inst)
