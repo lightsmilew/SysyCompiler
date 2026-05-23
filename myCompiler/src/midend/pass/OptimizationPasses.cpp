@@ -99,6 +99,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     if (level == OptimizationLevel::O0)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
@@ -125,58 +126,57 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
     else if (level == OptimizationLevel::O1)
     {
-       pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-       pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
-       pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
-       pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
-       pm->addPass(std::make_unique<NormalizationPass>(verbose));
-       pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
-       pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-       pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
-       pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
-       pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-       pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
-       pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
-       pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-       pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-       pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
-       pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-       pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
-       pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-       pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-       pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-       pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-       pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-       pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-       pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
-       pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-       pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-       pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-
-       pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
-       pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-
-       pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
-       pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
-       pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-       pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
-       pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
-       pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-
-       pm->addPass(std::make_unique<SRFixedPass>(verbose));
-       pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
+        pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
+        pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
+        pm->addPass(std::make_unique<NormalizationPass>(verbose));
+        pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {
@@ -354,6 +354,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
+        //必须要有死代码消除，处理寄存器分配潜在问题
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
     return pm;
 }
