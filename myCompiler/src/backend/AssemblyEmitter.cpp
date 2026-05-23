@@ -5,6 +5,64 @@ using namespace RISCV;
 using std::set;
 using std::stringstream;
 
+namespace
+{
+    constexpr int kImm12Min = -2048;
+    constexpr int kImm12Max = 2047;
+
+    bool fitsInSignedImm12(int value)
+    {
+        return value >= kImm12Min && value <= kImm12Max;
+    }
+
+    void emitAdjustSp(stringstream &ss, int delta)
+    {
+        if (fitsInSignedImm12(delta))
+        {
+            ss << "        addi sp, sp, " << delta << "\n";
+            return;
+        }
+
+        ss << "        li t0, " << (delta < 0 ? -delta : delta) << "\n";
+        if (delta < 0)
+        {
+            ss << "        sub sp, sp, t0\n";
+        }
+        else
+        {
+            ss << "        add sp, sp, t0\n";
+        }
+    }
+
+    void emitStore(stringstream &ss, const string &reg, int offset, bool isFloat = false)
+    {
+        const string op = isFloat ? "fsd" : "sd";
+        if (fitsInSignedImm12(offset))
+        {
+            ss << "        " << op << " " << reg << ", " << offset << "(sp)\n";
+            return;
+        }
+
+        ss << "        li t0, " << offset << "\n";
+        ss << "        add t0, sp, t0\n";
+        ss << "        " << op << " " << reg << ", 0(t0)\n";
+    }
+
+    void emitLoad(stringstream &ss, const string &reg, int offset, bool isFloat = false)
+    {
+        const string op = isFloat ? "fld" : "ld";
+        if (fitsInSignedImm12(offset))
+        {
+            ss << "        " << op << " " << reg << ", " << offset << "(sp)\n";
+            return;
+        }
+
+        ss << "        li t0, " << offset << "\n";
+        ss << "        add t0, sp, t0\n";
+        ss << "        " << op << " " << reg << ", 0(t0)\n";
+    }
+}
+
 // AssemblyEmitter 实现
 string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
 {
@@ -101,34 +159,22 @@ string AssemblyEmitter::getPrologue(const shared_ptr<RISCVFunction> func)
     // 1. 调整栈指针（分配栈空间）
     if (stackSize > 0)
     {
-        ss << "        li t0, " << stackSize << "\n";
-        ss << "        sub sp, sp, t0\n";
+        emitAdjustSp(ss, -stackSize);
     }
 
     if (stack.raStackSize)
     {
-        ss << "        addi t0, t0, -8\n";
-        ss << "        add t0, sp, t0\n"; // 确保sp指向正确位置
-        ss << "        sd ra, 0(t0)\n";   // 保存ra寄存器到栈顶
+        emitStore(ss, "ra", stack.getRaOffset());
     }
 
     if (func->getUsedCalleeSavedRegs().size() > 0)
     {
         auto offset = stack.getValueOffset("usedCalleeSavedRegs");
-        ss << "        li t0, " << offset << "\n";
-        ss << "        add t1, sp, t0\n"; // 确保sp指向正确位置
-        // 保存被调用函数使用的保存寄存器
         for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
         {
-            if (func->getUsedCalleeSavedRegs()[i]->getType() == RegisterType::FLOAT)
-            {
-                ss << "        fsd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
-            }
-            else
-            {
-                // 确保是整数寄存器
-                ss << "        sd " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
-            }
+            const auto &reg = func->getUsedCalleeSavedRegs()[i];
+            emitStore(ss, reg->toString(), offset + static_cast<int>(i * 8),
+                      reg->getType() == RegisterType::FLOAT);
         }
     }
 
@@ -145,34 +191,23 @@ string AssemblyEmitter::getEpilogue(const shared_ptr<RISCVFunction> func)
     if (func->getUsedCalleeSavedRegs().size() > 0)
     {
         auto offset = stack.getValueOffset("usedCalleeSavedRegs");
-        ss << "        li t0, " << offset << "\n";
-        ss << "        add t1, sp, t0\n";
         for (size_t i = 0; i < func->getUsedCalleeSavedRegs().size(); i++)
         {
-            if (func->getUsedCalleeSavedRegs()[i]->getType() == RegisterType::FLOAT)
-            {
-                ss << "        fld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
-            }
-            else
-            {
-                ss << "        ld " << func->getUsedCalleeSavedRegs()[i]->toString() << ", " << (i * 8) << "(t1)\n";
-            }
+            const auto &reg = func->getUsedCalleeSavedRegs()[i];
+            emitLoad(ss, reg->toString(), offset + static_cast<int>(i * 8),
+                     reg->getType() == RegisterType::FLOAT);
         }
     }
 
-    // 2. 恢复返回地址（ra）
+    // 2. 恢复返回地址（ra）并释放栈空间
     if (stack.raStackSize)
     {
-        ss << "        li t0, " << stack.getRaOffset() << "\n";
-        ss << "        add t1, sp, t0\n";
-        ss << "        ld ra, 0(t1)\n";
-        ss << "        addi t0, t0, 8\n";
-        ss << "        add sp, sp, t0\n";
+        emitLoad(ss, "ra", stack.getRaOffset());
+        emitAdjustSp(ss, stackSize);
     }
     else if (stackSize > 0)
     {
-        ss << "        li t0, " << stackSize << "\n";
-        ss << "        add sp, sp, t0\n";
+        emitAdjustSp(ss, stackSize);
     }
 
     return ss.str();
