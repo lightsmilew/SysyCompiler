@@ -263,7 +263,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 进行循环展开后再来一次合并基本块
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // 这里进行指令合并
-        pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        //pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         // 消除简单ifelse
         // pm->addPass(std::make_unique<IfConversionPass>(verbose));
@@ -341,7 +341,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
+        //gep折叠必须在加法链归约之后，否则会限制gep折叠
+        pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
+        //现在寄存器分配有点问题，折叠后必须接死代码消除，不然可能会覆盖结果
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 尾递归消除必须在函数内联之后
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
