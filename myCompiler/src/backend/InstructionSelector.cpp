@@ -444,10 +444,18 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
     currentBB->addInstruction(loadInst);
 }
 
+shared_ptr<RISCVRegister> InstructionSelector::zextI32Reg(shared_ptr<RISCVRegister> raw, bool isPhysical)
+{
+    auto tmp = getTempReg(isPhysical);
+    auto slliInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, tmp, raw, 32);
+    currentBB->addInstruction(slliInst);
+    auto srliInst = RISCVInstruction::createIType(RISCVOpcode::SRLI, tmp, tmp, 32);
+    currentBB->addInstruction(srliInst);
+    return tmp;
+}
+
 shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Value *lo, bool isPhysical)
 {
-    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-
     shared_ptr<RISCVRegister> hiRaw;
     if (auto *hiConst = dynamic_cast<ConstantInt *>(hi))
     {
@@ -457,9 +465,7 @@ shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Valu
     {
         hiRaw = getOrCreateVirtualReg(hi, isPhysical);
     }
-    auto hiZext = getTempReg(isPhysical);
-    auto hiZextInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, hiZext, hiRaw, zeroReg);
-    currentBB->addInstruction(hiZextInst);
+    auto hiZext = zextI32Reg(hiRaw, isPhysical);
 
     auto hiShifted = getTempReg(isPhysical);
     auto slliInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, hiShifted, hiZext, 32);
@@ -474,9 +480,7 @@ shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Valu
     {
         loRaw = getOrCreateVirtualReg(lo, isPhysical);
     }
-    auto loZext = getTempReg(isPhysical);
-    auto loZextInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, loZext, loRaw, zeroReg);
-    currentBB->addInstruction(loZextInst);
+    auto loZext = zextI32Reg(loRaw, isPhysical);
 
     auto destReg = getTempReg(isPhysical);
     auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, hiShifted, loZext);

@@ -38,6 +38,7 @@ private:
     void visitLoadInst(LoadInst *inst);
     void visitStoreInst(StoreInst *inst);
     void visitStorePairInst(StorePairInst *inst);
+    shared_ptr<RISCVRegister> zextI32Reg(shared_ptr<RISCVRegister> raw, bool isPhysical = false);
     shared_ptr<RISCVRegister> packI64FromHalves(Value *hi, Value *lo, bool isPhysical = false);
     void visitCallInst(CallInst *inst);
     void visitReturnInst(ReturnInst *inst);
