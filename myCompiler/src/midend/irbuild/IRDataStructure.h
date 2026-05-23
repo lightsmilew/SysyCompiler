@@ -20,6 +20,8 @@ class Loop;
 // ===== Address Comparison =====
 std::string normalizeName(const std::string &name); // 归一化处理变量名
 bool isSameAddr(Value *a, Value *b);
+// 从地址表达式（GEP / BitCast / GEP 链折叠后的 Addd 等）追溯到最上层基址
+Value *getOriginalPointerFromAddress(Value *pointer);
 // ===== Type System Implementation =====
 class Type
 {

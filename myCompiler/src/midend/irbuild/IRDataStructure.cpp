@@ -13,6 +13,39 @@ bool isSameAddr(Value *a, Value *b)
 {
     return normalizeName(a->getName()) == normalizeName(b->getName());
 }
+
+Value *getOriginalPointerFromAddress(Value *pointer)
+{
+    while (pointer)
+    {
+        if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
+        {
+            pointer = gepInst->getOriginalPointerOperand();
+        }
+        else if (auto *castInst = dynamic_cast<CastInst *>(pointer))
+        {
+            pointer = castInst->getOperand();
+        }
+        else if (auto *add = dynamic_cast<BinaryOperator *>(pointer))
+        {
+            if (add->getOpcode() != Opcode::Addd)
+                break;
+            Value *base = nullptr;
+            if (add->getLHS() && add->getLHS()->getType()->isPointerTy())
+                base = add->getLHS();
+            else if (add->getRHS() && add->getRHS()->getType()->isPointerTy())
+                base = add->getRHS();
+            else
+                break;
+            pointer = base;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return pointer;
+}
 size_t ArrayType::getArrayLength() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
@@ -860,24 +893,7 @@ Value *LoadInst::getPointer() const
 }
 Value *LoadInst::getOriginalPointer() const
 {
-    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
-    Value *pointer = getPointer();
-    while (true)
-    {
-        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
-        {
-            pointer = gepInst->getOriginalPointerOperand();
-        }
-        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
-        {
-            pointer = castInst->getOperand();
-        }
-        else
-        {
-            break;
-        }
-    }
-    return pointer;
+    return getOriginalPointerFromAddress(getPointer());
 }
 std::string LoadInst::toString() const
 {
@@ -897,24 +913,7 @@ Value *StoreInst::getPointer() const
 }
 Value *StoreInst::getOriginalPointer() const
 {
-    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
-    Value *pointer = getPointer();
-    while (true)
-    {
-        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
-        {
-            pointer = gepInst->getOriginalPointerOperand();
-        }
-        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
-        {
-            pointer = castInst->getOperand();
-        }
-        else
-        {
-            break;
-        }
-    }
-    return pointer;
+    return getOriginalPointerFromAddress(getPointer());
 }
 std::string StoreInst::toString() const
 {
@@ -1020,22 +1019,7 @@ bool CallInst::HasModifiedArray(Value *value) const
     // 该变量作为函数实参并在函数体内对对应的形参进行了修改
     for (size_t i = 0; i < getArguments().size(); i++)
     {
-        Value *origin = getArguments()[i];
-        while (true)
-        {
-            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
-            {
-                origin = gepInst->getOriginalPointerOperand();
-            }
-            else if (auto castInst = dynamic_cast<CastInst *>(origin))
-            {
-                origin = castInst->getOperand();
-            }
-            else
-            {
-                break;
-            }
-        }
+        Value *origin = getOriginalPointerFromAddress(getArguments()[i]);
         // 数组作为函数参数
         if (isSameAddr(origin, value))
         {
@@ -1090,22 +1074,7 @@ bool CallInst::HasUsedArray(Value *ptr) const
     // 1. 检查参数传递
     for (size_t i = 0; i < getArguments().size(); i++)
     {
-        Value *origin = getArguments()[i];
-        while (true)
-        {
-            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
-            {
-                origin = gepInst->getOriginalPointerOperand();
-            }
-            else if (auto castInst = dynamic_cast<CastInst *>(origin))
-            {
-                origin = castInst->getOperand();
-            }
-            else
-            {
-                break;
-            }
-        }
+        Value *origin = getOriginalPointerFromAddress(getArguments()[i]);
         if (isSameAddr(origin, ptr))
         {
             std::string funcName = func->getName();
