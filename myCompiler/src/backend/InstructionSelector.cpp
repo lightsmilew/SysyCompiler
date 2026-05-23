@@ -403,10 +403,10 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         opcode = RISCVOpcode::MULW;
         break;
     case Opcode::SDiv:
-        opcode = RISCVOpcode::DIVW;
+        opcode = inst->getType()->isLongTy() ? RISCVOpcode::DIV : RISCVOpcode::DIVW;
         break;
     case Opcode::SRem:
-        opcode = RISCVOpcode::REMW;
+        opcode = inst->getType()->isLongTy() ? RISCVOpcode::REM : RISCVOpcode::REMW;
         break;
     case Opcode::FAdd:
         opcode = RISCVOpcode::FADD_S;
