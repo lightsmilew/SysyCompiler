@@ -106,6 +106,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
@@ -148,6 +149,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
@@ -313,7 +315,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 多面体循环变换尽量前置，避免 DCE 提前删除归纳 phi 影响循环识别与融合
-        //pm->addPass(std::make_unique<LoopFusionPass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
