@@ -13,6 +13,7 @@
 #include "ConstantFoldingPass.h"
 #include "PhiEliminationPass.h"
 #include "IfConversionPass.h"
+#include "IfLadderShiftPass.h"
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
 #include "MemoizationV2Pass.h"

@@ -103,6 +103,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
+        pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -145,6 +146,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
+        pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -246,6 +248,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         // 归一化，把乘法和加法常数放到右操作数，>=转为<=, >转为<，便于后续优化
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
+        pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -308,6 +311,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         // 归一化，把乘法和加法常数放到右操作数，>=转为<=, >转为<，便于后续优化
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
+        pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
