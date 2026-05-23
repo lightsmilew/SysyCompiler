@@ -3322,13 +3322,6 @@ bool LoopFusionPass::runOnFunction(Function *func)
 {
     if (!func)
         return false;
-    const string &moduleName = func->getParent()->Name;
-    if (moduleName.find("optimization_scheduling") != string::npos &&
-        moduleName.find("matmul") != string::npos &&
-        moduleName.find("many_mat_cal") != string::npos)
-    {
-        return false;
-    }
     debugInfo.str("");
     debugInfo.clear();
     //检查指令数量是否过多，过多则分析复杂度太高，不进行融合
