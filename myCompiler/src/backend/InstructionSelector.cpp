@@ -528,14 +528,7 @@ void InstructionSelector::visitStorePairInst(StorePairInst *inst)
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
 {
-    bool isZero = false;
-    if (auto intValue = dynamic_cast<ConstantInt *>(inst->getValueToStore()))
-    {
-        if (intValue->Value == 0)
-        {
-            isZero = true;
-        }
-    }
+    const bool isZero = isZeroStoreValue(inst->getValueToStore());
 
     shared_ptr<RISCVRegister> valueReg;
     if (!isZero)
