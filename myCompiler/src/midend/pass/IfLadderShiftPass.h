@@ -3,7 +3,7 @@
 
 namespace optimization
 {
-    // 将 rotrN/rotlN 类 if 链（n==1..8 时 x/2^n 或 x*2^n，否则 x）折叠为变量移位
+    // 将 rotrN/rotlN 类 if 链（n==1..8 时 x/2^n 或 x*2^n，否则 x）折叠为 x<<n 或 x>>n
     class IfLadderShiftPass : public Pass
     {
     public:

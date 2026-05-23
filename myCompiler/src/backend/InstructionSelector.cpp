@@ -28,6 +28,37 @@ const vector<RISCVRegister::PhysicalReg> FLOAT_TEMP_REGS = {
     RISCVRegister::PhysicalReg::FT8, RISCVRegister::PhysicalReg::FT9,
     RISCVRegister::PhysicalReg::FT10, RISCVRegister::PhysicalReg::FT11};
 
+namespace
+{
+    Value *stripValueWrappers(Value *value)
+    {
+        while (value)
+        {
+            if (auto *copy = dynamic_cast<CopyInst *>(value))
+            {
+                value = copy->getSource();
+                continue;
+            }
+            break;
+        }
+        return value;
+    }
+
+    bool isZeroStoreValue(Value *value)
+    {
+        value = stripValueWrappers(value);
+        if (auto *intValue = dynamic_cast<ConstantInt *>(value))
+        {
+            return intValue->Value == 0;
+        }
+        if (auto *longValue = dynamic_cast<ConstantLong *>(value))
+        {
+            return longValue->Value == 0;
+        }
+        return false;
+    }
+}
+
 void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc)
 {
     currentFunc = func;
@@ -483,6 +514,13 @@ shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Valu
 void InstructionSelector::visitStorePairInst(StorePairInst *inst)
 {
     auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+    if (isZeroStoreValue(inst->getHigh()) && isZeroStoreValue(inst->getLow()))
+    {
+        auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SD, ptrReg, zeroReg, 0);
+        currentBB->addInstruction(storeInst);
+        return;
+    }
     auto valueReg = packI64FromHalves(inst->getHigh(), inst->getLow());
     auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SD, ptrReg, valueReg, 0);
     currentBB->addInstruction(storeInst);
@@ -982,42 +1020,109 @@ void InstructionSelector::visitICmpInst(ICmpInst *inst)
     break;
     case ICmpInst::ICMP_SLT:
     {
-        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
         auto destReg = getOrCreateVirtualReg(inst->getDest());
-        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(cmpInst);
+        if (auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto cmpInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, lhsReg, 0);
+            currentBB->addInstruction(cmpInst);
+        }
+        else if (auto *lhsConst = dynamic_cast<ConstantInt *>(inst->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+            auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, zeroReg, rhsReg);
+            currentBB->addInstruction(cmpInst);
+        }
+        else
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+            currentBB->addInstruction(cmpInst);
+        }
     }
     break;
     case ICmpInst::ICMP_SLE:
     {
-        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
         auto destReg = getOrCreateVirtualReg(inst->getDest());
-        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
-        currentBB->addInstruction(sltInst);
-        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
-        currentBB->addInstruction(xoriInst);
+        if (auto *lhsConst = dynamic_cast<ConstantInt *>(inst->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, rhsReg, 0);
+            currentBB->addInstruction(sltiInst);
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+            currentBB->addInstruction(xoriInst);
+        }
+        else if (auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, lhsReg, 1);
+            currentBB->addInstruction(sltiInst);
+        }
+        else
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
+            currentBB->addInstruction(sltInst);
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+            currentBB->addInstruction(xoriInst);
+        }
     }
     break;
     case ICmpInst::ICMP_SGT:
     {
-        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
         auto destReg = getOrCreateVirtualReg(inst->getDest());
-        auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
-        currentBB->addInstruction(cmpInst);
+        if (auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, lhsReg, 1);
+            currentBB->addInstruction(sltiInst);
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+            currentBB->addInstruction(xoriInst);
+        }
+        else if (auto *lhsConst = dynamic_cast<ConstantInt *>(inst->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, rhsReg, 0);
+            currentBB->addInstruction(sltiInst);
+        }
+        else
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto cmpInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, rhsReg, lhsReg);
+            currentBB->addInstruction(cmpInst);
+        }
     }
     break;
     case ICmpInst::ICMP_SGE:
     {
-        auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
-        auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
         auto destReg = getOrCreateVirtualReg(inst->getDest());
-        auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
-        currentBB->addInstruction(sltInst);
-        auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
-        currentBB->addInstruction(xoriInst);
+        if (auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, lhsReg, 0);
+            currentBB->addInstruction(sltiInst);
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+            currentBB->addInstruction(xoriInst);
+        }
+        else if (auto *lhsConst = dynamic_cast<ConstantInt *>(inst->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto sltiInst = RISCVInstruction::createIType(RISCVOpcode::SLTI, destReg, rhsReg, 1);
+            currentBB->addInstruction(sltiInst);
+        }
+        else
+        {
+            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            auto rhsReg = getOrCreateVirtualReg(inst->getRHS());
+            auto sltInst = RISCVInstruction::createRType(RISCVOpcode::SLT, destReg, lhsReg, rhsReg);
+            currentBB->addInstruction(sltInst);
+            auto xoriInst = RISCVInstruction::createIType(RISCVOpcode::XORI, destReg, destReg, 1);
+            currentBB->addInstruction(xoriInst);
+        }
     }
     break;
     default:
@@ -1607,7 +1712,6 @@ shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
 
 shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value, bool isPhysical)
 {
-
     auto destReg = getTempReg(isPhysical);
     auto LiInst = RISCVInstruction::createPseudoLI(destReg, value);
     currentLiInstruction = LiInst; // 保存当前的立即数指令

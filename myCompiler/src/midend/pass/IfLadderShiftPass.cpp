@@ -212,47 +212,18 @@ void IfLadderShiftPass::rewriteFunction(Function *func, LadderKind kind)
                              { return bbPtr.get() != entry; }),
               bbs.end());
 
-    auto *i32 = IntegerType::getInstance();
-    auto *c0 = new ConstantInt(i32, 0);
-    auto *c1 = new ConstantInt(i32, 1);
-    auto *c8 = new ConstantInt(i32, 8);
-    auto *c31 = new ConstantInt(i32, 31);
-
-    auto *ge = new ICmpInst(ICmpInst::ICMP_SGE, n, c1, prefix + "_ge");
-    auto *le = new ICmpInst(ICmpInst::ICMP_SLE, n, c8, prefix + "_le");
-    // icmp 结果为 0/1；valid=1 当 n∈[1,8]。amt = n & (0-valid)：valid=1 时为 n，valid=0 时为 0
-    auto *valid = new BinaryOperator(Opcode::And, ge, le, prefix + "_valid");
-    auto *validMask = new BinaryOperator(Opcode::Sub, c0, valid, prefix + "_vmask");
-    auto *amt = new BinaryOperator(Opcode::And, n, validMask, prefix + "_amt");
-
     entry->clearInstructions();
-    entry->addInstruction(unique_ptr<Instruction>(ge));
-    entry->addInstruction(unique_ptr<Instruction>(le));
-    entry->addInstruction(unique_ptr<Instruction>(valid));
-    entry->addInstruction(unique_ptr<Instruction>(validMask));
-    entry->addInstruction(unique_ptr<Instruction>(amt));
 
     Instruction *result = nullptr;
     if (kind == LadderKind::MulPow2)
     {
-        result = new BinaryOperator(Opcode::Sll, x, amt, prefix + "_shl");
-        entry->addInstruction(unique_ptr<Instruction>(result));
+        result = new BinaryOperator(Opcode::Sll, x, n, prefix + "_shl");
     }
     else
     {
-        auto *sign = new BinaryOperator(Opcode::Sra, x, c31, prefix + "_sign");
-        auto *pow2 = new BinaryOperator(Opcode::Sll, c1, amt, prefix + "_pow2");
-        auto *mask = new BinaryOperator(Opcode::Sub, pow2, c1, prefix + "_mask");
-        auto *bias = new BinaryOperator(Opcode::And, sign, mask, prefix + "_bias");
-        auto *adj = new BinaryOperator(Opcode::Add, x, bias, prefix + "_adj");
-        result = new BinaryOperator(Opcode::Sra, adj, amt, prefix + "_sra");
-        entry->addInstruction(unique_ptr<Instruction>(sign));
-        entry->addInstruction(unique_ptr<Instruction>(pow2));
-        entry->addInstruction(unique_ptr<Instruction>(mask));
-        entry->addInstruction(unique_ptr<Instruction>(bias));
-        entry->addInstruction(unique_ptr<Instruction>(adj));
-        entry->addInstruction(unique_ptr<Instruction>(result));
+        result = new BinaryOperator(Opcode::Sra, x, n, prefix + "_sra");
     }
+    entry->addInstruction(unique_ptr<Instruction>(result));
 
     entry->addInstruction(unique_ptr<Instruction>(new ReturnInst(result)));
     func->setLoops({});
@@ -270,8 +241,7 @@ bool IfLadderShiftPass::runOnFunction(Function *func)
     if (verbose)
     {
         debugInfo << "IfLadderShift: folded if-ladder in " << func->getName()
-                  << (kind == LadderKind::MulPow2 ? " to variable shl\n"
-                                                 : " to variable signed shift-div\n");
+                  << (kind == LadderKind::MulPow2 ? " to shl\n" : " to sra\n");
     }
     return true;
 }
