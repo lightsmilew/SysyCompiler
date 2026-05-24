@@ -580,7 +580,7 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     }
     else
     {
-        auto immReg = LiInt(imm, false);
+        auto immReg = LiInt(imm, true);
         currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
 
         auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);

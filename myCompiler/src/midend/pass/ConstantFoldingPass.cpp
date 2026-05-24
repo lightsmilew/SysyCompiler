@@ -483,6 +483,36 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
+                // storepair hi32/lo32 均为常量时，合并为 stored i64 常量
+                if (inst && inst->getOpcode() == Opcode::StorePair)
+                {
+                    auto *storePair = dynamic_cast<StorePairInst *>(inst);
+                    auto *hiConst = storePair ? dynamic_cast<ConstantInt *>(storePair->getHigh()) : nullptr;
+                    auto *loConst = storePair ? dynamic_cast<ConstantInt *>(storePair->getLow()) : nullptr;
+                    if (hiConst && loConst)
+                    {
+                        const int64_t combined =
+                            (static_cast<uint64_t>(static_cast<uint32_t>(hiConst->Value)) << 32) |
+                            static_cast<uint32_t>(loConst->Value);
+                        auto *combineConstant = new ConstantLong(LongType::getInstance(), combined);
+                        auto *stored = new StoreInst(Opcode::Stored, combineConstant, storePair->getPointer());
+                        const size_t idx = static_cast<size_t>(it - insts.begin());
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        insts.erase(it);
+                        insts.insert(insts.begin() + static_cast<long>(idx),
+                                     std::unique_ptr<Instruction>(stored));
+                        if (verbose)
+                        {
+                            debugInfo << "Constant folding: " << storePair->toString() << " -> "
+                                      << stored->toString() << "\n";
+                        }
+                        it = insts.begin() + static_cast<long>(idx);
+                        localChanged = true;
+                        changed = true;
+                        continue;
+                    }
+                }
                 // 有条件跳转指令替换为无条件跳转
                 if (inst && inst->getOpcode() == Opcode::Br)
                 {
