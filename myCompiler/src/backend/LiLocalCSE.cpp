@@ -56,7 +56,6 @@ namespace RISCV
         switch (op)
         {
         case RISCVOpcode::LI:
-        case RISCVOpcode::LA:
         case RISCVOpcode::ADD:
         case RISCVOpcode::ADDI:
         case RISCVOpcode::ADDW:
@@ -89,31 +88,34 @@ namespace RISCV
         }
     }
 
-    bool LiLocalCSE::isInductionInitLi(const vector<shared_ptr<RISCVInstruction>> &insts, size_t liIdx,
-                                       shared_ptr<RISCVRegister> rd)
+    LiLocalCSE::RegUseCountMap LiLocalCSE::buildRegUseCounts(shared_ptr<RISCVFunction> function)
+    {
+        RegUseCountMap counts;
+        if (!function)
+            return counts;
+        for (auto &bb : function->getBasicBlocks())
+        {
+            for (auto &inst : bb->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &use : inst->getUseRegisters())
+                {
+                    if (use)
+                        ++counts[regKey(use)];
+                }
+            }
+        }
+        return counts;
+    }
+
+    bool LiLocalCSE::canCseLiDest(const RegUseCountMap &useCounts,
+                                  const shared_ptr<RISCVRegister> &rd)
     {
         if (!rd)
             return false;
-        const size_t limit = std::min(insts.size(), liIdx + 5);
-        for (size_t i = liIdx + 1; i < limit; ++i)
-        {
-            const auto &next = insts[i];
-            if (!next)
-                continue;
-            auto op = next->getOpcode();
-            if (op != RISCVOpcode::ADDIW && op != RISCVOpcode::ADDI && op != RISCVOpcode::ADDW &&
-                op != RISCVOpcode::ADD)
-                continue;
-
-            auto ops = next->getOperands();
-            if (ops.size() < 2)
-                continue;
-            auto defReg = ops[0]->getReg();
-            auto srcReg = ops[1]->getReg();
-            if (defReg && srcReg && *defReg == *rd && *srcReg == *rd)
-                return true;
-        }
-        return false;
+        auto it = useCounts.find(regKey(rd));
+        return it != useCounts.end() && it->second == 1;
     }
 
     string LiLocalCSE::operandKey(const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
@@ -130,7 +132,10 @@ namespace RISCV
                 if (ops.size() >= 2 && ops[0]->getReg() && ops[1]->getReg() &&
                     *ops[0]->getReg() == *reg)
                 {
-                    return operandKey(insts, idx - 1, ops[1]->getReg());
+                    auto src = ops[1]->getReg();
+                    // 勿穿透到 a0 等物理寄存器：call 后其值已变，且 getDefRegisters(call) 不含 caller-saved
+                    if (src && src->isVirtual())
+                        return operandKey(insts, idx - 1, src);
                 }
             }
         }
@@ -162,14 +167,6 @@ namespace RISCV
                 return std::nullopt;
             key.hasImm = true;
             key.imm = ops[1]->getImmediate();
-            return key;
-        }
-
-        if (key.opcode == RISCVOpcode::LA)
-        {
-            if (ops.size() < 2 || !ops[1]->hasLabel())
-                return std::nullopt;
-            key.op1 = ops[1]->getLabel();
             return key;
         }
 
@@ -306,12 +303,12 @@ namespace RISCV
             return false;
 
         bool changed = false;
-        unordered_map<ExprKey, AvailEntry, ExprKeyHash> avail;
-        int spVersion = 0;
+        const RegUseCountMap useCounts = buildRegUseCounts(function);
 
-        // 按基本块顺序扫描，exprMap 在块间延续；call 不清空（约定：调用返回后不破坏已跟踪的变量）
         for (auto &bb : function->getBasicBlocks())
         {
+            unordered_map<ExprKey, AvailEntry, ExprKeyHash> avail;
+            int spVersion = 0;
             auto &insts = bb->getInstructions();
             for (size_t idx = 0; idx < insts.size(); ++idx)
             {
@@ -329,12 +326,19 @@ namespace RISCV
                     invalidateForSp(avail, spVersion);
                 }
 
+                if (inst->getOpcode() == RISCVOpcode::CALL)
+                {
+                    avail.clear();
+                }
+
                 shared_ptr<RISCVRegister> rd;
                 auto keyOpt = buildExprKey(insts, idx, inst, rd);
                 bool handled = false;
                 if (keyOpt && rd)
                 {
-                    if (!(keyOpt->opcode == RISCVOpcode::LI && isInductionInitLi(insts, idx, rd)))
+                    const bool liOk =
+                        keyOpt->opcode != RISCVOpcode::LI || canCseLiDest(useCounts, rd);
+                    if (liOk)
                     {
                         auto it = avail.find(*keyOpt);
                         if (it != avail.end())

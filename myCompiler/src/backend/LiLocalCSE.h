@@ -1,11 +1,12 @@
 #pragma once
 #include "RISCVDataStructure.h"
 #include <optional>
+#include <unordered_map>
 
 namespace RISCV
 {
-    /// 函数内公共子表达式消除（参考中端 CSEPass）：li/la + 纯算术；按表达式键匹配，用首次
-    /// 定义指令作 canonical，仅当操作数或 canonical 结果寄存器在两次使用间被改写时失效。
+    /// 基本块内公共子表达式消除：li + 纯算术（不做 la：循环中指针别名不安全）；avail 不跨块延续。
+    /// li 仅在目的虚拟寄存器在函数内恰有一处 use 时可 CSE（否则可能是循环归纳初值）。
     class LiLocalCSE
     {
     public:
@@ -42,8 +43,11 @@ namespace RISCV
         static std::string regKey(const shared_ptr<RISCVRegister> &reg);
         static bool isSpRegister(const shared_ptr<RISCVRegister> &reg);
         static bool isCSEableOpcode(RISCVOpcode op);
-        static bool isInductionInitLi(const vector<shared_ptr<RISCVInstruction>> &insts, size_t liIdx,
-                                      shared_ptr<RISCVRegister> rd);
+        using RegUseCountMap = unordered_map<std::string, size_t>;
+
+        static RegUseCountMap buildRegUseCounts(shared_ptr<RISCVFunction> function);
+        static bool canCseLiDest(const RegUseCountMap &useCounts,
+                                 const shared_ptr<RISCVRegister> &rd);
         static std::string operandKey(const vector<shared_ptr<RISCVInstruction>> &insts,
                                       size_t idx, const shared_ptr<RISCVRegister> &reg);
         static std::optional<ExprKey> buildExprKey(const vector<shared_ptr<RISCVInstruction>> &insts,

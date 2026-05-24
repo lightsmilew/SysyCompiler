@@ -37,7 +37,7 @@ namespace RISCV
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
         void runLICMPass();     // 循环不变 la/li 外提
-        void runLiLocalCSEPass(); // 块内 li/算术公共子表达式消除
+        void runLiLocalCSEPass(); // 块内 li/算术 CSE（不含 la）
         void instructionSheduler();
         void allocateRegisters();
         void FirstPeep();
