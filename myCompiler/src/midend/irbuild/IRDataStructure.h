@@ -843,19 +843,21 @@ class Loop
 {
 public:
     BasicBlock *header;
+    BasicBlock *preheader = nullptr; // 循环前置块（唯一循环外前驱），供后端 LICM 使用
     // blocks是循环体内的所有基本块
     // exits是循环体的出口基本块（可能有多个）
     vector<BasicBlock *> blocks;
     vector<BasicBlock *> exits;
     Loop(BasicBlock *h, const vector<BasicBlock *> &b, const vector<BasicBlock *> &e)
         : header(h), blocks(b), exits(e) {}
-    Loop() : header(nullptr) {}
+    Loop() : header(nullptr), preheader(nullptr) {}
     bool containsInst(Instruction *inst) const;         // 循环中是否包含某条指令
     bool containsBlock(BasicBlock *bb) const;           // 循环中是否包含某个基本块
     bool containsInBody(Instruction *inst) const;       // 循环体中是否包含某条指令
     Value *getLoopCondition() const;                    // 获取循环条件(条件分支的条件)
     bool IsInductionVar(const std::string &name) const; // 判断变量是否为归纳变量
-    BasicBlock *getPreheader() const;                   // 获取前置块(唯一前驱且不在循环内的基本块)
+    void computePreheader();                            // 分析并设置 preheader（唯一循环外前驱）
+    BasicBlock *getPreheader() const;                   // 获取前置块，无则返回 nullptr
     // 断开循环块的cfg连接
     void breakCFG();
 };
@@ -885,6 +887,7 @@ public:
     const vector<Argument *> getPtrArguments() const;           // 获取指针类型参数
     Value *getArgumentByIndex(size_t index) const;              // 根据索引获取参数
     const vector<Loop> &getLoops() const;                       // 获取循环信息
+    vector<Loop> &getLoops();                                   // 获取循环信息（可修改）
     void setLoops(const vector<Loop> &loops);                   // 设置循环信息
     FunctionType *getFunctionType();                            // 获取函数类型
     unsigned getInstructionCount() const;                       // 获取指令数量

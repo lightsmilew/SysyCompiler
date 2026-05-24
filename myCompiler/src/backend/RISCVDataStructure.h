@@ -779,6 +779,7 @@ namespace RISCV
         shared_ptr<RISCVBasicBlock> header;       // 循环头部基本块
         vector<shared_ptr<RISCVBasicBlock>> body; // 循环体基本块
         vector<shared_ptr<RISCVBasicBlock>> exit; // 循环出口基本块
+        shared_ptr<RISCVBasicBlock> preHeaderBlock; // 中端分析的前置块
         shared_ptr<RISCVLoop> parentLoop;         // 所在的父循环
         vector<shared_ptr<RISCVLoop>> childLoops; // 子循环列表
 
@@ -814,6 +815,7 @@ namespace RISCV
             return false;
         }
         void setHeader(shared_ptr<RISCVBasicBlock> h) { header = h; }
+        void setPreHeader(shared_ptr<RISCVBasicBlock> bb) { preHeaderBlock = bb; }
         void addBodyBlock(shared_ptr<RISCVBasicBlock> block) { body.push_back(block); }
         void addExitBlock(shared_ptr<RISCVBasicBlock> block) { exit.push_back(block); }
         void setParentLoop(shared_ptr<RISCVLoop> parent) { parentLoop = parent; }
@@ -843,6 +845,10 @@ namespace RISCV
         }
         shared_ptr<RISCVBasicBlock> getPreHeader() const
         {
+            if (preHeaderBlock)
+                return preHeaderBlock;
+            if (!header)
+                return nullptr;
             for (const auto &pred : header->getPredecessors())
             {
                 if (!containsBlock(pred))

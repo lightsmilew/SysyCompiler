@@ -1807,18 +1807,26 @@ bool Loop::IsInductionVar(const std::string &name) const
     }
     return false; // 如果没有找到Phi指令，说明不是归纳变量
 }
-BasicBlock *Loop::getPreheader() const
+void Loop::computePreheader()
 {
-    // 寻找前驱基本块
-    for (auto &bb : header->getPredecessors())
+    preheader = nullptr;
+    if (!header)
+        return;
+    int count = 0;
+    for (auto *pred : header->getPredecessors())
     {
-        // 如果不在blocks中
-        if (std::find(blocks.begin(), blocks.end(), bb) == blocks.end())
+        if (!containsBlock(pred))
         {
-            return bb;
+            preheader = pred;
+            ++count;
         }
     }
-    throw std::runtime_error("Loop does not have a preheader.");
+    if (count != 1)
+        preheader = nullptr;
+}
+BasicBlock *Loop::getPreheader() const
+{
+    return preheader;
 }
 void Loop::breakCFG()
 {
@@ -1898,6 +1906,10 @@ Value *Function::getArgumentByIndex(size_t index) const
     throw std::out_of_range("Function: Argument index out of range");
 }
 const vector<Loop> &Function::getLoops() const
+{
+    return Loops;
+}
+vector<Loop> &Function::getLoops()
 {
     return Loops;
 }

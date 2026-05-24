@@ -35,16 +35,101 @@ bool isTerminatorOpcode(RISCVOpcode op)
 
 bool LICM::isLoopInvariant(shared_ptr<RISCVInstruction> inst)
 {
-    // 目前只能处理LA
+    if (!inst)
+        return false;
     if (inst->getOpcode() == RISCVOpcode::LA)
-    {
         return true;
+    if (inst->getOpcode() == RISCVOpcode::LI)
+    {
+        auto operands = inst->getOperands();
+        auto rd = operands.size() >= 1 ? operands[0]->getReg() : nullptr;
+        // 物理临时寄存器假定“加载后立即使用”，不能外提到 preheader
+        return rd && rd->isVirtual() && operands.size() >= 2 &&
+               operands[1]->getType() == RISCVOperand::Type::IMMEDIATE;
     }
-
     return false;
 }
 
-void LICM::insertLAInst(shared_ptr<RISCVInstruction> laInst, shared_ptr<RISCVBasicBlock> preHeader)
+bool LICM::sameInvariantKey(const shared_ptr<RISCVInstruction> &a,
+                            const shared_ptr<RISCVInstruction> &b)
+{
+    if (!a || !b || a->getOpcode() != b->getOpcode())
+        return false;
+    auto aOps = a->getOperands();
+    auto bOps = b->getOperands();
+    if (aOps.size() < 2 || bOps.size() < 2)
+        return false;
+    if (a->getOpcode() == RISCVOpcode::LA)
+    {
+        auto aRd = aOps[0]->getReg();
+        auto bRd = bOps[0]->getReg();
+        if (!aRd || !bRd || !(*aRd == *bRd))
+            return false;
+        return aOps[1]->hasLabel() && bOps[1]->hasLabel() &&
+               aOps[1]->getLabel() == bOps[1]->getLabel();
+    }
+    if (a->getOpcode() == RISCVOpcode::LI)
+    {
+        auto aRd = aOps[0]->getReg();
+        auto bRd = bOps[0]->getReg();
+        if (!aRd || !bRd || !(*aRd == *bRd))
+            return false;
+        return aOps[1]->getType() == RISCVOperand::Type::IMMEDIATE &&
+               bOps[1]->getType() == RISCVOperand::Type::IMMEDIATE &&
+               aOps[1]->getImmediate() == bOps[1]->getImmediate();
+    }
+    return false;
+}
+
+bool LICM::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
+                                   const vector<shared_ptr<RISCVBasicBlock>> &blocks)
+{
+    if (!inst)
+        return false;
+    auto defs = inst->getDefRegisters();
+    if (defs.empty() || !defs[0])
+        return false;
+    const auto &destReg = defs[0];
+
+    for (const auto &bb : blocks)
+    {
+        if (!bb)
+            continue;
+        for (const auto &other : bb->getInstructions())
+        {
+            if (!other || other == inst)
+                continue;
+            for (const auto &d : other->getDefRegisters())
+            {
+                if (d && *d == *destReg)
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
+                                 const shared_ptr<RISCVBasicBlock> &bb,
+                                 const shared_ptr<RISCVLoop> &loop)
+{
+    if (!inst || !loop || !bb)
+        return false;
+    if (!isLoopInvariant(inst))
+        return false;
+
+    const auto loopBlocks = loop->getBlocks();
+    if (!isOnlyDefOfDestInBlocks(inst, loopBlocks))
+        return false;
+
+    // 循环头内的 li 每轮迭代都会执行；外提到 preheader 只执行一次，等同错误外提归纳变量初值
+    if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
+        return false;
+
+    return true;
+}
+
+void LICM::insertHoistedInst(shared_ptr<RISCVInstruction> laInst, shared_ptr<RISCVBasicBlock> preHeader)
 {
 
     auto &preInsts = preHeader->getInstructions();
@@ -91,71 +176,82 @@ void LICM::mergeLAReg(shared_ptr<RISCVInstruction> keep, vector<shared_ptr<RISCV
     }
 }
 
-// unordered_map<shared_ptr<RISCVInstruction>,
-//               vector<shared_ptr<RISCVInstruction>>,
-//               InstructionHash, InstructionEqual>
-// LICM::getInvariantMap(shared_ptr<RISCVLoop> loop)
-// {
-//     unordered_map<shared_ptr<RISCVInstruction>,
-//                   vector<shared_ptr<RISCVInstruction>>,
-//                   InstructionHash, InstructionEqual>
-//         laMap;
+void LICM::collectInvariantsInBlocks(
+    const vector<shared_ptr<RISCVBasicBlock>> &scopeBlocks,
+    const shared_ptr<RISCVLoop> &loop,
+    unordered_map<shared_ptr<RISCVInstruction>,
+                  vector<shared_ptr<RISCVInstruction>>,
+                  InstructionHash, InstructionEqual> &laMap)
+{
+    for (auto &bb : scopeBlocks)
+    {
+        if (!bb)
+            continue;
+        auto &insts = bb->getInstructions();
+        for (size_t idx = 0; idx < insts.size(); ++idx)
+        {
+            if (!canHoistInvariantInst(insts[idx], bb, loop))
+                continue;
 
-//     for (auto &bb : loop->getBlocks())
-//     {
-//         auto &insts = bb->getInstructions();
-//         for (size_t idx = 0; idx < insts.size(); ++idx)
-//         {
-//             if (isLoopInvariant(insts[idx]))
-//             {
-//                 auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
-//                 for (int i = 1; i < 5; i++)
-//                 {
-//                     if (idx + i < bb->getInstructions().size())
-//                     {
-//                         auto inst = bb->getInstructions()[idx + i];
-//                         if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
-//                         {
-//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-//                             {
-//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
-//                             }
-//                         }
+            auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
+            for (int i = 1; i < 5; i++)
+            {
+                if (idx + i < bb->getInstructions().size())
+                {
+                    auto inst = bb->getInstructions()[idx + i];
+                    if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
+                    {
+                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+                        {
+                            nextInsts.push_back(bb->getInstructions()[idx + i]);
+                        }
+                    }
+                    else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD ||
+                             inst->getOpcode() == RISCVOpcode::FSW || inst->getOpcode() == RISCVOpcode::FSD)
+                    {
+                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
+                        {
+                            nextInsts.push_back(bb->getInstructions()[idx + i]);
+                        }
+                    }
+                    else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD ||
+                             inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
+                    {
+                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+                        {
+                            nextInsts.push_back(bb->getInstructions()[idx + i]);
+                        }
+                    }
+                    else if (inst->getOpcode() == RISCVOpcode::MV)
+                    {
+                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
+                        {
+                            nextInsts.push_back(bb->getInstructions()[idx + i]);
+                        }
+                    }
+                }
+            }
 
-//                         else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD || inst->getOpcode() == RISCVOpcode::SLL || inst->getOpcode() == RISCVOpcode::SRL)
-//                         {
-//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
-//                             {
-//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
-//                             }
-//                         }
-//                         else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD || inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
-//                         {
-//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-//                             {
-//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
-//                             }
-//                         }
-//                         else if (inst->getOpcode() == RISCVOpcode::MV)
-//                         {
-//                             if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-//                             {
-//                                 nextInsts.push_back(bb->getInstructions()[idx + i]);
-//                             }
-//                         }
-//                     }
-//                 }
+            bool overLap = false;
+            for (auto &la : laMap)
+            {
+                if (sameInvariantKey(la.first, insts[idx]))
+                {
+                    overLap = true;
+                    la.second.insert(la.second.end(), nextInsts.begin(), nextInsts.end());
+                }
+            }
 
-//                 laMap[insts[idx]].insert(laMap[insts[idx]].end(),
-//                                          nextInsts.begin(), nextInsts.end());
-//                 insts.erase(insts.begin() + idx);
-//                 --idx;
-//             }
-//         }
-//     }
+            if (!overLap)
+            {
+                laMap[insts[idx]] = nextInsts;
+            }
 
-//     return laMap;
-// }
+            insts.erase(insts.begin() + idx);
+            --idx;
+        }
+    }
+}
 
 unordered_map<shared_ptr<RISCVInstruction>,
               vector<shared_ptr<RISCVInstruction>>,
@@ -169,178 +265,39 @@ LICM::getInvariantMap(shared_ptr<RISCVLoop> loop)
 
     if (loop->getChildLoops().empty())
     {
-        for (auto &bb : loop->getBlocks())
-        {
-            auto &insts = bb->getInstructions();
-            for (size_t idx = 0; idx < insts.size(); ++idx)
-            {
-                if (isLoopInvariant(insts[idx]))
-                {
-                    auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
-                    for (int i = 1; i < 5; i++)
-                    {
-                        if (idx + i < bb->getInstructions().size())
-                        {
-                            auto inst = bb->getInstructions()[idx + i];
-                            if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD || inst->getOpcode() == RISCVOpcode::FSW || inst->getOpcode() == RISCVOpcode::FSD)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD || inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::MV)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                        }
-                    }
-
-                    bool overLap = false;
-                    for (auto &la : laMap)
-                    {
-                        if (la.first->getOperands()[1]->getLabel() == insts[idx]->getOperands()[1]->getLabel())
-                        {
-                            overLap = true;
-                            la.second.insert(la.second.end(), nextInsts.begin(), nextInsts.end());
-                        }
-                    }
-
-                    if (!overLap)
-                    {
-                        laMap[insts[idx]] = nextInsts;
-                    }
-
-                    insts.erase(insts.begin() + idx);
-                    --idx;
-                }
-            }
-        }
+        collectInvariantsInBlocks(loop->getBlocks(), loop, laMap);
     }
     else
     {
-        // 非子循环的blocks
-        for (auto &bb : loop->getBlocksWithoutChildren())
-        {
-            auto &insts = bb->getInstructions();
-            for (size_t idx = 0; idx < insts.size(); ++idx)
-            {
-                if (isLoopInvariant(insts[idx]))
-                {
-                    auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
-                    for (int i = 1; i < 5; i++)
-                    {
-                        if (idx + i < bb->getInstructions().size())
-                        {
-                            auto inst = bb->getInstructions()[idx + i];
-                            if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD || inst->getOpcode() == RISCVOpcode::FSW || inst->getOpcode() == RISCVOpcode::FSD)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD || inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                            else if (inst->getOpcode() == RISCVOpcode::MV)
-                            {
-                                if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                                {
-                                    nextInsts.push_back(bb->getInstructions()[idx + i]);
-                                }
-                            }
-                        }
-                    }
-
-                    bool overLap = false;
-                    for (auto &la : laMap)
-                    {
-                        if (la.first->getOperands()[1]->getLabel() == insts[idx]->getOperands()[1]->getLabel())
-                        {
-                            overLap = true;
-                            la.second.insert(la.second.end(), nextInsts.begin(), nextInsts.end());
-                        }
-                    }
-
-                    if (!overLap)
-                    {
-                        laMap[insts[idx]] = nextInsts;
-                    }
-
-                    insts.erase(insts.begin() + idx);
-                    --idx;
-                }
-            }
-        }
-
-        for (auto &l : loop->getChildLoops())
-        {
-            auto currentMap = getInvariantMap(l);
-            for (auto &cm : currentMap)
-            {
-                bool overLap = false;
-                for (auto &la : laMap)
-                {
-                    if (la.first->getOperands()[1]->getLabel() == cm.first->getOperands()[1]->getLabel())
-                    {
-                        overLap = true;
-                        for (auto &inst : cm.second)
-                        {
-                            la.second.push_back(inst);
-                        }
-                    }
-                }
-
-                if (!overLap)
-                {
-                    laMap[cm.first] = cm.second;
-                }
-            }
-        }
+        collectInvariantsInBlocks(loop->getBlocksWithoutChildren(), loop, laMap);
     }
 
     return laMap;
 }
 
-void printMap(unordered_map<shared_ptr<RISCVInstruction>, vector<shared_ptr<RISCVInstruction>>> &laMap)
+void LICM::hoistForLoop(shared_ptr<RISCVLoop> loop)
 {
-    for (const auto &pair : laMap)
+    if (!loop)
+        return;
+
+    // 先处理子循环，各自外提到子循环 preheader
+    for (const auto &child : loop->getChildLoops())
     {
-        cout << "LA: " << pair.first->toString() << " -> ";
-        for (const auto &inst : pair.second)
+        hoistForLoop(child);
+    }
+
+    auto preHeader = loop->getPreHeader();
+    if (!preHeader)
+        return;
+
+    auto invariantMap = getInvariantMap(loop);
+    for (auto &entry : invariantMap)
+    {
+        insertHoistedInst(entry.first, preHeader);
+        if (entry.first->getOpcode() == RISCVOpcode::LA)
         {
-            cout << inst->toString() << ", ";
+            mergeLAReg(entry.first, entry.second);
         }
-        cout << endl;
     }
 }
 
@@ -348,14 +305,6 @@ void LICM::hoistLoopInvariantInstructions()
 {
     for (auto &loop : loops)
     {
-        auto invariantMap = getInvariantMap(loop);
-        auto preHeader = loop->getPreHeader();
-
-        // printMap(invariantMap);
-        for (auto &la : invariantMap)
-        {
-            insertLAInst(la.first, preHeader);
-            mergeLAReg(la.first, la.second);
-        }
+        hoistForLoop(loop);
     }
 }

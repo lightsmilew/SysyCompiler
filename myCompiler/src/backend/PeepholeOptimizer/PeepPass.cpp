@@ -29,7 +29,11 @@ PeepOptiState RemoveRedundantMovePass::optimize(shared_ptr<RISCVInstruction> ins
 {
     if (isRedundantMove(instr))
     {
-        // 删除多余的move指令
+        return PeepOptiState::DELETE;
+    }
+
+    if (isDeadConsecutiveMoveToSameDest(instr, bb))
+    {
         return PeepOptiState::DELETE;
     }
 
@@ -77,7 +81,57 @@ bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr
     }
 
     return false;
+}
+
+bool RemoveRedundantMovePass::isDeadConsecutiveMoveToSameDest(shared_ptr<RISCVInstruction> instr,
+                                                              shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb || instr->getOpcode() != RISCVOpcode::MV)
+    {
+        return false;
     }
+
+    auto ops = instr->getOperands();
+    if (ops.size() < 2 || ops[0]->getType() != RISCVOperand::Type::REGISTER ||
+        ops[1]->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return false;
+    }
+
+    auto rd = ops[0]->getReg();
+    if (!rd || !rd->isPhysical())
+    {
+        return false;
+    }
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+    {
+        return false;
+    }
+
+    auto nextIt = it + 1;
+    if (nextIt == instrs.end() || !*nextIt || (*nextIt)->getOpcode() != RISCVOpcode::MV)
+    {
+        return false;
+    }
+
+    auto nextOps = (*nextIt)->getOperands();
+    if (nextOps.size() < 2 || nextOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        nextOps[1]->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return false;
+    }
+
+    auto nextRd = nextOps[0]->getReg();
+    if (!nextRd || !nextRd->isPhysical() || !(*rd == *nextRd))
+    {
+        return false;
+    }
+
+    return true;
+}
 
 PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
 {

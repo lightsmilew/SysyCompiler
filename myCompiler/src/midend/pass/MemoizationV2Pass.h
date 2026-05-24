@@ -13,9 +13,7 @@ namespace optimization
 
     private:
         static constexpr int MIN_RECURSIVE_CALLS = 2;
-        //static constexpr int CACHE_SIZE = 4096; // 2^12 slots
-        //更大的槽位，减少哈希冲突
-        static constexpr int CACHE_SIZE = 65536; // 2^16 slots
+        static constexpr int CACHE_SIZE = 4096; // 2^12 slots
         bool analyzeFunctionForMemoization(Function *func);
         void addMemoizationToFunction(Function *func);
     };

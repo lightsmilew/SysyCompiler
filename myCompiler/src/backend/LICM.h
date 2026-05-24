@@ -17,10 +17,14 @@ struct InstructionHash
         // 基于操作码计算哈希
         string key = to_string(static_cast<int>(inst->getOpcode()));
 
-        // 对于LA和LI指令，只基于标签/立即数计算哈希，忽略寄存器
+        // LA/LI 均按 rd + 标签/立即数
         if (inst->getOpcode() == RISCVOpcode::LA || inst->getOpcode() == RISCVOpcode::LI)
         {
             auto operands = inst->getOperands();
+            if (operands.size() >= 1 && operands[0]->getReg())
+            {
+                key += operands[0]->getReg()->toString();
+            }
             if (operands.size() >= 2)
             {
                 if (operands[1]->hasLabel())
@@ -54,15 +58,17 @@ struct InstructionEqual
         if (a->getOpcode() != b->getOpcode())
             return false;
 
-        // 对于LA和LI指令，只比较标签/立即数，忽略目标寄存器
-        // LA指令格式: la rd, label
-        // LI指令格式: li rd, imm
         if (a->getOpcode() == RISCVOpcode::LA || a->getOpcode() == RISCVOpcode::LI)
         {
             auto aOperands = a->getOperands();
             auto bOperands = b->getOperands();
 
             if (aOperands.size() != bOperands.size())
+                return false;
+
+            auto aRd = aOperands.size() >= 1 ? aOperands[0]->getReg() : nullptr;
+            auto bRd = bOperands.size() >= 1 ? bOperands[0]->getReg() : nullptr;
+            if (!aRd || !bRd || !(*aRd == *bRd))
                 return false;
 
             if (aOperands.size() >= 2)
@@ -90,9 +96,23 @@ private:
     vector<shared_ptr<RISCVLoop>> loops; // 从内到外存储所有的循环
     void analyseLoops();
     void hoistLoopInvariantInstructions();
-    bool isLoopInvariant(shared_ptr<RISCVInstruction> inst);
-    void insertLAInst(shared_ptr<RISCVInstruction> laInst, shared_ptr<RISCVBasicBlock> preHeader);
+    void hoistForLoop(shared_ptr<RISCVLoop> loop);
+    static bool isLoopInvariant(shared_ptr<RISCVInstruction> inst);
+    void insertHoistedInst(shared_ptr<RISCVInstruction> inst, shared_ptr<RISCVBasicBlock> preHeader);
+    static bool sameInvariantKey(const shared_ptr<RISCVInstruction> &a,
+                                 const shared_ptr<RISCVInstruction> &b);
+    static bool isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
+                                        const vector<shared_ptr<RISCVBasicBlock>> &blocks);
+    static bool canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
+                                      const shared_ptr<RISCVBasicBlock> &bb,
+                                      const shared_ptr<RISCVLoop> &loop);
     void mergeLAReg(shared_ptr<RISCVInstruction> keep, vector<shared_ptr<RISCVInstruction>> merges);
+    void collectInvariantsInBlocks(
+        const vector<shared_ptr<RISCVBasicBlock>> &scopeBlocks,
+        const shared_ptr<RISCVLoop> &loop,
+        unordered_map<shared_ptr<RISCVInstruction>,
+                      vector<shared_ptr<RISCVInstruction>>,
+                      InstructionHash, InstructionEqual> &laMap);
     unordered_map<shared_ptr<RISCVInstruction>,
                   vector<shared_ptr<RISCVInstruction>>,
                   InstructionHash, InstructionEqual>

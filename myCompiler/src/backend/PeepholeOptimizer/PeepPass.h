@@ -18,6 +18,9 @@ public:
 
 private:
     bool isRedundantMove(shared_ptr<RISCVInstruction> instr);
+    /// mv rd, x 后紧跟 mv rd, y：前一条结果被完全覆盖，可删
+    bool isDeadConsecutiveMoveToSameDest(shared_ptr<RISCVInstruction> instr,
+                                         shared_ptr<RISCVBasicBlock> bb);
 };
 
 // 融合相邻的li+mv和地址计算+load/store

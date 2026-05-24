@@ -13,7 +13,6 @@ namespace optimization
     private:
         bool isLoopInvariant(Instruction *inst, const Loop &loop);
         bool canMoveToPreheader(Instruction *inst, const Loop &loop);
-        BasicBlock *findPreheader(const Loop &loop);
     };
     // 14.移除无用的while循环
     class RemoveUselessWhilePass : public Pass
