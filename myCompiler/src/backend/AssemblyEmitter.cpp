@@ -61,6 +61,14 @@ namespace
         ss << "        add t0, sp, t0\n";
         ss << "        " << op << " " << reg << ", 0(t0)\n";
     }
+
+    constexpr int kGlobalAlignLog2 = 3;
+    constexpr int kGlobalAlignBytes = 1 << kGlobalAlignLog2;
+
+    int alignGlobalSize(int size)
+    {
+        return (size + kGlobalAlignBytes - 1) / kGlobalAlignBytes * kGlobalAlignBytes;
+    }
 }
 
 // AssemblyEmitter 实现
@@ -106,8 +114,9 @@ string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &
                 ss << ".section .bss\n";
                 current = ActiveSection::Bss;
             }
+            ss << "    .align " << kGlobalAlignLog2 << "\n";
             ss << global->getLabel() << ":\n";
-            ss << "    .skip " << global->getSize() << "\n";
+            ss << "    .skip " << alignGlobalSize(global->getSize()) << "\n";
         }
         else
         {
@@ -116,6 +125,7 @@ string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &
                 ss << ".section .data\n";
                 current = ActiveSection::Data;
             }
+            ss << "    .align " << kGlobalAlignLog2 << "\n";
             ss << global->toString() << "\n";
         }
     }
