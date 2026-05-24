@@ -9,6 +9,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     generateInstructions();
     FirstPeep();
     runLICMPass();
+    //runLiLocalCSEPass();
     // instructionScheduler();
     allocateRegisters();
     SecondPeep();
@@ -351,6 +352,12 @@ void RISCVBuilder::buildBackendLoopInfo(shared_ptr<RISCVFunction> riscvFunc,
             riscvLoop->setHeader(blockMapping.at(irLoop.header));
         }
 
+        // 映射中端分析的前置块
+        if (irLoop.preheader && blockMapping.find(irLoop.preheader) != blockMapping.end())
+        {
+            riscvLoop->setPreHeader(blockMapping.at(irLoop.preheader));
+        }
+
         // 映射循环体
         for (auto irBlock : irLoop.blocks)
         {
@@ -471,5 +478,16 @@ void RISCVBuilder::runLICMPass()
 
         LICM licm;
         licm.runLICM(func);
+    }
+}
+
+void RISCVBuilder::runLiLocalCSEPass()
+{
+    for (auto &func : riscvModule->getFunctions())
+    {
+        if (isLibraryFunction(func->getName()))
+            continue;
+        LiLocalCSE pass;
+        pass.run(func);
     }
 }

@@ -14,7 +14,6 @@ namespace optimization
     private:
         static constexpr int MIN_RECURSIVE_CALLS = 2;
         static constexpr int CACHE_SIZE = 4096; // 2^12 slots
-
         bool analyzeFunctionForMemoization(Function *func);
         void addMemoizationToFunction(Function *func);
     };

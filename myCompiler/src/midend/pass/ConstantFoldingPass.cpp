@@ -51,6 +51,22 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             case Opcode::SRem:
                                 result = ci2->Value != 0 ? ci1->Value % ci2->Value : 0;
                                 break;
+                            case Opcode::Sll:
+                                result = static_cast<int32_t>(static_cast<uint32_t>(ci1->Value)
+                                                              << (ci2->Value & 31));
+                                break;
+                            case Opcode::Sra:
+                                result = ci1->Value >> (ci2->Value & 31);
+                                break;
+                            case Opcode::And:
+                                result = ci1->Value & ci2->Value;
+                                break;
+                            case Opcode::Or:
+                                result = ci1->Value | ci2->Value;
+                                break;
+                            case Opcode::Xor:
+                                result = ci1->Value ^ ci2->Value;
+                                break;
                             default:
                                 throw std::runtime_error("Unsupported opcode for constant folding");
                             }

@@ -84,18 +84,17 @@ bool LoopInvariantCodeMotionPass::runOnFunction(Function *func)
     bool changed = false;
     // 记录每一轮pass后是否有外提变量，有则继续运行直到所有能外提变量全部外提
     bool localChanged;
-    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的
-    auto loops = func->getLoops();
+    func->setLoops(ControlFlowAnalysis::findLoops(func)); // 确保循环信息是最新的（含 preheader）
     do
     {
         int count = 0;
         localChanged = false;
         // 1. 查找所有循环
 
-        for (auto &loop : loops)
+        for (auto &loop : func->getLoops())
         {
-            // 2. 找到循环的前置块（preheader）
-            BasicBlock *preheader = findPreheader(loop);
+            // 2. 使用循环信息中的前置块
+            BasicBlock *preheader = loop.getPreheader();
             if (!preheader)
                 continue;
 
@@ -223,26 +222,6 @@ bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop 
         }
     }
     return true;
-}
-// 查找循环头的前驱块
-BasicBlock *LoopInvariantCodeMotionPass::findPreheader(const Loop &loop)
-{
-    BasicBlock *header = loop.header;
-    BasicBlock *preheader = nullptr;
-    int count = 0;
-    for (auto *pred : header->getPredecessors())
-    {
-        // preheader 必须不在循环体内
-        if (std::find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
-        {
-            preheader = pred;
-            ++count;
-        }
-    }
-    // 必须只有一个循环外前驱才安全
-    if (count == 1)
-        return preheader;
-    return nullptr;
 }
 bool RemoveUselessWhilePass::runOnFunction(Function *func)
 {

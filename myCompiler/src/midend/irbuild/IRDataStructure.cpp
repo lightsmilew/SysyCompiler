@@ -13,6 +13,39 @@ bool isSameAddr(Value *a, Value *b)
 {
     return normalizeName(a->getName()) == normalizeName(b->getName());
 }
+
+Value *getOriginalPointerFromAddress(Value *pointer)
+{
+    while (pointer)
+    {
+        if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
+        {
+            pointer = gepInst->getOriginalPointerOperand();
+        }
+        else if (auto *castInst = dynamic_cast<CastInst *>(pointer))
+        {
+            pointer = castInst->getOperand();
+        }
+        else if (auto *add = dynamic_cast<BinaryOperator *>(pointer))
+        {
+            if (add->getOpcode() != Opcode::Addd)
+                break;
+            Value *base = nullptr;
+            if (add->getLHS() && add->getLHS()->getType()->isPointerTy())
+                base = add->getLHS();
+            else if (add->getRHS() && add->getRHS()->getType()->isPointerTy())
+                base = add->getRHS();
+            else
+                break;
+            pointer = base;
+        }
+        else
+        {
+            break;
+        }
+    }
+    return pointer;
+}
 size_t ArrayType::getArrayLength() const
 {
     if (auto arrayType = dynamic_cast<ArrayType *>(ElementType))
@@ -317,6 +350,8 @@ string Instruction::getOpcodeName() const
         return "xor";
     case Opcode::Xnor:
         return "xnor";
+    case Opcode::Addd:
+        return "addd";
     case Opcode::Muld:
         return "muld";
     case Opcode::Mulhd:
@@ -345,6 +380,8 @@ string Instruction::getOpcodeName() const
         return "store";
     case Opcode::Stored:
         return "stored";
+    case Opcode::StorePair:
+        return "storepair";
     case Opcode::GetElementPtr:
         return "getelementptr";
     case Opcode::SIToFP:
@@ -374,13 +411,13 @@ bool Instruction::isBinaryOp() const
     return Op == Opcode::Add || Op == Opcode::Sub || Op == Opcode::Mul ||
            Op == Opcode::SDiv || Op == Opcode::SRem || Op == Opcode::FAdd ||
            Op == Opcode::FSub || Op == Opcode::FMul || Op == Opcode::FDiv || Op == Opcode::And || Op == Opcode::Or ||
-           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
+           Op == Opcode::Sll || Op == Opcode::Sra || Op == Opcode::Addd || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::Slld ||
            Op == Opcode::Srad || Op == Opcode::Xor || Op == Opcode::Xnor;
 }
 bool Instruction::isCommutativeOp() const
 {
     return Op == Opcode::Add || Op == Opcode::Mul || Op == Opcode::And || Op == Opcode::Or || Op == Opcode::Xor ||
-           Op == Opcode::Xnor || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::FAdd || Op == Opcode::FMul;
+           Op == Opcode::Xnor || Op == Opcode::Addd || Op == Opcode::Muld || Op == Opcode::Mulhd || Op == Opcode::FAdd || Op == Opcode::FMul;
 }
 bool Instruction::isComparisonOp() const
 {
@@ -398,6 +435,7 @@ bool Instruction::mayHaveSideEffects() const
 {
     if (Op == Opcode::Store ||
         Op == Opcode::Stored ||
+        Op == Opcode::StorePair ||
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
@@ -430,6 +468,7 @@ bool Instruction::hasResult() const
     case Opcode::Or:
     case Opcode::Xor:
     case Opcode::Xnor:
+    case Opcode::Addd:
     case Opcode::Muld:
     case Opcode::Mulhd:
     case Opcode::Slld:
@@ -532,6 +571,7 @@ Instruction *Instruction::clone() const
     case Opcode::Or:
     case Opcode::Xor:
     case Opcode::Xnor:
+    case Opcode::Addd:
     case Opcode::Muld:
     case Opcode::Mulhd:
     case Opcode::Slld:
@@ -556,6 +596,8 @@ Instruction *Instruction::clone() const
     case Opcode::Store:
     case Opcode::Stored:
         return new StoreInst(getOpcode(), getOperandByIndex(0), getOperandByIndex(1));
+    case Opcode::StorePair:
+        return new StorePairInst(getOperandByIndex(0), getOperandByIndex(1), getOperandByIndex(2));
     case Opcode::Call:
     {
         auto *call = static_cast<const CallInst *>(this);
@@ -856,24 +898,7 @@ Value *LoadInst::getPointer() const
 }
 Value *LoadInst::getOriginalPointer() const
 {
-    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
-    Value *pointer = getPointer();
-    while (true)
-    {
-        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
-        {
-            pointer = gepInst->getOriginalPointerOperand();
-        }
-        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
-        {
-            pointer = castInst->getOperand();
-        }
-        else
-        {
-            break;
-        }
-    }
-    return pointer;
+    return getOriginalPointerFromAddress(getPointer());
 }
 std::string LoadInst::toString() const
 {
@@ -893,7 +918,19 @@ Value *StoreInst::getPointer() const
 }
 Value *StoreInst::getOriginalPointer() const
 {
-    // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    return getOriginalPointerFromAddress(getPointer());
+}
+std::string StoreInst::toString() const
+{
+    std::stringstream ss;
+    string opcodeStr = getOpcodeName(); // 使用getOpcodeName获取操作码名称
+    ss << opcodeStr << " " << getValueToStore()->getType()->toString() << " " << getValueToStore()->toRef()
+       << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
+    return ss.str();
+}
+
+Value *StorePairInst::getOriginalPointer() const
+{
     Value *pointer = getPointer();
     while (true)
     {
@@ -912,12 +949,13 @@ Value *StoreInst::getOriginalPointer() const
     }
     return pointer;
 }
-std::string StoreInst::toString() const
+
+std::string StorePairInst::toString() const
 {
     std::stringstream ss;
-    string opcodeStr = getOpcodeName(); // 使用getOpcodeName获取操作码名称
-    ss << opcodeStr << " " << getValueToStore()->getType()->toString() << " " << getValueToStore()->toRef()
-       << ", " << getPointer()->getType()->toString() << " " << getPointer()->toRef();
+    ss << "storepair " << getPointer()->getType()->toString() << " " << getPointer()->toRef()
+       << ", " << getHigh()->getType()->toString() << " " << getHigh()->toRef()
+       << ", " << getLow()->getType()->toString() << " " << getLow()->toRef();
     return ss.str();
 }
 
@@ -1016,22 +1054,7 @@ bool CallInst::HasModifiedArray(Value *value) const
     // 该变量作为函数实参并在函数体内对对应的形参进行了修改
     for (size_t i = 0; i < getArguments().size(); i++)
     {
-        Value *origin = getArguments()[i];
-        while (true)
-        {
-            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
-            {
-                origin = gepInst->getOriginalPointerOperand();
-            }
-            else if (auto castInst = dynamic_cast<CastInst *>(origin))
-            {
-                origin = castInst->getOperand();
-            }
-            else
-            {
-                break;
-            }
-        }
+        Value *origin = getOriginalPointerFromAddress(getArguments()[i]);
         // 数组作为函数参数
         if (isSameAddr(origin, value))
         {
@@ -1060,6 +1083,14 @@ bool CallInst::HasModifiedArray(Value *value) const
                     return true; // 找到修改该全局变量的store指令
                 }
             }
+            else if (auto storePair = dynamic_cast<StorePairInst *>(inst))
+            {
+                auto storeOriginalPointer = storePair->getOriginalPointer();
+                if (isSameAddr(storeOriginalPointer, value))
+                {
+                    return true;
+                }
+            }
             else if (auto callInst = dynamic_cast<CallInst *>(inst))
             {
                 // 如果是递归函数就直接跳过(已检查过)
@@ -1086,22 +1117,7 @@ bool CallInst::HasUsedArray(Value *ptr) const
     // 1. 检查参数传递
     for (size_t i = 0; i < getArguments().size(); i++)
     {
-        Value *origin = getArguments()[i];
-        while (true)
-        {
-            if (auto gepInst = dynamic_cast<GetElementPtrInst *>(origin))
-            {
-                origin = gepInst->getOriginalPointerOperand();
-            }
-            else if (auto castInst = dynamic_cast<CastInst *>(origin))
-            {
-                origin = castInst->getOperand();
-            }
-            else
-            {
-                break;
-            }
-        }
+        Value *origin = getOriginalPointerFromAddress(getArguments()[i]);
         if (isSameAddr(origin, ptr))
         {
             std::string funcName = func->getName();
@@ -1176,6 +1192,16 @@ bool CallInst::ifHasSideEffects() const
                     (storeOriginalPointer->isGlobal()))
                 {
                     return true; // 找到修改全局变量或函数参数的store指令
+                }
+            }
+            else if (auto storePair = dynamic_cast<StorePairInst *>(inst))
+            {
+                auto storeOriginalPointer = storePair->getOriginalPointer();
+                auto args = getArguments();
+                if (std::find(args.begin(), args.end(), storeOriginalPointer) != args.end() ||
+                    (storeOriginalPointer->isGlobal()))
+                {
+                    return true;
                 }
             }
             else if (auto callInst = dynamic_cast<CallInst *>(inst))
@@ -1781,18 +1807,26 @@ bool Loop::IsInductionVar(const std::string &name) const
     }
     return false; // 如果没有找到Phi指令，说明不是归纳变量
 }
-BasicBlock *Loop::getPreheader() const
+void Loop::computePreheader()
 {
-    // 寻找前驱基本块
-    for (auto &bb : header->getPredecessors())
+    preheader = nullptr;
+    if (!header)
+        return;
+    int count = 0;
+    for (auto *pred : header->getPredecessors())
     {
-        // 如果不在blocks中
-        if (std::find(blocks.begin(), blocks.end(), bb) == blocks.end())
+        if (!containsBlock(pred))
         {
-            return bb;
+            preheader = pred;
+            ++count;
         }
     }
-    throw std::runtime_error("Loop does not have a preheader.");
+    if (count != 1)
+        preheader = nullptr;
+}
+BasicBlock *Loop::getPreheader() const
+{
+    return preheader;
 }
 void Loop::breakCFG()
 {
@@ -1872,6 +1906,10 @@ Value *Function::getArgumentByIndex(size_t index) const
     throw std::out_of_range("Function: Argument index out of range");
 }
 const vector<Loop> &Function::getLoops() const
+{
+    return Loops;
+}
+vector<Loop> &Function::getLoops()
 {
     return Loops;
 }

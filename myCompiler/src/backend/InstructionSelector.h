@@ -37,6 +37,8 @@ private:
     // void visitUnaryOp(UnaryOperator *inst);
     void visitLoadInst(LoadInst *inst);
     void visitStoreInst(StoreInst *inst);
+    void visitStorePairInst(StorePairInst *inst);
+    shared_ptr<RISCVRegister> packI64FromHalves(Value *hi, Value *lo, bool isPhysical = false);
     void visitCallInst(CallInst *inst);
     void visitReturnInst(ReturnInst *inst);
     void visitBranchInst(BranchInst *inst);
@@ -54,6 +56,7 @@ private:
     void visitSelectInst(SelectInst *inst);
 
     // 获取虚拟寄存器
+    // 常量默认用虚拟寄存器，供寄存器分配与 LICM 外提；仅局部 scratch 显式传 isPhysical=true
     shared_ptr<RISCVRegister> getOrCreateVirtualReg(Value *value, bool isPhysical = false);
     shared_ptr<RISCVRegister> LiInt(int intValue, bool isPhysical = false);
     shared_ptr<RISCVRegister> LiFloat(float floatValue, bool isPhysical = false);

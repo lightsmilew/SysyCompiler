@@ -149,7 +149,7 @@ int main(int argc, const char *argv[])
         return 1;
     }
     // 这里修改输出的label
-    IRBuilder irbuilder(debugMode);
+    IRBuilder irbuilder(debugMode,input_file);
     auto ir_module = irbuilder.buildModule(ast_root);
     // 优化
     unique_ptr<optimization::PassManager> pass_manager;

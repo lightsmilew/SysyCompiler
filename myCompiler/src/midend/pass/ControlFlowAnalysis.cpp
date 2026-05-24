@@ -124,6 +124,7 @@ vector<Loop> ControlFlowAnalysis::findLoops(Function *func)
                 }
             }
             loop.exits.assign(exitBlocks.begin(), exitBlocks.end());
+            loop.computePreheader();
 
             loops.push_back(loop);
         }
