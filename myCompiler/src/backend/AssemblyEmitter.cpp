@@ -89,28 +89,32 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
 string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &globals)
 {
     stringstream ss;
-    int bssCounter = 0; // 用于生成唯一的bss标签
-    int dataCounter = 0; // 用于生成唯一的数据标签
+    enum class ActiveSection
+    {
+        None,
+        Data,
+        Bss
+    };
+    ActiveSection current = ActiveSection::None;
+
     for (const auto &global : globals)
     {
         if (!global->isInitialized())
         {
-            // 未初始化的全局变量放在 .bss 段
-            if (bssCounter == 0)
+            if (current != ActiveSection::Bss)
             {
                 ss << ".section .bss\n";
-                bssCounter++;
+                current = ActiveSection::Bss;
             }
             ss << global->getLabel() << ":\n";
             ss << "    .skip " << global->getSize() << "\n";
         }
         else
         {
-            // 已初始化的全局变量放在 .data 段
-            if (dataCounter == 0)
+            if (current != ActiveSection::Data)
             {
                 ss << ".section .data\n";
-                dataCounter++;
+                current = ActiveSection::Data;
             }
             ss << global->toString() << "\n";
         }

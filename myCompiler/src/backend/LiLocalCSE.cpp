@@ -88,34 +88,68 @@ namespace RISCV
         }
     }
 
-    LiLocalCSE::RegUseCountMap LiLocalCSE::buildRegUseCounts(shared_ptr<RISCVFunction> function)
+    shared_ptr<RISCVLoop> LiLocalCSE::findInnermostLoop(const LoopInfo &loopInfo,
+                                                        shared_ptr<RISCVBasicBlock> bb)
     {
-        RegUseCountMap counts;
-        if (!function)
-            return counts;
-        for (auto &bb : function->getBasicBlocks())
+        shared_ptr<RISCVLoop> innermost;
+        int maxDepth = -1;
+        for (const auto &loop : loopInfo.getLoops())
         {
-            for (auto &inst : bb->getInstructions())
+            if (!loop || !bb || !loop->containsBlock(bb))
+                continue;
+            const int depth = loop->getDepth();
+            if (depth > maxDepth)
             {
-                if (!inst)
+                maxDepth = depth;
+                innermost = loop;
+            }
+        }
+        return innermost;
+    }
+
+    bool LiLocalCSE::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
+                                             const vector<shared_ptr<RISCVBasicBlock>> &blocks)
+    {
+        if (!inst)
+            return false;
+        auto defs = inst->getDefRegisters();
+        if (defs.empty() || !defs[0])
+            return false;
+        const auto &destReg = defs[0];
+
+        for (const auto &bb : blocks)
+        {
+            if (!bb)
+                continue;
+            for (const auto &other : bb->getInstructions())
+            {
+                if (!other || other == inst)
                     continue;
-                for (const auto &use : inst->getUseRegisters())
+                for (const auto &d : other->getDefRegisters())
                 {
-                    if (use)
-                        ++counts[regKey(use)];
+                    if (d && *d == *destReg)
+                        return false;
                 }
             }
         }
-        return counts;
+        return true;
     }
 
-    bool LiLocalCSE::canCseLiDest(const RegUseCountMap &useCounts,
-                                  const shared_ptr<RISCVRegister> &rd)
+    bool LiLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
+                                            const shared_ptr<RISCVInstruction> &inst,
+                                            const shared_ptr<RISCVLoop> &loop)
     {
-        if (!rd)
+        if (!inst || !loop || !bb)
             return false;
-        auto it = useCounts.find(regKey(rd));
-        return it != useCounts.end() && it->second == 1;
+
+        if (!isOnlyDefOfDestInBlocks(inst, loop->getBlocks()))
+            return true;
+
+        // 循环头内的 li 每轮迭代都会执行，不能当作可复用的不变量
+        if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
+            return true;
+
+        return false;
     }
 
     string LiLocalCSE::operandKey(const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
@@ -237,6 +271,87 @@ namespace RISCV
         return !isRegDefinedSince(insts, entry.defIdx, useIdx, canon);
     }
 
+    bool LiLocalCSE::allUsesReplaceable(const vector<shared_ptr<RISCVInstruction>> &insts,
+                                        size_t dupIdx, size_t canonDefIdx,
+                                        const shared_ptr<RISCVRegister> &dupRd,
+                                        const shared_ptr<RISCVRegister> &canon)
+    {
+        if (!dupRd || !canon)
+            return false;
+
+        for (size_t j = dupIdx + 1; j < insts.size(); ++j)
+        {
+            const auto &user = insts[j];
+            if (!user)
+                continue;
+            for (const auto &use : user->getUseRegisters())
+            {
+                if (!use || !(*use == *dupRd))
+                    continue;
+                if (isRegDefinedSince(insts, canonDefIdx, j, canon))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    bool LiLocalCSE::hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
+                                        shared_ptr<RISCVBasicBlock> bb,
+                                        const shared_ptr<RISCVRegister> &reg)
+    {
+        if (!function || !reg)
+            return false;
+        for (auto &otherBB : function->getBasicBlocks())
+        {
+            if (!otherBB || otherBB == bb)
+                continue;
+            for (const auto &inst : otherBB->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &use : inst->getUseRegisters())
+                {
+                    if (use && *use == *reg)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void LiLocalCSE::replaceUsesWithCanon(const vector<shared_ptr<RISCVInstruction>> &insts,
+                                          size_t dupIdx, size_t canonDefIdx,
+                                          const shared_ptr<RISCVRegister> &dupRd,
+                                          const shared_ptr<RISCVRegister> &canon)
+    {
+        for (size_t j = dupIdx + 1; j < insts.size(); ++j)
+        {
+            auto &user = insts[j];
+            if (!user)
+                continue;
+
+            if (isRegDefinedSince(insts, canonDefIdx, j, canon))
+                continue;
+
+            for (const auto &use : user->getUseRegisters())
+            {
+                if (!use || !dupRd || !(*use == *dupRd))
+                    continue;
+                user->replaceUseRegister(use, canon);
+            }
+        }
+    }
+
+    void LiLocalCSE::decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+                                          size_t erasedIdx)
+    {
+        for (auto &entry : avail)
+        {
+            if (entry.second.defIdx > erasedIdx)
+                --entry.second.defIdx;
+        }
+    }
+
     void LiLocalCSE::invalidateDefsOfInst(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                         const shared_ptr<RISCVInstruction> &producer)
     {
@@ -303,13 +418,21 @@ namespace RISCV
             return false;
 
         bool changed = false;
-        const RegUseCountMap useCounts = buildRegUseCounts(function);
+        const LoopInfo &loopInfo = function->getLoopInfo();
+        unordered_map<shared_ptr<RISCVBasicBlock>, shared_ptr<RISCVLoop>> bbInnerLoop;
+        for (auto &bb : function->getBasicBlocks())
+        {
+            if (bb)
+                bbInnerLoop[bb] = findInnermostLoop(loopInfo, bb);
+        }
 
         for (auto &bb : function->getBasicBlocks())
         {
             unordered_map<ExprKey, AvailEntry, ExprKeyHash> avail;
             int spVersion = 0;
             auto &insts = bb->getInstructions();
+            const shared_ptr<RISCVLoop> innerLoop = bb ? bbInnerLoop[bb] : nullptr;
+
             for (size_t idx = 0; idx < insts.size(); ++idx)
             {
                 auto &inst = insts[idx];
@@ -331,42 +454,49 @@ namespace RISCV
                     avail.clear();
                 }
 
+                if (isLoopInductionRelated(bb, inst, innerLoop))
+                    continue;
+
                 shared_ptr<RISCVRegister> rd;
                 auto keyOpt = buildExprKey(insts, idx, inst, rd);
                 bool handled = false;
                 if (keyOpt && rd)
                 {
-                    const bool liOk =
-                        keyOpt->opcode != RISCVOpcode::LI || canCseLiDest(useCounts, rd);
-                    if (liOk)
+                    auto it = avail.find(*keyOpt);
+                    if (it != avail.end())
                     {
-                        auto it = avail.find(*keyOpt);
-                        if (it != avail.end())
+                        if (isAvailEntryLive(insts, idx, it->second) &&
+                            (!keyOpt->usesSp || it->second.spVersion == spVersion))
                         {
-                            if (isAvailEntryLive(insts, idx, it->second) &&
-                                (!keyOpt->usesSp || it->second.spVersion == spVersion))
+                            auto canon = getDestReg(it->second.defInst);
+                            if (canon && !hasUseOutsideBlock(function, bb, rd) &&
+                                allUsesReplaceable(insts, idx, it->second.defIdx, rd, canon))
                             {
-                                auto canon = getDestReg(it->second.defInst);
-                                auto mvInst =
-                                    RISCVInstruction::createPseudo(RISCVOpcode::MV, rd, canon);
-                                inst = mvInst;
+                                replaceUsesWithCanon(insts, idx, it->second.defIdx, rd, canon);
+                                insts.erase(insts.begin() + static_cast<long>(idx));
+                                decrementDefIdxAfter(avail, idx);
                                 changed = true;
                                 handled = true;
+                                --idx;
                             }
                             else
                             {
                                 avail.erase(it);
                             }
                         }
-
-                        if (!handled)
+                        else
                         {
-                            AvailEntry entry;
-                            entry.defInst = inst;
-                            entry.defIdx = idx;
-                            entry.spVersion = spVersion;
-                            avail[*keyOpt] = entry;
+                            avail.erase(it);
                         }
+                    }
+
+                    if (!handled)
+                    {
+                        AvailEntry entry;
+                        entry.defInst = inst;
+                        entry.defIdx = idx;
+                        entry.spVersion = spVersion;
+                        avail[*keyOpt] = entry;
                     }
                 }
             }

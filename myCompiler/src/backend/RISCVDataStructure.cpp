@@ -686,7 +686,7 @@ namespace RISCV
 
     // RISCVGlobalBlock 实现
     RISCVGlobalBlock::RISCVGlobalBlock(const string &label)
-        : label(label), size(0) {}
+        : label(label), size(0), initialized(false) {}
 
     void RISCVGlobalBlock::addData(const string &dataStr)
     {
