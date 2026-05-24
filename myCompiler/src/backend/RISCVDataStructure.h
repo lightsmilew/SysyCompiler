@@ -565,6 +565,7 @@ namespace RISCV
         vector<bool> isStringData; // 标记对应位置是否为字符串数据
         vector<bool> isArrayData;  // 标记对应位置是否为数组数据
         int size;
+        bool initialized; // 标记是否已初始化（是否有非零数据）
 
         // 辅助方法：检查字符串是否为零值
         bool isZeroValue(const string &value) const;
@@ -580,6 +581,8 @@ namespace RISCV
         const string &getLabel() const { return label; }
         const vector<string> &getData() const { return data; }
         int getSize() const { return size; }
+        bool isInitialized() const { return initialized; }
+        void setInitialized(bool init) { initialized = init; }
 
         string toString() const;
     };

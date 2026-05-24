@@ -93,6 +93,7 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
 
 void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, Constant *initializer)
 {
+    globalBlock->setInitialized(true); // 标记为已初始化
     // 处理全局变量初始化器 - 根据数据类型选择合适的输出方式
     if (auto constInt = dynamic_cast<ConstantInt *>(initializer))
     {
@@ -166,6 +167,7 @@ void RISCVBuilder::processGlobalInitializer(shared_ptr<RISCVGlobalBlock> globalB
 
 void RISCVBuilder::processZeroInitializer(shared_ptr<RISCVGlobalBlock> globalBlock, GlobalVariable *globalVar)
 {
+    globalBlock->setInitialized(false);
     // 处理零初始化
     if (globalVar->isArray())
     {

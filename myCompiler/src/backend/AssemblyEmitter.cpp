@@ -13,7 +13,6 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
     // 生成全局变量段
     if (!module->getGlobalBlocks().empty())
     {
-        ss << ".data\n";
         ss << emitGlobals(module->getGlobalBlocks());
     }
 
@@ -32,9 +31,31 @@ string AssemblyEmitter::emit(shared_ptr<RISCVModule> module)
 string AssemblyEmitter::emitGlobals(const vector<shared_ptr<RISCVGlobalBlock>> &globals)
 {
     stringstream ss;
+    int bssCounter = 0; // 用于生成唯一的bss标签
+    int dataCounter = 0; // 用于生成唯一的数据标签
     for (const auto &global : globals)
     {
-        ss << global->toString() << "\n";
+        if (!global->isInitialized())
+        {
+            // 未初始化的全局变量放在 .bss 段
+            if (bssCounter == 0)
+            {
+                ss << ".section .bss\n";
+                bssCounter++;
+            }
+            ss << global->getLabel() << ":\n";
+            ss << "    .skip " << global->getSize() << "\n";
+        }
+        else
+        {
+            // 已初始化的全局变量放在 .data 段
+            if (dataCounter == 0)
+            {
+                ss << ".section .data\n";
+                dataCounter++;
+            }
+            ss << global->toString() << "\n";
+        }
     }
     return ss.str();
 }
