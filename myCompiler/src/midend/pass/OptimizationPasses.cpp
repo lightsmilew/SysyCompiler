@@ -138,6 +138,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -184,6 +185,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -370,6 +372,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));

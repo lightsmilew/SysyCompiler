@@ -1,6 +1,21 @@
 #include "CSEPass.h"
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+static string operandKey(Value *op)
+{
+    if (auto *ci = dynamic_cast<ConstantInt *>(op))
+        return "int:" + to_string(ci->Value);
+    if (auto *cl = dynamic_cast<ConstantLong *>(op))
+        return "long:" + to_string(cl->Value);
+    if (auto *cf = dynamic_cast<ConstantFloat *>(op))
+        return "float:" + to_string(cf->Value);
+    return "var:" + op->getName();
+}
+} // namespace
+
 // ========== 公共子表达式消除 ==========
 bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
 {
@@ -143,38 +158,11 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
     {
         int usefulOperandCount = static_cast<int>(gep->getNumOperands()) - std::max(0, gep->num_addedzero);
         for (int i = 0; i < usefulOperandCount; i++)
-        {
-            auto *op = gep->getOperandByIndex(i);
-            if (auto *ci = dynamic_cast<ConstantInt *>(op))
-            {
-                ops.push_back("int:" + std::to_string(ci->Value));
-            }
-            else if (auto *cf = dynamic_cast<ConstantFloat *>(op))
-            {
-                ops.push_back("float:" + std::to_string(cf->Value));
-            }
-            else
-            {
-                ops.push_back("var:" + op->getName());
-            }
-        }
+            ops.push_back(operandKey(gep->getOperandByIndex(i)));
         return {inst->getOpcodeName(), ops};
     }
     for (auto *op : inst->getOperands())
-    {
-        if (auto *ci = dynamic_cast<ConstantInt *>(op))
-        {
-            ops.push_back("int:" + std::to_string(ci->Value));
-        }
-        else if (auto *cf = dynamic_cast<ConstantFloat *>(op))
-        {
-            ops.push_back("float:" + std::to_string(cf->Value));
-        }
-        else
-        {
-            ops.push_back("var:" + op->getName());
-        }
-    }
+        ops.push_back(operandKey(op));
     return {inst->getOpcodeName(), ops};
 }
 
