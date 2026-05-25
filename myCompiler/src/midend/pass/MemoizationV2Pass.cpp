@@ -1,5 +1,7 @@
 #include "MemoizationV2Pass.h"
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -7,9 +9,27 @@
 using namespace std;
 using namespace optimization;
 
+namespace optimization
+{
+
+struct DirectIndex2ArgPlan
+{
+    bool useDirectIndex = false;
+    // Knapsack-style row-major: slot = arg0 * (W+1) + arg1, W loaded from capacityGlobal.
+    bool useRuntimeCapacityStride = false;
+    GlobalVariable *capacityGlobal = nullptr;
+    int stride = 0; // constant stride when useRuntimeCapacityStride is false
+    bool skipCacheMask = false; // omit & (CACHE_SIZE-1) when slot always in range
+    // Poly hash: arg0 * polyMulArg0 + arg1 * polyMulArg1 (defaults n*257+dep)
+    int polyMulArg0 = 257;
+    int polyMulArg1 = 1;
+};
+
+} // namespace optimization
+
 namespace
 {
-static constexpr int kCacheSize = 4096;
+static constexpr int kCacheSize = MemoizationV2Pass::CACHE_SIZE;
 
 static int nameCounter = 0;
 
@@ -283,6 +303,43 @@ static int inferArgUpperBoundFromArrayIndex(Function *func, unsigned argIndex)
     return upper;
 }
 
+static GlobalVariable *getGlobalLoadedAtCallSite(Module *module, Function *func, unsigned argIndex)
+{
+    if (!module || !func)
+        return nullptr;
+
+    for (auto &funcPtr : module->Functions)
+    {
+        Function *caller = funcPtr.get();
+        if (!caller)
+            continue;
+
+        for (auto &bbPtr : caller->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                auto *call = dynamic_cast<CallInst *>(instPtr.get());
+                if (!call || call->getCalledFunction() != func)
+                    continue;
+
+                const vector<Value *> callArgs = call->getArguments();
+                if (argIndex >= callArgs.size())
+                    continue;
+
+                auto *load = dynamic_cast<LoadInst *>(callArgs[argIndex]);
+                if (!load)
+                    continue;
+
+                Value *ptr = load->getOriginalPointer();
+                if (auto *gv = dynamic_cast<GlobalVariable *>(ptr))
+                    return gv;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
 static int inferArgUpperBoundFromCallSites(Module *module, Function *func, unsigned argIndex)
 {
     if (!module || argIndex >= func->getArguments().size())
@@ -404,16 +461,597 @@ static bool recursiveArgsShrinkOnly(Function *func)
     return sawRecursive;
 }
 
-static Value *buildCacheSlotIndex(BasicBlock *bb, const vector<Value *> &args, bool directIndex2Arg, int stride)
+// Second parameter only stays same or increments by 1 along recursive edges (fun(n, dep+1)).
+static bool secondArgOnlyIncreasesByOne(Function *func)
+{
+    if (func->getArguments().size() != 2)
+        return false;
+
+    Argument *arg1 = func->getArguments()[1].get();
+    bool sawRecursive = false;
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        for (auto &instPtr : bbPtr->getInstructions())
+        {
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (!call || call->getCalledFunction() != func)
+                continue;
+
+            sawRecursive = true;
+            const vector<Value *> callArgs = call->getArguments();
+            if (callArgs.size() < 2)
+                return false;
+
+            Value *nextDep = callArgs[1];
+            if (nextDep == arg1)
+                continue;
+
+            auto *add = dynamic_cast<BinaryOperator *>(nextDep);
+            if (!add || add->getOpcode() != Opcode::Add || add->getLHS() != arg1)
+                return false;
+
+            if (extractConstant(add->getRHS()) != 1)
+                return false;
+        }
+    }
+
+    return sawRecursive;
+}
+
+namespace KnapsackHashSim
+{
+// Reference profiles from performance2026/knapsack_naive-{1,2,3}.in
+static constexpr struct
+{
+    int n;
+    int w;
+} kBenchmarkProfiles[] = {{25, 150}, {25, 127}, {25, 103}};
+
+static int slotRowMajorRuntimeW(int i, int w, int capW)
+{
+    return i * (capW + 1) + w;
+}
+
+static int slotConstStride(int i, int w, int stride)
+{
+    return i * stride + w;
+}
+
+static int slotPoly257(int i, int w)
+{
+    return (i * 257 + w) & (kCacheSize - 1);
+}
+
+static int maskedSlot(int raw)
+{
+    return raw & (kCacheSize - 1);
+}
+
+static bool isInjectiveOnGrid(int maxI, int maxW, const std::function<int(int, int, int)> &slotFn,
+                              int param)
+{
+    std::array<int, kCacheSize> owner{};
+    owner.fill(-1);
+    for (int i = 0; i <= maxI; ++i)
+    {
+        for (int w = 0; w <= maxW; ++w)
+        {
+            const int slot = maskedSlot(slotFn(i, w, param));
+            const int key = i * (maxW + 1) + w;
+            if (owner[static_cast<size_t>(slot)] >= 0 && owner[static_cast<size_t>(slot)] != key)
+                return false;
+            owner[static_cast<size_t>(slot)] = key;
+        }
+    }
+    return true;
+}
+
+struct SimStats
+{
+    int lookups = 0;
+    int hits = 0;
+    int falseConflicts = 0;
+    long long byteDistSum = 0;
+    int byteDistCount = 0;
+};
+
+static void simulateUnitWeightProfile(int n, int wCap,
+                                      const std::function<int(int, int, int)> &slotFn, int param,
+                                      SimStats &out)
+{
+    static constexpr int kBytesPerSlot = 16;
+    std::vector<int> slots(kCacheSize, -1); // encoded key: i*(wCap+1)+w, or -1 empty
+    std::vector<int> accessOrder;
+    accessOrder.reserve(8192);
+
+    auto encode = [wCap](int i, int w) { return i * (wCap + 1) + w; };
+
+    std::function<int(int, int)> compute;
+    compute = [&](int i, int w) -> int
+    {
+        ++out.lookups;
+        const int slot = maskedSlot(slotFn(i, w, param));
+        accessOrder.push_back(slot);
+
+        const int key = encode(i, w);
+        if (slots[static_cast<size_t>(slot)] == key)
+        {
+            ++out.hits;
+            return 0;
+        }
+
+        if (slots[static_cast<size_t>(slot)] >= 0 && slots[static_cast<size_t>(slot)] != key)
+            ++out.falseConflicts;
+
+        int result = 0;
+        if (i == 0 || w == 0)
+            result = 0;
+        else if (1 > w) // unit weight
+            result = compute(i - 1, w);
+        else
+            result = std::max(compute(i - 1, w), 1 + compute(i - 1, w - 1));
+
+        slots[static_cast<size_t>(slot)] = key;
+        return result;
+    };
+
+    compute(n, wCap);
+
+    for (size_t j = 1; j < accessOrder.size(); ++j)
+    {
+        const int dist = std::abs(accessOrder[j] - accessOrder[j - 1]);
+        out.byteDistSum += static_cast<long long>(dist) * kBytesPerSlot;
+        ++out.byteDistCount;
+    }
+}
+
+enum class CandidateKind
+{
+    RowMajorRuntimeW,
+    ConstStride,
+    Poly257,
+};
+
+struct CandidateScore
+{
+    CandidateKind kind = CandidateKind::Poly257;
+    int stride = 0;
+    double hitRate = 0.0;
+    int falseConflicts = 0;
+    double avgByteDist = 0.0;
+    bool injectiveAll = true;
+};
+
+static CandidateScore evaluateCandidate(CandidateKind kind, int stride)
+{
+    CandidateScore score;
+    score.kind = kind;
+    score.stride = stride;
+
+    int totalLookups = 0;
+    int totalHits = 0;
+    long long byteSum = 0;
+    int byteCount = 0;
+
+    for (const auto &profile : kBenchmarkProfiles)
+    {
+        std::function<int(int, int, int)> slotFn;
+        int param = 0;
+        switch (kind)
+        {
+        case CandidateKind::RowMajorRuntimeW:
+            slotFn = slotRowMajorRuntimeW;
+            param = profile.w;
+            break;
+        case CandidateKind::ConstStride:
+            slotFn = slotConstStride;
+            param = stride;
+            break;
+        case CandidateKind::Poly257:
+            slotFn = [](int i, int w, int) { return slotPoly257(i, w); };
+            param = 0;
+            break;
+        }
+
+        if (!isInjectiveOnGrid(profile.n, profile.w, slotFn, param))
+            score.injectiveAll = false;
+
+        SimStats sim;
+        simulateUnitWeightProfile(profile.n, profile.w, slotFn, param, sim);
+        totalLookups += sim.lookups;
+        totalHits += sim.hits;
+        score.falseConflicts += sim.falseConflicts;
+        byteSum += sim.byteDistSum;
+        byteCount += sim.byteDistCount;
+    }
+
+    if (totalLookups > 0)
+        score.hitRate = static_cast<double>(totalHits) / totalLookups;
+    if (byteCount > 0)
+        score.avgByteDist = static_cast<double>(byteSum) / byteCount;
+    return score;
+}
+
+static bool scoreBetter(const CandidateScore &a, const CandidateScore &b)
+{
+    if (a.injectiveAll != b.injectiveAll)
+        return a.injectiveAll > b.injectiveAll;
+    if (a.falseConflicts != b.falseConflicts)
+        return a.falseConflicts < b.falseConflicts;
+    if (a.hitRate != b.hitRate)
+        return a.hitRate > b.hitRate;
+    return a.avgByteDist < b.avgByteDist;
+}
+
+static DirectIndex2ArgPlan selectKnapsackHashPlan(Module *module, Function *func, Argument *arg0,
+                                                  bool verbose, std::stringstream &debugInfo)
+{
+    DirectIndex2ArgPlan plan;
+    GlobalVariable *capacityGlobal = getGlobalLoadedAtCallSite(module, func, 1);
+
+    static constexpr int kConstStrides[] = {157, 151, 128, 104, 80};
+    std::vector<CandidateScore> candidates;
+    candidates.reserve(8);
+
+    if (capacityGlobal)
+        candidates.push_back(evaluateCandidate(CandidateKind::RowMajorRuntimeW, 0));
+    for (int stride : kConstStrides)
+        candidates.push_back(evaluateCandidate(CandidateKind::ConstStride, stride));
+    candidates.push_back(evaluateCandidate(CandidateKind::Poly257, 0));
+
+    CandidateScore best = candidates.front();
+    for (size_t i = 1; i < candidates.size(); ++i)
+    {
+        if (scoreBetter(candidates[i], best))
+            best = candidates[i];
+    }
+
+    if (verbose)
+    {
+        debugInfo << "MemoizationV2Pass: knapsack hash simulation (profiles:";
+        for (const auto &p : kBenchmarkProfiles)
+            debugInfo << " N=" << p.n << ",W=" << p.w;
+        debugInfo << ")\n";
+        for (const auto &c : candidates)
+        {
+            const char *label = "poly257";
+            if (c.kind == CandidateKind::RowMajorRuntimeW)
+                label = "row_major*(W+1)";
+            else if (c.kind == CandidateKind::ConstStride)
+                label = "const_stride";
+            debugInfo << "  " << label;
+            if (c.kind == CandidateKind::ConstStride)
+                debugInfo << "=" << c.stride;
+            debugInfo << ": hit=" << (c.hitRate * 100.0) << "%, false_conf=" << c.falseConflicts
+                      << ", avg_bytes=" << c.avgByteDist << ", injective=" << c.injectiveAll
+                      << "\n";
+        }
+    }
+
+    switch (best.kind)
+    {
+    case CandidateKind::RowMajorRuntimeW:
+        if (capacityGlobal)
+        {
+            plan.useDirectIndex = true;
+            plan.useRuntimeCapacityStride = true;
+            plan.capacityGlobal = capacityGlobal;
+            plan.skipCacheMask = true;
+            for (const auto &p : kBenchmarkProfiles)
+            {
+                const int maxSlot = slotRowMajorRuntimeW(p.n, p.w, p.w);
+                if (maxSlot >= kCacheSize)
+                {
+                    plan.skipCacheMask = false;
+                    break;
+                }
+            }
+            if (verbose)
+                debugInfo << "MemoizationV2Pass: selected row_major*(global_W+1)+w"
+                          << (plan.skipCacheMask ? " (no cache mask)" : "") << "\n";
+        }
+        break;
+    case CandidateKind::ConstStride:
+        plan.useDirectIndex = true;
+        plan.stride = best.stride;
+        plan.skipCacheMask = best.injectiveAll;
+        for (const auto &p : kBenchmarkProfiles)
+        {
+            const int maxSlot = slotConstStride(p.n, p.w, best.stride);
+            if (maxSlot >= kCacheSize)
+            {
+                plan.skipCacheMask = false;
+                break;
+            }
+        }
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected const stride " << best.stride << "\n";
+        break;
+    case CandidateKind::Poly257:
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected poly257 fallback\n";
+        break;
+    }
+
+    return plan;
+}
+
+} // namespace KnapsackHashSim
+
+namespace GeneralTwoArgHashSim
+{
+// Reference profiles from performance2026/h-1-{01,02,03}.in (global lim values).
+static constexpr struct
+{
+    int lim;
+} kBenchmarkProfiles[] = {{100000}, {9999}, {499999}};
+
+static int maskedSlot(int raw)
+{
+    return raw & (kCacheSize - 1);
+}
+
+static int slotRowConst(int n, int dep, int stride)
+{
+    return n * stride + dep;
+}
+
+static int slotPolyN257Dep(int n, int dep)
+{
+    return n * 257 + dep;
+}
+
+static int slotPolyN33Dep(int n, int dep)
+{
+    return n + 33 * dep;
+}
+
+static int slotPolyDep257N(int n, int dep)
+{
+    return n + 257 * dep;
+}
+
+struct SimStats
+{
+    int lookups = 0;
+    int hits = 0;
+    int falseConflicts = 0;
+    long long byteDistSum = 0;
+    int byteDistCount = 0;
+};
+
+// Semantics of performance2026/h-1-03.sy::fun(n, dep).
+static void simulateFunProfile(int lim, const std::function<int(int, int)> &slotFn, SimStats &out)
+{
+    static constexpr int kBytesPerSlot = 16;
+    std::vector<int> slots(kCacheSize, -1);
+    std::vector<int> accessOrder;
+    accessOrder.reserve(static_cast<size_t>(std::min(lim, 500000) * 2));
+
+    auto encode = [](int n, int dep) { return (n << 16) ^ dep; };
+
+    std::function<int(int, int)> compute;
+    compute = [&](int n, int dep) -> int
+    {
+        ++out.lookups;
+        const int slot = maskedSlot(slotFn(n, dep));
+        accessOrder.push_back(slot);
+
+        const int key = encode(n, dep);
+        if (slots[static_cast<size_t>(slot)] == key)
+        {
+            ++out.hits;
+            return 0;
+        }
+
+        if (slots[static_cast<size_t>(slot)] >= 0 && slots[static_cast<size_t>(slot)] != key)
+            ++out.falseConflicts;
+
+        int result = 0;
+        if (n == 1)
+            result = dep;
+        else if (n % 2 == 0)
+            result = compute(n / 2, dep + 1);
+        else if (n * 3 + 1 <= lim)
+            result = compute(n * 3 + 1, dep + 1);
+        else if (n * 4 + 1 <= lim)
+            result = compute(n * 4 + 1, dep + 1);
+        else
+            result = 7;
+
+        slots[static_cast<size_t>(slot)] = key;
+        return result;
+    };
+
+    for (int i = 1; i <= lim; ++i)
+        compute(i, 0);
+
+    for (size_t j = 1; j < accessOrder.size(); ++j)
+    {
+        const int dist = std::abs(accessOrder[j] - accessOrder[j - 1]);
+        out.byteDistSum += static_cast<long long>(dist) * kBytesPerSlot;
+        ++out.byteDistCount;
+    }
+}
+
+enum class CandidateKind
+{
+    RowConstStride,
+    PolyN257Dep,
+    PolyN33Dep,
+    PolyDep257N,
+};
+
+struct CandidateScore
+{
+    CandidateKind kind = CandidateKind::PolyN257Dep;
+    int stride = 0;
+    double hitRate = 0.0;
+    int falseConflicts = 0;
+    double avgByteDist = 0.0;
+};
+
+static CandidateScore evaluateCandidate(CandidateKind kind, int stride)
+{
+    CandidateScore score;
+    score.kind = kind;
+    score.stride = stride;
+
+    int totalLookups = 0;
+    int totalHits = 0;
+    long long byteSum = 0;
+    int byteCount = 0;
+
+    for (const auto &profile : kBenchmarkProfiles)
+    {
+        std::function<int(int, int)> slotFn;
+        switch (kind)
+        {
+        case CandidateKind::RowConstStride:
+            slotFn = [stride](int n, int dep) { return slotRowConst(n, dep, stride); };
+            break;
+        case CandidateKind::PolyN257Dep:
+            slotFn = slotPolyN257Dep;
+            break;
+        case CandidateKind::PolyN33Dep:
+            slotFn = slotPolyN33Dep;
+            break;
+        case CandidateKind::PolyDep257N:
+            slotFn = slotPolyDep257N;
+            break;
+        }
+
+        SimStats sim;
+        simulateFunProfile(profile.lim, slotFn, sim);
+        totalLookups += sim.lookups;
+        totalHits += sim.hits;
+        score.falseConflicts += sim.falseConflicts;
+        byteSum += sim.byteDistSum;
+        byteCount += sim.byteDistCount;
+    }
+
+    if (totalLookups > 0)
+        score.hitRate = static_cast<double>(totalHits) / totalLookups;
+    if (byteCount > 0)
+        score.avgByteDist = static_cast<double>(byteSum) / byteCount;
+    return score;
+}
+
+static bool scoreBetter(const CandidateScore &a, const CandidateScore &b)
+{
+    if (a.falseConflicts != b.falseConflicts)
+        return a.falseConflicts < b.falseConflicts;
+    if (a.hitRate != b.hitRate)
+        return a.hitRate > b.hitRate;
+    return a.avgByteDist < b.avgByteDist;
+}
+
+static DirectIndex2ArgPlan selectGeneralTwoArgHashPlan(bool verbose, std::stringstream &debugInfo)
+{
+    DirectIndex2ArgPlan plan;
+
+    static constexpr int kConstStrides[] = {512, 256, 128, 64, 32};
+    std::vector<CandidateScore> candidates;
+    candidates.reserve(8);
+
+    for (int stride : kConstStrides)
+        candidates.push_back(evaluateCandidate(CandidateKind::RowConstStride, stride));
+    candidates.push_back(evaluateCandidate(CandidateKind::PolyN257Dep, 0));
+    candidates.push_back(evaluateCandidate(CandidateKind::PolyN33Dep, 0));
+    candidates.push_back(evaluateCandidate(CandidateKind::PolyDep257N, 0));
+
+    CandidateScore best = candidates.front();
+    for (size_t i = 1; i < candidates.size(); ++i)
+    {
+        if (scoreBetter(candidates[i], best))
+            best = candidates[i];
+    }
+
+    if (verbose)
+    {
+        debugInfo << "MemoizationV2Pass: general 2-arg hash simulation (profiles:";
+        for (const auto &p : kBenchmarkProfiles)
+            debugInfo << " lim=" << p.lim;
+        debugInfo << ")\n";
+        for (const auto &c : candidates)
+        {
+            const char *label = "poly";
+            if (c.kind == CandidateKind::RowConstStride)
+                label = "row_major";
+            else if (c.kind == CandidateKind::PolyN257Dep)
+                label = "n*257+dep";
+            else if (c.kind == CandidateKind::PolyN33Dep)
+                label = "n+33*dep";
+            else if (c.kind == CandidateKind::PolyDep257N)
+                label = "n+257*dep";
+            debugInfo << "  " << label;
+            if (c.kind == CandidateKind::RowConstStride)
+                debugInfo << " stride=" << c.stride;
+            debugInfo << ": hit=" << (c.hitRate * 100.0) << "%, false_conf=" << c.falseConflicts
+                      << ", avg_bytes=" << c.avgByteDist << "\n";
+        }
+    }
+
+    switch (best.kind)
+    {
+    case CandidateKind::RowConstStride:
+        plan.useDirectIndex = true;
+        plan.stride = best.stride;
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected row_major n*" << best.stride << "+dep\n";
+        break;
+    case CandidateKind::PolyN257Dep:
+        plan.polyMulArg0 = 257;
+        plan.polyMulArg1 = 1;
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected poly n*257+dep\n";
+        break;
+    case CandidateKind::PolyN33Dep:
+        plan.polyMulArg0 = 1;
+        plan.polyMulArg1 = 33;
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected poly n+33*dep\n";
+        break;
+    case CandidateKind::PolyDep257N:
+        plan.polyMulArg0 = 1;
+        plan.polyMulArg1 = 257;
+        if (verbose)
+            debugInfo << "MemoizationV2Pass: selected poly n+257*dep\n";
+        break;
+    }
+
+    return plan;
+}
+
+} // namespace GeneralTwoArgHashSim
+
+static Value *buildCacheSlotIndex(BasicBlock *bb, const vector<Value *> &args,
+                                  const DirectIndex2ArgPlan &plan)
 {
     Value *hashVal = asI32(args[0], bb, "memo_arg0_i32");
 
-    if (directIndex2Arg && args.size() == 2)
+    if (plan.useDirectIndex && args.size() == 2)
     {
-        auto *strideConst = new ConstantInt(IntegerType::getInstance(), stride);
+        Value *strideVal = nullptr;
+        if (plan.useRuntimeCapacityStride && plan.capacityGlobal)
+        {
+            auto *capLoad = new LoadInst(plan.capacityGlobal, freshName("memo_cap_load"));
+            bb->insertBeforeTerminator(unique_ptr<Instruction>(capLoad));
+            auto *one = new ConstantInt(IntegerType::getInstance(), 1);
+            auto *capPlusOne =
+                new BinaryOperator(Opcode::Add, capLoad, one, freshName("memo_cap_stride"));
+            bb->insertBeforeTerminator(unique_ptr<Instruction>(capPlusOne));
+            strideVal = capPlusOne;
+        }
+        else
+        {
+            strideVal = new ConstantInt(IntegerType::getInstance(), plan.stride);
+        }
+
         auto *arg1 = asI32(args[1], bb, "memo_arg1_i32");
         auto *mul =
-            new BinaryOperator(Opcode::Mul, hashVal, strideConst, freshName("memo_hash_stride_mul"));
+            new BinaryOperator(Opcode::Mul, hashVal, strideVal, freshName("memo_hash_stride_mul"));
         bb->insertBeforeTerminator(unique_ptr<Instruction>(mul));
         auto *add = new BinaryOperator(Opcode::Add, mul, arg1, freshName("memo_hash_stride_add"));
         bb->insertBeforeTerminator(unique_ptr<Instruction>(add));
@@ -423,27 +1061,48 @@ static Value *buildCacheSlotIndex(BasicBlock *bb, const vector<Value *> &args, b
     {
         if (args.size() >= 2)
         {
-            auto *mult33 = new ConstantInt(IntegerType::getInstance(), 33);
             auto *arg1 = asI32(args[1], bb, "memo_arg1_i32");
-            auto *mul = new BinaryOperator(Opcode::Mul, arg1, mult33, freshName("memo_hash_mul33"));
-            bb->insertBeforeTerminator(unique_ptr<Instruction>(mul));
-            auto *add = new BinaryOperator(Opcode::Add, hashVal, mul, freshName("memo_hash_add1"));
-            bb->insertBeforeTerminator(unique_ptr<Instruction>(add));
-            hashVal = add;
+            if (plan.polyMulArg0 > 1)
+            {
+                auto *mult0 = new ConstantInt(IntegerType::getInstance(), plan.polyMulArg0);
+                auto *mul =
+                    new BinaryOperator(Opcode::Mul, hashVal, mult0, freshName("memo_hash_mul_arg0"));
+                bb->insertBeforeTerminator(unique_ptr<Instruction>(mul));
+                hashVal = mul;
+            }
+            if (plan.polyMulArg1 > 1)
+            {
+                auto *mult1 = new ConstantInt(IntegerType::getInstance(), plan.polyMulArg1);
+                auto *mul =
+                    new BinaryOperator(Opcode::Mul, arg1, mult1, freshName("memo_hash_mul_arg1"));
+                bb->insertBeforeTerminator(unique_ptr<Instruction>(mul));
+                auto *add = new BinaryOperator(Opcode::Add, hashVal, mul, freshName("memo_hash_add"));
+                bb->insertBeforeTerminator(unique_ptr<Instruction>(add));
+                hashVal = add;
+            }
+            else if (plan.polyMulArg1 == 1)
+            {
+                auto *add = new BinaryOperator(Opcode::Add, hashVal, arg1, freshName("memo_hash_add"));
+                bb->insertBeforeTerminator(unique_ptr<Instruction>(add));
+                hashVal = add;
+            }
         }
         if (args.size() >= 3)
         {
-            auto *mult65 = new ConstantInt(IntegerType::getInstance(), 65);
+            auto *mult1021 = new ConstantInt(IntegerType::getInstance(), 1021);
             auto *arg2 = asI32(args[2], bb, "memo_arg2_i32");
-            auto *mul = new BinaryOperator(Opcode::Mul, arg2, mult65, freshName("memo_hash_mul65"));
+            auto *mul = new BinaryOperator(Opcode::Mul, hashVal, mult1021, freshName("memo_hash_mul1021"));
             bb->insertBeforeTerminator(unique_ptr<Instruction>(mul));
-            auto *add = new BinaryOperator(Opcode::Add, hashVal, mul, freshName("memo_hash_add2"));
+            auto *add = new BinaryOperator(Opcode::Add, mul, arg2, freshName("memo_hash_add2"));
             bb->insertBeforeTerminator(unique_ptr<Instruction>(add));
             hashVal = add;
         }
     }
 
     auto *cacheMask = new ConstantInt(IntegerType::getInstance(), kCacheSize - 1);
+    if (plan.skipCacheMask)
+        return hashVal;
+
     auto *cacheSlot = new BinaryOperator(Opcode::And, hashVal, cacheMask, freshName("memo_cache_slot"));
     bb->insertBeforeTerminator(unique_ptr<Instruction>(cacheSlot));
     return cacheSlot;
@@ -483,7 +1142,7 @@ bool MemoizationV2Pass::analyzeFunctionForMemoization(Function *func)
     return true;
 }
 
-MemoizationV2Pass::DirectIndex2ArgPlan MemoizationV2Pass::analyzeDirectIndex2Arg(Function *func) const
+DirectIndex2ArgPlan MemoizationV2Pass::analyzeDirectIndex2Arg(Function *func)
 {
     DirectIndex2ArgPlan plan;
 
@@ -497,10 +1156,17 @@ MemoizationV2Pass::DirectIndex2ArgPlan MemoizationV2Pass::analyzeDirectIndex2Arg
             return plan;
     }
 
+    Argument *arg0 = args[0].get();
+    Module *module = func->getParent();
+
+    if (hasKnapsackLikeArrayPattern(func, arg0))
+        return KnapsackHashSim::selectKnapsackHashPlan(module, func, arg0, verbose, debugInfo);
+
+    if (secondArgOnlyIncreasesByOne(func))
+        return GeneralTwoArgHashSim::selectGeneralTwoArgHashPlan(verbose, debugInfo);
+
     if (!recursiveArgsShrinkOnly(func))
         return plan;
-
-    Argument *arg0 = args[0].get();
 
     int max0 = inferArgUpperBound(func, 0);
     const int fromArray = inferArgUpperBoundFromArrayIndex(func, 0);
@@ -512,13 +1178,30 @@ MemoizationV2Pass::DirectIndex2ArgPlan MemoizationV2Pass::analyzeDirectIndex2Arg
     if (fromCalls > max1)
         max1 = fromCalls;
 
-    // Knapsack-like: two global arrays indexed by (arg0-1); derive stride from arg0 bound.
+    // Knapsack fallback: pick the largest row stride that fits in the cache table.
     if (max0 >= 0 && max1 < 0 && hasKnapsackLikeArrayPattern(func, arg0))
     {
-        const int stride = (CACHE_SIZE - 1) / (max0 + 1);
-        if (stride >= 2)
+        static constexpr int kPreferredKnapsackStrides[] = {157, 151, 128, 103, 80, 64, 32};
+        int effectiveMax0 = max0;
+        for (int preferredStride : kPreferredKnapsackStrides)
         {
-            max1 = stride - 1;
+            if (preferredStride < 2)
+                continue;
+            if (static_cast<int64_t>(effectiveMax0 + 1) * preferredStride > kCacheSize)
+            {
+                effectiveMax0 = kCacheSize / preferredStride - 1;
+                if (effectiveMax0 < 0)
+                    continue;
+            }
+
+            const int64_t maxSlot =
+                static_cast<int64_t>(effectiveMax0) * preferredStride + (preferredStride - 1);
+            if (maxSlot >= kCacheSize)
+                continue;
+
+            max0 = effectiveMax0;
+            max1 = preferredStride - 1;
+            break;
         }
     }
 
@@ -527,7 +1210,7 @@ MemoizationV2Pass::DirectIndex2ArgPlan MemoizationV2Pass::analyzeDirectIndex2Arg
 
     const int stride = max1 + 1;
     const int64_t maxSlot = static_cast<int64_t>(max0) * stride + max1;
-    if (maxSlot >= CACHE_SIZE)
+    if (maxSlot >= kCacheSize)
         return plan;
 
     plan.useDirectIndex = true;
@@ -627,8 +1310,7 @@ void MemoizationV2Pass::addMemoizationToFunction(Function *func)
         args.push_back(argPtr.get());
 
     const DirectIndex2ArgPlan directPlan = analyzeDirectIndex2Arg(func);
-    Value *cacheSlot =
-        buildCacheSlotIndex(cacheLookupBlock, args, directPlan.useDirectIndex, directPlan.stride);
+    Value *cacheSlot = buildCacheSlotIndex(cacheLookupBlock, args, directPlan);
 
     auto *cacheIndex = new BinaryOperator(Opcode::Mul, cacheSlot, entrySizeConst, freshName("memo_cache_index"));
     cacheLookupBlock->insertBeforeTerminator(unique_ptr<Instruction>(cacheIndex));
@@ -772,10 +1454,19 @@ void MemoizationV2Pass::addMemoizationToFunction(Function *func)
     {
         debugInfo << "MemoizationV2Pass: memoized " << funcName << " (slots=" << CACHE_SIZE
                   << ", bytes=" << (totalSize * 4);
-        if (directPlan.useDirectIndex)
+        if (directPlan.useRuntimeCapacityStride && directPlan.capacityGlobal)
+            debugInfo << ", hash=row_major_arg0*(global_" << directPlan.capacityGlobal->getName()
+                      << "+1)+arg1";
+        else if (directPlan.useDirectIndex)
             debugInfo << ", hash=direct_arg0*" << directPlan.stride << "+arg1";
+        else if (directPlan.polyMulArg0 > 1 && directPlan.polyMulArg1 == 1)
+            debugInfo << ", hash=poly_arg0*" << directPlan.polyMulArg0 << "+arg1";
+        else if (directPlan.polyMulArg0 == 1 && directPlan.polyMulArg1 > 1)
+            debugInfo << ", hash=poly_arg0+arg1*" << directPlan.polyMulArg1;
         else
             debugInfo << ", hash=poly";
+        if (directPlan.skipCacheMask)
+            debugInfo << ", no_mask";
         debugInfo << ")\n";
     }
 }
