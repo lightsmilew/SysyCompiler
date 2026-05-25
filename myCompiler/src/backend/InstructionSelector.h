@@ -37,7 +37,7 @@ private:
     // void visitUnaryOp(UnaryOperator *inst);
     void visitLoadInst(LoadInst *inst);
     void visitStoreInst(StoreInst *inst);
-    void visitStorePairInst(StorePairInst *inst);
+    void visitPackI64Inst(PackI64Inst *inst);
     shared_ptr<RISCVRegister> packI64FromHalves(Value *hi, Value *lo, bool isPhysical = false);
     void visitCallInst(CallInst *inst);
     void visitReturnInst(ReturnInst *inst);

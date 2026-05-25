@@ -483,31 +483,27 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                         continue;
                     }
                 }
-                // storepair hi32/lo32 均为常量时，合并为 stored i64 常量
-                if (inst && inst->getOpcode() == Opcode::StorePair)
+                // packi64 hi32/lo32 均为常量时，折叠为 i64 常量
+                if (inst && inst->getOpcode() == Opcode::PackI64)
                 {
-                    auto *storePair = dynamic_cast<StorePairInst *>(inst);
-                    auto *hiConst = storePair ? dynamic_cast<ConstantInt *>(storePair->getHigh()) : nullptr;
-                    auto *loConst = storePair ? dynamic_cast<ConstantInt *>(storePair->getLow()) : nullptr;
+                    auto *pack = dynamic_cast<PackI64Inst *>(inst);
+                    auto *hiConst = pack ? dynamic_cast<ConstantInt *>(pack->getHigh()) : nullptr;
+                    auto *loConst = pack ? dynamic_cast<ConstantInt *>(pack->getLow()) : nullptr;
                     if (hiConst && loConst)
                     {
                         const int64_t combined =
                             (static_cast<uint64_t>(static_cast<uint32_t>(hiConst->Value)) << 32) |
                             static_cast<uint32_t>(loConst->Value);
                         auto *combineConstant = new ConstantLong(LongType::getInstance(), combined);
-                        auto *stored = new StoreInst(Opcode::Stored, combineConstant, storePair->getPointer());
-                        const size_t idx = static_cast<size_t>(it - insts.begin());
-                        inst->removeThisFromOperands();
-                        needToDelete.push_back(it->release());
-                        insts.erase(it);
-                        insts.insert(insts.begin() + static_cast<long>(idx),
-                                     std::unique_ptr<Instruction>(stored));
+                        pack->replaceAllUsesWith(combineConstant);
                         if (verbose)
                         {
-                            debugInfo << "Constant folding: " << storePair->toString() << " -> "
-                                      << stored->toString() << "\n";
+                            debugInfo << "Constant folding: " << pack->toString() << " -> "
+                                      << combineConstant->toString() << "\n";
                         }
-                        it = insts.begin() + static_cast<long>(idx);
+                        inst->removeThisFromOperands();
+                        needToDelete.push_back(it->release());
+                        it = insts.erase(it);
                         localChanged = true;
                         changed = true;
                         continue;

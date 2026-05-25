@@ -3,6 +3,85 @@
 using namespace std;
 using namespace optimization;
 
+namespace
+{
+    static int popcount32(uint32_t v) { return v ? __builtin_popcount(v) : 0; }
+
+    static int ctz32(uint32_t v) { return v ? __builtin_ctz(v) : 0; }
+
+    // C = 2^tz * (2^b0 + 2^b1)，即奇部仅含两个 1 位时可拆成两次移位再相加
+    static bool tryMulAsTwoPowerSum(int32_t c, int &tz, int &sh0, int &sh1)
+    {
+        if (c == 0)
+        {
+            return false;
+        }
+        uint32_t absC = static_cast<uint32_t>(c < 0 ? -static_cast<int64_t>(c) : c);
+        if (absC <= 1 || (absC & (absC - 1)) == 0)
+        {
+            return false;
+        }
+        tz = ctz32(absC);
+        uint32_t odd = absC >> tz;
+        if (popcount32(odd) != 2)
+        {
+            return false;
+        }
+        int b0 = ctz32(odd);
+        uint32_t rest = odd & (odd - 1);
+        int b1 = ctz32(rest);
+        sh0 = tz + b0;
+        sh1 = tz + b1;
+        return true;
+    }
+
+    static bool replaceMulWithShiftAdd(BasicBlock *bb, vector<unique_ptr<Instruction>> &insts, int idx,
+                                       Value *lhs, int32_t c, const string &instName, bool verbose,
+                                       stringstream &debugInfo, vector<Value *> &needToDelete,
+                                       bool &changed)
+    {
+        int tz = 0, sh0 = 0, sh1 = 0;
+        (void)tz;
+        if (!tryMulAsTwoPowerSum(c, tz, sh0, sh1))
+        {
+            return false;
+        }
+
+        auto *ty = IntegerType::getInstance();
+        auto *shl0 = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(ty, sh0), instName + "_sr_sh0");
+        auto *shl1 = new BinaryOperator(Opcode::Sll, lhs, new ConstantInt(ty, sh1), instName + "_sr_sh1");
+        auto *sum = new BinaryOperator(Opcode::Add, shl0, shl1, instName + "_sr_sum");
+        Instruction *result = sum;
+        unique_ptr<Instruction> negHolder;
+        if (c < 0)
+        {
+            negHolder = make_unique<BinaryOperator>(Opcode::Sub, new ConstantInt(ty, 0), sum, instName + "_sr_neg");
+            result = negHolder.get();
+        }
+
+        Instruction *inst = insts[idx].get();
+        inst->removeThisFromOperands();
+        inst->replaceAllUsesWith(result);
+        needToDelete.push_back(insts[idx].release());
+        insts.erase(insts.begin() + idx);
+        insts.insert(insts.begin() + idx, unique_ptr<Instruction>(shl0));
+        insts.insert(insts.begin() + idx + 1, unique_ptr<Instruction>(shl1));
+        insts.insert(insts.begin() + idx + 2, unique_ptr<Instruction>(sum));
+        if (negHolder)
+        {
+            insts.insert(insts.begin() + idx + 3, std::move(negHolder));
+        }
+
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "SRFixedPass: Replaced Mul " << c << " with shift-add (1<<"
+                      << sh0 << " + 1<<" << sh1 << ") in " << bb->getName() << "\n";
+        }
+        return true;
+    }
+}
+
 std::pair<int64_t, int> SRFixedPass::compute_magic(int32_t d)
 {
     const uint64_t two32 = 1ULL << 32;
@@ -64,7 +143,16 @@ bool SRFixedPass::runOnFunction(Function *func)
             {
                 Value *lhs = inst->getOperands()[0];
                 Value *rhs = inst->getOperands()[1];
-                if (auto *constInt = dynamic_cast<ConstantInt *>(rhs))
+                ConstantInt *constInt = dynamic_cast<ConstantInt *>(rhs);
+                if (!constInt)
+                {
+                    constInt = dynamic_cast<ConstantInt *>(lhs);
+                    if (constInt)
+                    {
+                        lhs = rhs;
+                    }
+                }
+                if (constInt)
                 {
                     if (constInt->Value == 0)
                     {
@@ -104,8 +192,13 @@ bool SRFixedPass::runOnFunction(Function *func)
                             debugInfo << "SRFixedPass: Replaced Mul with Sll for " << constInt->Value
                                       << " in " << bb->getName() << "\n";
                         }
+                        continue;
                     }
-                    // 不需要处理不是2的幂次方情况，因为会降低性能
+                    else if (replaceMulWithShiftAdd(bb.get(), insts, i, lhs, constInt->Value, instName, verbose,
+                                                    debugInfo, needToDelete, changed))
+                    {
+                        continue;
+                    }
                 }
             }
             else if (inst && inst->getOpcode() == Opcode::SDiv)

@@ -25,7 +25,7 @@ namespace
         {
             return true;
         }
-        return inst->mayHaveSideEffects() || op == Opcode::StorePair;
+        return inst->mayHaveSideEffects();
     }
 
     bool isSchedulable(Instruction *inst)
@@ -178,15 +178,14 @@ namespace
         for (int i = 0; i < n; ++i)
         {
             Opcode opi = body[i]->getOpcode();
-            if (opi != Opcode::Store && opi != Opcode::Stored && opi != Opcode::StorePair)
+            if (opi != Opcode::Store && opi != Opcode::Stored)
             {
                 continue;
             }
             for (int j = i + 1; j < n; ++j)
             {
                 Opcode opj = body[j]->getOpcode();
-                if (opj == Opcode::Load || opj == Opcode::Store || opj == Opcode::Stored ||
-                    opj == Opcode::StorePair)
+                if (opj == Opcode::Load || opj == Opcode::Store || opj == Opcode::Stored)
                 {
                     addEdge(i, j);
                 }
@@ -201,7 +200,7 @@ namespace
             for (int j = i + 1; j < n; ++j)
             {
                 Opcode opj = body[j]->getOpcode();
-                if (opj == Opcode::Store || opj == Opcode::Stored || opj == Opcode::StorePair)
+                if (opj == Opcode::Store || opj == Opcode::Stored)
                 {
                     addEdge(i, j);
                 }

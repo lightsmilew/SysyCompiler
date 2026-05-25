@@ -5,6 +5,12 @@ using namespace optimization;
 
 namespace
 {
+    static string freshName(const string &prefix)
+    {
+        static int id = 0;
+        return prefix + to_string(id++);
+    }
+
     static Value *stripCopy(Value *v)
     {
         while (auto *cpy = dynamic_cast<CopyInst *>(v))
@@ -312,7 +318,24 @@ bool InstructionCombinePass::runOnFunction(Function *func)
                 else
                 {
                     // hi = 高地址(val2)，lo = 低地址(val1)
-                    combined = new StorePairInst(addr1, val2, val1);
+                    auto *pack = new PackI64Inst(val2, val1, freshName("pack"));
+                    auto *stored = new StoreInst(Opcode::Stored, pack, addr1);
+                    inst1->removeThisFromOperands();
+                    inst2->removeThisFromOperands();
+                    if (verbose)
+                    {
+                        debugInfo << "Combined instructions: " << inst1->toString() << " and "
+                                  << inst2->toString() << " with " << pack->toString() << " and "
+                                  << stored->toString() << "\n";
+                    }
+                    needToDelete.push_back(insts[j].release());
+                    insts[j] = std::unique_ptr<Instruction>(pack);
+                    insts.insert(insts.begin() + static_cast<long>(j) + 1,
+                                 std::unique_ptr<Instruction>(stored));
+                    needToDelete.push_back(insts[i].release());
+                    insts.erase(insts.begin() + i);
+                    changed = true;
+                    break;
                 }
 
                 inst1->removeThisFromOperands();

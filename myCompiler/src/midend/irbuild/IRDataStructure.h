@@ -429,7 +429,7 @@ enum class Opcode
     Load,
     Store,
     Stored,
-    StorePair, // 64位合并写：ptr, hi32, lo32
+    PackI64, // 将 hi32、lo32 拼成 i64
     GetElementPtr,
 
     // 类型转换符
@@ -622,19 +622,17 @@ public:
     string toString() const override;
 };
 
-// ===== StorePairInst Implementation =====
-// 将连续两个 i32 store 合并为一次 64 位写：storepair ptr, hi32, lo32
-class StorePairInst : public Instruction
+// ===== PackI64Inst Implementation =====
+// 将两个 i32 拼成 i64：packi64 hi32, lo32 -> i64
+class PackI64Inst : public Instruction
 {
 public:
-    StorePairInst(Value *ptr, Value *hi32, Value *lo32)
-        : Instruction(VoidType::getInstance(), Opcode::StorePair,
-                      vector<Value *>{ptr, hi32, lo32}) {}
+    PackI64Inst(Value *hi32, Value *lo32, const string &name = "")
+        : Instruction(LongType::getInstance(), Opcode::PackI64,
+                      vector<Value *>{hi32, lo32}, name) {}
 
-    Value *getPointer() const { return getOperandByIndex(0); }
-    Value *getHigh() const { return getOperandByIndex(1); }
-    Value *getLow() const { return getOperandByIndex(2); }
-    Value *getOriginalPointer() const;
+    Value *getHigh() const { return getOperandByIndex(0); }
+    Value *getLow() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 

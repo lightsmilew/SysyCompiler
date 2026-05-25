@@ -380,8 +380,8 @@ string Instruction::getOpcodeName() const
         return "store";
     case Opcode::Stored:
         return "stored";
-    case Opcode::StorePair:
-        return "storepair";
+    case Opcode::PackI64:
+        return "packi64";
     case Opcode::GetElementPtr:
         return "getelementptr";
     case Opcode::SIToFP:
@@ -435,7 +435,6 @@ bool Instruction::mayHaveSideEffects() const
 {
     if (Op == Opcode::Store ||
         Op == Opcode::Stored ||
-        Op == Opcode::StorePair ||
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
@@ -485,6 +484,7 @@ bool Instruction::hasResult() const
     case Opcode::BitCast:
     case Opcode::Sext:
     case Opcode::Trunc:
+    case Opcode::PackI64:
     case Opcode::Copy:
     case Opcode::Select:
         return true;
@@ -596,8 +596,8 @@ Instruction *Instruction::clone() const
     case Opcode::Store:
     case Opcode::Stored:
         return new StoreInst(getOpcode(), getOperandByIndex(0), getOperandByIndex(1));
-    case Opcode::StorePair:
-        return new StorePairInst(getOperandByIndex(0), getOperandByIndex(1), getOperandByIndex(2));
+    case Opcode::PackI64:
+        return new PackI64Inst(getOperandByIndex(0), getOperandByIndex(1), getName());
     case Opcode::Call:
     {
         auto *call = static_cast<const CallInst *>(this);
@@ -929,33 +929,11 @@ std::string StoreInst::toString() const
     return ss.str();
 }
 
-Value *StorePairInst::getOriginalPointer() const
-{
-    Value *pointer = getPointer();
-    while (true)
-    {
-        if (auto gepInst = dynamic_cast<GetElementPtrInst *>(pointer))
-        {
-            pointer = gepInst->getOriginalPointerOperand();
-        }
-        else if (auto castInst = dynamic_cast<CastInst *>(pointer))
-        {
-            pointer = castInst->getOperand();
-        }
-        else
-        {
-            break;
-        }
-    }
-    return pointer;
-}
-
-std::string StorePairInst::toString() const
+std::string PackI64Inst::toString() const
 {
     std::stringstream ss;
-    ss << "storepair " << getPointer()->getType()->toString() << " " << getPointer()->toRef()
-       << ", " << getHigh()->getType()->toString() << " " << getHigh()->toRef()
-       << ", " << getLow()->getType()->toString() << " " << getLow()->toRef();
+    ss << "%" << getName() << " = packi64 " << getHigh()->getType()->toString() << " "
+       << getHigh()->toRef() << ", " << getLow()->toRef();
     return ss.str();
 }
 
@@ -1083,14 +1061,6 @@ bool CallInst::HasModifiedArray(Value *value) const
                     return true; // 找到修改该全局变量的store指令
                 }
             }
-            else if (auto storePair = dynamic_cast<StorePairInst *>(inst))
-            {
-                auto storeOriginalPointer = storePair->getOriginalPointer();
-                if (isSameAddr(storeOriginalPointer, value))
-                {
-                    return true;
-                }
-            }
             else if (auto callInst = dynamic_cast<CallInst *>(inst))
             {
                 // 如果是递归函数就直接跳过(已检查过)
@@ -1192,16 +1162,6 @@ bool CallInst::ifHasSideEffects() const
                     (storeOriginalPointer->isGlobal()))
                 {
                     return true; // 找到修改全局变量或函数参数的store指令
-                }
-            }
-            else if (auto storePair = dynamic_cast<StorePairInst *>(inst))
-            {
-                auto storeOriginalPointer = storePair->getOriginalPointer();
-                auto args = getArguments();
-                if (std::find(args.begin(), args.end(), storeOriginalPointer) != args.end() ||
-                    (storeOriginalPointer->isGlobal()))
-                {
-                    return true;
                 }
             }
             else if (auto callInst = dynamic_cast<CallInst *>(inst))

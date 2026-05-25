@@ -573,6 +573,135 @@ PeepOptiState FoldCompareBranchPass::optimize(shared_ptr<RISCVInstruction> instr
     return PeepOptiState::DELETE;
 }
 
+// ========== FoldXorZeroBranchPass ==========
+
+namespace
+{
+    bool isZeroPhysReg(const shared_ptr<RISCVOperand> &op)
+    {
+        return op && op->getType() == RISCVOperand::Type::REGISTER && op->getReg() &&
+               op->getReg()->isPhysical() &&
+               op->getReg()->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO;
+    }
+
+    bool branchUsesOnlyReg(const shared_ptr<RISCVInstruction> &branch,
+                           const shared_ptr<RISCVRegister> &reg, bool regOnLeft)
+    {
+        auto ops = branch->getOperands();
+        if (ops.size() != 3)
+        {
+            return false;
+        }
+        size_t regIdx = regOnLeft ? 0 : 1;
+        size_t otherIdx = regOnLeft ? 1 : 0;
+        return ops[regIdx] && ops[regIdx]->getType() == RISCVOperand::Type::REGISTER && ops[regIdx]->getReg() &&
+               *ops[regIdx]->getReg() == *reg && isZeroPhysReg(ops[otherIdx]);
+    }
+}
+
+PeepOptiState FoldXorZeroBranchPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb || instr->getOpcode() != RISCVOpcode::XORI)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto xoriOps = instr->getOperands();
+    if (xoriOps.size() != 3 || !xoriOps[0] || !xoriOps[1] || !xoriOps[2] ||
+        xoriOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        xoriOps[1]->getType() != RISCVOperand::Type::REGISTER ||
+        xoriOps[2]->getType() != RISCVOperand::Type::IMMEDIATE || xoriOps[2]->getImmediate() != 0)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto destReg = xoriOps[0]->getReg();
+    auto srcReg = xoriOps[1]->getReg();
+    if (!destReg || !srcReg)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    for (auto scanIt = next(it); scanIt != instrs.end(); ++scanIt)
+    {
+        auto candidate = *scanIt;
+        auto op = candidate->getOpcode();
+
+        if (op != RISCVOpcode::BEQ && op != RISCVOpcode::BNE && op != RISCVOpcode::BGEU &&
+            op != RISCVOpcode::BLTU)
+        {
+            if (containsRegister(candidate->getDefRegisters(), destReg) ||
+                containsRegister(candidate->getUseRegisters(), destReg))
+            {
+                return PeepOptiState::KEEP;
+            }
+            continue;
+        }
+
+        auto branchOps = candidate->getOperands();
+        if (branchOps.size() != 3 || !branchOps[2] || branchOps[2]->getType() != RISCVOperand::Type::LABEL)
+        {
+            continue;
+        }
+
+        RISCVOpcode newOp = op;
+        bool regOnLeft = true;
+        bool matched = false;
+
+        if (branchUsesOnlyReg(candidate, destReg, true))
+        {
+            matched = true;
+            regOnLeft = true;
+        }
+        else if (branchUsesOnlyReg(candidate, destReg, false))
+        {
+            matched = true;
+            regOnLeft = false;
+        }
+
+        if (!matched)
+        {
+            continue;
+        }
+
+        if (op == RISCVOpcode::BGEU && regOnLeft)
+        {
+            // bgeu zero, rd, L  <=>  beq rs, zero, L
+            newOp = RISCVOpcode::BEQ;
+            regOnLeft = true;
+        }
+        else if (op == RISCVOpcode::BLTU && regOnLeft)
+        {
+            // bltu zero, rd, L  <=>  bne rs, zero, L
+            newOp = RISCVOpcode::BNE;
+            regOnLeft = true;
+        }
+        else if (op == RISCVOpcode::BNE || op == RISCVOpcode::BEQ)
+        {
+            newOp = op;
+        }
+        else
+        {
+            continue;
+        }
+
+        auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        auto newBranch =
+            RISCVInstruction::createBType(newOp, srcReg, zeroReg, branchOps[2]->getLabel());
+        candidate->replaceInstruction(newBranch);
+        return PeepOptiState::DELETE;
+    }
+
+    return PeepOptiState::KEEP;
+}
+
 // ========== DeadCodeEliminationPass ==========
 
 PeepOptiState DeadCodeEliminationPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

@@ -184,6 +184,7 @@ bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *i
     // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||
+            inst->getOpcode() == Opcode::PackI64 ||
             inst->getOpcode() == Opcode::GetElementPtr ||
             inst->getOpcode() == Opcode::Load ||
             // inst->getOpcode() == Opcode::FPToSI || inst->getOpcode() == Opcode::SIToFP ||

@@ -132,10 +132,10 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitStoreInst(storeInst);
         }
         break;
-    case Opcode::StorePair:
-        if (auto storePair = dynamic_cast<StorePairInst *>(inst))
+    case Opcode::PackI64:
+        if (auto packInst = dynamic_cast<PackI64Inst *>(inst))
         {
-            visitStorePairInst(storePair);
+            visitPackI64Inst(packInst);
         }
         break;
     case Opcode::Call:
@@ -511,19 +511,23 @@ shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Valu
     return destReg;
 }
 
-void InstructionSelector::visitStorePairInst(StorePairInst *inst)
+void InstructionSelector::visitPackI64Inst(PackI64Inst *inst)
 {
-    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+    auto destReg = getOrCreateVirtualReg(inst);
     if (isZeroStoreValue(inst->getHigh()) && isZeroStoreValue(inst->getLow()))
     {
         auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-        auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SD, ptrReg, zeroReg, 0);
-        currentBB->addInstruction(storeInst);
+        auto copyInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, zeroReg, zeroReg);
+        currentBB->addInstruction(copyInst);
         return;
     }
     auto valueReg = packI64FromHalves(inst->getHigh(), inst->getLow());
-    auto storeInst = RISCVInstruction::createSType(RISCVOpcode::SD, ptrReg, valueReg, 0);
-    currentBB->addInstruction(storeInst);
+    if (valueReg != destReg)
+    {
+        auto moveInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, valueReg,
+                                                      make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+        currentBB->addInstruction(moveInst);
+    }
 }
 
 void InstructionSelector::visitStoreInst(StoreInst *inst)
@@ -903,6 +907,45 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 {
     if (inst->getCondition())
     {
+        // icmp (eq|ne) 0 直接分支，避免 xori/sltu + beq 序列
+        if (auto *icmp = dynamic_cast<ICmpInst *>(inst->getCondition()))
+        {
+            Value *cmpVal = nullptr;
+            if (auto *rhsConst = dynamic_cast<ConstantInt *>(icmp->getRHS());
+                rhsConst && rhsConst->Value == 0)
+            {
+                cmpVal = icmp->getLHS();
+            }
+            else if (auto *lhsConst = dynamic_cast<ConstantInt *>(icmp->getLHS());
+                     lhsConst && lhsConst->Value == 0)
+            {
+                cmpVal = icmp->getRHS();
+            }
+
+            if (cmpVal &&
+                (icmp->getPredicate() == ICmpInst::ICMP_NE || icmp->getPredicate() == ICmpInst::ICMP_EQ))
+            {
+                auto vReg = getOrCreateVirtualReg(cmpVal);
+                if (vReg->getType() == RegisterType::FLOAT)
+                {
+                    auto intCondReg = getTempReg();
+                    auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, vReg);
+                    currentBB->addInstruction(ftoiInst);
+                    vReg = intCondReg;
+                }
+                auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+                RISCVOpcode brOp = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BNE : RISCVOpcode::BEQ;
+                currentBB->addInstruction(RISCVInstruction::createBType(brOp, vReg, zeroReg, inst->TrueBlock->getName()));
+                if (inst->FalseBlock)
+                {
+                    currentBB->addInstruction(RISCVInstruction::createJType(
+                        RISCVOpcode::JAL, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
+                        inst->FalseBlock->getName()));
+                }
+                return;
+            }
+        }
+
         // 条件分支
         auto condReg = getOrCreateVirtualReg(inst->getCondition());
 
@@ -940,8 +983,43 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
     }
 }
 
+namespace
+{
+    bool icmpOnlyUsedByBranch(ICmpInst *icmp)
+    {
+        const auto &users = icmp->getUsers();
+        if (users.size() != 1)
+        {
+            return false;
+        }
+        return dynamic_cast<BranchInst *>(users[0]) != nullptr;
+    }
+
+    bool icmpComparesZero(ICmpInst *icmp, Value *&nonZeroSide)
+    {
+        if (auto *rhsConst = dynamic_cast<ConstantInt *>(icmp->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            nonZeroSide = icmp->getLHS();
+            return true;
+        }
+        if (auto *lhsConst = dynamic_cast<ConstantInt *>(icmp->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            nonZeroSide = icmp->getRHS();
+            return true;
+        }
+        return false;
+    }
+}
+
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
+    Value *cmpVal = nullptr;
+    if (icmpOnlyUsedByBranch(inst) && icmpComparesZero(inst, cmpVal) &&
+        (inst->getPredicate() == ICmpInst::ICMP_NE || inst->getPredicate() == ICmpInst::ICMP_EQ))
+    {
+        // 由 visitBranchInst 直接生成 bne/beq，无需物化 i1
+        return;
+    }
 
     switch (inst->Pred)
     {

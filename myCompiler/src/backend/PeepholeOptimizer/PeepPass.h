@@ -69,6 +69,15 @@ private:
                     string &branchLabel) const;
 };
 
+// 消除 icmp-ne-0 遗留的 xori rd,rs,0 + 分支，改为直接对 rs 分支
+class FoldXorZeroBranchPass : public PeepPass
+{
+public:
+    FoldXorZeroBranchPass() : PeepPass("FoldXorZeroBranch") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+};
+
 // 冗余代码删除
 class DeadCodeEliminationPass : public PeepPass
 {
