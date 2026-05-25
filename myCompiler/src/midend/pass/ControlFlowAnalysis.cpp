@@ -276,16 +276,15 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
         auto *call = dynamic_cast<CallInst *>(inst.get());
         if (call && call->HasModifiedArray(arr))
         {
-            // 检查inst2是否在call之前
-            int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
-            int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(call));
+            // 检查 inst2 是否在 call 之前（call 与 inst2 均在 endBB）
+            int pos1 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
+            int pos2 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(call));
             if (pos2 < pos1)
             {
                 return true; // 在路径上
             }
             if (pos2 > pos1)
             {
-                // 如果pos2<pos1且startBB在循环中也返回true
                 for (auto &loop : loops)
                 {
                     if (loop.containsInBody(dynamic_cast<Instruction *>(inst2)))
