@@ -9,7 +9,7 @@ using namespace optimization;
 
 namespace
 {
-static constexpr int kCacheSize = 8192;
+static constexpr int kCacheSize = 4096;
 
 static int nameCounter = 0;
 
