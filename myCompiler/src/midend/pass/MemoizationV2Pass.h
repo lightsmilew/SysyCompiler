@@ -13,7 +13,7 @@ namespace optimization
 
     private:
         static constexpr int MIN_RECURSIVE_CALLS = 2;
-        static constexpr int CACHE_SIZE = 8192; // 2^13 slots
+        static constexpr int CACHE_SIZE = 4096; // 2^12 slots
 
         struct DirectIndex2ArgPlan
         {

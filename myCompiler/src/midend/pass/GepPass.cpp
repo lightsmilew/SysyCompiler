@@ -6,6 +6,24 @@ using namespace optimization;
 
 namespace
 {
+    static Value *stripCopy(Value *v)
+    {
+        while (auto *cpy = dynamic_cast<CopyInst *>(v))
+            v = cpy->getSource();
+        return v;
+    }
+
+    static int getElemSizeBytes(Type *ty)
+    {
+        if (!ty)
+            return 4;
+        if (ty->isIntegerTy() || ty->isFloatTy())
+            return 4;
+        if (ty->isLongTy())
+            return 8;
+        return 4;
+    }
+
     // 仅处理展开后的一维 GEP：只有一个有效索引
     Value *getActiveIndex(GetElementPtrInst *gep)
     {
@@ -29,6 +47,82 @@ namespace
         }
         return nonZeroCount == 1 ? active : nullptr;
     }
+
+    // 多维 GEP：恰有一维下标变化，其余维为常数（如 gep [1400 x i32], A, %row, 0）
+    struct MultiDimGepInfo
+    {
+        GetElementPtrInst *gep = nullptr;
+        int varyPos = -1;
+        vector<int> constSig; // 常数下标；变化维为 -1
+        Value *varyIndex = nullptr;
+    };
+
+    static int64_t strideBytesForVaryingIndex(GetElementPtrInst *gep, int varyPos)
+    {
+        Type *ty = gep->getPointerOperand()->getType();
+        if (auto *ptrTy = dynamic_cast<PointerType *>(ty))
+            ty = ptrTy->ElementType;
+        const auto &indices = gep->getIndices();
+        for (int i = 0; i < varyPos && ty; ++i)
+        {
+            if (auto *arr = dynamic_cast<ArrayType *>(ty))
+                ty = arr->ElementType;
+        }
+        if (auto *arr = dynamic_cast<ArrayType *>(ty))
+            return static_cast<int64_t>(arr->NumElements) *
+                   getElemSizeBytes(arr->getGroundElementType());
+        return getElemSizeBytes(ty);
+    }
+
+    static bool parseMultiDimGep(GetElementPtrInst *gep, MultiDimGepInfo &info)
+    {
+        if (!gep || gep->getOpcode() != Opcode::GetElementPtr)
+            return false;
+        if (dynamic_cast<GetElementPtrInst *>(stripCopy(gep->getPointerOperand())))
+            return false;
+
+        int varyCount = 0;
+        info = {};
+        info.gep = gep;
+        for (Value *idx : gep->getIndices())
+        {
+            if (auto *c = dynamic_cast<ConstantInt *>(idx))
+                info.constSig.push_back(c->Value);
+            else
+            {
+                ++varyCount;
+                info.varyPos = static_cast<int>(info.constSig.size());
+                info.constSig.push_back(-1);
+                info.varyIndex = idx;
+            }
+        }
+        if (varyCount != 1 || info.varyPos < 0 || !info.varyIndex)
+            return false;
+        return strideBytesForVaryingIndex(gep, info.varyPos) > 0;
+    }
+
+    struct MultiDimGroupKey
+    {
+        Value *base = nullptr;
+        int varyPos = -1;
+        vector<int> constSig;
+
+        bool operator==(const MultiDimGroupKey &o) const
+        {
+            return base == o.base && varyPos == o.varyPos && constSig == o.constSig;
+        }
+    };
+
+    struct MultiDimGroupKeyHash
+    {
+        size_t operator()(const MultiDimGroupKey &k) const
+        {
+            size_t h = std::hash<Value *>()(k.base) ^ (std::hash<int>()(k.varyPos) << 1);
+            for (int v : k.constSig)
+                h = h * 31u + static_cast<unsigned>(v);
+            return h;
+        }
+    };
 
     bool isFoldable1DGep(GetElementPtrInst *gep)
     {
@@ -63,13 +157,13 @@ namespace
             }
             return false;
         }
-        if (auto *add = dynamic_cast<BinaryOperator *>(offset))
+        if (auto *add = dynamic_cast<BinaryOperator *>(stripCopy(offset)))
         {
             if (add->getOpcode() != Opcode::Add)
                 return false;
             if (auto *c = dynamic_cast<ConstantInt *>(add->getRHS()))
             {
-                if (add->getLHS() == baseOff)
+                if (stripCopy(add->getLHS()) == baseOff)
                 {
                     delta = c->Value;
                     return true;
@@ -77,7 +171,7 @@ namespace
             }
             if (auto *c = dynamic_cast<ConstantInt *>(add->getLHS()))
             {
-                if (add->getRHS() == baseOff)
+                if (stripCopy(add->getRHS()) == baseOff)
                 {
                     delta = c->Value;
                     return true;
@@ -90,6 +184,8 @@ namespace
     // offset = prevOff + 常量，已知 prevOff 相对 baseOff 的 delta 为 prevDelta
     bool tryDeltaFromPrevOff(Value *offset, Value *prevOff, int prevDelta, int &delta)
     {
+        offset = stripCopy(offset);
+        prevOff = stripCopy(prevOff);
         if (offset == prevOff)
         {
             delta = prevDelta;
@@ -101,7 +197,7 @@ namespace
                 return false;
             if (auto *c = dynamic_cast<ConstantInt *>(add->getRHS()))
             {
-                if (add->getLHS() == prevOff)
+                if (stripCopy(add->getLHS()) == prevOff)
                 {
                     delta = prevDelta + c->Value;
                     return true;
@@ -109,7 +205,7 @@ namespace
             }
             if (auto *c = dynamic_cast<ConstantInt *>(add->getLHS()))
             {
-                if (add->getRHS() == prevOff)
+                if (stripCopy(add->getRHS()) == prevOff)
                 {
                     delta = prevDelta + c->Value;
                     return true;
@@ -131,28 +227,57 @@ namespace
         if (entries.empty())
             return false;
         deltas.assign(entries.size(), 0);
-        Value *baseOff = entries[0].offset;
+        Value *baseOff = stripCopy(entries[0].offset);
         Value *prevOff = baseOff;
         int prevDelta = 0;
 
-        if (!tryDeltaFromBaseOff(entries[0].offset, baseOff, deltas[0]))
+        if (!tryDeltaFromBaseOff(stripCopy(entries[0].offset), baseOff, deltas[0]))
             return false;
 
         for (size_t i = 1; i < entries.size(); ++i)
         {
             int d = 0;
-            if (!tryDeltaFromBaseOff(entries[i].offset, baseOff, d) &&
-                !tryDeltaFromPrevOff(entries[i].offset, prevOff, prevDelta, d))
+            Value *cur = stripCopy(entries[i].offset);
+            if (!tryDeltaFromBaseOff(cur, baseOff, d) &&
+                !tryDeltaFromPrevOff(cur, prevOff, prevDelta, d))
                 return false;
             deltas[i] = d;
-            prevOff = entries[i].offset;
+            prevOff = cur;
             prevDelta = d;
         }
         return true;
     }
 
-    bool foldGepGroup(BasicBlock *bb, vector<GepChainEntry> &group, bool verbose, std::stringstream &debugInfo,
-                      vector<Value *> &needToDelete, bool &changed)
+    // 同一 (基址, 常数下标签名) 下再按「变化维递推链」拆簇，避免 t3 / t12 等混组
+    static vector<vector<GepChainEntry>> clusterByIndexChain(vector<GepChainEntry> entries)
+    {
+        std::sort(entries.begin(), entries.end(),
+                  [](const GepChainEntry &a, const GepChainEntry &b) { return a.order < b.order; });
+        vector<vector<GepChainEntry>> chains;
+        for (const GepChainEntry &e : entries)
+        {
+            bool placed = false;
+            for (auto &chain : chains)
+            {
+                vector<GepChainEntry> trial = chain;
+                trial.push_back(e);
+                vector<int> deltas;
+                if (computeIndexDeltas(trial, deltas))
+                {
+                    chain.push_back(e);
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed)
+                chains.push_back({e});
+        }
+        return chains;
+    }
+
+    bool foldGepGroup(BasicBlock *bb, vector<GepChainEntry> &group, int64_t indexStrideBytes,
+                      bool verbose, std::stringstream &debugInfo, vector<Value *> &needToDelete,
+                      bool &changed)
     {
         if (group.size() < 2)
             return false;
@@ -196,9 +321,8 @@ namespace
                 continue;
             }
 
-            // 元素下标差 -> 字节偏移，在锚点 GEP 上用 64 位加法寻址
             auto *byteOff = new ConstantLong(LongType::getInstance(),
-                                             static_cast<int64_t>(deltas[i]) * 4);
+                                             static_cast<int64_t>(deltas[i]) * indexStrideBytes);
             auto *newAddr = new BinaryOperator(Opcode::Addd, anchor, byteOff,
                                                group[i].gep->getName() + "_foldadd");
 
@@ -220,8 +344,9 @@ namespace
 
         if (verbose && changed)
         {
-            debugInfo << "GEPChainFold: folded " << group.size()
-                      << " GEPs on " << basePtr->toRef() << " in " << bb->getName() << "\n";
+            debugInfo << "GEPChainFold: folded " << group.size() << " GEPs (stride "
+                      << indexStrideBytes << "B) on " << basePtr->toRef() << " in "
+                      << bb->getName() << "\n";
         }
         return changed;
     }
@@ -394,24 +519,48 @@ bool GEPChainFoldPass::runOnFunction(Function *func)
         BasicBlock *bb = bbPtr.get();
         auto &insts = bb->getInstructions();
 
-        std::unordered_map<Value *, vector<GepChainEntry>> groups;
+        std::unordered_map<Value *, vector<GepChainEntry>> groups1d;
+        std::unordered_map<MultiDimGroupKey, vector<GepChainEntry>, MultiDimGroupKeyHash> groupsMd;
+        std::unordered_map<MultiDimGroupKey, int64_t, MultiDimGroupKeyHash> groupStride;
+
         size_t order = 0;
         for (auto &instPtr : insts)
         {
             auto *gep = dynamic_cast<GetElementPtrInst *>(instPtr.get());
+            if (!gep)
+            {
+                ++order;
+                continue;
+            }
+
+            MultiDimGepInfo mdInfo;
+            if (parseMultiDimGep(gep, mdInfo))
+            {
+                MultiDimGroupKey key{gep->getPointerOperand(), mdInfo.varyPos, mdInfo.constSig};
+                groupsMd[key].push_back({gep, mdInfo.varyIndex, order});
+                groupStride[key] = strideBytesForVaryingIndex(gep, mdInfo.varyPos);
+                ++order;
+                continue;
+            }
+
             if (!isFoldable1DGep(gep))
             {
                 ++order;
                 continue;
             }
             Value *base = gep->getPointerOperand();
-            groups[base].push_back({gep, getActiveIndex(gep), order});
+            groups1d[base].push_back({gep, getActiveIndex(gep), order});
             ++order;
         }
 
-        for (auto &kv : groups)
+        for (auto &kv : groups1d)
+            foldGepGroup(bb, kv.second, 4, verbose, debugInfo, needToDelete, changed);
+
+        for (auto &kv : groupsMd)
         {
-            foldGepGroup(bb, kv.second, verbose, debugInfo, needToDelete, changed);
+            int64_t stride = groupStride[kv.first];
+            for (vector<GepChainEntry> &chain : clusterByIndexChain(std::move(kv.second)))
+                foldGepGroup(bb, chain, stride, verbose, debugInfo, needToDelete, changed);
         }
     }
     return changed;
