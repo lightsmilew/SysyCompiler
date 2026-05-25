@@ -4,6 +4,7 @@
 #include "FunctionPass.h"
 #include "ArrayPass.h"
 #include "LoopPass.h"
+#include "LoopSkipContinueElimPass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"
