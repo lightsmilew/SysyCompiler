@@ -137,31 +137,20 @@ namespace
         }
     }
 
-    static unsigned instructionIndex(BasicBlock *bb, Instruction *target)
-    {
-        auto &insts = bb->getInstructions();
-        for (unsigned i = 0; i < insts.size(); ++i)
-        {
-            if (insts[i].get() == target)
-            {
-                return i;
-            }
-        }
-        return insts.size();
-    }
-
     // if (outer < inner) continue  =>  仅执行 j<=outer，即 j < min(rowsize, outer+1)
-    static void tightenInnerLoopBound(BasicBlock *header, ICmpInst *headerCmp, Value *outerIV, Value *rowsizeBound)
+    // 须在 preheader 中计算 tripBound：展开后 unroll_header 从 preheader 直接进入，
+    // 若放在 inner header，则首次迭代时 inner_tight_sel 尚未定义。
+    static void tightenInnerLoopBound(BasicBlock *preheader, ICmpInst *headerCmp, Value *outerIV,
+                                    Value *rowsizeBound)
     {
         auto *one = new ConstantInt(IntegerType::getInstance(), 1);
         auto *outerPlus1 = new BinaryOperator(Opcode::Add, outerIV, one, "outer_iv_plus_1_lsc");
         auto *useTightBound = new ICmpInst(ICmpInst::ICMP_SLT, outerPlus1, rowsizeBound, "inner_tight_sel_lsc");
         auto *tripBound = new SelectInst(useTightBound, outerPlus1, rowsizeBound, "inner_trip_bound_lsc");
 
-        unsigned idx = instructionIndex(header, headerCmp);
-        header->insert(unique_ptr<Instruction>(outerPlus1), idx);
-        header->insert(unique_ptr<Instruction>(useTightBound), idx + 1);
-        header->insert(unique_ptr<Instruction>(tripBound), idx + 2);
+        preheader->insertBeforeTerminator(unique_ptr<Instruction>(outerPlus1));
+        preheader->insertBeforeTerminator(unique_ptr<Instruction>(useTightBound));
+        preheader->insertBeforeTerminator(unique_ptr<Instruction>(tripBound));
         headerCmp->replaceOperand(rowsizeBound, tripBound);
     }
 }
@@ -246,7 +235,14 @@ bool LoopSkipContinueElimPass::tryEliminate(Function *func, const Loop &innerLoo
         return false;
     }
 
-    tightenInnerLoopBound(header, headerCmp, outerIV, bound);
+    Loop innerForPre = innerLoop;
+    innerForPre.computePreheader();
+    BasicBlock *preheader = innerForPre.getPreheader();
+    if (!preheader)
+    {
+        return false;
+    }
+    tightenInnerLoopBound(preheader, headerCmp, outerIV, bound);
     removeSkipPhiIncoming(findInnerPhiAtHeader(header, innerIV), skipBB);
 
     guardBr->removeThisFromOperands();

@@ -118,6 +118,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -167,6 +169,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -196,7 +200,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O2)
     {
-
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
     }
     // 测试优化
@@ -224,6 +228,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         // 进行循环展开后再来一次合并基本块
+        pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         // // 这里进行指令合并
         // pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
@@ -260,7 +266,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         // 归一化，把乘法和加法常数放到右操作数，>=转为<=, >转为<，便于后续优化
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
-        pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -276,9 +281,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
-        // 进行循环展开后再来一次合并基本块
-        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+        // LoopSkipContinue 后直接展开（勿先 BB merge，见 O0/O1 注释）
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
+
         // // 这里进行指令合并
         // //pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -343,8 +349,12 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
-        // 进行循环展开后再来一次合并基本块
+        //这三个绑定
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+
+        pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
        
         // 这里进行指令合并

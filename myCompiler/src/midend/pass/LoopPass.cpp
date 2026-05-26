@@ -1276,13 +1276,15 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
             }
             auto *unrollPhi = phiMap[indPhi];
 
-            // 2.5 复制原header的非phi、非cmp、非br指令到unrollHeader
+            // 2.5 复制原 header 中非 phi、非循环条件 cmp、非 br 的指令到 unrollHeader
+            ICmpInst *loopCondCmp = cmp;
             std::unordered_map<Value *, Value *> headerValueMap;
             for (auto &instPtr : header->getInstructions())
             {
                 Instruction *inst = instPtr.get();
-                // 跳过phi、cmp、br
-                if (dynamic_cast<PhiInst *>(inst) || dynamic_cast<ICmpInst *>(inst) || dynamic_cast<BranchInst *>(inst))
+                if (dynamic_cast<PhiInst *>(inst) || dynamic_cast<BranchInst *>(inst))
+                    continue;
+                if (inst == loopCondCmp)
                     continue;
                 Instruction *cloned = inst->clone();
                 // 替换操作数

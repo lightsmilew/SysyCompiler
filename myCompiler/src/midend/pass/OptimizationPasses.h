@@ -6,6 +6,7 @@
 #include "AllocaCoalescePass.h"
 #include "LoopPass.h"
 #include "LoopSkipContinueElimPass.h"
+#include "LoopInductionStrengthReductionPass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"
