@@ -122,7 +122,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<LoopWavefrontPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -176,7 +175,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<LoopWavefrontPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -296,7 +294,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<LoopWavefrontPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
 
         // // 这里进行指令合并
@@ -368,7 +365,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<LoopWavefrontPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
        
         // 这里进行指令合并
