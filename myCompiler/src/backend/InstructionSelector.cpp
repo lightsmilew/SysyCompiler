@@ -621,8 +621,35 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     if (fuseWithPending)
     {
         const int relOff = imm - pendingAllocaInits[0].stackOffset;
-        allocaExtraByteOffset[inst->getName()] = relOff;
-        addrReg = pendingAllocaInits[0].baseReg;
+        // 非主 alloca 的偏移已在 addrReg 中物化，勿再记入 map（避免 call/load 重复 +offset）
+        allocaExtraByteOffset[inst->getName()] = 0;
+        auto primaryBase = pendingAllocaInits[0].baseReg;
+        if (relOff == 0)
+        {
+            addrReg = primaryBase;
+        }
+        else
+        {
+            // 必须用 sp+绝对 imm，以便 reallocOffsetForInstructions 按 alloca 名修正；
+            // primaryBase+relOff 在 maxArgStackSize>0 时会少加传参区偏移。
+            auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+            addrReg = getOrCreateVirtualReg(inst->getDest());
+            if (isValidImmediate(imm, Opcode::Add))
+            {
+                auto addInst = RISCVInstruction::createIType(
+                    RISCVOpcode::ADDI, addrReg, spReg, imm);
+                currentBB->addInstruction(addInst);
+                currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
+            }
+            else
+            {
+                auto immReg = LiInt(imm, true);
+                currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
+                auto addInst = RISCVInstruction::createRType(
+                    RISCVOpcode::ADD, addrReg, spReg, immReg);
+                currentBB->addInstruction(addInst);
+            }
+        }
         registerMap[inst->getName()] = addrReg;
         if (currentFunc)
             currentFunc->addIRValueMapping(inst->getName(), addrReg);
@@ -631,35 +658,32 @@ void InstructionSelector::visitAllocaInst(AllocaInst *inst)
     {
         allocaExtraByteOffset[inst->getName()] = 0;
         auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-        if (imm == 0)
+        addrReg = getOrCreateVirtualReg(inst->getDest());
+        if (imm == 0 || isValidImmediate(imm, Opcode::Add))
         {
-            addrReg = spReg;
-            registerMap[inst->getName()] = addrReg;
-            if (currentFunc)
-                currentFunc->addIRValueMapping(inst->getName(), addrReg);
+            auto addInst =
+                RISCVInstruction::createIType(RISCVOpcode::ADDI, addrReg, spReg, imm);
+            currentBB->addInstruction(addInst);
+            currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
         }
         else
         {
-            addrReg = getOrCreateVirtualReg(inst->getDest());
-            if (isValidImmediate(imm, Opcode::Add))
-            {
-                auto addInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addrReg, spReg, imm);
-                currentBB->addInstruction(addInst);
-                currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
-            }
-            else
-            {
-                auto immReg = LiInt(imm, true);
-                currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
+            auto immReg = LiInt(imm, true);
+            currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
 
-                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);
-                currentBB->addInstruction(addInst);
-            }
+            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);
+            currentBB->addInstruction(addInst);
         }
+        registerMap[inst->getName()] = addrReg;
+        if (currentFunc)
+            currentFunc->addIRValueMapping(inst->getName(), addrReg);
     }
 
     if (inst->getIsInitialized())
-        enqueueAllocaInit(inst->getAllocatedSize(), imm, addrReg);
+    {
+        auto initBase = fuseWithPending ? pendingAllocaInits[0].baseReg : addrReg;
+        enqueueAllocaInit(inst->getAllocatedSize(), imm, initBase);
+    }
 }
 
 void InstructionSelector::enqueueAllocaInit(int size, int stackOffset,
