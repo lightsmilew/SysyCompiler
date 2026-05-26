@@ -68,6 +68,41 @@ namespace
         }
     }
 
+    static bool isLoopLatchMerge(BasicBlock *mergeBB, BasicBlock *&loopHeader)
+    {
+        if (!mergeBB || mergeBB->getSuccessors().size() != 1)
+            return false;
+        loopHeader = mergeBB->getSuccessors()[0];
+        if (!loopHeader)
+            return false;
+
+        bool mergeIsPred = false;
+        for (auto *pred : loopHeader->getPredecessors())
+        {
+            if (pred == mergeBB)
+                mergeIsPred = true;
+        }
+        if (!mergeIsPred)
+            return false;
+
+        for (auto &instPtr : mergeBB->getInstructions())
+        {
+            if (dynamic_cast<BranchInst *>(instPtr.get()))
+                continue;
+            if (dynamic_cast<PhiInst *>(instPtr.get()))
+                continue;
+            if (auto *add = dynamic_cast<BinaryOperator *>(instPtr.get()))
+            {
+                if (add->getOpcode() == Opcode::Add)
+                    continue;
+            }
+            if (dynamic_cast<CopyInst *>(instPtr.get()))
+                continue;
+            return false;
+        }
+        return true;
+    }
+
     static void finalizeConversion(BasicBlock *bb, BasicBlock *thenBB, BasicBlock *mergeBB,
                                    BasicBlock *loopHeader,
                                    Value *cond, Value *acc, Value *addend, BinaryOperator *addInst,
@@ -109,6 +144,9 @@ namespace
         bb->addInstruction(make_unique<BranchInst>(loopHeader));
         bb->addSuccessor(loopHeader);
         loopHeader->addPredecessor(bb);
+
+        if (accPhi)
+            accPhi->replaceAllUsesWith(newAcc);
 
         for (auto &instPtr : loopHeader->getInstructions())
         {
@@ -184,12 +222,7 @@ bool CondGuardedAccumulatePass::tryConvert(Function *func, BasicBlock *bb)
     Value *addResult = stripCopy(addInst);
 
     BasicBlock *loopHeader = nullptr;
-    for (auto *succ : mergeBB->getSuccessors())
-    {
-        loopHeader = succ;
-        break;
-    }
-    if (!loopHeader)
+    if (!isLoopLatchMerge(mergeBB, loopHeader))
         return false;
 
     for (auto &instPtr : mergeBB->getInstructions())
