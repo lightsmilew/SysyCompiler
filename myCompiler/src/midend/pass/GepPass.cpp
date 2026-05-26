@@ -140,9 +140,34 @@ namespace
         return getActiveIndex(gep) != nullptr;
     }
 
-    // offset = baseOff + delta（常量）
+    static bool sameOffsetValue(Value *a, Value *b)
+    {
+        return stripCopy(a) == stripCopy(b);
+    }
+
+    // 顶层 add 拆成 (lhs, rhs)；非 add 则整体视为 rhs
+    static bool splitTopLevelAdd(Value *offset, Value *&lhs, Value *&rhs)
+    {
+        offset = stripCopy(offset);
+        if (auto *add = dynamic_cast<BinaryOperator *>(offset))
+        {
+            if (add->getOpcode() == Opcode::Add)
+            {
+                lhs = add->getLHS();
+                rhs = add->getRHS();
+                return true;
+            }
+        }
+        lhs = nullptr;
+        rhs = offset;
+        return false;
+    }
+
+    // offset = baseOff + delta（常量），仅比较两个标量/表达式
     bool tryDeltaFromBaseOff(Value *offset, Value *baseOff, int &delta)
     {
+        offset = stripCopy(offset);
+        baseOff = stripCopy(baseOff);
         if (offset == baseOff)
         {
             delta = 0;
@@ -152,33 +177,56 @@ namespace
         {
             if (auto *cBase = dynamic_cast<ConstantInt *>(baseOff))
             {
-                delta = cOff->Value - cBase->Value;
+                delta = static_cast<int>(cOff->Value - cBase->Value);
                 return true;
             }
             return false;
         }
-        if (auto *add = dynamic_cast<BinaryOperator *>(stripCopy(offset)))
+        if (auto *add = dynamic_cast<BinaryOperator *>(offset))
         {
             if (add->getOpcode() != Opcode::Add)
                 return false;
             if (auto *c = dynamic_cast<ConstantInt *>(add->getRHS()))
             {
-                if (stripCopy(add->getLHS()) == baseOff)
+                if (sameOffsetValue(add->getLHS(), baseOff))
                 {
-                    delta = c->Value;
+                    delta = static_cast<int>(c->Value);
                     return true;
                 }
             }
             if (auto *c = dynamic_cast<ConstantInt *>(add->getLHS()))
             {
-                if (stripCopy(add->getRHS()) == baseOff)
+                if (sameOffsetValue(add->getRHS(), baseOff))
                 {
-                    delta = c->Value;
+                    delta = static_cast<int>(c->Value);
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    // offset 与 baseOff 同为 add(L,R) 且 L 或 R 相同，在变化的一维上求相对 base 的 delta
+    bool tryDeltaFromDecomposedAdd(Value *offset, Value *baseOff, int &delta)
+    {
+        Value *cL = nullptr, *cR = nullptr, *bL = nullptr, *bR = nullptr;
+        bool cSplit = splitTopLevelAdd(offset, cL, cR);
+        bool bSplit = splitTopLevelAdd(baseOff, bL, bR);
+        if (cSplit && bSplit)
+        {
+            if (sameOffsetValue(cL, bL))
+                return tryDeltaFromBaseOff(cR, bR, delta);
+            if (sameOffsetValue(cR, bR))
+                return tryDeltaFromBaseOff(cL, bL, delta);
+        }
+        return false;
+    }
+
+    bool tryDeltaBetweenOffsets(Value *offset, Value *baseOff, int &delta)
+    {
+        if (tryDeltaFromBaseOff(offset, baseOff, delta))
+            return true;
+        return tryDeltaFromDecomposedAdd(offset, baseOff, delta);
     }
 
     // offset = prevOff + 常量，已知 prevOff 相对 baseOff 的 delta 为 prevDelta
@@ -197,22 +245,73 @@ namespace
                 return false;
             if (auto *c = dynamic_cast<ConstantInt *>(add->getRHS()))
             {
-                if (stripCopy(add->getLHS()) == prevOff)
+                if (sameOffsetValue(add->getLHS(), prevOff))
                 {
-                    delta = prevDelta + c->Value;
+                    delta = prevDelta + static_cast<int>(c->Value);
                     return true;
                 }
             }
             if (auto *c = dynamic_cast<ConstantInt *>(add->getLHS()))
             {
-                if (stripCopy(add->getRHS()) == prevOff)
+                if (sameOffsetValue(add->getRHS(), prevOff))
                 {
-                    delta = prevDelta + c->Value;
+                    delta = prevDelta + static_cast<int>(c->Value);
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    bool tryDeltaFromDecomposedAddPrev(Value *offset, Value *prevOff, int prevDelta, int &delta)
+    {
+        Value *cL = nullptr, *cR = nullptr, *pL = nullptr, *pR = nullptr;
+        bool cSplit = splitTopLevelAdd(offset, cL, cR);
+        bool pSplit = splitTopLevelAdd(prevOff, pL, pR);
+        if (!cSplit || !pSplit)
+            return false;
+        if (sameOffsetValue(cL, pL))
+            return tryDeltaFromPrevOff(cR, pR, prevDelta, delta);
+        if (sameOffsetValue(cR, pR))
+            return tryDeltaFromPrevOff(cL, pL, prevDelta, delta);
+        return false;
+    }
+
+    bool tryDeltaBetweenOffsetsPrev(Value *offset, Value *prevOff, int prevDelta, int &delta)
+    {
+        if (tryDeltaFromPrevOff(offset, prevOff, prevDelta, delta))
+            return true;
+        return tryDeltaFromDecomposedAddPrev(offset, prevOff, prevDelta, delta);
+    }
+
+    // cur = prev + step（step 为循环不变量且整条链相同，如 add(t13, t0)）
+    bool tryDeltaFromPrevWithInvariantStep(Value *cur, Value *prev, int prevDelta, Value *&chainStep,
+                                           int &delta)
+    {
+        cur = stripCopy(cur);
+        prev = stripCopy(prev);
+        if (cur == prev)
+        {
+            delta = prevDelta;
+            return true;
+        }
+        auto *add = dynamic_cast<BinaryOperator *>(cur);
+        if (!add || add->getOpcode() != Opcode::Add)
+            return false;
+        if (!sameOffsetValue(add->getLHS(), prev))
+            return false;
+        Value *step = stripCopy(add->getRHS());
+        if (auto *c = dynamic_cast<ConstantInt *>(step))
+        {
+            delta = prevDelta + static_cast<int>(c->Value);
+            return true;
+        }
+        if (!chainStep)
+            chainStep = step;
+        if (!sameOffsetValue(step, chainStep))
+            return false;
+        delta = prevDelta + 1;
+        return true;
     }
 
     struct GepChainEntry
@@ -222,30 +321,152 @@ namespace
         size_t order;
     };
 
-    bool computeIndexDeltas(const vector<GepChainEntry> &entries, vector<int> &deltas)
+    struct IndexChainInfo
     {
+        bool ok = false;
+        bool useVarIndexStep = false;
+        Value *varIndexStep = nullptr;
+        vector<int> indexDeltas;
+    };
+
+    // 索引呈 offset = fixed + varying 或 offset = varying + fixed，varying 沿链递推
+    bool analyzeAffineIndexChain(const vector<GepChainEntry> &entries, IndexChainInfo &info)
+    {
+        info = {};
         if (entries.empty())
             return false;
-        deltas.assign(entries.size(), 0);
-        Value *baseOff = stripCopy(entries[0].offset);
-        Value *prevOff = baseOff;
-        int prevDelta = 0;
 
-        if (!tryDeltaFromBaseOff(stripCopy(entries[0].offset), baseOff, deltas[0]))
-            return false;
-
-        for (size_t i = 1; i < entries.size(); ++i)
+        vector<Value *> fixedPart(entries.size(), nullptr);
+        vector<Value *> varyingPart(entries.size(), nullptr);
+        bool allAdd = true;
+        for (size_t i = 0; i < entries.size(); ++i)
         {
-            int d = 0;
-            Value *cur = stripCopy(entries[i].offset);
-            if (!tryDeltaFromBaseOff(cur, baseOff, d) &&
-                !tryDeltaFromPrevOff(cur, prevOff, prevDelta, d))
-                return false;
-            deltas[i] = d;
-            prevOff = cur;
-            prevDelta = d;
+            Value *l = nullptr, *r = nullptr;
+            if (!splitTopLevelAdd(entries[i].offset, l, r))
+            {
+                allAdd = false;
+                varyingPart[i] = stripCopy(entries[i].offset);
+            }
+            else
+            {
+                fixedPart[i] = l;
+                varyingPart[i] = r;
+            }
         }
+
+        auto trySameFixedOnLeft = [&]() -> bool {
+            Value *commonFixed = nullptr;
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                if (!allAdd)
+                    return false;
+                if (!commonFixed)
+                    commonFixed = fixedPart[i];
+                else if (!sameOffsetValue(fixedPart[i], commonFixed))
+                    return false;
+            }
+            info.indexDeltas.assign(entries.size(), 0);
+            Value *prevVar = stripCopy(varyingPart[0]);
+            int prevDelta = 0;
+            for (size_t i = 1; i < entries.size(); ++i)
+            {
+                int d = 0;
+                Value *curVar = stripCopy(varyingPart[i]);
+                if (!tryDeltaFromPrevOff(curVar, prevVar, prevDelta, d))
+                    return false;
+                info.indexDeltas[i] = d;
+                prevVar = curVar;
+                prevDelta = d;
+            }
+            info.ok = true;
+            return true;
+        };
+
+        auto trySameFixedOnRight = [&]() -> bool {
+            Value *commonRhs = nullptr;
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                if (!allAdd)
+                    return false;
+                if (!commonRhs)
+                    commonRhs = varyingPart[i];
+                else if (!sameOffsetValue(varyingPart[i], commonRhs))
+                    return false;
+            }
+            info.indexDeltas.assign(entries.size(), 0);
+            Value *prevVar = stripCopy(fixedPart[0]);
+            int prevDelta = 0;
+            Value *chainStep = nullptr;
+            bool useVarStep = false;
+            for (size_t i = 1; i < entries.size(); ++i)
+            {
+                int d = 0;
+                Value *curVar = stripCopy(fixedPart[i]);
+                if (tryDeltaFromPrevOff(curVar, prevVar, prevDelta, d))
+                {
+                    info.indexDeltas[i] = d;
+                }
+                else if (tryDeltaFromPrevWithInvariantStep(curVar, prevVar, prevDelta, chainStep, d))
+                {
+                    useVarStep = true;
+                    info.indexDeltas[i] = d;
+                }
+                else
+                {
+                    return false;
+                }
+                prevVar = curVar;
+                prevDelta = d;
+            }
+            if (useVarStep)
+            {
+                info.useVarIndexStep = true;
+                info.varIndexStep = chainStep;
+            }
+            info.ok = true;
+            return true;
+        };
+
+        // offset = lhs + rhs；同 lhs 时 varying=rhs（load: t9+iv）
+        if (trySameFixedOnLeft())
+            return true;
+        // 同 rhs 时 varying=lhs（store: t13+t2）
+        if (trySameFixedOnRight())
+            return true;
+
+        if (!allAdd)
+        {
+            info.indexDeltas.assign(entries.size(), 0);
+            Value *prevOff = stripCopy(entries[0].offset);
+            int prevDelta = 0;
+            for (size_t i = 1; i < entries.size(); ++i)
+            {
+                int d = 0;
+                Value *cur = stripCopy(entries[i].offset);
+                if (!tryDeltaBetweenOffsetsPrev(cur, prevOff, prevDelta, d))
+                    return false;
+                info.indexDeltas[i] = d;
+                prevOff = cur;
+                prevDelta = d;
+            }
+            info.ok = true;
+            return true;
+        }
+        return false;
+    }
+
+    bool computeIndexDeltas(const vector<GepChainEntry> &entries, vector<int> &deltas)
+    {
+        IndexChainInfo info;
+        if (!analyzeAffineIndexChain(entries, info) || !info.ok || info.useVarIndexStep)
+            return false;
+        deltas = std::move(info.indexDeltas);
         return true;
+    }
+
+    bool analyzeIndexChain(const vector<GepChainEntry> &entries, IndexChainInfo &info)
+    {
+        return analyzeAffineIndexChain(entries, info) && info.ok;
     }
 
     // 同一 (基址, 常数下标签名) 下再按「变化维递推链」拆簇，避免 t3 / t12 等混组
@@ -261,8 +482,8 @@ namespace
             {
                 vector<GepChainEntry> trial = chain;
                 trial.push_back(e);
-                vector<int> deltas;
-                if (computeIndexDeltas(trial, deltas))
+                IndexChainInfo trialInfo;
+                if (analyzeIndexChain(trial, trialInfo))
                 {
                     chain.push_back(e);
                     placed = true;
@@ -285,9 +506,11 @@ namespace
         std::sort(group.begin(), group.end(),
                   [](const GepChainEntry &a, const GepChainEntry &b) { return a.order < b.order; });
 
-        vector<int> deltas;
-        if (!computeIndexDeltas(group, deltas))
+        IndexChainInfo chainInfo;
+        if (!analyzeIndexChain(group, chainInfo))
             return false;
+
+        const vector<int> &deltas = chainInfo.indexDeltas;
 
         bool hasNonZeroDelta = false;
         for (size_t i = 1; i < deltas.size(); ++i)
@@ -301,6 +524,7 @@ namespace
         GetElementPtrInst *anchor = group[0].gep;
         Value *basePtr = anchor->getPointerOperand();
         auto &insts = bb->getInstructions();
+        auto *i32 = IntegerType::getInstance();
 
         for (size_t i = 1; i < group.size(); ++i)
         {
@@ -321,8 +545,23 @@ namespace
                 continue;
             }
 
-            auto *byteOff = new ConstantLong(LongType::getInstance(),
-                                             static_cast<int64_t>(deltas[i]) * indexStrideBytes);
+            Value *byteOff = nullptr;
+            BinaryOperator *elemOff = nullptr;
+            if (chainInfo.useVarIndexStep && chainInfo.varIndexStep)
+            {
+                auto *stepCount = new ConstantInt(i32, deltas[i]);
+                elemOff = new BinaryOperator(Opcode::Mul, stepCount, chainInfo.varIndexStep,
+                                             group[i].gep->getName() + "_foldidx");
+                auto *strideC = new ConstantInt(i32, static_cast<int>(indexStrideBytes));
+                byteOff = new BinaryOperator(Opcode::Mul, elemOff, strideC,
+                                             group[i].gep->getName() + "_foldbytes");
+            }
+            else
+            {
+                byteOff = new ConstantLong(LongType::getInstance(),
+                                           static_cast<int64_t>(deltas[i]) * indexStrideBytes);
+            }
+
             auto *newAddr = new BinaryOperator(Opcode::Addd, anchor, byteOff,
                                                group[i].gep->getName() + "_foldadd");
 
@@ -330,6 +569,15 @@ namespace
             {
                 if (it->get() == group[i].gep)
                 {
+                    if (elemOff)
+                    {
+                        it = insts.insert(it, std::unique_ptr<Instruction>(elemOff));
+                        ++it;
+                        it = insts.insert(
+                            it, std::unique_ptr<Instruction>(
+                                    dynamic_cast<Instruction *>(byteOff)));
+                        ++it;
+                    }
                     it = insts.insert(it, std::unique_ptr<Instruction>(newAddr));
                     ++it;
                     group[i].gep->replaceAllUsesWith(newAddr);
@@ -553,8 +801,12 @@ bool GEPChainFoldPass::runOnFunction(Function *func)
             ++order;
         }
 
+        // 一维 GEP 也须按索引递推链分簇，避免同一 matrix 基址下 load/store 等不同链混折
         for (auto &kv : groups1d)
-            foldGepGroup(bb, kv.second, 4, verbose, debugInfo, needToDelete, changed);
+        {
+            for (vector<GepChainEntry> &chain : clusterByIndexChain(std::move(kv.second)))
+                foldGepGroup(bb, chain, 4, verbose, debugInfo, needToDelete, changed);
+        }
 
         for (auto &kv : groupsMd)
         {
