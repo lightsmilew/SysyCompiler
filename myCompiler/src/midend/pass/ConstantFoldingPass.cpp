@@ -388,6 +388,37 @@ bool ConstantFoldingPass::runOnFunction(Function *func)
                             }
                         }
                     }
+                    // 位移0不变: shl/shr x, 0 => x
+                    if (binaryOperator->getOpcode() == Opcode::Sll ||
+                        binaryOperator->getOpcode() == Opcode::Sra ||
+                        binaryOperator->getOpcode() == Opcode::Slld ||
+                        binaryOperator->getOpcode() == Opcode::Srad)
+                    {
+                        bool shiftZero = false;
+                        if (auto *ci = dynamic_cast<ConstantInt *>(rhs))
+                        {
+                            shiftZero = (ci->Value == 0);
+                        }
+                        else if (auto *cl = dynamic_cast<ConstantLong *>(rhs))
+                        {
+                            shiftZero = (cl->Value == 0);
+                        }
+                        if (shiftZero)
+                        {
+                            inst->replaceAllUsesWith(lhs);
+                            inst->removeThisFromOperands();
+                            needToDelete.push_back(it->release());
+                            it = insts.erase(it);
+                            if (verbose)
+                            {
+                                debugInfo << "Constant folding: " << inst->getOpcodeName()
+                                          << " with shift 0 eliminated\n";
+                            }
+                            localChanged = true;
+                            changed = true;
+                            continue;
+                        }
+                    }
                 }
                 // int比较指令
                 if (inst && inst->getOpcode() == Opcode::ICmp)

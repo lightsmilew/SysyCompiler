@@ -3,6 +3,7 @@
 #include "Pass.h"
 #include "FunctionPass.h"
 #include "ArrayPass.h"
+#include "AllocaCoalescePass.h"
 #include "LoopPass.h"
 #include "LoopSkipContinueElimPass.h"
 #include "BasicBlockPass.h"

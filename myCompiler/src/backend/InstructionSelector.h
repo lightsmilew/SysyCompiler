@@ -24,6 +24,25 @@ private:
     int tempRegCount = 0;
     int tempFloatRegCount = 0;
 
+    struct PendingAllocaInit
+    {
+        int size;
+        int stackOffset;
+        shared_ptr<RISCVRegister> baseReg;
+    };
+    vector<PendingAllocaInit> pendingAllocaInits;
+    shared_ptr<RISCVBasicBlock> pendingAllocaInitBB;
+    // 融合初始化组内非首个 alloca：与主 alloca 共用寄存器，访存时加字节偏移
+    unordered_map<string, int> allocaExtraByteOffset;
+
+    shared_ptr<RISCVRegister> materializeAllocaBase(Value *ptr);
+    void enqueueAllocaInit(int size, int stackOffset, shared_ptr<RISCVRegister> baseReg);
+    void flushPendingAllocaInits();
+    void emitFusedAllocaZeroInit(const vector<PendingAllocaInit> &group,
+                                 shared_ptr<RISCVBasicBlock> setupBB,
+                                 shared_ptr<RISCVBasicBlock> loopBB,
+                                 shared_ptr<RISCVBasicBlock> tailBB);
+
 public:
     InstructionSelector() {}
     // 为函数生成指令
@@ -68,9 +87,6 @@ private:
     shared_ptr<RISCVRegister> getTempPhysicalFloatReg();
 
     bool isValidImmediate(int64_t value, Opcode opcode);
-
-    // alloca需要初始化数组
-    void InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size);
 
     // 参数传递解耦函数
     void DealArgumentsInStart(); // 处理函数参数

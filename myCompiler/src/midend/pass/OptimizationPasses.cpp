@@ -108,6 +108,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         //pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -140,6 +141,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
@@ -155,6 +157,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         //pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -187,6 +190,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
     }
@@ -324,6 +328,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         //pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // 多面体循环变换尽量前置，避免 DCE 提前删除归纳 phi 影响循环识别与融合
@@ -375,6 +380,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         //必须要有死代码消除，处理寄存器分配潜在问题
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));

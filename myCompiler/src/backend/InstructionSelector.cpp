@@ -1,4 +1,6 @@
 #include "InstructionSelector.h"
+#include <algorithm>
+#include <map>
 using namespace RISCV;
 // RISC-V 参数寄存器映射常量
 const vector<RISCVRegister::PhysicalReg> INT_PARAM_REGS = {
@@ -69,6 +71,9 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
     tempRegisters.clear();
     globalVarMap.clear();
     MoveArgMap.clear();
+    pendingAllocaInits.clear();
+    pendingAllocaInitBB = nullptr;
+    allocaExtraByteOffset.clear();
 
     buildControlFlowGraph();
 
@@ -87,12 +92,19 @@ void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Fun
         {
             visitInstruction(irInstr.get());
         }
+        flushPendingAllocaInits();
     }
 }
 
 // 当基本块中使用alloca指令访问函数参数时，我应该将该块空间与寄存器联合起来
 void InstructionSelector::visitInstruction(Instruction *inst)
 {
+    if (!pendingAllocaInits.empty() && pendingAllocaInitBB == currentBB &&
+        inst->getOpcode() != Opcode::Alloca)
+    {
+        flushPendingAllocaInits();
+    }
+
     switch (inst->Op)
     {
     case Opcode::Add:
@@ -457,7 +469,7 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 
 void InstructionSelector::visitLoadInst(LoadInst *inst)
 {
-    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+    auto ptrReg = materializeAllocaBase(inst->getPointer());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     // 根据数据类型选择合适的加载指令
@@ -540,7 +552,7 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
         valueReg = getOrCreateVirtualReg(inst->getValueToStore());
     }
 
-    auto ptrReg = getOrCreateVirtualReg(inst->getPointer());
+    auto ptrReg = materializeAllocaBase(inst->getPointer());
 
     // 根据要存储的数据类型选择合适的存储指令
     RISCVOpcode storeOpcode = RISCVOpcode::SW;
@@ -566,39 +578,240 @@ void InstructionSelector::visitStoreInst(StoreInst *inst)
     }
 }
 
+shared_ptr<RISCVRegister> InstructionSelector::materializeAllocaBase(Value *ptr)
+{
+    auto baseAddr = getOrCreateVirtualReg(ptr);
+    auto it = allocaExtraByteOffset.find(ptr->getName());
+    if (it == allocaExtraByteOffset.end() || it->second == 0)
+        return baseAddr;
+
+    const int extra = it->second;
+    auto adjusted = getTempReg(true);
+    if (isValidImmediate(extra, Opcode::Add))
+    {
+        currentBB->addInstruction(RISCVInstruction::createIType(
+            RISCVOpcode::ADDI, adjusted, baseAddr, extra));
+    }
+    else
+    {
+        auto offReg = LiInt(extra, true);
+        currentBB->addInstruction(RISCVInstruction::createRType(
+            RISCVOpcode::ADD, adjusted, baseAddr, offReg));
+    }
+    return adjusted;
+}
+
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
     auto &stack = currentFunc->getStackFrame();
     stack.allocateValueSpace(inst->getName(), inst->getAllocatedSize()); // 分配空间
     int imm = stack.getValueOffset(inst->getName());
 
-    auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-    auto addrReg = getOrCreateVirtualReg(inst->getDest());
+    const bool fuseWithPending = inst->getIsInitialized() && pendingAllocaInitBB == currentBB &&
+                                 !pendingAllocaInits.empty();
+    shared_ptr<RISCVRegister> addrReg;
 
-    if (isValidImmediate(imm, Opcode::Add))
+    if (fuseWithPending)
     {
-        auto addInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addrReg,
-                                                     spReg, imm);
-        currentBB->addInstruction(addInst);
-        currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
+        const int relOff = imm - pendingAllocaInits[0].stackOffset;
+        allocaExtraByteOffset[inst->getName()] = relOff;
+        addrReg = pendingAllocaInits[0].baseReg;
+        registerMap[inst->getName()] = addrReg;
+        if (currentFunc)
+            currentFunc->addIRValueMapping(inst->getName(), addrReg);
     }
     else
     {
-        auto immReg = LiInt(imm, true);
-        currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
+        allocaExtraByteOffset[inst->getName()] = 0;
+        auto spReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
+        if (imm == 0)
+        {
+            addrReg = spReg;
+            registerMap[inst->getName()] = addrReg;
+            if (currentFunc)
+                currentFunc->addIRValueMapping(inst->getName(), addrReg);
+        }
+        else
+        {
+            addrReg = getOrCreateVirtualReg(inst->getDest());
+            if (isValidImmediate(imm, Opcode::Add))
+            {
+                auto addInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, addrReg, spReg, imm);
+                currentBB->addInstruction(addInst);
+                currentFunc->addInstructionNeedReGetOffset(inst->getName(), addInst);
+            }
+            else
+            {
+                auto immReg = LiInt(imm, true);
+                currentFunc->addInstructionNeedReGetOffset(inst->getName(), currentLiInstruction);
 
-        auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);
-        currentBB->addInstruction(addInst);
+                auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, addrReg, spReg, immReg);
+                currentBB->addInstruction(addInst);
+            }
+        }
     }
 
     if (inst->getIsInitialized())
-        // 如果需要初始化数组，则调用初始化函数
-        InitAllocaArray(addrReg, inst->getAllocatedSize());
+        enqueueAllocaInit(inst->getAllocatedSize(), imm, addrReg);
+}
+
+void InstructionSelector::enqueueAllocaInit(int size, int stackOffset,
+                                            shared_ptr<RISCVRegister> baseReg)
+{
+    if (pendingAllocaInitBB && pendingAllocaInitBB != currentBB)
+        flushPendingAllocaInits();
+    pendingAllocaInitBB = currentBB;
+    pendingAllocaInits.push_back({size, stackOffset, baseReg});
+}
+
+void InstructionSelector::flushPendingAllocaInits()
+{
+    if (pendingAllocaInits.empty() || !pendingAllocaInitBB)
+        return;
+
+    auto setupBB = pendingAllocaInitBB;
+    if (setupBB->getSuccessors().empty())
+    {
+        pendingAllocaInits.clear();
+        pendingAllocaInitBB = nullptr;
+        return;
+    }
+
+    auto loopBB = setupBB->getSuccessors()[0];
+    auto tailBB = loopBB->getSuccessors().empty() ? loopBB : loopBB->getSuccessors()[0];
+
+    std::map<int, vector<PendingAllocaInit>> bySize;
+    for (const auto &item : pendingAllocaInits)
+        bySize[item.size].push_back(item);
+
+    vector<vector<PendingAllocaInit>> groups;
+    groups.reserve(bySize.size());
+    for (auto &kv : bySize)
+    {
+        auto &group = kv.second;
+        std::sort(group.begin(), group.end(),
+                  [](const PendingAllocaInit &a, const PendingAllocaInit &b)
+                  { return a.stackOffset < b.stackOffset; });
+        groups.push_back(std::move(group));
+    }
+
+    auto prevBB = currentBB;
+    currentBB = setupBB;
+    shared_ptr<RISCVBasicBlock> curLoopBB = loopBB;
+    for (size_t gi = 0; gi < groups.size(); ++gi)
+    {
+        if (gi > 0)
+        {
+            auto newLoopBB = make_shared<RISCVBasicBlock>(
+                setupBB->getLabel() + "_alloca_init_" + std::to_string(gi), currentFunc);
+            currentFunc->addBasicBlock(newLoopBB);
+            curLoopBB->removeSuccessor(tailBB);
+            curLoopBB->addSuccessor(newLoopBB);
+            newLoopBB->addPredecessor(curLoopBB);
+            curLoopBB = newLoopBB;
+        }
+        const bool isLast = (gi + 1 == groups.size());
+        emitFusedAllocaZeroInit(groups[gi], setupBB, curLoopBB, isLast ? tailBB : nullptr);
+    }
+    if (curLoopBB != tailBB)
+    {
+        bool linked = false;
+        for (const auto &succ : curLoopBB->getSuccessors())
+        {
+            if (succ == tailBB)
+            {
+                linked = true;
+                break;
+            }
+        }
+        if (!linked)
+        {
+            curLoopBB->addSuccessor(tailBB);
+            tailBB->addPredecessor(curLoopBB);
+        }
+    }
+    currentBB = prevBB;
+
+    pendingAllocaInits.clear();
+    pendingAllocaInitBB = nullptr;
+}
+
+void InstructionSelector::emitFusedAllocaZeroInit(const vector<PendingAllocaInit> &group,
+                                                  shared_ptr<RISCVBasicBlock> setupBB,
+                                                  shared_ptr<RISCVBasicBlock> loopBB,
+                                                  shared_ptr<RISCVBasicBlock> tailBB)
+{
+    if (group.empty() || !setupBB || !loopBB)
+        return;
+
+    const int byteSize = group[0].size;
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+
+    const int tailBytes = byteSize & 7;
+    const int fullBytes = byteSize - tailBytes;
+    const int loopLimitDelta = byteSize - (tailBytes ? 8 : 0);
+
+    if (fullBytes > 0)
+    {
+        const int baseStackOffset = group[0].stackOffset;
+        auto walkReg = getTempReg(true);
+        setupBB->addInstruction(
+            RISCVInstruction::createPseudo(RISCVOpcode::MV, walkReg, group[0].baseReg));
+
+        auto limitReg = getTempReg(true);
+        if (isValidImmediate(loopLimitDelta, Opcode::Add))
+        {
+            setupBB->addInstruction(RISCVInstruction::createIType(
+                RISCVOpcode::ADDI, limitReg, walkReg, loopLimitDelta));
+        }
+        else
+        {
+            auto deltaReg = LiInt(loopLimitDelta, true);
+            setupBB->addInstruction(RISCVInstruction::createRType(
+                RISCVOpcode::ADD, limitReg, walkReg, deltaReg));
+        }
+
+        for (const auto &item : group)
+        {
+            const int relOff = item.stackOffset - baseStackOffset;
+            loopBB->addInstruction(
+                RISCVInstruction::createSType(RISCVOpcode::SD, walkReg, zeroReg, relOff));
+        }
+
+        loopBB->addInstruction(RISCVInstruction::createIType(
+            RISCVOpcode::ADDI, walkReg, walkReg, 8));
+
+        loopBB->addInstruction(RISCVInstruction::createBType(
+            RISCVOpcode::BLT, walkReg, limitReg, loopBB->getLabel()));
+
+        if (tailBytes != 0 && tailBB)
+        {
+            for (const auto &item : group)
+            {
+                const int relOff = item.stackOffset - baseStackOffset;
+                tailBB->addInstruction(
+                    RISCVInstruction::createSType(RISCVOpcode::SW, walkReg, zeroReg, relOff));
+            }
+        }
+    }
+    else if (tailBytes >= 4 && tailBB)
+    {
+        const int baseStackOffset = group[0].stackOffset;
+        auto walkReg = getTempReg(true);
+        setupBB->addInstruction(
+            RISCVInstruction::createPseudo(RISCVOpcode::MV, walkReg, group[0].baseReg));
+        for (const auto &item : group)
+        {
+            const int relOff = item.stackOffset - baseStackOffset;
+            tailBB->addInstruction(
+                RISCVInstruction::createSType(RISCVOpcode::SW, walkReg, zeroReg, relOff));
+        }
+    }
 }
 
 void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
 {
-    auto baseAddr = getOrCreateVirtualReg(inst->getPointerOperand());
+    auto baseAddr = materializeAllocaBase(inst->getPointerOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     auto indices = inst->getIndices();
@@ -1816,34 +2029,3 @@ shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhy
     return destReg;
 }
 
-void InstructionSelector::InitAllocaArray(shared_ptr<RISCVRegister> addrReg, int size)
-{
-    auto startReg = getTempReg(true);
-    auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, startReg, addrReg);
-    currentBB->addInstruction(mvInst);
-    auto zeroReg = std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-
-    shared_ptr<RISCVRegister> CounterReg;
-    CounterReg = LiInt(size / 8, true);
-
-    // loop 初始化数组为0
-    auto nextBB = currentBB->getSuccessors()[0];
-    if (size / 8 != 0)
-    {
-        auto sdInst = RISCVInstruction::createSType(RISCVOpcode::SD, startReg, zeroReg, 0);
-        nextBB->addInstruction(sdInst);
-        auto addiInst = RISCVInstruction::createIType(RISCVOpcode::ADDI, CounterReg, CounterReg, -1);
-        nextBB->addInstruction(addiInst);
-        auto addiInst2 = RISCVInstruction::createIType(RISCVOpcode::ADDI, startReg, startReg, 8);
-        nextBB->addInstruction(addiInst2);
-        auto bneInst = RISCVInstruction::createBType(RISCVOpcode::BNE, CounterReg, zeroReg, nextBB->getLabel());
-        nextBB->addInstruction(bneInst);
-    }
-
-    auto next2BB = nextBB->getSuccessors()[0];
-    if (size % 8 != 0)
-    {
-        auto swInst = RISCVInstruction::createSType(RISCVOpcode::SW, startReg, zeroReg, 0);
-        next2BB->addInstruction(swInst);
-    }
-}
