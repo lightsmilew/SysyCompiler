@@ -2074,6 +2074,8 @@ std::string Module::toString() const
     // 全局变量
     for (const auto &gv : GlobalVariables)
     {
+        if (gv->isEliminated)
+            continue;
         ss << gv->toString() << "\n";
     }
 

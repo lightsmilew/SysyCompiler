@@ -46,6 +46,8 @@ void RISCVBuilder::initializeModule(shared_ptr<Module> irModule)
     // 初始化全局变量块
     for (const auto &globalVar : irModule->GlobalVariables)
     {
+        if (globalVar->isEliminated)
+            continue;
         auto globalBlock = riscvModule->createGlobalBlock(globalVar->getName());
         // 初始化全局变量的数据
         if (globalVar->Initializer)

@@ -225,12 +225,213 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
     }
     return changed;
 }
+namespace
+{
+    bool hasLoadOrCallOnArrayRoot(Module *module, Value *root)
+    {
+        if (!module || !root)
+            return false;
+        for (auto &funcPtr : module->Functions)
+        {
+            Function *func = funcPtr.get();
+            if (func->isLibraryFunction())
+                continue;
+            for (auto &bbPtr : func->getBasicBlocks())
+            {
+                for (auto &instPtr : bbPtr->getInstructions())
+                {
+                    Instruction *inst = instPtr.get();
+                    if (auto *load = dynamic_cast<LoadInst *>(inst))
+                    {
+                        if (isSameAddr(load->getOriginalPointer(), root))
+                            return true;
+                    }
+                    if (auto *call = dynamic_cast<CallInst *>(inst))
+                    {
+                        if (call->HasUsedArray(root))
+                            return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    bool hasLoadOrCallOnArrayRootInFunction(Function *func, Value *root)
+    {
+        if (!func || !root)
+            return false;
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                if (auto *load = dynamic_cast<LoadInst *>(inst))
+                {
+                    if (isSameAddr(load->getOriginalPointer(), root))
+                        return true;
+                }
+                if (auto *call = dynamic_cast<CallInst *>(inst))
+                {
+                    if (call->HasUsedArray(root))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void collectWriteOnlyRelatedInsts(Value *root, std::unordered_set<Instruction *> &related)
+    {
+        if (auto *rootInst = dynamic_cast<Instruction *>(root))
+            related.insert(rootInst);
+
+        std::vector<Value *> worklist;
+        std::unordered_set<Value *> visited;
+        worklist.push_back(root);
+        visited.insert(root);
+
+        while (!worklist.empty())
+        {
+            Value *node = worklist.back();
+            worklist.pop_back();
+            for (User *user : node->getUsers())
+            {
+                if (auto *store = dynamic_cast<StoreInst *>(user))
+                {
+                    related.insert(store);
+                }
+                else if (auto *gep = dynamic_cast<GetElementPtrInst *>(user))
+                {
+                    related.insert(gep);
+                    if (!visited.count(gep))
+                    {
+                        visited.insert(gep);
+                        worklist.push_back(gep);
+                    }
+                }
+                else if (auto *bitcast = dynamic_cast<CastInst *>(user))
+                {
+                    if (bitcast->getOpcode() != Opcode::BitCast)
+                        continue;
+                    related.insert(bitcast);
+                    if (!visited.count(bitcast))
+                    {
+                        visited.insert(bitcast);
+                        worklist.push_back(bitcast);
+                    }
+                }
+                else if (auto *add = dynamic_cast<BinaryOperator *>(user))
+                {
+                    if (add->getOpcode() != Opcode::Addd)
+                        continue;
+                    related.insert(add);
+                    if (!visited.count(add))
+                    {
+                        visited.insert(add);
+                        worklist.push_back(add);
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool RemoveOnlyWriteArrayPass::removeWriteOnlyRootInFunction(Value *root, Function *func)
+{
+    if (!root || !func || hasLoadOrCallOnArrayRootInFunction(func, root))
+        return false;
+
+    std::unordered_set<Instruction *> relatedInsts;
+    collectWriteOnlyRelatedInsts(root, relatedInsts);
+    if (relatedInsts.empty())
+        return false;
+
+    bool changed = false;
+    for (auto &bb : func->getBasicBlocks())
+    {
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            Instruction *inst = it->get();
+            if (!relatedInsts.count(inst))
+            {
+                ++it;
+                continue;
+            }
+            if (verbose)
+            {
+                debugInfo << "RemoveOnlyWriteArrayPass: Removing write-only instruction " << inst->getName()
+                          << " in function " << func->getName() << "\n";
+            }
+            inst->removeThisFromOperands();
+            needToDelete.push_back(it->release());
+            it = insts.erase(it);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+bool RemoveOnlyWriteArrayPass::removeWriteOnlyGlobals(Module *module)
+{
+    bool changed = false;
+    for (auto &gvPtr : module->GlobalVariables)
+    {
+        GlobalVariable *gv = gvPtr.get();
+        if (gv->isEliminated || !gv->isArray() || gv->IsConstant)
+            continue;
+
+        if (hasLoadOrCallOnArrayRoot(module, gv))
+            continue;
+
+        std::unordered_set<Instruction *> relatedInsts;
+        collectWriteOnlyRelatedInsts(gv, relatedInsts);
+
+        for (auto &funcPtr : module->Functions)
+        {
+            Function *func = funcPtr.get();
+            if (func->isLibraryFunction())
+                continue;
+            for (auto &bbPtr : func->getBasicBlocks())
+            {
+                auto &insts = bbPtr->getInstructions();
+                for (auto it = insts.begin(); it != insts.end();)
+                {
+                    Instruction *inst = it->get();
+                    if (!relatedInsts.count(inst))
+                    {
+                        ++it;
+                        continue;
+                    }
+                    if (verbose)
+                    {
+                        debugInfo << "RemoveOnlyWriteArrayPass: Removing write-only global @" << gv->getName()
+                                  << " instruction " << inst->getName() << " in function " << func->getName() << "\n";
+                    }
+                    inst->removeThisFromOperands();
+                    needToDelete.push_back(it->release());
+                    it = insts.erase(it);
+                    changed = true;
+                }
+            }
+        }
+
+        gv->isEliminated = true;
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "RemoveOnlyWriteArrayPass: Eliminated write-only global array @" << gv->getName() << "\n";
+        }
+    }
+    return changed;
+}
+
 bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
 {
     bool changed = false;
     std::vector<AllocaInst *> arrayAllocas;
 
-    // 1. 收集所有数组 alloca
     for (auto &bb : func->getBasicBlocks())
     {
         for (auto &inst : bb->getInstructions())
@@ -240,7 +441,8 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
                 arrayAllocas.push_back(alloca);
                 if (verbose)
                 {
-                    debugInfo << "RemoveWriteOnlyArrayPass: Found array alloca " << alloca->getName() << " in function " << func->getName() << "\n";
+                    debugInfo << "RemoveOnlyWriteArrayPass: Found array alloca " << alloca->getName()
+                              << " in function " << func->getName() << "\n";
                 }
             }
         }
@@ -248,97 +450,16 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
 
     for (auto *alloca : arrayAllocas)
     {
-        bool hasLoadOrCall = false;
-        std::unordered_set<Instruction *> relatedInsts;
-        std::vector<User *> worklist;
-        worklist.push_back(alloca);
-
-        // 1. 全局查找所有 load 和 call 指令
-        for (auto &bb : func->getBasicBlocks())
-        {
-            for (auto &inst : bb->getInstructions())
-            {
-                // 检查load
-                if (auto *load = dynamic_cast<LoadInst *>(inst.get()))
-                {
-                    Value *origPtr = load->getOriginalPointer();
-                    if (origPtr == alloca)
-                    {
-                        hasLoadOrCall = true;
-                        break;
-                    }
-                }
-                // 检查call
-                if (auto *call = dynamic_cast<CallInst *>(inst.get()))
-                {
-                    if (call->HasUsedArray(alloca))
-                    {
-                        hasLoadOrCall = true;
-                        break;
-                    }
-                }
-            }
-            if (hasLoadOrCall)
-                break;
-        }
-
-        // 2. 没有load/call才删除
-        if (!hasLoadOrCall)
-        {
-            relatedInsts.insert(alloca);
-            std::vector<User *> worklist;
-            worklist.push_back(alloca);
-
-            while (!worklist.empty())
-            {
-                User *user = worklist.back();
-                worklist.pop_back();
-                for (auto *u : user->getUsers())
-                {
-                    if (auto *store = dynamic_cast<StoreInst *>(u))
-                    {
-                        relatedInsts.insert(store);
-                    }
-                    else if (auto *gep = dynamic_cast<GetElementPtrInst *>(u))
-                    {
-                        relatedInsts.insert(gep);
-                        worklist.push_back(gep);
-                    }
-                    else if (auto *bitcast = dynamic_cast<CastInst *>(u))
-                    {
-                        if (bitcast->getOpcode() != Opcode::BitCast)
-                            continue;
-                        relatedInsts.insert(bitcast);
-                        worklist.push_back(bitcast);
-                    }
-                }
-            }
-            // 删除相关指令
-            for (auto &bb : func->getBasicBlocks())
-            {
-                auto &insts = bb->getInstructions();
-                for (auto it = insts.begin(); it != insts.end();)
-                {
-                    auto *inst = it->get();
-                    if (relatedInsts.count(inst))
-                    {
-                        if (verbose)
-                        {
-                            debugInfo << "RemoveWriteOnlyArrayPass: Removing write-only array instruction " << inst->getName() << " in function " << func->getName() << "\n";
-                        }
-                        inst->removeThisFromOperands();
-                        needToDelete.push_back(it->release());
-                        it = insts.erase(it);
-                    }
-                    else
-                    {
-                        ++it;
-                    }
-                }
-            }
-            changed = true;
-        }
+        changed |= removeWriteOnlyRootInFunction(alloca, func);
     }
+
+    Module *module = func->getParent();
+    if (module && !writeOnlyGlobalsProcessed)
+    {
+        writeOnlyGlobalsProcessed = true;
+        changed |= removeWriteOnlyGlobals(module);
+    }
+
     return changed;
 }
 

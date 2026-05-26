@@ -21,6 +21,11 @@ namespace optimization
         RemoveOnlyWriteArrayPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "RemoveOnlyWriteArray"; }
+
+    private:
+        bool writeOnlyGlobalsProcessed = false;
+        bool removeWriteOnlyGlobals(Module *module);
+        bool removeWriteOnlyRootInFunction(Value *root, Function *func);
     };
 
     // 17. 数组同元素写后读转发
