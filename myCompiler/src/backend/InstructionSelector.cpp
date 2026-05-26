@@ -363,12 +363,24 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
         return;
     }
 
-    // 3. 处理移位 (只能是右操作数为常量)
-    if ((inst->Op == Opcode::Sll || inst->Op == Opcode::Sra ||
-         inst->Op == Opcode::Slld || inst->Op == Opcode::Srad) &&
-        rhsConst)
+    // 3. 处理移位 (只能是右操作数为常量；slld/srad 来自 SRFixed 时常为 ConstantLong)
+    if (inst->Op == Opcode::Sll || inst->Op == Opcode::Sra || inst->Op == Opcode::Slld ||
+        inst->Op == Opcode::Srad)
     {
-        if (isValidImmediate(rhsConst->Value, inst->Op))
+        int64_t shiftAmt = 0;
+        bool hasShiftConst = false;
+        if (rhsConst)
+        {
+            shiftAmt = rhsConst->Value;
+            hasShiftConst = true;
+        }
+        else if (auto *rhsLong = dynamic_cast<ConstantLong *>(inst->getRHS()))
+        {
+            shiftAmt = rhsLong->Value;
+            hasShiftConst = true;
+        }
+
+        if (hasShiftConst && isValidImmediate(shiftAmt, inst->Op))
         {
             auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
             RISCVOpcode opcode;
@@ -389,7 +401,7 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
             default:
                 break;
             }
-            auto immInst = RISCVInstruction::createIType(opcode, destReg, lhsReg, rhsConst->Value);
+            auto immInst = RISCVInstruction::createIType(opcode, destReg, lhsReg, shiftAmt);
             currentBB->addInstruction(immInst);
             return;
         }
