@@ -601,6 +601,13 @@ shared_ptr<RISCVRegister> InstructionSelector::materializeAllocaBase(Value *ptr)
     return adjusted;
 }
 
+shared_ptr<RISCVRegister> InstructionSelector::materializeCallArg(Value *arg)
+{
+    if (arg->getType()->isPointerTy())
+        return materializeAllocaBase(arg);
+    return getOrCreateVirtualReg(arg);
+}
+
 void InstructionSelector::visitAllocaInst(AllocaInst *inst)
 {
     auto &stack = currentFunc->getStackFrame();
@@ -1000,7 +1007,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             else
             {
                 // 使用寄存器传递参数
-                auto argReg = getOrCreateVirtualReg(arg);
+                auto argReg = materializeCallArg(arg);
                 auto destReg = make_shared<RISCVRegister>(FLOAT_PARAM_REGS[floatArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_S, destReg, argReg);
                 currentBB->addInstruction(mvInst);
@@ -1024,7 +1031,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
             else
             {
                 // 使用寄存器传递参数
-                auto argReg = getOrCreateVirtualReg(arg);
+                auto argReg = materializeCallArg(arg);
                 auto destReg = make_shared<RISCVRegister>(INT_PARAM_REGS[intArgIndex]);
                 auto mvInst = RISCVInstruction::createPseudo(RISCVOpcode::MV, destReg, argReg);
                 currentBB->addInstruction(mvInst);
@@ -1034,7 +1041,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
 
         if (needStackPass)
         {
-            shared_ptr<RISCVRegister> argReg = getOrCreateVirtualReg(arg);
+            shared_ptr<RISCVRegister> argReg = materializeCallArg(arg);
             if (tempMoveArgMap.find(arg->getName()) != tempMoveArgMap.end())
             {
                 // 如果是两阶段传递的参数，直接使用临时寄存器

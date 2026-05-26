@@ -36,6 +36,7 @@ private:
     unordered_map<string, int> allocaExtraByteOffset;
 
     shared_ptr<RISCVRegister> materializeAllocaBase(Value *ptr);
+    shared_ptr<RISCVRegister> materializeCallArg(Value *arg);
     void enqueueAllocaInit(int size, int stackOffset, shared_ptr<RISCVRegister> baseReg);
     void flushPendingAllocaInits();
     void emitFusedAllocaZeroInit(const vector<PendingAllocaInit> &group,
