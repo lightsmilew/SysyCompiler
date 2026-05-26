@@ -9,6 +9,7 @@
 #include "LoopIfGuardHoistPass.h"
 #include "LoopInductionStrengthReductionPass.h"
 #include "LoopInterchangePass.h"
+#include "CondGuardedAccumulatePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"
@@ -17,15 +18,12 @@
 #include "ConstantFoldingPass.h"
 #include "PhiEliminationPass.h"
 #include "IfConversionPass.h"
-#include "IfLadderShiftPass.h"
 #include "InstructionReorderPass.h"
 #include "InstructionCombinePass.h"
 #include "MemoizationPass.h"
 #include "MemoizationV2Pass.h"
-#include "MultiplyPass.h"
 #include "SRFixedPass.h"
 #include "NormalizationPass.h"
-#include "BitwiseLoopFusionPass.h"
 #include <vector>
 #include <string>
 #include <memory>
