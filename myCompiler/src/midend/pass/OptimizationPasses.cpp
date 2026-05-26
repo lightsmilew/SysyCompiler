@@ -117,6 +117,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
@@ -168,6 +169,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
@@ -227,6 +229,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         // 进行循环展开后再来一次合并基本块
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
@@ -281,6 +284,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         // LoopSkipContinue 后直接展开（勿先 BB merge，见 O0/O1 注释）
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
@@ -350,6 +354,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         //这三个绑定
+        pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
