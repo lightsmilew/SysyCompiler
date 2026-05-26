@@ -8,6 +8,7 @@
 #include "LoopSkipContinueElimPass.h"
 #include "LoopIfGuardHoistPass.h"
 #include "LoopInductionStrengthReductionPass.h"
+#include "LoopInterchangePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"

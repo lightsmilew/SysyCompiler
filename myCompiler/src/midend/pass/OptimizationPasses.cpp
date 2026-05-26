@@ -360,6 +360,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
        
         // 这里进行指令合并
