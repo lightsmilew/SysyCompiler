@@ -693,7 +693,8 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
         {
           // 为使用的溢出寄存器创建临时寄存器
           auto tempReg = make_shared<RISCVRegister>(useReg->getType());
-          auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
+          auto spReg =
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
 
           // 获取溢出寄存器在栈上的偏移量
           string spillName = "spill_" + useReg->toString();
@@ -712,24 +713,22 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
 
           if (offset <= 2047 && offset >= -2048)
           {
-            auto addInst = RISCVInstruction::createIType(
-                RISCVOpcode::ADDI, addrReg,
-                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), offset);
-            beforeInstr.push_back(addInst);
+            auto loadInstr =
+                RISCVInstruction::createIType(loadOp, tempReg, spReg, offset);
+            beforeInstr.push_back(loadInstr);
           }
           else
           {
+            auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
             auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
             beforeInstr.push_back(liInstr);
             auto addInst = RISCVInstruction::createRType(
-                RISCVOpcode::ADD, addrReg,
-                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
+                RISCVOpcode::ADD, addrReg, spReg, addrReg);
             beforeInstr.push_back(addInst);
+            auto loadInstr =
+                RISCVInstruction::createIType(loadOp, tempReg, addrReg, 0);
+            beforeInstr.push_back(loadInstr);
           }
-          auto loadInstr = RISCVInstruction::createIType(
-              loadOp, tempReg,
-              addrReg, 0); // 偏移量为0，因为addrReg已经包含了偏移量,
-          beforeInstr.push_back(loadInstr);
           // 替换指令中的寄存器引用
           instr->replaceUseRegister(useReg, tempReg);
         }
@@ -742,7 +741,8 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
         {
           // 为定义的溢出寄存器创建临时寄存器
           auto tempReg = make_shared<RISCVRegister>(defReg->getType());
-          auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
+          auto spReg =
+              make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
 
           // 获取溢出寄存器在栈上的偏移量
           string spillName = "spill_" + defReg->toString();
@@ -764,26 +764,22 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
 
           if (offset <= 2047 && offset >= -2048)
           {
-            auto addInst = RISCVInstruction::createIType(
-                RISCVOpcode::ADDI, addrReg,
-                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), offset);
-            beforeInstr.push_back(addInst);
+            auto storeInstr =
+                RISCVInstruction::createSType(storeOp, spReg, tempReg, offset);
+            afterInstr.push_back(storeInstr);
           }
           else
           {
+            auto addrReg = make_shared<RISCVRegister>(RegisterType::INT);
             auto liInstr = RISCVInstruction::createPseudoLI(addrReg, offset);
-            beforeInstr.push_back(liInstr);
+            afterInstr.push_back(liInstr);
             auto addInst = RISCVInstruction::createRType(
-                RISCVOpcode::ADD, addrReg,
-                make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP), addrReg);
-            beforeInstr.push_back(addInst);
+                RISCVOpcode::ADD, addrReg, spReg, addrReg);
+            afterInstr.push_back(addInst);
+            auto storeInstr =
+                RISCVInstruction::createSType(storeOp, addrReg, tempReg, 0);
+            afterInstr.push_back(storeInstr);
           }
-          auto storeInstr = RISCVInstruction::createSType(
-              storeOp,
-              addrReg, tempReg,
-              0);
-
-          afterInstr.push_back(storeInstr);
         }
       }
 

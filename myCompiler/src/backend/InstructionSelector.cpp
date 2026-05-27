@@ -1171,6 +1171,15 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
 
 void InstructionSelector::visitBranchInst(BranchInst *inst)
 {
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    auto emitCondFalseAndJalTrue = [&](RISCVOpcode brOp, shared_ptr<RISCVRegister> condReg)
+    {
+        currentBB->addInstruction(RISCVInstruction::createBType(
+            brOp, condReg, zeroReg, inst->FalseBlock->getName()));
+        currentBB->addInstruction(RISCVInstruction::createJType(
+            RISCVOpcode::JAL, zeroReg, inst->TrueBlock->getName()));
+    };
+
     if (inst->getCondition())
     {
         // icmp (eq|ne) 0 直接分支，避免 xori/sltu + beq 序列
@@ -1199,14 +1208,12 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
                     currentBB->addInstruction(ftoiInst);
                     vReg = intCondReg;
                 }
-                auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-                RISCVOpcode brOp = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BNE : RISCVOpcode::BEQ;
-                currentBB->addInstruction(RISCVInstruction::createBType(brOp, vReg, zeroReg, inst->TrueBlock->getName()));
+                // 条件跳假出口 + jal 真出口；真出口 fall-through 时由 RemoveRedundantJalPass 删 jal
+                RISCVOpcode brOp = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BEQ
+                                                                             : RISCVOpcode::BNE;
                 if (inst->FalseBlock)
                 {
-                    currentBB->addInstruction(RISCVInstruction::createJType(
-                        RISCVOpcode::JAL, make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                        inst->FalseBlock->getName()));
+                    emitCondFalseAndJalTrue(brOp, vReg);
                 }
                 return;
             }
@@ -1217,26 +1224,15 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 
         if (condReg->getType() == RegisterType::FLOAT)
         {
-            // 如果条件是浮点类型，需要先转换为整数
             auto intCondReg = getTempReg();
             auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, condReg);
             currentBB->addInstruction(ftoiInst);
-            condReg = intCondReg; // 使用转换后的整数寄存器作为条件
+            condReg = intCondReg;
         }
 
-        // 生成条件分支指令 - 条件应该在通用寄存器中
-        auto brInst = RISCVInstruction::createBType(RISCVOpcode::BEQ, condReg,
-                                                    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                    inst->FalseBlock->getName());
-        currentBB->addInstruction(brInst);
-
-        // 生成无条件跳转到false分支
         if (inst->FalseBlock)
         {
-            auto jumpInst = RISCVInstruction::createJType(RISCVOpcode::JAL,
-                                                          make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO),
-                                                          inst->TrueBlock->getName());
-            currentBB->addInstruction(jumpInst);
+            emitCondFalseAndJalTrue(RISCVOpcode::BEQ, condReg);
         }
     }
     else
