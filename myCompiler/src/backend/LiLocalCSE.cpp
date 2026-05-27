@@ -24,6 +24,26 @@ namespace RISCV
         return h;
     }
 
+    bool LiLocalCSE::MaterialKey::operator==(const MaterialKey &o) const
+    {
+        if (opcode != o.opcode)
+            return false;
+        if (opcode == RISCVOpcode::LI)
+            return hasImm == o.hasImm && (!hasImm || imm == o.imm);
+        if (opcode == RISCVOpcode::LA)
+            return label == o.label;
+        return false;
+    }
+
+    size_t LiLocalCSE::MaterialKeyHash::operator()(const MaterialKey &k) const
+    {
+        size_t h = std::hash<int>()(static_cast<int>(k.opcode));
+        if (k.hasImm)
+            h ^= std::hash<int64_t>()(k.imm) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<std::string>()(k.label) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }
+
     shared_ptr<RISCVRegister> LiLocalCSE::getSpRegister()
     {
         static auto sp = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
@@ -62,8 +82,9 @@ namespace RISCV
         case RISCVOpcode::ADDIW:
         case RISCVOpcode::SUB:
         case RISCVOpcode::SUBW:
-        case RISCVOpcode::MUL:
-        case RISCVOpcode::MULW:
+        // 不 CSE mul/mulw：mul rd,rs,rd 与 stride 链上常重复 li+mul，误合并会删掉后续 la 仍用的偏移
+        // case RISCVOpcode::MUL:
+        // case RISCVOpcode::MULW:
         case RISCVOpcode::AND:
         case RISCVOpcode::ANDI:
         case RISCVOpcode::OR:
@@ -135,6 +156,16 @@ namespace RISCV
         return true;
     }
 
+    bool LiLocalCSE::skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
+                                        const shared_ptr<RISCVInstruction> &inst,
+                                        const shared_ptr<RISCVLoop> &loop)
+    {
+        if (!inst || !loop || !bb)
+            return false;
+        // 循环头里的 li 每轮迭代都会执行，不能当作块内可复用的常量
+        return inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader();
+    }
+
     bool LiLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
                                             const shared_ptr<RISCVInstruction> &inst,
                                             const shared_ptr<RISCVLoop> &loop)
@@ -142,14 +173,82 @@ namespace RISCV
         if (!inst || !loop || !bb)
             return false;
 
+        // li/la 只读物化走 materialAvail；此处仅约束算术 CSE
+        if (inst->getOpcode() == RISCVOpcode::LI || inst->getOpcode() == RISCVOpcode::LA)
+            return false;
+
         if (!isOnlyDefOfDestInBlocks(inst, loop->getBlocks()))
             return true;
 
-        // 循环头内的 li 每轮迭代都会执行，不能当作可复用的不变量
-        if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
-            return true;
-
         return false;
+    }
+
+    optional<LiLocalCSE::MaterialKey> LiLocalCSE::buildMaterialKey(
+        const shared_ptr<RISCVInstruction> &inst, shared_ptr<RISCVRegister> &outRd)
+    {
+        outRd = nullptr;
+        if (!inst)
+            return std::nullopt;
+        const auto op = inst->getOpcode();
+        if (op != RISCVOpcode::LI && op != RISCVOpcode::LA)
+            return std::nullopt;
+        auto ops = inst->getOperands();
+        if (ops.empty() || !ops[0]->getReg() || !ops[0]->getReg()->isVirtual())
+            return std::nullopt;
+        outRd = ops[0]->getReg();
+
+        MaterialKey key;
+        key.opcode = op;
+        if (op == RISCVOpcode::LI)
+        {
+            if (ops.size() < 2 || ops[1]->getType() != RISCVOperand::Type::IMMEDIATE)
+                return std::nullopt;
+            key.hasImm = true;
+            key.imm = ops[1]->getImmediate();
+            return key;
+        }
+        if (ops.size() < 2 || !ops[1]->hasLabel())
+            return std::nullopt;
+        key.label = ops[1]->getLabel();
+        return key;
+    }
+
+    void LiLocalCSE::invalidateMaterialAvail(
+        unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
+        const shared_ptr<RISCVInstruction> &producer)
+    {
+        if (!producer)
+            return;
+        for (const auto &reg : producer->getDefRegisters())
+        {
+            if (!reg)
+                continue;
+            for (auto it = materialAvail.begin(); it != materialAvail.end();)
+            {
+                auto canon = getDestReg(it->second.defInst);
+                if (canon && *canon == *reg)
+                {
+                    if (it->second.defInst == producer)
+                    {
+                        ++it;
+                        continue;
+                    }
+                    it = materialAvail.erase(it);
+                    continue;
+                }
+                ++it;
+            }
+        }
+    }
+
+    void LiLocalCSE::decrementMaterialDefIdxAfter(
+        unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail, size_t erasedIdx)
+    {
+        for (auto &entry : materialAvail)
+        {
+            if (entry.second.defIdx > erasedIdx)
+                --entry.second.defIdx;
+        }
     }
 
     string LiLocalCSE::operandKey(const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
@@ -201,6 +300,8 @@ namespace RISCV
                 return std::nullopt;
             key.hasImm = true;
             key.imm = ops[1]->getImmediate();
+            // 不同虚拟寄存器的 li 不能仅因立即数相同就合并，否则 canon 可能已被后续指令改写
+            key.op1 = regKey(outRd);
             return key;
         }
 
@@ -260,6 +361,22 @@ namespace RISCV
         return false;
     }
 
+    bool LiLocalCSE::areSourceOperandsLiveSinceDef(
+        const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
+        const shared_ptr<RISCVInstruction> &defInst, size_t defIdx)
+    {
+        if (!defInst)
+            return false;
+        for (const auto &use : defInst->getUseRegisters())
+        {
+            if (!use || !use->isVirtual())
+                continue;
+            if (isRegDefinedSince(insts, defIdx, useIdx, use))
+                return false;
+        }
+        return true;
+    }
+
     bool LiLocalCSE::isAvailEntryLive(const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
                                       const AvailEntry &entry)
     {
@@ -268,7 +385,10 @@ namespace RISCV
         auto canon = getDestReg(entry.defInst);
         if (!canon || !canon->isVirtual())
             return false;
-        return !isRegDefinedSince(insts, entry.defIdx, useIdx, canon);
+        if (isRegDefinedSince(insts, entry.defIdx, useIdx, canon))
+            return false;
+        // 仅看 dest 会误判：la t2,a; add a3,t2,t3; la t2,b; add t5,t2,t3 的 key 相同但 t2 已变
+        return areSourceOperandsLiveSinceDef(insts, useIdx, entry.defInst, entry.defIdx);
     }
 
     bool LiLocalCSE::allUsesReplaceable(const vector<shared_ptr<RISCVInstruction>> &insts,
@@ -429,6 +549,7 @@ namespace RISCV
         for (auto &bb : function->getBasicBlocks())
         {
             unordered_map<ExprKey, AvailEntry, ExprKeyHash> avail;
+            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> materialAvail;
             int spVersion = 0;
             auto &insts = bb->getInstructions();
             const shared_ptr<RISCVLoop> innerLoop = bb ? bbInnerLoop[bb] : nullptr;
@@ -442,6 +563,7 @@ namespace RISCV
                 if (idx > 0 && insts[idx - 1])
                 {
                     invalidateDefsOfInst(avail, insts[idx - 1]);
+                    invalidateMaterialAvail(materialAvail, insts[idx - 1]);
                 }
 
                 if (isSpDefinedBy(inst))
@@ -452,6 +574,51 @@ namespace RISCV
                 if (inst->getOpcode() == RISCVOpcode::CALL)
                 {
                     avail.clear();
+                    materialAvail.clear();
+                }
+
+                // li/la 只读物化：同立即数/符号则删重复指令，后续 use 改用首次的 rd
+                if (!skipMaterializeCSE(bb, inst, innerLoop))
+                {
+                    shared_ptr<RISCVRegister> matRd;
+                    if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
+                    {
+                        bool matHandled = false;
+                        auto matIt = materialAvail.find(*matKey);
+                        if (matIt != materialAvail.end())
+                        {
+                            if (isAvailEntryLive(insts, idx, matIt->second))
+                            {
+                                auto canon = getDestReg(matIt->second.defInst);
+                                if (canon && !hasUseOutsideBlock(function, bb, matRd) &&
+                                    allUsesReplaceable(insts, idx, matIt->second.defIdx, matRd, canon))
+                                {
+                                    replaceUsesWithCanon(insts, idx, matIt->second.defIdx, matRd, canon);
+                                    insts.erase(insts.begin() + static_cast<long>(idx));
+                                    decrementDefIdxAfter(avail, idx);
+                                    decrementMaterialDefIdxAfter(materialAvail, idx);
+                                    changed = true;
+                                    matHandled = true;
+                                    --idx;
+                                }
+                                else
+                                {
+                                    materialAvail.erase(matIt);
+                                }
+                            }
+                            else
+                            {
+                                materialAvail.erase(matIt);
+                            }
+                        }
+                        if (!matHandled)
+                        {
+                            AvailEntry entry;
+                            entry.defInst = inst;
+                            entry.defIdx = idx;
+                            materialAvail[*matKey] = entry;
+                        }
+                    }
                 }
 
                 if (isLoopInductionRelated(bb, inst, innerLoop))

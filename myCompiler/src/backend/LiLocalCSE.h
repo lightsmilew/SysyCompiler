@@ -5,8 +5,8 @@
 
 namespace RISCV
 {
-    /// 基本块内公共子表达式消除：li + 纯算术（不做 la：循环中指针别名不安全）；avail 不跨块延续。
-    /// 循环归纳/规约相关指令跳过（与 LICM 相同判定）；命中时用已有 rd 替换后续 use 并删除重复计算，不生成 MV。
+    /// 基本块内 CSE：li/la 只读物化（同立即数/符号合并，后续 rd 复用先前 def）+ 纯算术。
+    /// avail 不跨块；循环头归纳 li 不做物化合并；命中时替换 use 并删除重复指令，不生成 MV。
     class LiLocalCSE
     {
     public:
@@ -37,6 +37,22 @@ namespace RISCV
             int spVersion = 0;
         };
 
+        /// li/la 物化键：不含 rd，仅按立即数或全局符号
+        struct MaterialKey
+        {
+            RISCVOpcode opcode = RISCVOpcode::LI;
+            int64_t imm = 0;
+            std::string label;
+            bool hasImm = false;
+
+            bool operator==(const MaterialKey &o) const;
+        };
+
+        struct MaterialKeyHash
+        {
+            size_t operator()(const MaterialKey &k) const;
+        };
+
         static bool optimizeFunction(shared_ptr<RISCVFunction> function);
         static shared_ptr<RISCVRegister> getSpRegister();
         static shared_ptr<RISCVRegister> getDestReg(const shared_ptr<RISCVInstruction> &inst);
@@ -50,6 +66,16 @@ namespace RISCV
         static bool isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
                                            const shared_ptr<RISCVInstruction> &inst,
                                            const shared_ptr<RISCVLoop> &loop);
+        static bool skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
+                                       const shared_ptr<RISCVInstruction> &inst,
+                                       const shared_ptr<RISCVLoop> &loop);
+        static std::optional<MaterialKey> buildMaterialKey(const shared_ptr<RISCVInstruction> &inst,
+                                                             shared_ptr<RISCVRegister> &outRd);
+        static void invalidateMaterialAvail(
+            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
+            const shared_ptr<RISCVInstruction> &producer);
+        static void decrementMaterialDefIdxAfter(
+            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail, size_t erasedIdx);
         static std::string operandKey(const vector<shared_ptr<RISCVInstruction>> &insts,
                                       size_t idx, const shared_ptr<RISCVRegister> &reg);
         static std::optional<ExprKey> buildExprKey(const vector<shared_ptr<RISCVInstruction>> &insts,
@@ -58,6 +84,9 @@ namespace RISCV
                                                    shared_ptr<RISCVRegister> &outRd);
         static bool isRegDefinedSince(const vector<shared_ptr<RISCVInstruction>> &insts, size_t fromIdx,
                                       size_t toIdx, const shared_ptr<RISCVRegister> &reg);
+        static bool areSourceOperandsLiveSinceDef(
+            const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
+            const shared_ptr<RISCVInstruction> &defInst, size_t defIdx);
         static bool isAvailEntryLive(const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
                                      const AvailEntry &entry);
         static bool hasUseOutsideBlock(shared_ptr<RISCVFunction> function,

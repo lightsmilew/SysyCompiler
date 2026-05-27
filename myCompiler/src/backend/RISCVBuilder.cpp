@@ -8,8 +8,8 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     initializeModule(irModule);
     generateInstructions();
     FirstPeep();
-    //runLiLocalCSEPass();
-    //runLICMPass();
+    runLiLocalCSEPass();
+    runLICMPass();
     // instructionScheduler();
     allocateRegisters();
     SecondPeep();

@@ -21,6 +21,13 @@ namespace
         }
         return false;
     }
+
+    bool isZeroRegOperand(const shared_ptr<RISCVOperand> &op)
+    {
+        return op && op->getType() == RISCVOperand::Type::REGISTER && op->getReg() &&
+               op->getReg()->isPhysical() &&
+               op->getReg()->getPhysicalReg() == RISCVRegister::PhysicalReg::ZERO;
+    }
 }
 
 // ========== RemoveRedundantMovePass ==========
@@ -76,6 +83,30 @@ bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr
                 *operands[0]->getReg() == *operands[1]->getReg())
             {
                 return true;
+            }
+        }
+    }
+
+    // packi64 等路径：add rd, rs, zero（寄存器分配后与 mv rd, rs 同色时常变成 add rd, rd, zero）
+    if (opcode == RISCVOpcode::ADD)
+    {
+        auto operands = instr->getOperands();
+        if (operands.size() == 3 && operands[0]->getType() == RISCVOperand::Type::REGISTER &&
+            operands[1]->getType() == RISCVOperand::Type::REGISTER)
+        {
+            const auto &rd = operands[0]->getReg();
+            const auto &rs1 = operands[1]->getReg();
+            if (rd && rs1 && *rd == *rs1 && isZeroRegOperand(operands[2]))
+            {
+                return true;
+            }
+            if (operands[2]->getType() == RISCVOperand::Type::REGISTER)
+            {
+                const auto &rs2 = operands[2]->getReg();
+                if (rd && rs2 && *rd == *rs2 && isZeroRegOperand(operands[1]))
+                {
+                    return true;
+                }
             }
         }
     }

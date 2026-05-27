@@ -37,8 +37,10 @@ bool LICM::isLoopInvariant(shared_ptr<RISCVInstruction> inst)
 {
     if (!inst)
         return false;
+    // la 外提后常经 mergeLAReg 改址；若外提到祖先 preheader，长生命周期的 caller-saved
+    //（如 t2）会在中间循环里被踩坏（matmul3 的 &c 基址）。块内 la 交给 LiLocalCSE。
     if (inst->getOpcode() == RISCVOpcode::LA)
-        return true;
+        return false;
     if (inst->getOpcode() == RISCVOpcode::LI)
     {
         auto operands = inst->getOperands();
@@ -109,6 +111,36 @@ bool LICM::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
     return true;
 }
 
+namespace
+{
+    bool hasDefOfRegLaterInSameBlock(const shared_ptr<RISCVBasicBlock> &bb,
+                                     const shared_ptr<RISCVInstruction> &inst,
+                                     const shared_ptr<RISCVRegister> &reg)
+    {
+        if (!bb || !inst || !reg)
+            return false;
+        bool seen = false;
+        for (const auto &other : bb->getInstructions())
+        {
+            if (!other)
+                continue;
+            if (other == inst)
+            {
+                seen = true;
+                continue;
+            }
+            if (!seen)
+                continue;
+            for (const auto &def : other->getDefRegisters())
+            {
+                if (def && *def == *reg)
+                    return true;
+            }
+        }
+        return false;
+    }
+}
+
 bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
                                  const shared_ptr<RISCVBasicBlock> &bb,
                                  const shared_ptr<RISCVLoop> &loop)
@@ -125,6 +157,16 @@ bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
     // 循环头内的 li 每轮迭代都会执行；外提到 preheader 只执行一次，等同错误外提归纳变量初值
     if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
         return false;
+
+    if (inst->getOpcode() == RISCVOpcode::LI)
+    {
+        auto defs = inst->getDefRegisters();
+        if (defs.empty() || !defs[0])
+            return false;
+        // 同块内 li 之后若还有指令改写 rd（如 li t3,1000; mul t3,...），不能外提
+        if (hasDefOfRegLaterInSameBlock(bb, inst, defs[0]))
+            return false;
+    }
 
     return true;
 }
@@ -192,6 +234,15 @@ void LICM::collectInvariantsInBlocks(
         {
             if (!canHoistInvariantInst(insts[idx], bb, loop))
                 continue;
+
+            // li 只做单条外提；la 才收集紧随其后的地址计算/访存以便 mergeLAReg
+            if (insts[idx]->getOpcode() == RISCVOpcode::LI)
+            {
+                laMap[insts[idx]] = {};
+                insts.erase(insts.begin() + idx);
+                --idx;
+                continue;
+            }
 
             auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
             for (int i = 1; i < 5; i++)

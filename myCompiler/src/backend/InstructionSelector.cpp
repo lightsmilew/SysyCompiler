@@ -501,37 +501,41 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 
 shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Value *lo, bool isPhysical)
 {
-    shared_ptr<RISCVRegister> hiRaw;
-    if (auto *hiConst = dynamic_cast<ConstantInt *>(hi))
+    (void)isPhysical;
+    // 仅用虚拟临时寄存器，避免与外层归纳变量（常分配到 t0）同色后被 slli/srli 覆盖
+    auto materializeHalf = [this](Value *v) -> shared_ptr<RISCVRegister> {
+        if (auto *c = dynamic_cast<ConstantInt *>(v))
+            return LiInt(c->Value, false);
+        return getOrCreateVirtualReg(v, false);
+    };
+
+    Value *hiStripped = stripValueWrappers(hi);
+    Value *loStripped = stripValueWrappers(lo);
+    const bool sameHalf = hiStripped && loStripped && hiStripped == loStripped;
+
+    auto hiRaw = materializeHalf(hi);
+    auto hiShifted = getTempReg();
+    currentBB->addInstruction(
+        RISCVInstruction::createIType(RISCVOpcode::SLLI, hiShifted, hiRaw, 32));
+
+    shared_ptr<RISCVRegister> loZext = getTempReg();
+    if (sameHalf)
     {
-        hiRaw = LiInt(hiConst->Value, isPhysical);
+        currentBB->addInstruction(
+            RISCVInstruction::createIType(RISCVOpcode::SRLI, loZext, hiShifted, 32));
     }
     else
     {
-        hiRaw = getOrCreateVirtualReg(hi, isPhysical);
+        auto loRaw = materializeHalf(lo);
+        currentBB->addInstruction(
+            RISCVInstruction::createIType(RISCVOpcode::SLLI, loZext, loRaw, 32));
+        currentBB->addInstruction(
+            RISCVInstruction::createIType(RISCVOpcode::SRLI, loZext, loZext, 32));
     }
-    auto hiShifted = getTempReg(isPhysical);
-    auto slliInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, hiShifted, hiRaw, 32);
-    currentBB->addInstruction(slliInst);
 
-    shared_ptr<RISCVRegister> loRaw;
-    if (auto *loConst = dynamic_cast<ConstantInt *>(lo))
-    {
-        loRaw = LiInt(loConst->Value, isPhysical);
-    }
-    else
-    {
-        loRaw = getOrCreateVirtualReg(lo, isPhysical);
-    }
-    auto loZext = getTempReg(isPhysical);
-    auto loSlliInst = RISCVInstruction::createIType(RISCVOpcode::SLLI, loZext, loRaw, 32);
-    currentBB->addInstruction(loSlliInst);
-    auto loSrliInst = RISCVInstruction::createIType(RISCVOpcode::SRLI, loZext, loZext, 32);
-    currentBB->addInstruction(loSrliInst);
-
-    auto destReg = getTempReg(isPhysical);
-    auto orInst = RISCVInstruction::createRType(RISCVOpcode::OR, destReg, hiShifted, loZext);
-    currentBB->addInstruction(orInst);
+    auto destReg = getTempReg();
+    currentBB->addInstruction(
+        RISCVInstruction::createRType(RISCVOpcode::OR, destReg, hiShifted, loZext));
     return destReg;
 }
 
@@ -606,7 +610,7 @@ shared_ptr<RISCVRegister> InstructionSelector::materializeAllocaBase(Value *ptr)
     }
     else
     {
-        auto offReg = LiInt(extra, true);
+        auto offReg = LiInt(extra);
         currentBB->addInstruction(RISCVInstruction::createRType(
             RISCVOpcode::ADD, adjusted, baseAddr, offReg));
     }
@@ -809,7 +813,7 @@ void InstructionSelector::emitFusedAllocaZeroInit(const vector<PendingAllocaInit
         }
         else
         {
-            auto deltaReg = LiInt(loopLimitDelta, true);
+            auto deltaReg = LiInt(loopLimitDelta);
             setupBB->addInstruction(RISCVInstruction::createRType(
                 RISCVOpcode::ADD, limitReg, walkReg, deltaReg));
         }
@@ -917,7 +921,7 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
                 }
                 else
                 {
-                    auto totalOffsetReg = LiInt(offset, true);
+                    auto totalOffsetReg = LiInt(offset);
                     auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
                     currentBB->addInstruction(addInst);
                 }
@@ -942,11 +946,14 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             }
 
             offset *= 4; // 每个元素占4字节
-            auto totalOffsetReg = LiInt(offset, true);
-            auto mulInst = RISCVInstruction::createRType(RISCVOpcode::MUL, totalOffsetReg, indexReg, totalOffsetReg);
+            auto scaleReg = LiInt(offset);
+            auto offsetMulReg = getTempReg();
+            auto mulInst =
+                RISCVInstruction::createRType(RISCVOpcode::MUL, offsetMulReg, indexReg, scaleReg);
             currentBB->addInstruction(mulInst);
 
-            auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, totalOffsetReg);
+            auto addInst =
+                RISCVInstruction::createRType(RISCVOpcode::ADD, destReg, baseAddr, offsetMulReg);
             currentBB->addInstruction(addInst);
 
             return;
@@ -954,10 +961,10 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
     }
     else
     {
-        auto totalOffsetReg = LiInt(0, true);
-        auto offsetReg = LiInt(1, true);
-        auto tmpReg = getTempReg(true);
-        auto strideReg = getTempReg(true);
+        auto totalOffsetReg = LiInt(0);
+        auto offsetReg = LiInt(1);
+        auto tmpReg = getTempReg();
+        auto strideReg = getTempReg();
 
         // 处理每个维度的索引
         for (int i = static_cast<int>(indices.size()) - 1; i >= 0; --i)
@@ -984,8 +991,11 @@ void InstructionSelector::visitElementPtrInst(GetElementPtrInst *inst)
             {
                 auto liStrideInst = RISCVInstruction::createPseudoLI(strideReg, stride);
                 currentBB->addInstruction(liStrideInst);
-                auto mulStrideInst = RISCVInstruction::createRType(RISCVOpcode::MUL, offsetReg, offsetReg, strideReg);
+                auto newOffsetReg = getTempReg();
+                auto mulStrideInst =
+                    RISCVInstruction::createRType(RISCVOpcode::MUL, newOffsetReg, offsetReg, strideReg);
                 currentBB->addInstruction(mulStrideInst);
+                offsetReg = newOffsetReg;
             }
         }
 
@@ -1089,7 +1099,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                 stack.allocateCalleeArgSpace(inst->getName(), argNum);
                 int offset = stack.getCalleeArgOffset(inst->getName(), argNum);
 
-                auto tempReg = getTempReg(true);
+                auto tempReg = getTempReg();
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
                 currentBB->addInstruction(liInst);
                 auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
@@ -1103,7 +1113,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
                 stack.allocateCalleeArgSpace(inst->getName(), argNum, isPtr ? 8 : 4);
                 int offset = stack.getCalleeArgOffset(inst->getName(), argNum);
 
-                auto tempReg = getTempReg(true);
+                auto tempReg = getTempReg();
                 auto liInst = RISCVInstruction::createPseudoLI(tempReg, offset);
                 currentBB->addInstruction(liInst);
                 auto addInst = RISCVInstruction::createRType(RISCVOpcode::ADD, tempReg, spReg, tempReg);
@@ -2029,11 +2039,10 @@ shared_ptr<RISCVRegister> InstructionSelector::getTempPhysicalFloatReg()
 
 shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
 {
+    // 每次使用点单独 la + 虚拟寄存器，避免跨大段循环/调用复用同一 vr 后被分配器压到 caller-saved 并踩坏
     auto globReg = getTempReg();
-    globalVarMap[globlvar->getName()] = globReg;
     auto laInst = RISCVInstruction::createPseudoLA(globReg, globlvar->getName());
     currentBB->addInstruction(laInst);
-
     return globReg;
 }
 
