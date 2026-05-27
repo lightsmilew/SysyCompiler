@@ -259,6 +259,158 @@ namespace
             return false;
         return isEvenIndexValue(indices.back(), bb);
     }
+
+    static BinaryOperator *asBinary(Value *v, Opcode op)
+    {
+        auto *bin = dynamic_cast<BinaryOperator *>(stripCopy(v));
+        if (!bin || bin->getOpcode() != op)
+            return nullptr;
+        return bin;
+    }
+
+    // (a*b)%2==0  <=>  ((a&1)&(b&1))==0；从 srem(mul,2) 或 SRFixed 的 mod2n 链提取 a,b
+    static BinaryOperator *extractMulFromProductMod2(Value *modVal, Value *&a, Value *&b)
+    {
+        a = nullptr;
+        b = nullptr;
+        modVal = stripCopy(modVal);
+
+        if (auto *srem = asBinary(modVal, Opcode::SRem))
+        {
+            if (!asConstantInt(srem->getRHS()) || asConstantInt(srem->getRHS())->Value != 2)
+                return nullptr;
+            auto *mul = asBinary(srem->getLHS(), Opcode::Mul);
+            if (!mul)
+                return nullptr;
+            a = mul->getLHS();
+            b = mul->getRHS();
+            return mul;
+        }
+
+        auto *sub = asBinary(modVal, Opcode::Sub);
+        if (!sub)
+            return nullptr;
+        auto *andmask = asBinary(sub->getLHS(), Opcode::And);
+        auto *bias = asBinary(sub->getRHS(), Opcode::And);
+        if (!andmask || !bias)
+            return nullptr;
+        if (!asConstantInt(andmask->getRHS()) || asConstantInt(andmask->getRHS())->Value != 1)
+            return nullptr;
+        if (!asConstantInt(bias->getRHS()) || asConstantInt(bias->getRHS())->Value != 1)
+            return nullptr;
+
+        auto *addbias = asBinary(andmask->getLHS(), Opcode::Add);
+        if (!addbias || addbias->getRHS() != bias)
+            return nullptr;
+
+        auto *mul = asBinary(addbias->getLHS(), Opcode::Mul);
+        if (!mul)
+            return nullptr;
+
+        auto *signmask = asBinary(bias->getLHS(), Opcode::Sra);
+        if (!signmask || signmask->getLHS() != mul)
+            return nullptr;
+        if (!asConstantInt(signmask->getRHS()) || asConstantInt(signmask->getRHS())->Value != 31)
+            return nullptr;
+
+        a = mul->getLHS();
+        b = mul->getRHS();
+        return mul;
+    }
+
+    static void eraseInstFromBlock(vector<unique_ptr<Instruction>> &insts, Instruction *inst,
+                                   vector<Value *> &needToDelete)
+    {
+        if (!inst)
+            return;
+        for (size_t k = 0; k < insts.size(); ++k)
+        {
+            if (insts[k].get() != inst)
+                continue;
+            inst->removeThisFromOperands();
+            needToDelete.push_back(insts[k].release());
+            insts.erase(insts.begin() + static_cast<long>(k));
+            return;
+        }
+    }
+
+    static void eraseIfUnused(vector<unique_ptr<Instruction>> &insts, Instruction *inst,
+                              vector<Value *> &needToDelete)
+    {
+        if (!inst || !inst->getUsers().empty())
+            return;
+        eraseInstFromBlock(insts, inst, needToDelete);
+    }
+
+    static bool tryFoldMulMod2ParityEq(BasicBlock *bb,
+                                       vector<unique_ptr<Instruction>> &insts,
+                                       size_t idx,
+                                       bool verbose,
+                                       stringstream &debugInfo,
+                                       vector<Value *> &needToDelete)
+    {
+        auto *icmp = dynamic_cast<ICmpInst *>(insts[idx].get());
+        if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_EQ)
+            return false;
+
+        Value *lhs = stripCopy(icmp->getLHS());
+        Value *rhs = stripCopy(icmp->getRHS());
+        if (!asConstantInt(rhs) || asConstantInt(rhs)->Value != 0)
+            return false;
+
+        Value *a = nullptr;
+        Value *b = nullptr;
+        auto *mul = extractMulFromProductMod2(lhs, a, b);
+        if (!mul || !a || !b)
+            return false;
+
+        auto *i32 = IntegerType::getInstance();
+        auto *one = new ConstantInt(i32, 1);
+        auto *zero = new ConstantInt(i32, 0);
+        auto *aOdd = new BinaryOperator(Opcode::And, a, one, freshName("parity_a"));
+        auto *bOdd = new BinaryOperator(Opcode::And, b, one, freshName("parity_b"));
+        auto *bothOdd = new BinaryOperator(Opcode::And, aOdd, bOdd, freshName("parity_and"));
+        auto *newIcmp = new ICmpInst(ICmpInst::ICMP_EQ, bothOdd, zero, icmp->getName());
+
+        icmp->replaceAllUsesWith(newIcmp);
+        insts[idx] = unique_ptr<Instruction>(aOdd);
+        insts.insert(insts.begin() + static_cast<long>(idx) + 1, unique_ptr<Instruction>(bOdd));
+        insts.insert(insts.begin() + static_cast<long>(idx) + 2, unique_ptr<Instruction>(bothOdd));
+        insts.insert(insts.begin() + static_cast<long>(idx) + 3, unique_ptr<Instruction>(newIcmp));
+        eraseInstFromBlock(insts, icmp, needToDelete);
+
+        if (auto *sub = asBinary(lhs, Opcode::Sub))
+        {
+            eraseIfUnused(insts, sub, needToDelete);
+            if (auto *andmask = asBinary(sub->getLHS(), Opcode::And))
+            {
+                eraseIfUnused(insts, andmask, needToDelete);
+                if (auto *addbias = asBinary(andmask->getLHS(), Opcode::Add))
+                {
+                    eraseIfUnused(insts, addbias, needToDelete);
+                    if (auto *bias = asBinary(addbias->getRHS(), Opcode::And))
+                    {
+                        eraseIfUnused(insts, bias, needToDelete);
+                        if (auto *signmask = asBinary(bias->getLHS(), Opcode::Sra))
+                            eraseIfUnused(insts, signmask, needToDelete);
+                    }
+                }
+            }
+            eraseIfUnused(insts, mul, needToDelete);
+        }
+        else if (auto *srem = asBinary(lhs, Opcode::SRem))
+        {
+            eraseIfUnused(insts, srem, needToDelete);
+            eraseIfUnused(insts, mul, needToDelete);
+        }
+
+        if (verbose)
+        {
+            debugInfo << "InstructionCombine: (a*b)%2==0 -> ((a&1)&(b&1))==0 in "
+                      << bb->getName() << "\n";
+        }
+        return true;
+    }
 }
 
 bool InstructionCombinePass::runOnFunction(Function *func)
@@ -267,6 +419,14 @@ bool InstructionCombinePass::runOnFunction(Function *func)
     for (auto &bb : func->getBasicBlocks())
     {
         auto &insts = bb->getInstructions();
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            if (tryFoldMulMod2ParityEq(bb.get(), insts, i, verbose, debugInfo, needToDelete))
+            {
+                changed = true;
+                continue;
+            }
+        }
         for (size_t i = 0; i < insts.size(); ++i)
         {
             Instruction *inst1 = insts[i].get();
