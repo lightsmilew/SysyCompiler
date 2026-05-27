@@ -106,6 +106,8 @@ private:
     static bool canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
                                       const shared_ptr<RISCVBasicBlock> &bb,
                                       const shared_ptr<RISCVLoop> &loop);
+    static bool isChildLoopPreheader(const shared_ptr<RISCVLoop> &loop,
+                                     const shared_ptr<RISCVBasicBlock> &bb);
     void mergeLAReg(shared_ptr<RISCVInstruction> keep, vector<shared_ptr<RISCVInstruction>> merges);
     void collectInvariantsInBlocks(
         const vector<shared_ptr<RISCVBasicBlock>> &scopeBlocks,

@@ -37,10 +37,12 @@ bool LICM::isLoopInvariant(shared_ptr<RISCVInstruction> inst)
 {
     if (!inst)
         return false;
-    // la 外提后常经 mergeLAReg 改址；若外提到祖先 preheader，长生命周期的 caller-saved
-    //（如 t2）会在中间循环里被踩坏（matmul3 的 &c 基址）。块内 la 交给 LiLocalCSE。
     if (inst->getOpcode() == RISCVOpcode::LA)
-        return false;
+    {
+        auto operands = inst->getOperands();
+        auto rd = operands.size() >= 1 ? operands[0]->getReg() : nullptr;
+        return rd && rd->isVirtual() && operands.size() >= 2 && operands[1]->hasLabel();
+    }
     if (inst->getOpcode() == RISCVOpcode::LI)
     {
         auto operands = inst->getOperands();
@@ -48,6 +50,22 @@ bool LICM::isLoopInvariant(shared_ptr<RISCVInstruction> inst)
         // 物理临时寄存器假定“加载后立即使用”，不能外提到 preheader
         return rd && rd->isVirtual() && operands.size() >= 2 &&
                operands[1]->getType() == RISCVOperand::Type::IMMEDIATE;
+    }
+    return false;
+}
+
+bool LICM::isChildLoopPreheader(const shared_ptr<RISCVLoop> &loop,
+                                const shared_ptr<RISCVBasicBlock> &bb)
+{
+    if (!loop || !bb)
+        return false;
+    for (const auto &child : loop->getChildLoops())
+    {
+        if (!child)
+            continue;
+        auto childPre = child->getPreHeader();
+        if (childPre && childPre == bb)
+            return true;
     }
     return false;
 }
@@ -113,6 +131,55 @@ bool LICM::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
 
 namespace
 {
+    bool laInstUsesRegAsAddressOperand(const shared_ptr<RISCVInstruction> &inst,
+                                       const shared_ptr<RISCVRegister> &laReg)
+    {
+        if (!inst || !laReg)
+            return false;
+        auto ops = inst->getOperands();
+        switch (inst->getOpcode())
+        {
+        case RISCVOpcode::ADD:
+        case RISCVOpcode::ADDI:
+            return ops.size() >= 2 && ops[1]->getReg() && *ops[1]->getReg() == *laReg;
+        case RISCVOpcode::SW:
+        case RISCVOpcode::SD:
+        case RISCVOpcode::FSW:
+        case RISCVOpcode::FSD:
+            return ops.size() >= 1 && ops[0]->getReg() && *ops[0]->getReg() == *laReg;
+        case RISCVOpcode::LW:
+        case RISCVOpcode::LD:
+        case RISCVOpcode::FLW:
+        case RISCVOpcode::FLD:
+            return ops.size() >= 2 && ops[1]->getReg() && *ops[1]->getReg() == *laReg;
+        case RISCVOpcode::MV:
+            return ops.size() >= 2 && ops[1]->getReg() && *ops[1]->getReg() == *laReg;
+        default:
+            return false;
+        }
+    }
+
+    void collectLaMergeUsers(const vector<shared_ptr<RISCVInstruction>> &insts,
+                             size_t laIdx,
+                             const shared_ptr<RISCVRegister> &laReg,
+                             vector<shared_ptr<RISCVInstruction>> &out)
+    {
+        for (size_t i = laIdx + 1; i < insts.size(); ++i)
+        {
+            auto inst = insts[i];
+            if (!inst)
+                continue;
+            if (!laInstUsesRegAsAddressOperand(inst, laReg))
+                continue;
+            out.push_back(inst);
+            for (const auto &def : inst->getDefRegisters())
+            {
+                if (def && *def == *laReg)
+                    return;
+            }
+        }
+    }
+
     bool hasDefOfRegLaterInSameBlock(const shared_ptr<RISCVBasicBlock> &bb,
                                      const shared_ptr<RISCVInstruction> &inst,
                                      const shared_ptr<RISCVRegister> &reg)
@@ -158,12 +225,12 @@ bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
     if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
         return false;
 
-    if (inst->getOpcode() == RISCVOpcode::LI)
+    if (inst->getOpcode() == RISCVOpcode::LI || inst->getOpcode() == RISCVOpcode::LA)
     {
         auto defs = inst->getDefRegisters();
         if (defs.empty() || !defs[0])
             return false;
-        // 同块内 li 之后若还有指令改写 rd（如 li t3,1000; mul t3,...），不能外提
+        // 同块内 li/la 之后若还有指令改写 rd（如 la t2,a; add t2,t2,off），不能外提
         if (hasDefOfRegLaterInSameBlock(bb, inst, defs[0]))
             return false;
     }
@@ -229,6 +296,10 @@ void LICM::collectInvariantsInBlocks(
     {
         if (!bb)
             continue;
+        // 子循环 preheader 不在子循环块集合内，会被父循环误当作“非子循环块”；
+        // 若在此收集 la 会外提到祖先 preheader，基址寄存器跨子循环存活并被踩坏（mm/matmul）。
+        if (isChildLoopPreheader(loop, bb))
+            continue;
         auto &insts = bb->getInstructions();
         for (size_t idx = 0; idx < insts.size(); ++idx)
         {
@@ -245,43 +316,7 @@ void LICM::collectInvariantsInBlocks(
             }
 
             auto nextInsts = vector<shared_ptr<RISCVInstruction>>();
-            for (int i = 1; i < 5; i++)
-            {
-                if (idx + i < bb->getInstructions().size())
-                {
-                    auto inst = bb->getInstructions()[idx + i];
-                    if (inst->getOpcode() == RISCVOpcode::ADD || inst->getOpcode() == RISCVOpcode::ADDI)
-                    {
-                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                        {
-                            nextInsts.push_back(bb->getInstructions()[idx + i]);
-                        }
-                    }
-                    else if (inst->getOpcode() == RISCVOpcode::SW || inst->getOpcode() == RISCVOpcode::SD ||
-                             inst->getOpcode() == RISCVOpcode::FSW || inst->getOpcode() == RISCVOpcode::FSD)
-                    {
-                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[0]->getReg())
-                        {
-                            nextInsts.push_back(bb->getInstructions()[idx + i]);
-                        }
-                    }
-                    else if (inst->getOpcode() == RISCVOpcode::LW || inst->getOpcode() == RISCVOpcode::LD ||
-                             inst->getOpcode() == RISCVOpcode::FLW || inst->getOpcode() == RISCVOpcode::FLD)
-                    {
-                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                        {
-                            nextInsts.push_back(bb->getInstructions()[idx + i]);
-                        }
-                    }
-                    else if (inst->getOpcode() == RISCVOpcode::MV)
-                    {
-                        if (*insts[idx]->getOperands()[0]->getReg() == *inst->getOperands()[1]->getReg())
-                        {
-                            nextInsts.push_back(bb->getInstructions()[idx + i]);
-                        }
-                    }
-                }
-            }
+            collectLaMergeUsers(insts, idx, insts[idx]->getOperands()[0]->getReg(), nextInsts);
 
             bool overLap = false;
             for (auto &la : laMap)
