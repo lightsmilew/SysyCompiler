@@ -14,6 +14,21 @@ static string operandKey(Value *op)
         return "float:" + to_string(cf->Value);
     return "var:" + op->getName();
 }
+
+// defBB 是 useBB 的唯一前驱，且 phi 定义在 defBB 内、位于 defInst 之前时，
+// useBB 沿该边使用的 phi 值与 defBB 中 defInst 处相同（如 while.cond 算完再进 body）。
+static bool phiOperandUnchangedOnSinglePredEdge(BasicBlock *defBB, BasicBlock *useBB,
+                                                PhiInst *phi, Instruction *defInst)
+{
+    if (!defBB || !useBB || !phi || !defInst)
+        return false;
+    const auto &preds = useBB->getPredecessors();
+    if (preds.size() != 1 || preds[0] != defBB)
+        return false;
+    const int phiOrder = defBB->getInstructionOrder(phi);
+    const int defOrder = defBB->getInstructionOrder(defInst);
+    return phiOrder >= 0 && defOrder >= 0 && phiOrder <= defOrder;
+}
 } // namespace
 
 // ========== 公共子表达式消除 ==========
@@ -105,13 +120,20 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 }
                             }
                         }
-                        // 如果phi输入全都不在路径上也可以安全消除
+                        // 跨块且实参为 phi：默认保守；唯一前驱边且 phi 在 defBB 头部则值未变
                         else if (auto *phiInst = dynamic_cast<PhiInst *>(op))
                         {
-                            if (defBB != bb.get() && ControlFlowAnalysis::hasPhiInputOnPath(defBB, bb.get(), phiInst, defInst, inst))
+                            if (defBB != bb.get())
                             {
-                                CanNotCSEWithLoadOrPhiOperand = true;
-                                break; // 如果是phi指令，且不在同一基本块，则不消除
+                                const bool unchangedOnEdge = phiOperandUnchangedOnSinglePredEdge(
+                                    defBB, bb.get(), phiInst, defInst);
+                                if (!unchangedOnEdge &&
+                                    ControlFlowAnalysis::hasPhiInputOnPath(
+                                        defBB, bb.get(), phiInst, defInst, inst))
+                                {
+                                    CanNotCSEWithLoadOrPhiOperand = true;
+                                    break;
+                                }
                             }
                         }
                     }
