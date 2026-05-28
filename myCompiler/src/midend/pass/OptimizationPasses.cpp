@@ -126,6 +126,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
        // pm->addPass(std::make_unique<LoopTilingPass>(verbose));
         pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -184,6 +185,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));
         pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -311,6 +313,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));
         pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
 
@@ -387,6 +390,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));
         pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));

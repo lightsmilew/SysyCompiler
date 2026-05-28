@@ -138,7 +138,7 @@ namespace
 
         BasicBlock *outerBody = outerBr->getTrueBlock();
         BasicBlock *outerExit = outerBr->getFalseBlock();
-        if (!outerBody || !outerExit || !isOnlyUnconditionalBranch(outerBody))
+        if (!outerBody || !outerExit)
             return false;
 
         auto *toInnerBr = getTerminatorBranch(outerBody);
@@ -163,6 +163,8 @@ namespace
             return false;
 
         BinaryOperator *outerInc = findIVIncrement(innerExit, outerIV);
+        if (!outerInc)
+            outerInc = findIVIncrement(outerExit, outerIV);
         if (!outerInc)
             return false;
 
@@ -197,6 +199,26 @@ namespace
                 continue;
             auto *c = dynamic_cast<ConstantInt *>(stripCopy(outerPhi->getIncomingValue(i)));
             return c && c->Value == 0;
+        }
+        return false;
+    }
+
+    // 第二个外层循环的 i 在第一个外层 exit 处被置 0（phi 或 copy）
+    bool outerInitIsZeroAfterFirstExit(const LoopNestInfo &first, const LoopNestInfo &second)
+    {
+        if (outerInitIsZeroFromBlock(second.outerPhi, first.outerExit))
+            return true;
+        Value *outerIV = stripCopy(second.outerIV);
+        if (!outerIV || !first.outerExit)
+            return false;
+        for (auto &instPtr : first.outerExit->getInstructions())
+        {
+            auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+            if (!cpy || !sameValue(cpy, outerIV))
+                continue;
+            auto *c = dynamic_cast<ConstantInt *>(stripCopy(cpy->getSource()));
+            if (c && c->Value == 0)
+                return true;
         }
         return false;
     }
@@ -258,11 +280,17 @@ namespace
     bool indicesMatch(Value *a0, Value *a1, Value *b0, Value *b1, Value *outerA, Value *innerA,
                       Value *outerB, Value *innerB)
     {
+        auto isOuterIdx = [&](Value *v) {
+            return v && (sameValue(v, outerA) || sameValue(v, outerB));
+        };
+        auto isInnerIdx = [&](Value *v) {
+            return v && (sameValue(v, innerA) || sameValue(v, innerB));
+        };
         auto matchPair = [&](Value *x0, Value *x1) {
             if (x0 && x1)
-                return sameValue(x0, outerA) && sameValue(x1, innerA);
+                return isOuterIdx(x0) && isInnerIdx(x1);
             if (x0)
-                return sameValue(x0, outerA) || sameValue(x0, innerA);
+                return isOuterIdx(x0) || isInnerIdx(x0);
             return true;
         };
         if (!matchPair(a0, a1))
@@ -291,15 +319,17 @@ namespace
                 return false;
         }
 
+        // 同一次 (i,j) 上的 store→load（融合后同迭代内顺序执行）合法；仅拒绝可能跨迭代的别名
         for (const auto &ld : loadsB)
         {
             for (const auto &st : storesA)
             {
                 if (!st.isStore || st.ptr != ld.ptr)
                     continue;
-                if (!indicesMatch(st.idx0, st.idx1, ld.idx0, ld.idx1, a.outerIV, a.innerIV,
-                                  b.outerIV, b.innerIV))
-                    return false;
+                if (indicesMatch(st.idx0, st.idx1, ld.idx0, ld.idx1, a.outerIV, a.innerIV,
+                                 b.outerIV, b.innerIV))
+                    continue;
+                return false;
             }
         }
         return true;
@@ -353,6 +383,20 @@ namespace
             remapOperands(moved[i - 1].get(), vmap);
             dst->insert(std::move(moved[i - 1]), static_cast<unsigned>(insertAt));
         }
+    }
+
+  // setTrueBlock 不维护 CFG 边；须与 DCEPass::redirectBranchTarget 一致地更新 succ/pred
+    bool redirectUnconditionalBranch(BasicBlock *from, BasicBlock *oldSucc, BasicBlock *newSucc)
+    {
+        auto *br = getTerminatorBranch(from);
+        if (!br || br->isConditional() || br->getTrueBlock() != oldSucc)
+            return false;
+        br->setTrueBlock(newSucc);
+        from->removeSuccessor(oldSucc);
+        oldSucc->removePredecessor(from);
+        from->addSuccessor(newSucc);
+        newSucc->addPredecessor(from);
+        return true;
     }
 
     void replacePhiIncomingBlock(Function *func, BasicBlock *oldBB, BasicBlock *newBB)
@@ -495,10 +539,17 @@ bool LoopFusionPass::tryFuseAdjacentNests(Function *func)
             !sameValue(first.innerBound, second.innerBound))
             continue;
 
-        if (!outerInitIsZeroFromBlock(second.outerPhi, first.outerExit))
+        if (!outerInitIsZeroAfterFirstExit(first, second))
             continue;
 
         if (!fusionDependenceOk(first, second))
+            continue;
+
+        auto *secondOuterExitBr = getTerminatorBranch(second.outerExit);
+        if (!secondOuterExitBr || secondOuterExitBr->isConditional())
+            continue;
+        BasicBlock *afterFused = secondOuterExitBr->getTrueBlock();
+        if (!afterFused || exitBr->getTrueBlock() != second.outerHeader)
             continue;
 
         unordered_map<Value *, Value *> vmap;
@@ -512,19 +563,9 @@ bool LoopFusionPass::tryFuseAdjacentNests(Function *func)
         spliceInnerBody(first, second, vmap);
         spliceOuterBodySetup(first, second, vmap);
 
-        auto *secondOuterExitBr = getTerminatorBranch(second.outerExit);
-        if (!secondOuterExitBr)
-            continue;
-        BasicBlock *afterFused = secondOuterExitBr->getTrueBlock();
-
         replacePhiIncomingBlock(func, second.outerExit, first.outerExit);
         removePhiIncomingFromPredecessor(second.outerHeader, first.outerExit);
-
-        exitBr->setTrueBlock(afterFused);
-        first.outerExit->removeSuccessor(second.outerHeader);
-        second.outerHeader->removePredecessor(first.outerExit);
-        afterFused->removePredecessor(second.outerExit);
-        afterFused->addPredecessor(first.outerExit);
+        redirectUnconditionalBranch(first.outerExit, second.outerHeader, afterFused);
 
         vector<BasicBlock *> fusedAway = {second.outerHeader, second.outerBody, second.outerExit,
                                           second.innerHeader, second.innerBody, second.innerExit};
