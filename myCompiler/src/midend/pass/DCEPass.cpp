@@ -37,6 +37,12 @@ bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &deb
     for (auto &instPtr : insts)
     {
         Instruction *inst = instPtr.get();
+        // Any call may read memory; do not treat stores before it as shadowed by later stores.
+        if (dynamic_cast<CallInst *>(inst))
+        {
+            pendingStores.clear();
+            continue;
+        }
         if (auto *load = dynamic_cast<LoadInst *>(inst))
         {
             clearPendingForAddr(pendingStores, load->getPointer());
@@ -381,6 +387,11 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                     Instruction *prev = insts[j].get();
                     if (prev == nullptr)
                         continue;
+                    if (dynamic_cast<CallInst *>(prev) ||
+                        (prev->mayHaveSideEffects() && prev->getOpcode() != Opcode::Load))
+                    {
+                        break;
+                    }
                     if (auto loadInst = dynamic_cast<LoadInst *>(prev))
                     {
                         if (isSameAddr(loadInst->getPointer(), addr))
@@ -399,7 +410,7 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                     }
                 }
                 // 如果最近一次load的值和store的值相同，则该store无用
-                if (lastLoad && val == lastLoad)
+                if (lastLoad && val == static_cast<Value *>(lastLoad))
                 {
                     if (verbose)
                     {

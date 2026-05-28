@@ -9,6 +9,7 @@
 #include "LoopIfGuardHoistPass.h"
 #include "LoopInductionStrengthReductionPass.h"
 #include "LoopInterchangePass.h"
+#include "LoopFusionPass.h"
 #include "LoopTilingPass.h"
 #include "SymmetricNegateUpperTrianglePass.h"
 #include "TransposePairLoadRewritePass.h"
