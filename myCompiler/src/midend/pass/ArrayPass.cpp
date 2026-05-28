@@ -1,11 +1,323 @@
 #include "ArrayPass.h"
+#include "ControlFlowAnalysis.h"
 #include <regex>
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+    Value *stripCopy(Value *v)
+    {
+        while (auto *cpy = dynamic_cast<CopyInst *>(v))
+            v = cpy->getSource();
+        return v;
+    }
+
+    // arr[idx] = (idx % modN) + addConst
+    struct ModuloOffsetPattern
+    {
+        int modN = 0;
+        int addConst = 0;
+    };
+
+    bool matchIndexModuloOffset(Value *val, Value *idx, ModuloOffsetPattern &pat)
+    {
+        val = stripCopy(val);
+        idx = stripCopy(idx);
+        auto *bin = dynamic_cast<BinaryOperator *>(val);
+        if (!bin)
+            return false;
+
+        BinaryOperator *srem = nullptr;
+        ConstantInt *offsetConst = nullptr;
+        if (bin->getOpcode() == Opcode::Sub)
+        {
+            srem = dynamic_cast<BinaryOperator *>(bin->getLHS());
+            offsetConst = dynamic_cast<ConstantInt *>(bin->getRHS());
+            if (!srem || !offsetConst)
+                return false;
+            pat.addConst = -offsetConst->Value;
+        }
+        else if (bin->getOpcode() == Opcode::Add)
+        {
+            srem = dynamic_cast<BinaryOperator *>(bin->getLHS());
+            offsetConst = dynamic_cast<ConstantInt *>(bin->getRHS());
+            if (srem && offsetConst)
+                pat.addConst = offsetConst->Value;
+            else
+            {
+                srem = dynamic_cast<BinaryOperator *>(bin->getRHS());
+                offsetConst = dynamic_cast<ConstantInt *>(bin->getLHS());
+                if (!srem || !offsetConst)
+                    return false;
+                pat.addConst = offsetConst->Value;
+            }
+        }
+        else
+            return false;
+
+        if (!srem || srem->getOpcode() != Opcode::SRem)
+            return false;
+        if (stripCopy(srem->getLHS()) != idx)
+            return false;
+        auto *modConst = dynamic_cast<ConstantInt *>(srem->getRHS());
+        if (!modConst || modConst->Value <= 0)
+            return false;
+        pat.modN = modConst->Value;
+        return true;
+    }
+
+    int evalModuloOffset(int index, const ModuloOffsetPattern &pat)
+    {
+        int r = index % pat.modN;
+        if (r < 0 && pat.modN > 0)
+            r += pat.modN;
+        return r + pat.addConst;
+    }
+
+    bool storeMatchesPattern(StoreInst *store, const ModuloOffsetPattern &pat)
+    {
+        auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+        if (!gep || gep->getIndices().size() != 1)
+            return false;
+        Value *idx = gep->getIndices()[0];
+        if (auto *idxConst = dynamic_cast<ConstantInt *>(stripCopy(idx)))
+        {
+            if (auto *valConst = dynamic_cast<ConstantInt *>(stripCopy(store->getValueToStore())))
+                return valConst->Value == evalModuloOffset(idxConst->Value, pat);
+            return false;
+        }
+        ModuloOffsetPattern got;
+        return matchIndexModuloOffset(store->getValueToStore(), idx, got) && got.modN == pat.modN &&
+               got.addConst == pat.addConst;
+    }
+
+    pair<BinaryOperator *, BinaryOperator *> buildModuloOffsetExpr(Value *idx, const ModuloOffsetPattern &pat,
+                                                                   size_t tag)
+    {
+        auto *modConst = new ConstantInt(IntegerType::getInstance(), pat.modN);
+        auto *addConst = new ConstantInt(IntegerType::getInstance(), pat.addConst);
+        auto *rem =
+            new BinaryOperator(Opcode::SRem, idx, modConst, "arr_mod_rem_" + to_string(tag));
+        auto *val = new BinaryOperator(Opcode::Add, rem, addConst, "arr_mod_val_" + to_string(tag));
+        return {rem, val};
+    }
+
+    BasicBlock *findContainingLoopExit(const Loop &loop,
+                                       const vector<pair<StoreInst *, BasicBlock *>> &stores)
+    {
+        for (auto &[st, bb] : stores)
+        {
+            (void)st;
+            if (!loop.containsBlock(bb))
+                return nullptr;
+        }
+        return loop.exits.empty() ? nullptr : loop.exits[0];
+    }
+
+    Value *getArrayRoot(Value *ptr)
+    {
+        ptr = stripCopy(ptr);
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(ptr))
+            ptr = gep->getPointerOperand();
+        if (auto *bc = dynamic_cast<CastInst *>(ptr))
+        {
+            if (bc->getOpcode() == Opcode::BitCast)
+                ptr = bc->getOperand();
+        }
+        return ptr;
+    }
+
+    Value *canonicalArrayKey(Value *arr, vector<Value *> &keys)
+    {
+        for (Value *k : keys)
+        {
+            if (isSameAddr(k, arr))
+                return k;
+        }
+        keys.push_back(arr);
+        return arr;
+    }
+
+    // 同一基本块内 store 必须在 load 之前；跨块时 init 的 store 块不能支配 load 块。
+    bool allStoresBeforeAllLoads(const vector<pair<StoreInst *, BasicBlock *>> &stores,
+                                 const vector<pair<LoadInst *, BasicBlock *>> &loads,
+                                 BasicBlock *completion,
+                                 const unordered_map<BasicBlock *, BasicBlock *> &idom)
+    {
+        for (auto &[load, loadBB] : loads)
+        {
+            for (auto &[store, storeBB] : stores)
+            {
+                if (storeBB == loadBB)
+                {
+                    if (storeBB->getInstructionOrder(store) >= loadBB->getInstructionOrder(load))
+                        return false;
+                }
+                else if (ControlFlowAnalysis::dominates(idom, storeBB, loadBB))
+                {
+                    return false;
+                }
+            }
+        }
+        if (completion)
+        {
+            for (auto &[load, loadBB] : loads)
+            {
+                (void)load;
+                if (!ControlFlowAnalysis::dominates(idom, completion, loadBB))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    BasicBlock *findInitCompletionBB(Function *func, const vector<pair<StoreInst *, BasicBlock *>> &stores)
+    {
+        auto loops = ControlFlowAnalysis::findLoops(func);
+        for (const Loop &loop : loops)
+        {
+            if (BasicBlock *exitBB = findContainingLoopExit(loop, stores))
+                return exitBB;
+        }
+
+        auto idom = ControlFlowAnalysis::analyze(func);
+        BasicBlock *deepest = nullptr;
+        for (auto &[st, bb] : stores)
+        {
+            (void)st;
+            if (!deepest || ControlFlowAnalysis::dominates(idom, bb, deepest))
+                deepest = bb;
+        }
+        return deepest;
+    }
+
+    bool eliminateModuloClosedFormArrays(Function *func, bool verbose, Pass *pass)
+    {
+        unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> storesByArr;
+        unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> loadsByArr;
+        vector<Value *> arrayKeys;
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            for (auto &instPtr : bb->getInstructions())
+            {
+                if (auto *store = dynamic_cast<StoreInst *>(instPtr.get()))
+                {
+                    auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+                    if (!gep || gep->getIndices().size() != 1)
+                        continue;
+                    Value *key = canonicalArrayKey(getArrayRoot(gep->getPointerOperand()), arrayKeys);
+                    storesByArr[key].emplace_back(store, bb);
+                }
+                else if (auto *load = dynamic_cast<LoadInst *>(instPtr.get()))
+                {
+                    auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
+                    if (!gep || gep->getIndices().size() != 1)
+                        continue;
+                    Value *key = canonicalArrayKey(getArrayRoot(gep->getPointerOperand()), arrayKeys);
+                    loadsByArr[key].emplace_back(load, bb);
+                }
+            }
+        }
+
+        bool changed = false;
+        auto idom = ControlFlowAnalysis::analyze(func);
+        size_t tag = 0;
+
+        for (auto &[arr, loads] : loadsByArr)
+        {
+            auto storeIt = storesByArr.find(arr);
+            if (storeIt == storesByArr.end() || storeIt->second.empty())
+                continue;
+
+            auto &stores = storeIt->second;
+            ModuloOffsetPattern pat;
+            if (!matchIndexModuloOffset(stores[0].first->getValueToStore(),
+                                        dynamic_cast<GetElementPtrInst *>(stores[0].first->getPointer())
+                                            ->getIndices()[0],
+                                        pat))
+                continue;
+
+            bool allMatch = true;
+            for (auto &[st, bb] : stores)
+            {
+                (void)bb;
+                if (!storeMatchesPattern(st, pat))
+                {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (!allMatch)
+                continue;
+
+            BasicBlock *completion = findInitCompletionBB(func, stores);
+            if (!allStoresBeforeAllLoads(stores, loads, completion, idom))
+                continue;
+
+            for (auto &[load, loadBB] : loads)
+            {
+                (void)loadBB;
+                auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
+                Value *idx = gep->getIndices()[0];
+                auto [remInst, valInst] = buildModuloOffsetExpr(idx, pat, tag++);
+                vector<Instruction *> toInsert = {remInst, valInst};
+                load->replaceAllUsesWith(valInst);
+                load->removeThisFromOperands();
+
+                auto &insts = loadBB->getInstructions();
+                for (size_t j = 0; j < insts.size(); ++j)
+                {
+                    if (insts[j].get() == load)
+                    {
+                        pass->needToDelete.push_back(insts[j].release());
+                        insts.erase(insts.begin() + static_cast<long>(j));
+                        for (size_t k = 0; k < toInsert.size(); ++k)
+                            insts.insert(insts.begin() + static_cast<long>(j + k),
+                                         unique_ptr<Instruction>(toInsert[k]));
+                        break;
+                    }
+                }
+                changed = true;
+                if (verbose)
+                {
+                    pass->debugInfo << "Array Elimination (modulo): replaced load " << load->getName()
+                                    << " with closed form in " << loadBB->getName() << "\n";
+                }
+            }
+
+            for (auto &[store, storeBB] : stores)
+            {
+                (void)storeBB;
+                store->removeThisFromOperands();
+                auto &insts = storeBB->getInstructions();
+                for (size_t j = 0; j < insts.size(); ++j)
+                {
+                    if (insts[j].get() == store)
+                    {
+                        pass->needToDelete.push_back(insts[j].release());
+                        insts.erase(insts.begin() + static_cast<long>(j));
+                        changed = true;
+                        if (verbose)
+                        {
+                            pass->debugInfo << "Array Elimination (modulo): removed store " << store->getName()
+                                            << " in " << storeBB->getName() << "\n";
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+} // namespace
+
 // 如果store和load循环范围不一致也不能简单删除
 bool ArrayEliminationPass::runOnFunction(Function *func)
 {
-    bool changed = false;
+    bool changed = eliminateModuloClosedFormArrays(func, verbose, this);
     for (auto &bbPtr : func->getBasicBlocks())
     {
         BasicBlock *bb = bbPtr.get();
@@ -225,6 +537,7 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
     }
     return changed;
 }
+
 namespace
 {
     bool hasLoadOrCallOnArrayRoot(Module *module, Value *root)
