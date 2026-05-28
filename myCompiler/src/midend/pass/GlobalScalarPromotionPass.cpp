@@ -1,7 +1,10 @@
 #include "GlobalScalarPromotionPass.h"
 #include <algorithm>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 using namespace std;
 using namespace optimization;
 
@@ -388,6 +391,19 @@ static bool instructionStillInFunction(Function *func, Instruction *inst)
     return false;
 }
 
+static bool blockContainsGlobalModifyingCall(BasicBlock *bb, GlobalVariable *gv)
+{
+    for (auto &instPtr : bb->getInstructions())
+    {
+        if (auto *call = dynamic_cast<CallInst *>(instPtr.get()))
+        {
+            if (call->HasModifiedArray(gv))
+                return true;
+        }
+    }
+    return false;
+}
+
 static bool isSafeFlushValue(Function *func, Value *val)
 {
     if (!val)
@@ -606,7 +622,20 @@ bool GlobalScalarPromotionPass::propagateGlobalOutsideLoop(
                     continue;
             }
 
+            if (blockContainsGlobalModifyingCall(bb, gv))
+            {
+                if (funcVal.erase(bb))
+                    progress = true;
+                continue;
+            }
+
             Value *newOut = applyBlock(gv, bb, inVal);
+            if (!newOut)
+            {
+                if (funcVal.erase(bb))
+                    progress = true;
+                continue;
+            }
             auto it = funcVal.find(bb);
             if (it == funcVal.end() || !sameValue(it->second, newOut))
             {
@@ -671,6 +700,13 @@ Value *GlobalScalarPromotionPass::applyBlock(GlobalVariable *gv, BasicBlock *bb,
     for (auto it = insts.begin(); it != insts.end();)
     {
         Instruction *inst = it->get();
+        if (auto *call = dynamic_cast<CallInst *>(inst))
+        {
+            if (call->HasModifiedArray(gv))
+                return nullptr;
+            ++it;
+            continue;
+        }
         if (auto *load = dynamic_cast<LoadInst *>(inst))
         {
             if (!isDirectAccessToGlobal(load->getPointer(), gv))
@@ -735,21 +771,9 @@ bool GlobalScalarPromotionPass::promoteGlobalInLoop(Function *func, Loop &loop, 
         return false;
 
     Value *preheaderScalar = getPreheaderEndScalar(preheader, gv);
-    LoadInst *preLoad = nullptr;
-    if (!preheaderScalar)
-    {
-        preLoad = new LoadInst(gv, freshName("gp_load"));
-        insertBeforeTerminator(preheader, preLoad);
-        preheaderScalar = preLoad;
-    }
 
-    auto *promotedPhi = new PhiInst(IntegerType::getInstance(), freshName("gp_phi"));
-    insertPhiAtHeader(loop.header, promotedPhi);
-    for (auto *pred : loop.header->getPredecessors())
-    {
-        if (!loop.containsBlock(pred))
-            promotedPhi->addIncoming(preheaderScalar, pred);
-    }
+    auto promotedPhi = make_unique<PhiInst>(IntegerType::getInstance(), freshName("gp_phi"));
+    PhiInst *phi = promotedPhi.get();
 
     unordered_map<BasicBlock *, Value *> outVal;
     bool progress = true;
@@ -763,7 +787,7 @@ bool GlobalScalarPromotionPass::promoteGlobalInLoop(Function *func, Loop &loop, 
             Value *inVal = nullptr;
             if (bb == loop.header)
             {
-                inVal = promotedPhi;
+                inVal = phi;
             }
             else
             {
@@ -804,11 +828,29 @@ bool GlobalScalarPromotionPass::promoteGlobalInLoop(Function *func, Loop &loop, 
     if (latchIt == outVal.end())
         return false;
 
+    if (!preheaderScalar)
+    {
+        auto *preLoad = new LoadInst(gv, freshName("gp_load"));
+        insertBeforeTerminator(preheader, preLoad);
+        preheaderScalar = preLoad;
+    }
+
+    insertPhiAtHeader(loop.header, promotedPhi.release());
+    for (auto *pred : loop.header->getPredecessors())
+    {
+        if (!loop.containsBlock(pred))
+            phi->addIncoming(preheaderScalar, pred);
+    }
+
+    vector<pair<BasicBlock *, Value *>> applyPlan;
+    applyPlan.reserve(loop.blocks.size());
     for (auto *bb : loop.blocks)
     {
         Value *inVal = nullptr;
         if (bb == loop.header)
-            inVal = promotedPhi;
+        {
+            inVal = phi;
+        }
         else
         {
             vector<Value *> predsIn;
@@ -830,11 +872,13 @@ bool GlobalScalarPromotionPass::promoteGlobalInLoop(Function *func, Loop &loop, 
             if (!inVal)
                 return false;
         }
-        applyBlock(gv, bb, inVal);
+        applyPlan.emplace_back(bb, inVal);
     }
+    for (const auto &step : applyPlan)
+        applyBlock(gv, step.first, step.second);
 
-    promotedPhi->addIncoming(latchIt->second, latch);
-    replaceLoadsOfGlobalInLoop(loop, gv, promotedPhi);
+    phi->addIncoming(latchIt->second, latch);
+    replaceLoadsOfGlobalInLoop(loop, gv, phi);
 
     set<BasicBlock *> loopExitTargets = collectLoopExitTargets(loop);
     for (BasicBlock *exitBB : loopExitTargets)

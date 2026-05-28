@@ -420,6 +420,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<SRFixedPass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        // 基本块合并/强度折叠后可能出现同块内被覆盖的 store
+        pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         //必须要有死代码消除，处理寄存器分配潜在问题
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));

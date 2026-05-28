@@ -1,11 +1,80 @@
 #include "DCEPass.h"
+#include <algorithm>
 #include <stack>
 #include <unordered_set>
+#include <vector>
 using namespace std;
 using namespace optimization;
 
 namespace
 {
+StoreInst *findPendingStore(const vector<StoreInst *> &pending, Value *addr)
+{
+    for (StoreInst *store : pending)
+    {
+        if (isSameAddr(store->getPointer(), addr))
+            return store;
+    }
+    return nullptr;
+}
+
+void clearPendingForAddr(vector<StoreInst *> &pending, Value *addr)
+{
+    pending.erase(remove_if(pending.begin(), pending.end(),
+                            [&](StoreInst *store) {
+                                return isSameAddr(store->getPointer(), addr);
+                            }),
+                  pending.end());
+}
+
+bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &debugInfo,
+                                 vector<Value *> &needToDelete)
+{
+    auto &insts = bb->getInstructions();
+    vector<StoreInst *> pendingStores;
+    unordered_set<StoreInst *> shadowedStores;
+
+    for (auto &instPtr : insts)
+    {
+        Instruction *inst = instPtr.get();
+        if (auto *load = dynamic_cast<LoadInst *>(inst))
+        {
+            clearPendingForAddr(pendingStores, load->getPointer());
+            continue;
+        }
+        if (auto *store = dynamic_cast<StoreInst *>(inst))
+        {
+            Value *addr = store->getPointer();
+            if (StoreInst *prev = findPendingStore(pendingStores, addr))
+                shadowedStores.insert(prev);
+            clearPendingForAddr(pendingStores, addr);
+            pendingStores.push_back(store);
+        }
+    }
+
+    if (shadowedStores.empty())
+        return false;
+
+    bool changed = false;
+    for (size_t i = 0; i < insts.size();)
+    {
+        StoreInst *store = dynamic_cast<StoreInst *>(insts[i].get());
+        if (store && shadowedStores.count(store))
+        {
+            if (verbose)
+            {
+                debugInfo << "Removing shadowed store: " << store->toString() << "\n";
+            }
+            store->removeThisFromOperands();
+            needToDelete.push_back(insts[i].release());
+            insts.erase(insts.begin() + static_cast<long>(i));
+            changed = true;
+            continue;
+        }
+        ++i;
+    }
+    return changed;
+}
 bool replaceBranchTarget(BasicBlock *from, BasicBlock *oldSucc, BasicBlock *newSucc)
 {
     if (!from || !oldSucc || !newSucc || oldSucc == newSucc)
@@ -293,6 +362,8 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
     bool changed = false;
     for (auto &bb : func->getBasicBlocks())
     {
+        changed |= removeShadowedStoresInBlock(bb.get(), verbose, debugInfo, needToDelete);
+
         auto &insts = bb->getInstructions();
         for (size_t i = 0; i < insts.size(); ++i)
         {
@@ -312,7 +383,7 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                         continue;
                     if (auto loadInst = dynamic_cast<LoadInst *>(prev))
                     {
-                        if (loadInst->getPointer() == addr)
+                        if (isSameAddr(loadInst->getPointer(), addr))
                         {
                             lastLoad = prev;
                             break;
@@ -321,7 +392,7 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                     // 如果遇到对该地址的store则停止
                     else if (auto storeInst = dynamic_cast<StoreInst *>(prev))
                     {
-                        if (storeInst->getPointer() == addr)
+                        if (isSameAddr(storeInst->getPointer(), addr))
                         {
                             break;
                         }
