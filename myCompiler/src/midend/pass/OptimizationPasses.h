@@ -10,6 +10,8 @@
 #include "LoopInductionStrengthReductionPass.h"
 #include "LoopInterchangePass.h"
 #include "LoopTilingPass.h"
+#include "SymmetricNegateUpperTrianglePass.h"
+#include "TransposePairLoadRewritePass.h"
 #include "CondGuardedAccumulatePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
