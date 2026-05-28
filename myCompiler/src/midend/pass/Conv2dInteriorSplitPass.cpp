@@ -460,14 +460,15 @@ namespace
         storeBB->addInstruction(own(outIdx));
         auto *outGep = new GetElementPtrInst(outArray, {outIdx}, tag + "_out_gep");
         storeBB->addInstruction(own(outGep));
-        storeBB->addInstruction(own(new StoreInst(newSum, outGep)));
+        // 用 sumKrPhi 写回；kc 完全展开后 newSum 会被删掉，但 sumKcPhi 会 replaceAllUsesWith 末次累加值并更新 phi 操作数
+        storeBB->addInstruction(own(new StoreInst(sumKrPhi, outGep)));
         storeBB->addInstruction(own(new BranchInst(afterStoreTarget)));
         wireEdge(storeBB, afterStoreTarget);
 
         krPhi->addIncoming(zero, kernelEntryPred);
         krPhi->addIncoming(krNext, krLatch);
         sumKrPhi->addIncoming(zero, kernelEntryPred);
-        sumKrPhi->addIncoming(newSum, krLatch);
+        sumKrPhi->addIncoming(sumKcPhi, krLatch);
         sumKcPhi->addIncoming(sumKrPhi, krBody);
         sumKcPhi->addIncoming(newSum, kcLatch);
         kcPhi->addIncoming(zero, krBody);
@@ -838,7 +839,12 @@ bool Conv2dInteriorSplitPass::runOnFunction(Function *func)
     func->setLoops(ControlFlowAnalysis::findLoops(func));
     Conv2dPattern pat;
     if (!matchConv2dNest(func, func->getLoops(), pat))
+    {
+        if (verbose)
+            debugInfo << "Conv2dInteriorSplit: no conv2d nest matched in " << func->getName()
+                      << "\n";
         return false;
+    }
     bool changed = applySplit(func, pat, verbose, debugInfo);
     if (changed)
         func->setLoops(ControlFlowAnalysis::findLoops(func));
