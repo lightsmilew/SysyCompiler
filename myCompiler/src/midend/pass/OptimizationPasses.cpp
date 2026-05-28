@@ -121,6 +121,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
        // pm->addPass(std::make_unique<LoopTilingPass>(verbose));
@@ -180,6 +181,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));
@@ -308,6 +310,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));
@@ -385,6 +388,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
+        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
         //pm->addPass(std::make_unique<LoopTilingPass>(verbose));

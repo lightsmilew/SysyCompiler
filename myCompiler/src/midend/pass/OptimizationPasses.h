@@ -14,6 +14,7 @@
 #include "SymmetricNegateUpperTrianglePass.h"
 #include "TransposePairLoadRewritePass.h"
 #include "CondGuardedAccumulatePass.h"
+#include "Conv2dInteriorSplitPass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
 #include "DCEPass.h"

@@ -64,10 +64,31 @@ namespace optimization
                                        ICmpInst *&cmp,
                                        ConstantInt *&boundConst,
                                        int &tripCount) const;
+        bool getRepeatOuterLoopInfo(const Loop &loop,
+                                    ICmpInst *&cmp,
+                                    Value *&iv,
+                                    Value *&bound,
+                                    int &constTripCount) const;
         bool isPureCopyLoop(const Loop &loop, Value *&srcArray, Value *&dstArray) const;
+        bool isRepeatAccumulateOuterLoop(const Loop &outer,
+                                         Value *iv,
+                                         Value *acc,
+                                         const std::vector<Loop> &allLoops);
+        bool findRepeatAccumulator(const Loop &outer, Value *iv, Value *&acc) const;
         CallInst *findDominantCallInLoop(const Loop &outerLoop, const Loop &copyLoop, Value *dstArray) const;
-        void replaceValueInFunction(Function *func, Value *oldValue, Value *newValue, const std::set<BasicBlock *> &skipBlocks) const;
+        void replaceValueInFunction(Function *func,
+                                  Value *oldValue,
+                                  Value *newValue,
+                                  const std::set<BasicBlock *> &skipBlocks,
+                                  const std::set<Instruction *> &skipInsts = {}) const;
         void redirectAndRemoveLoop(Function *func, const Loop &loop);
+        bool tryCollapseRepeatAccumulate(Function *func,
+                                         const Loop &outer,
+                                         ICmpInst *cmp,
+                                         Value *iv,
+                                         Value *bound,
+                                         Value *acc,
+                                         int constTripCount);
     };
 
 }

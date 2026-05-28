@@ -1,5 +1,6 @@
 #include "LoopPass.h"
 #include <functional>
+#include <unordered_set>
 using namespace std;
 using namespace optimization;
 
@@ -76,6 +77,214 @@ bool sameAccessPattern(const vector<Value *> &lhs, const vector<Value *> &rhs)
     }
 
     return true;
+}
+
+Value *stripCopy(Value *v)
+{
+    while (auto *cpy = dynamic_cast<CopyInst *>(v))
+    {
+        v = cpy->getSource();
+    }
+    return v;
+}
+
+bool sameLoopValue(Value *a, Value *b)
+{
+    if (!a || !b)
+    {
+        return false;
+    }
+    if (stripCopy(a) == stripCopy(b))
+    {
+        return true;
+    }
+    if (!a->getName().empty() && a->getName() == b->getName())
+    {
+        return true;
+    }
+    return false;
+}
+
+bool valueDependsOnImpl(Value *val, Value *target, std::unordered_set<Value *> &visited)
+{
+    if (!val || !target)
+    {
+        return false;
+    }
+    if (sameLoopValue(val, target))
+    {
+        return true;
+    }
+    if (!visited.insert(val).second)
+    {
+        return false;
+    }
+    if (auto *inst = dynamic_cast<Instruction *>(val))
+    {
+        for (auto *op : inst->getOperands())
+        {
+            if (valueDependsOnImpl(op, target, visited))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool valueDependsOn(Value *val, Value *target)
+{
+    std::unordered_set<Value *> visited;
+    return valueDependsOnImpl(val, target, visited);
+}
+
+BasicBlock *findLoopLatchBlock(const Loop &loop)
+{
+    for (auto *bb : loop.blocks)
+    {
+        if (bb == loop.header)
+        {
+            continue;
+        }
+        for (auto *succ : bb->getSuccessors())
+        {
+            if (succ == loop.header)
+            {
+                return bb;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool hasZeroInitOutsideLoop(Value *tracked, const Loop &loop)
+{
+    if (!tracked || !loop.header)
+    {
+        return false;
+    }
+
+    if (auto *trackedPhi = dynamic_cast<PhiInst *>(stripCopy(tracked)))
+    {
+        for (size_t i = 0; i < trackedPhi->getNumIncomingValues(); ++i)
+        {
+            if (loop.containsBlock(trackedPhi->getIncomingBlock(i)))
+            {
+                continue;
+            }
+            auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(trackedPhi->getIncomingValue(i)));
+            if (initConst && initConst->Value == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for (auto *pred : loop.header->getPredecessors())
+    {
+        if (loop.containsBlock(pred))
+        {
+            continue;
+        }
+        for (auto &instPtr : pred->getInstructions())
+        {
+            auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+            if (!cpy || !sameLoopValue(cpy, tracked))
+            {
+                continue;
+            }
+            auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(cpy->getSource()));
+            if (initConst && initConst->Value == 0)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool hasUnitIncrementAtLatch(Value *iv, const Loop &loop)
+{
+    BasicBlock *latch = findLoopLatchBlock(loop);
+    if (!latch)
+    {
+        return false;
+    }
+
+    for (auto &instPtr : latch->getInstructions())
+    {
+        auto *addInst = dynamic_cast<BinaryOperator *>(instPtr.get());
+        if (!addInst || addInst->getOpcode() != Opcode::Add)
+        {
+            continue;
+        }
+        auto *one = dynamic_cast<ConstantInt *>(stripCopy(addInst->getRHS()));
+        if (!one || one->Value != 1)
+        {
+            continue;
+        }
+        if (sameLoopValue(addInst->getLHS(), iv))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool hasNestedLoopInside(const Loop &outer, const vector<Loop> &allLoops)
+{
+    for (const auto &inner : allLoops)
+    {
+        if (inner.header == outer.header)
+        {
+            continue;
+        }
+        if (outer.containsBlock(inner.header))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
+{
+    std::set<BasicBlock *> perIter;
+    if (!outer.header)
+    {
+        return perIter;
+    }
+
+    BasicBlock *body = nullptr;
+    auto &headerInsts = outer.header->getInstructions();
+    auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+    if (br && br->isConditional())
+    {
+        body = br->getTrueBlock();
+    }
+    if (!body || !outer.containsBlock(body))
+    {
+        return perIter;
+    }
+
+    std::vector<BasicBlock *> worklist = {body};
+    perIter.insert(body);
+    while (!worklist.empty())
+    {
+        BasicBlock *bb = worklist.back();
+        worklist.pop_back();
+        for (auto *succ : bb->getSuccessors())
+        {
+            if (succ == outer.header || !outer.containsBlock(succ) || perIter.count(succ))
+            {
+                continue;
+            }
+            perIter.insert(succ);
+            worklist.push_back(succ);
+        }
+    }
+    return perIter;
 }
 } // namespace
 // ========== 循环不变代码移动 ==========
@@ -1664,7 +1873,8 @@ CallInst *LoopCopyCallCollapsePass::findDominantCallInLoop(const Loop &outerLoop
 void LoopCopyCallCollapsePass::replaceValueInFunction(Function *func,
                                                      Value *oldValue,
                                                      Value *newValue,
-                                                     const std::set<BasicBlock *> &skipBlocks) const
+                                                     const std::set<BasicBlock *> &skipBlocks,
+                                                     const std::set<Instruction *> &skipInsts) const
 {
     if (!func || !oldValue || !newValue)
     {
@@ -1682,15 +1892,329 @@ void LoopCopyCallCollapsePass::replaceValueInFunction(Function *func,
         for (auto &instPtr : bb->getInstructions())
         {
             Instruction *inst = instPtr.get();
+            if (skipInsts.count(inst))
+            {
+                continue;
+            }
             for (size_t i = 0; i < inst->getOperands().size(); ++i)
             {
-                if (inst->getOperandByIndex(i) == oldValue)
+                Value *op = inst->getOperandByIndex(i);
+                if (op == oldValue || sameLoopValue(op, oldValue))
                 {
                     inst->setOperandByIndex(i, newValue);
                 }
             }
         }
     }
+}
+
+bool LoopCopyCallCollapsePass::getRepeatOuterLoopInfo(const Loop &loop,
+                                                      ICmpInst *&cmp,
+                                                      Value *&iv,
+                                                      Value *&bound,
+                                                      int &constTripCount) const
+{
+    cmp = nullptr;
+    iv = nullptr;
+    bound = nullptr;
+    constTripCount = -1;
+
+    BasicBlock *header = loop.header;
+    if (!header)
+    {
+        return false;
+    }
+
+    auto &headerInsts = header->getInstructions();
+    if (headerInsts.size() < 2)
+    {
+        return false;
+    }
+
+    auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+    if (!br || !br->isConditional())
+    {
+        return false;
+    }
+
+    cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
+    if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
+    {
+        return false;
+    }
+
+    iv = cmp->getLHS();
+    bound = cmp->getRHS();
+    if (!iv || !bound)
+    {
+        return false;
+    }
+
+    if (!hasZeroInitOutsideLoop(iv, loop) || !hasUnitIncrementAtLatch(iv, loop))
+    {
+        return false;
+    }
+
+    if (auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(bound)))
+    {
+        constTripCount = boundConst->Value;
+    }
+    return true;
+}
+
+bool LoopCopyCallCollapsePass::findRepeatAccumulator(const Loop &outer, Value *iv, Value *&acc) const
+{
+    acc = nullptr;
+    BasicBlock *header = outer.header;
+    if (!header)
+    {
+        return false;
+    }
+
+    PhiInst *ivPhi = dynamic_cast<PhiInst *>(stripCopy(iv));
+    BasicBlock *latch = findLoopLatchBlock(outer);
+
+    for (auto &instPtr : header->getInstructions())
+    {
+        auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+        if (!phi || phi == ivPhi || sameLoopValue(phi, iv))
+        {
+            continue;
+        }
+        bool hasZeroInit = false;
+        bool hasLatchIncoming = false;
+        for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+        {
+            if (!outer.containsBlock(phi->getIncomingBlock(i)))
+            {
+                auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(phi->getIncomingValue(i)));
+                if (initConst && initConst->Value == 0)
+                {
+                    hasZeroInit = true;
+                }
+            }
+            else if (latch && phi->getIncomingBlock(i) == latch)
+            {
+                hasLatchIncoming = true;
+            }
+        }
+        if (hasZeroInit && hasLatchIncoming)
+        {
+            acc = phi;
+            return true;
+        }
+    }
+
+    if (!latch)
+    {
+        return false;
+    }
+
+    for (auto &instPtr : latch->getInstructions())
+    {
+        auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+        if (!cpy || sameLoopValue(cpy, iv) || valueDependsOn(cpy->getSource(), iv))
+        {
+            continue;
+        }
+        if (!hasZeroInitOutsideLoop(cpy, outer))
+        {
+            continue;
+        }
+        acc = cpy;
+        return true;
+    }
+
+    return false;
+}
+
+bool LoopCopyCallCollapsePass::isRepeatAccumulateOuterLoop(const Loop &outer,
+                                                           Value *iv,
+                                                           Value *acc,
+                                                           const vector<Loop> &allLoops)
+{
+    (void)acc;
+    if (!iv || !hasNestedLoopInside(outer, allLoops))
+    {
+        return false;
+    }
+
+    ICmpInst *headerCmp = nullptr;
+    if (outer.header && outer.header->getInstructions().size() >= 2)
+    {
+        headerCmp = dynamic_cast<ICmpInst *>(
+            outer.header->getInstructions()[outer.header->getInstructions().size() - 2].get());
+    }
+
+    auto perIterBlocks = collectPerIterationBlocks(outer);
+    if (perIterBlocks.empty())
+    {
+        return false;
+    }
+
+    for (auto *bb : perIterBlocks)
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (dynamic_cast<StoreInst *>(inst) || dynamic_cast<CallInst *>(inst))
+            {
+                return false;
+            }
+
+            bool usesIv = false;
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOn(op, iv))
+                {
+                    usesIv = true;
+                    break;
+                }
+            }
+            if (!usesIv)
+            {
+                continue;
+            }
+
+            if (sameLoopValue(inst, iv))
+            {
+                continue;
+            }
+            if (inst == headerCmp)
+            {
+                continue;
+            }
+            if (auto *addInst = dynamic_cast<BinaryOperator *>(inst))
+            {
+                if (addInst->getOpcode() == Opcode::Add)
+                {
+                    auto *one = dynamic_cast<ConstantInt *>(stripCopy(addInst->getRHS()));
+                    if (one && one->Value == 1 && sameLoopValue(addInst->getLHS(), iv))
+                    {
+                        continue;
+                    }
+                }
+            }
+            if (dynamic_cast<CopyInst *>(inst) && sameLoopValue(inst, iv))
+            {
+                continue;
+            }
+            if (dynamic_cast<PhiInst *>(inst) && sameLoopValue(inst, iv))
+            {
+                continue;
+            }
+            if (dynamic_cast<BranchInst *>(inst))
+            {
+                continue;
+            }
+            return false;
+        }
+    }
+
+    if (outer.header)
+    {
+        for (auto &instPtr : outer.header->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            bool usesIv = false;
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOn(op, iv))
+                {
+                    usesIv = true;
+                    break;
+                }
+            }
+            if (!usesIv)
+            {
+                continue;
+            }
+            if (inst == headerCmp)
+            {
+                continue;
+            }
+            if (dynamic_cast<PhiInst *>(inst) && sameLoopValue(inst, iv))
+            {
+                continue;
+            }
+            if (dynamic_cast<CopyInst *>(inst) && sameLoopValue(inst, iv))
+            {
+                continue;
+            }
+            if (dynamic_cast<BranchInst *>(inst))
+            {
+                continue;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+bool LoopCopyCallCollapsePass::tryCollapseRepeatAccumulate(Function *func,
+                                                           const Loop &outer,
+                                                           ICmpInst *cmp,
+                                                           Value *iv,
+                                                           Value *bound,
+                                                           Value *acc,
+                                                           int constTripCount)
+{
+    if (!func || !cmp || !iv || !bound || !acc)
+    {
+        return false;
+    }
+
+    if (constTripCount == 1)
+    {
+        return false;
+    }
+
+    std::set<BasicBlock *> loopBlocks(outer.blocks.begin(), outer.blocks.end());
+    BasicBlock *exitBlock = nullptr;
+    if (!outer.exits.empty())
+    {
+        exitBlock = outer.exits[0];
+    }
+    if (!exitBlock)
+    {
+        auto &headerInsts = outer.header->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+        if (br && br->isConditional())
+        {
+            exitBlock = br->getFalseBlock();
+        }
+    }
+    if (!exitBlock || loopBlocks.count(exitBlock))
+    {
+        return false;
+    }
+
+    Value *scaleFactor = bound;
+    cmp->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 1));
+
+    auto *mul = new BinaryOperator(Opcode::Mul, acc, scaleFactor, "repeat_acc_scale");
+    unsigned insertIdx = 0;
+    for (auto &instPtr : exitBlock->getInstructions())
+    {
+        if (dynamic_cast<PhiInst *>(instPtr.get()))
+        {
+            ++insertIdx;
+        }
+        else
+        {
+            break;
+        }
+    }
+    exitBlock->insert(std::unique_ptr<Instruction>(mul), insertIdx);
+    std::set<Instruction *> skipInsts = {mul};
+    replaceValueInFunction(func, acc, mul, loopBlocks, skipInsts);
+
+    if (verbose)
+    {
+        debugInfo << "LoopCopyCallCollapse: collapsed repeat-accumulate outer loop "
+                  << outer.header->getName() << " (scale acc by trip count)\n";
+    }
+    return true;
 }
 
 void LoopCopyCallCollapsePass::redirectAndRemoveLoop(Function *func, const Loop &loop)
@@ -1841,6 +2365,40 @@ bool LoopCopyCallCollapsePass::runOnFunction(Function *func)
 
             func->setLoops(ControlFlowAnalysis::findLoops(func));
             return changed;
+        }
+    }
+
+    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    loops = func->getLoops();
+    for (const auto &outerLoop : loops)
+    {
+        ICmpInst *cmp = nullptr;
+        Value *iv = nullptr;
+        Value *bound = nullptr;
+        int constTripCount = -1;
+        if (!getRepeatOuterLoopInfo(outerLoop, cmp, iv, bound, constTripCount))
+        {
+            continue;
+        }
+        if (constTripCount == 0)
+        {
+            continue;
+        }
+
+        Value *acc = nullptr;
+        if (!findRepeatAccumulator(outerLoop, iv, acc))
+        {
+            continue;
+        }
+        if (!isRepeatAccumulateOuterLoop(outerLoop, iv, acc, loops))
+        {
+            continue;
+        }
+
+        if (tryCollapseRepeatAccumulate(func, outerLoop, cmp, iv, bound, acc, constTripCount))
+        {
+            func->setLoops(ControlFlowAnalysis::findLoops(func));
+            return true;
         }
     }
 
