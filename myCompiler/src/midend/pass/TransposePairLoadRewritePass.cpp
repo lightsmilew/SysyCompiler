@@ -54,11 +54,12 @@ bool TransposePairLoadRewritePass::matchesLoopIV(Value *idx, Value *iv)
 bool TransposePairLoadRewritePass::isKJMatrixAccess(Value *row, Value *col, Value *iIV, Value *jIV,
                                                     Value *kIV)
 {
-    (void)kIV;
-    // b[k][j] / a[k][j]：列下标为 j，行下标不是 i（区别于 b[i][k]、a[i][k]）
-    if (!matchesLoopIV(col, jIV))
+    (void)iIV;
+    (void)jIV;
+    // b[k][j] / a[k][j]：行下标为 k，列下标不是 k（区别于 a[i][k]、b[i][k]）
+    if (!matchesLoopIV(row, kIV))
         return false;
-    if (matchesLoopIV(row, iIV))
+    if (matchesLoopIV(col, kIV))
         return false;
     return true;
 }
@@ -315,15 +316,8 @@ bool TransposePairLoadRewritePass::findIJKInductionVars(BasicBlock *bb,
         return false;
 
     const Loop *kLoop = innermost;
-    const Loop *canonicalK = kLoop;
-    if (kLoop->header->getName().find("unroll") != string::npos)
-    {
-        canonicalK = findParentLoop(*kLoop, loops);
-        if (!canonicalK)
-            return false;
-    }
 
-    const Loop *jLoop = findParentLoop(*canonicalK, loops);
+    const Loop *jLoop = findParentLoop(*kLoop, loops);
     if (!jLoop)
         return false;
     const Loop *iLoop = findParentLoop(*jLoop, loops);
@@ -426,6 +420,33 @@ bool TransposePairLoadRewritePass::tryRewriteLoad(Function *func, LoadInst *load
     if (insertIndex >= insts.size())
         return false;
 
+    auto logRewrite = [&](Value *dstBase) {
+        if (verbose)
+        {
+            debugInfo << "TransposePairLoadRewrite: load " << base->getName() << "[" << row->getName()
+                      << "][" << col->getName() << "] -> " << dstBase->getName() << "["
+                      << col->getName() << "][" << row->getName() << "] in " << bb->getName()
+                      << "\n";
+        }
+    };
+
+    // a[k][j]：恒为 b[j][k]
+    if (sameArray(base, rel.arrayA))
+    {
+        LoadInst *newLoad =
+            materializeTransposedLoad(bb, row, col, rel.arrayB, insertIndex, "accum");
+        load->replaceAllUsesWith(newLoad);
+        load->removeThisFromOperands();
+        needToDelete.push_back(insts[insertIndex + 3].release());
+        insts.erase(insts.begin() + static_cast<int>(insertIndex) + 3);
+        logRewrite(rel.arrayB);
+        return true;
+    }
+
+    if (!sameArray(base, rel.arrayB))
+        return false;
+
+    // b[k][j]：与 a[i][k] 相乘 → a[j][k]；与 b[i][k] 相乘 → b[j][k]（CGA 后可能共用一条 load）
     vector<Instruction *> parityUsers;
     vector<Instruction *> accumUsers;
     vector<Instruction *> otherUsers;
@@ -453,34 +474,6 @@ bool TransposePairLoadRewritePass::tryRewriteLoad(Function *func, LoadInst *load
             inst->replaceOperand(load, newLoad);
     };
 
-    auto logRewrite = [&](Value *dstBase) {
-        if (verbose)
-        {
-            debugInfo << "TransposePairLoadRewrite: load " << base->getName() << "[" << row->getName()
-                      << "][" << col->getName() << "] -> " << dstBase->getName() << "["
-                      << col->getName() << "][" << row->getName() << "] in " << bb->getName()
-                      << "\n";
-        }
-    };
-
-    // a[k][j]：仅出现在 b[i][k]*a[k][j] 累加项，等价于 b[j][k]
-    if (sameArray(base, rel.arrayA))
-    {
-        LoadInst *newLoad =
-            materializeTransposedLoad(bb, row, col, rel.arrayB, insertIndex, "accum");
-        replaceInUsers(newLoad, accumUsers);
-        replaceInUsers(newLoad, otherUsers);
-        load->removeThisFromOperands();
-        needToDelete.push_back(insts[insertIndex + 3].release());
-        insts.erase(insts.begin() + static_cast<int>(insertIndex) + 3);
-        logRewrite(rel.arrayB);
-        return true;
-    }
-
-    if (!sameArray(base, rel.arrayB))
-        return false;
-
-    // b[k][j]：与 a[i][k] 相乘用于条件 → a[j][k]；与 b[i][k] 相乘用于累加 → b[j][k]（=a[k][j]）
     const bool needParity = !parityUsers.empty() || !otherUsers.empty();
     const bool needAccum = !accumUsers.empty();
 
@@ -537,7 +530,7 @@ bool TransposePairLoadRewritePass::runOnFunction(Function *func)
         }
     }
 
-    // 先改写 b[k][j]（按用途拆分 parity/accum），再改写 a[k][j]
+    // 先 a[k][j]→b[j][k]，再按用途拆分 b[k][j]（避免 CGA 共用 load 时累加误用 a[j][k]）
     stable_sort(candidates.begin(), candidates.end(),
                 [&](const pair<LoadInst *, BasicBlock *> &lhs,
                     const pair<LoadInst *, BasicBlock *> &rhs) {
@@ -548,7 +541,7 @@ bool TransposePairLoadRewritePass::runOnFunction(Function *func)
                     const bool lA = sameArray(baseL, rel.arrayA);
                     const bool rA = sameArray(baseR, rel.arrayA);
                     if (lA != rA)
-                        return !lA;
+                        return lA;
                     return false;
                 });
 

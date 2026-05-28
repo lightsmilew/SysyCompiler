@@ -2,6 +2,45 @@
 #include <functional>
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+static void replaceBranchTargetInFunction(Function *func, BasicBlock *from, BasicBlock *to)
+{
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        for (auto &instPtr : bbPtr->getInstructions())
+        {
+            auto *br = dynamic_cast<BranchInst *>(instPtr.get());
+            if (!br)
+                continue;
+            if (br->getTrueBlock() == from)
+                br->setTrueBlock(to);
+            if (br->isConditional() && br->getFalseBlock() == from)
+                br->setFalseBlock(to);
+        }
+    }
+}
+
+static void removeUnconditionalBranchesTo(BasicBlock *bb, BasicBlock *target)
+{
+    auto &insts = bb->getInstructions();
+    for (auto it = insts.begin(); it != insts.end();)
+    {
+        auto *br = dynamic_cast<BranchInst *>(it->get());
+        if (br && !br->isConditional() && br->getTrueBlock() == target)
+        {
+            br->removeThisFromOperands();
+            it = insts.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+} // namespace
+
 bool CFGSimplificationPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -271,11 +310,16 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
             // 合并succ到bb
             auto &bbInsts = bb->getInstructions();
             auto &succInsts = succ->getInstructions();
-            // 移除bb末尾的跳转指令
+            // 移除 bb 中所有指向 succ 的无条件跳转（含末尾），合并后 succ 指令会接在后面
+            removeUnconditionalBranchesTo(bb, succ);
             if (!bbInsts.empty() && bbInsts.back()->isTerminator())
             {
-                bbInsts.back()->removeThisFromOperands();
-                bbInsts.pop_back();
+                auto *br = dynamic_cast<BranchInst *>(bbInsts.back().get());
+                if (br && !br->isConditional() && br->getTrueBlock() == succ)
+                {
+                    br->removeThisFromOperands();
+                    bbInsts.pop_back();
+                }
             }
             // 把succ的所有指令移动到bb
             for (auto &inst : succInsts)
@@ -327,6 +371,7 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
                 succSucc->addPredecessor(bb);
             }
             bb->removeSuccessor(succ);
+            replaceBranchTargetInFunction(func, succ, bb);
             // 移除succ
             for (auto succIt = bbs.begin(); succIt != bbs.end(); ++succIt)
             {

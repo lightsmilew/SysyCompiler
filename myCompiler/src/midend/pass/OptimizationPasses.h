@@ -26,6 +26,7 @@
 #include "MemoizationPass.h"
 #include "MemoizationV2Pass.h"
 #include "SRFixedPass.h"
+#include "GlobalScalarPromotionPass.h"
 #include "NormalizationPass.h"
 #include <vector>
 #include <string>
