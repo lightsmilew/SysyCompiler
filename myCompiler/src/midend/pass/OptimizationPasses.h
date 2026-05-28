@@ -9,6 +9,7 @@
 #include "LoopIfGuardHoistPass.h"
 #include "LoopInductionStrengthReductionPass.h"
 #include "LoopInterchangePass.h"
+#include "LoopTilingPass.h"
 #include "CondGuardedAccumulatePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
