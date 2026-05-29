@@ -289,6 +289,7 @@ std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
 }
 
 static constexpr int kFullUnrollMaxTripCount = 100;
+static constexpr int kMaxConstantFullUnrollNestLayers = 2;
 static constexpr int kPartialUnrollFactor = 4;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
 
@@ -524,6 +525,7 @@ bool detectCopyLoopIV(const Loop &loop,
 UnrollResult tryUnrollOneLoop(Function *func,
                               const Loop &loop,
                               const vector<Loop> &allLoops,
+                              int &fullUnrollLayersDone,
                               bool verbose,
                               std::stringstream &debugInfo)
 {
@@ -664,8 +666,9 @@ UnrollResult tryUnrollOneLoop(Function *func,
         tripCount = tripCount / intcValue;
     }
 
-    // 9. 完全展开
-    if (tripCount > 0 && tripCount <= kFullUnrollMaxTripCount)
+    // 9. 完全展开（常量循环嵌套最多展开 kMaxConstantFullUnrollNestLayers 层）
+    if (tripCount > 0 && tripCount <= kFullUnrollMaxTripCount &&
+        fullUnrollLayersDone < kMaxConstantFullUnrollNestLayers)
     {
         auto &preInsts = preheader->getInstructions();
         auto insertPos = preInsts.size();
@@ -783,10 +786,13 @@ UnrollResult tryUnrollOneLoop(Function *func,
             bb->removeSelfBasicBlock();
         preheader->addSuccessor(exitBlock);
         exitBlock->addPredecessor(preheader);
+        fullUnrollLayersDone++;
         if (verbose)
             debugInfo << "LoopUnrollingPass: Fully unrolled loop at " << header->getName()
                       << " tripCount=" << tripCount
-                      << (copyBasedIV ? " (copy iv)" : "") << "\n";
+                      << " (nestLayer=" << fullUnrollLayersDone << "/"
+                      << kMaxConstantFullUnrollNestLayers << ")"
+                      << (copyBasedIV ? " copy iv" : "") << "\n";
         return UnrollResult::Full;
     }
 
@@ -1924,6 +1930,7 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
 bool LoopUnrollingPass::runOnFunction(Function *func)
 {
     bool changed = false;
+    int fullUnrollLayersDone = 0;
     bool fullUnrolledThisRound;
     do
     {
@@ -1933,7 +1940,11 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
         sortLoopsInnermostFirst(loops);
         for (const auto &loop : loops)
         {
-            switch (tryUnrollOneLoop(func, loop, loops, verbose, debugInfo))
+            // 每遇到一个新的最外层循环子树，重新计数已完全展开的嵌套层数
+            if (loopNestingDepth(loop, loops) == 0)
+                fullUnrollLayersDone = 0;
+
+            switch (tryUnrollOneLoop(func, loop, loops, fullUnrollLayersDone, verbose, debugInfo))
             {
             case UnrollResult::Full:
                 changed = true;
