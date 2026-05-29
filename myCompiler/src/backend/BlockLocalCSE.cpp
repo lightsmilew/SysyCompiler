@@ -532,7 +532,7 @@ namespace RISCV
         return false;
     }
 
-    bool BlockLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function)
+    bool BlockLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function, bool laMaterializeOnly)
     {
         if (!function)
             return false;
@@ -578,7 +578,10 @@ namespace RISCV
                 }
 
                 // li/la 只读物化：同立即数/符号则删重复指令，后续 use 改用首次的 rd
-                if (!skipMaterializeCSE(bb, inst, innerLoop))
+                const bool allowMaterialize = laMaterializeOnly
+                                                  ? inst->getOpcode() == RISCVOpcode::LA
+                                                  : !skipMaterializeCSE(bb, inst, innerLoop);
+                if (allowMaterialize)
                 {
                     shared_ptr<RISCVRegister> matRd;
                     if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
@@ -595,7 +598,8 @@ namespace RISCV
                                 {
                                     replaceUsesWithCanon(insts, idx, matIt->second.defIdx, matRd, canon);
                                     insts.erase(insts.begin() + static_cast<long>(idx));
-                                    decrementDefIdxAfter(avail, idx);
+                                    if (!laMaterializeOnly)
+                                        decrementDefIdxAfter(avail, idx);
                                     decrementMaterialDefIdxAfter(materialAvail, idx);
                                     changed = true;
                                     matHandled = true;
@@ -620,6 +624,9 @@ namespace RISCV
                         }
                     }
                 }
+
+                if (laMaterializeOnly)
+                    continue;
 
                 if (isLoopInductionRelated(bb, inst, innerLoop))
                     continue;
@@ -677,12 +684,11 @@ namespace RISCV
         return changed;
     }
 
-    void BlockLocalCSE::run(shared_ptr<RISCVFunction> function)
+    void BlockLocalCSE::run(shared_ptr<RISCVFunction> function, bool laMaterializeOnly)
     {
         if (!function)
             return;
-        // 参考 CSEPass::do-while(localChanged)：反复扫描直至不动点
-        while (optimizeFunction(function))
+        while (optimizeFunction(function, laMaterializeOnly))
         {
         }
     }

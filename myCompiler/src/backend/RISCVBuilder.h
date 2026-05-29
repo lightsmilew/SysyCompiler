@@ -36,8 +36,8 @@ namespace RISCV
         // 流水线各阶段
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
-        void runLICMPass();     // 循环不变 la/li 外提
-        void runBlockLocalCSEPass(); // 块内 li/la 物化与算术 CSE
+        void runLICMPass();          // 循环不变 la/li 外提
+        void runBlockLocalCSEPass(bool laMaterializeOnly = false);
         void instructionSheduler();
         void allocateRegisters();
         void FirstPeep();

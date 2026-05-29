@@ -5,12 +5,12 @@
 
 namespace RISCV
 {
-    /// 基本块内 CSE：li/la 只读物化（同立即数/符号合并，后续 rd 复用先前 def）+ 纯算术。
-    /// avail 不跨块；循环头归纳 li 不做物化合并；命中时替换 use 并删除重复指令，不生成 MV。
+    /// 基本块内 CSE：li/la 只读物化 + 纯算术。
+    /// run(laMaterializeOnly=true) 时仅合并 la（供 LICM 后使用，避免误消 latch 内 li）。
     class BlockLocalCSE
     {
     public:
-        void run(shared_ptr<RISCVFunction> function);
+        void run(shared_ptr<RISCVFunction> function, bool laMaterializeOnly = false);
 
     private:
         struct ExprKey
@@ -53,7 +53,7 @@ namespace RISCV
             size_t operator()(const MaterialKey &k) const;
         };
 
-        static bool optimizeFunction(shared_ptr<RISCVFunction> function);
+        static bool optimizeFunction(shared_ptr<RISCVFunction> function, bool laMaterializeOnly);
         static shared_ptr<RISCVRegister> getSpRegister();
         static shared_ptr<RISCVRegister> getDestReg(const shared_ptr<RISCVInstruction> &inst);
         static std::string regKey(const shared_ptr<RISCVRegister> &reg);

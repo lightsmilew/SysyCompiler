@@ -10,6 +10,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     FirstPeep();
     runBlockLocalCSEPass();
     runLICMPass();
+    runBlockLocalCSEPass(true); // LICM 后仅合并重复 la，不碰 li（避免误消归纳/每轮 li）
     // instructionScheduler();
     allocateRegisters();
     SecondPeep();
@@ -485,13 +486,13 @@ void RISCVBuilder::runLICMPass()
     }
 }
 
-void RISCVBuilder::runBlockLocalCSEPass()
+void RISCVBuilder::runBlockLocalCSEPass(bool laMaterializeOnly)
 {
     for (auto &func : riscvModule->getFunctions())
     {
         if (isLibraryFunction(func->getName()))
             continue;
         BlockLocalCSE pass;
-        pass.run(func);
+        pass.run(func, laMaterializeOnly);
     }
 }
