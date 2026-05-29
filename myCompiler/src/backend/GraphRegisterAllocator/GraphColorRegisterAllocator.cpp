@@ -1034,8 +1034,6 @@ namespace RISCV
         // 计算 LiveOut
         for (const auto &succ : bb->getSuccessors())
         {
-          if (succ == bb)
-            continue;
           const auto &succLiveIn = succ->getLiveIn();
           for (const auto &reg : succLiveIn)
           {

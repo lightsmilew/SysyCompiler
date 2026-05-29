@@ -155,6 +155,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     else if (level == OptimizationLevel::O1)
     {
@@ -215,6 +216,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {
@@ -437,6 +439,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         //必须要有死代码消除，处理寄存器分配潜在问题
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     return pm;
 }

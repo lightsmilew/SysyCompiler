@@ -69,6 +69,15 @@ private:
                     string &branchLabel) const;
 };
 
+// 折叠「退出分支 + jal 回边」为反向比较回边，删除 jal
+class FoldLoopContinueBranchPass : public PeepPass
+{
+public:
+    FoldLoopContinueBranchPass() : PeepPass("FoldLoopContinueBranch") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+};
+
 // 消除 icmp-ne-0 遗留的 xori rd,rs,0 + 分支，改为直接对 rs 分支
 class FoldXorZeroBranchPass : public PeepPass
 {

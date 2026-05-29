@@ -1169,6 +1169,34 @@ void InstructionSelector::visitReturnInst(ReturnInst *inst)
     currentBB->addInstruction(retInst);
 }
 
+namespace
+{
+    bool icmpOnlyUsedByBranch(ICmpInst *icmp)
+    {
+        const auto &users = icmp->getUsers();
+        if (users.size() != 1)
+        {
+            return false;
+        }
+        return dynamic_cast<BranchInst *>(users[0]) != nullptr;
+    }
+
+    bool icmpComparesZero(ICmpInst *icmp, Value *&nonZeroSide)
+    {
+        if (auto *rhsConst = dynamic_cast<ConstantInt *>(icmp->getRHS()); rhsConst && rhsConst->Value == 0)
+        {
+            nonZeroSide = icmp->getLHS();
+            return true;
+        }
+        if (auto *lhsConst = dynamic_cast<ConstantInt *>(icmp->getLHS()); lhsConst && lhsConst->Value == 0)
+        {
+            nonZeroSide = icmp->getRHS();
+            return true;
+        }
+        return false;
+    }
+}
+
 void InstructionSelector::visitBranchInst(BranchInst *inst)
 {
     auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
@@ -1179,43 +1207,55 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
         currentBB->addInstruction(RISCVInstruction::createJType(
             RISCVOpcode::JAL, zeroReg, inst->TrueBlock->getName()));
     };
+    auto emitRegPairFalseAndJalTrue = [&](RISCVOpcode brOp,
+                                          shared_ptr<RISCVRegister> lhsReg,
+                                          shared_ptr<RISCVRegister> rhsReg)
+    {
+        currentBB->addInstruction(RISCVInstruction::createBType(
+            brOp, lhsReg, rhsReg, inst->FalseBlock->getName()));
+        currentBB->addInstruction(RISCVInstruction::createJType(
+            RISCVOpcode::JAL, zeroReg, inst->TrueBlock->getName()));
+    };
 
     if (inst->getCondition())
     {
-        // icmp (eq|ne) 0 直接分支，避免 xori/sltu + beq 序列
+        // icmp (eq|ne) 直接分支，避免 xor/sltu + beq 序列
         if (auto *icmp = dynamic_cast<ICmpInst *>(inst->getCondition()))
         {
-            Value *cmpVal = nullptr;
-            if (auto *rhsConst = dynamic_cast<ConstantInt *>(icmp->getRHS());
-                rhsConst && rhsConst->Value == 0)
+            if (icmpOnlyUsedByBranch(icmp) &&
+                (icmp->getPredicate() == ICmpInst::ICMP_NE || icmp->getPredicate() == ICmpInst::ICMP_EQ) &&
+                inst->FalseBlock)
             {
-                cmpVal = icmp->getLHS();
-            }
-            else if (auto *lhsConst = dynamic_cast<ConstantInt *>(icmp->getLHS());
-                     lhsConst && lhsConst->Value == 0)
-            {
-                cmpVal = icmp->getRHS();
-            }
-
-            if (cmpVal &&
-                (icmp->getPredicate() == ICmpInst::ICMP_NE || icmp->getPredicate() == ICmpInst::ICMP_EQ))
-            {
-                auto vReg = getOrCreateVirtualReg(cmpVal);
-                if (vReg->getType() == RegisterType::FLOAT)
+                Value *zeroSide = nullptr;
+                if (icmpComparesZero(icmp, zeroSide))
                 {
-                    auto intCondReg = getTempReg();
-                    auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, vReg);
-                    currentBB->addInstruction(ftoiInst);
-                    vReg = intCondReg;
-                }
-                // 条件跳假出口 + jal 真出口；真出口 fall-through 时由 RemoveRedundantJalPass 删 jal
-                RISCVOpcode brOp = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BEQ
-                                                                             : RISCVOpcode::BNE;
-                if (inst->FalseBlock)
-                {
+                    auto vReg = getOrCreateVirtualReg(zeroSide);
+                    if (vReg->getType() == RegisterType::FLOAT)
+                    {
+                        auto intCondReg = getTempReg();
+                        auto ftoiInst = RISCVInstruction::createPseudo(RISCVOpcode::FMV_X_W, intCondReg, vReg);
+                        currentBB->addInstruction(ftoiInst);
+                        vReg = intCondReg;
+                    }
+                    RISCVOpcode brOp = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BEQ
+                                                                                 : RISCVOpcode::BNE;
                     emitCondFalseAndJalTrue(brOp, vReg);
+                    return;
                 }
-                return;
+
+                auto lhsReg = getOrCreateVirtualReg(icmp->getLHS());
+                auto rhsReg = getOrCreateVirtualReg(icmp->getRHS());
+                if (lhsReg->getType() == RegisterType::FLOAT || rhsReg->getType() == RegisterType::FLOAT)
+                {
+                    // 浮点 eq/ne 仍走 i1 物化路径
+                }
+                else
+                {
+                    RISCVOpcode falseBr = icmp->getPredicate() == ICmpInst::ICMP_NE ? RISCVOpcode::BEQ
+                                                                                    : RISCVOpcode::BNE;
+                    emitRegPairFalseAndJalTrue(falseBr, lhsReg, rhsReg);
+                    return;
+                }
             }
         }
 
@@ -1245,42 +1285,22 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
     }
 }
 
-namespace
-{
-    bool icmpOnlyUsedByBranch(ICmpInst *icmp)
-    {
-        const auto &users = icmp->getUsers();
-        if (users.size() != 1)
-        {
-            return false;
-        }
-        return dynamic_cast<BranchInst *>(users[0]) != nullptr;
-    }
-
-    bool icmpComparesZero(ICmpInst *icmp, Value *&nonZeroSide)
-    {
-        if (auto *rhsConst = dynamic_cast<ConstantInt *>(icmp->getRHS()); rhsConst && rhsConst->Value == 0)
-        {
-            nonZeroSide = icmp->getLHS();
-            return true;
-        }
-        if (auto *lhsConst = dynamic_cast<ConstantInt *>(icmp->getLHS()); lhsConst && lhsConst->Value == 0)
-        {
-            nonZeroSide = icmp->getRHS();
-            return true;
-        }
-        return false;
-    }
-}
-
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
-    Value *cmpVal = nullptr;
-    if (icmpOnlyUsedByBranch(inst) && icmpComparesZero(inst, cmpVal) &&
+    if (icmpOnlyUsedByBranch(inst) &&
         (inst->getPredicate() == ICmpInst::ICMP_NE || inst->getPredicate() == ICmpInst::ICMP_EQ))
     {
-        // 由 visitBranchInst 直接生成 bne/beq，无需物化 i1
-        return;
+        Value *zeroSide = nullptr;
+        if (icmpComparesZero(inst, zeroSide))
+        {
+            return;
+        }
+        const bool lhsFloat = inst->getLHS() && inst->getLHS()->getType()->isFloatTy();
+        const bool rhsFloat = inst->getRHS() && inst->getRHS()->getType()->isFloatTy();
+        if (!lhsFloat && !rhsFloat)
+        {
+            return;
+        }
     }
 
     switch (inst->Pred)

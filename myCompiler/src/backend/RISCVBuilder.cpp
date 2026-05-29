@@ -273,6 +273,7 @@ void RISCVBuilder::FirstPeep()
     PeepOptimizationManager peep;
     peep.addPass(make_shared<FoldCompareBranchPass>());
     peep.addPass(make_shared<FoldXorZeroBranchPass>());
+    peep.addPass(make_shared<FoldLoopContinueBranchPass>());
     peep.addPass(make_shared<DeadCodeEliminationPass>());
     peep.addPass(make_shared<RemoveRedundantJalPass>());
     peep.addPass(make_shared<StrengthReductionPass>());

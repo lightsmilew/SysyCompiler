@@ -292,6 +292,7 @@ static constexpr int kFullUnrollMaxTripCount = 100;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
 static constexpr int kPartialUnrollFactor = 4;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
+static constexpr int kPureComputePartialUnrollMaxBodyInsts = 4;
 
 void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
 {
@@ -348,6 +349,75 @@ int countLoopBodyInsts(BasicBlock *body, BasicBlock *latch)
     countBlock(body);
     countBlock(latch);
     return count;
+}
+
+static bool isImpureLoopBodyInst(const Instruction *inst)
+{
+    if (!inst)
+    {
+        return true;
+    }
+    switch (inst->getOpcode())
+    {
+    case Opcode::Load:
+    case Opcode::Store:
+    case Opcode::Stored:
+    case Opcode::Call:
+    case Opcode::Alloca:
+        return true;
+    default:
+        return inst->mayHaveSideEffects();
+    }
+}
+
+static bool loopBodyIsPureComputationOnly(BasicBlock *body, BasicBlock *latch)
+{
+    auto scan = [&](BasicBlock *bb) -> bool
+    {
+        if (!bb)
+        {
+            return true;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            if (instPtr->isTerminator())
+            {
+                continue;
+            }
+            if (isImpureLoopBodyInst(instPtr.get()))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    return scan(body) && scan(latch);
+}
+
+struct PartialUnrollCost
+{
+    int bodyInstCount = 0;
+    bool pureComputationOnly = false;
+    bool profitable = false;
+};
+
+static PartialUnrollCost computePartialUnrollCost(BasicBlock *body, BasicBlock *latch)
+{
+    PartialUnrollCost cost;
+    cost.bodyInstCount = countLoopBodyInsts(body, latch);
+    cost.pureComputationOnly = loopBodyIsPureComputationOnly(body, latch);
+
+    if (cost.bodyInstCount > kPartialUnrollMaxBodyInsts)
+    {
+        return cost;
+    }
+    // 纯计算循环体指令数超过阈值时展开无收益（无法摊薄访存/分支开销）
+    if (cost.pureComputationOnly && cost.bodyInstCount > kPureComputePartialUnrollMaxBodyInsts)
+    {
+        return cost;
+    }
+    cost.profitable = true;
+    return cost;
 }
 
 bool verifySimpleLoopControl(BasicBlock *header, BasicBlock *body, BasicBlock *latch)
@@ -578,8 +648,6 @@ UnrollResult tryUnrollOneLoop(Function *func,
             return UnrollResult::None;
     }
 
-    const int bodyInstCount = countLoopBodyInsts(body, latch);
-
     // 3. 找到induction variable phi 或 copy 归纳变量
     PhiInst *indPhi = nullptr;
     Value *indVar = nullptr;
@@ -799,9 +867,18 @@ UnrollResult tryUnrollOneLoop(Function *func,
     if (copyBasedIV || headerPhis.empty())
         return UnrollResult::None;
 
-    // 10. 部分展开（四路展开）：循环体过大则跳过
-    if (bodyInstCount > kPartialUnrollMaxBodyInsts)
+    const PartialUnrollCost partialCost = computePartialUnrollCost(body, latch);
+    if (!partialCost.profitable)
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopUnrollingPass: skip 4-way unroll at " << header->getName()
+                      << " (bodyInsts=" << partialCost.bodyInstCount
+                      << ", pureCompute=" << (partialCost.pureComputationOnly ? "true" : "false")
+                      << ")\n";
+        }
         return UnrollResult::None;
+    }
 
     int unrollFactor = kPartialUnrollFactor;
     auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
@@ -976,7 +1053,8 @@ UnrollResult tryUnrollOneLoop(Function *func,
 
     if (verbose)
         debugInfo << "LoopUnrollingPass: 4-way unrolled loop at " << header->getName()
-                  << " (bodyInsts=" << bodyInstCount << ", inserted unroll loop before original)\n";
+                  << " (bodyInsts=" << partialCost.bodyInstCount
+                  << ", inserted unroll loop before original)\n";
     return UnrollResult::Partial;
 }
 } // namespace

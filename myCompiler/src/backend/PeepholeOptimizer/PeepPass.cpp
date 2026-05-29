@@ -604,6 +604,108 @@ PeepOptiState FoldCompareBranchPass::optimize(shared_ptr<RISCVInstruction> instr
     return PeepOptiState::DELETE;
 }
 
+// ========== FoldLoopContinueBranchPass ==========
+//   bge rs1, rs2, exit
+//   jal zero, loop
+// =>
+//   blt rs1, rs2, loop
+// (fall-through 进入 exit)
+
+namespace
+{
+    bool isConditionalBranchOpcode(RISCVOpcode op)
+    {
+        return op == RISCVOpcode::BEQ || op == RISCVOpcode::BNE || op == RISCVOpcode::BLT ||
+               op == RISCVOpcode::BGE || op == RISCVOpcode::BLTU || op == RISCVOpcode::BGEU;
+    }
+
+    RISCVOpcode invertBranchOpcode(RISCVOpcode exitOpcode)
+    {
+        switch (exitOpcode)
+        {
+        case RISCVOpcode::BGE:
+            return RISCVOpcode::BLT;
+        case RISCVOpcode::BLT:
+            return RISCVOpcode::BGE;
+        case RISCVOpcode::BGEU:
+            return RISCVOpcode::BLTU;
+        case RISCVOpcode::BLTU:
+            return RISCVOpcode::BGEU;
+        case RISCVOpcode::BEQ:
+            return RISCVOpcode::BNE;
+        case RISCVOpcode::BNE:
+            return RISCVOpcode::BEQ;
+        default:
+            return exitOpcode;
+        }
+    }
+
+    bool isExitFallThroughBlock(shared_ptr<RISCVBasicBlock> bb, const string &exitLabel)
+    {
+        if (!bb || !bb->getParentFunc() || exitLabel.empty())
+        {
+            return false;
+        }
+        const auto &blocks = bb->getParentFunc()->getBasicBlocks();
+        auto it = std::find(blocks.begin(), blocks.end(), bb);
+        if (it == blocks.end() || it + 1 == blocks.end())
+        {
+            return false;
+        }
+        return (*(it + 1))->getLabel() == exitLabel;
+    }
+}
+
+PeepOptiState FoldLoopContinueBranchPass::optimize(shared_ptr<RISCVInstruction> instr,
+                                                   shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb || instr->getOpcode() != RISCVOpcode::JAL)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto jalOps = instr->getOperands();
+    if (jalOps.size() < 2 || !isZeroRegOperand(jalOps[0]) || !jalOps[1] || !jalOps[1]->hasLabel())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto &insts = bb->getInstructions();
+    auto it = std::find(insts.begin(), insts.end(), instr);
+    if (it == insts.end() || it == insts.begin() || it + 1 != insts.end())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto branch = *(it - 1);
+    if (!branch || !isConditionalBranchOpcode(branch->getOpcode()))
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto branchOps = branch->getOperands();
+    if (branchOps.size() != 3 || !branchOps[0] || !branchOps[1] || !branchOps[2] ||
+        branchOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        branchOps[1]->getType() != RISCVOperand::Type::REGISTER ||
+        branchOps[2]->getType() != RISCVOperand::Type::LABEL)
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    const string &exitLabel = branchOps[2]->getLabel();
+    const string &continueLabel = jalOps[1]->getLabel();
+    if (!isExitFallThroughBlock(bb, exitLabel) || continueLabel.empty())
+    {
+        return PeepOptiState::KEEP;
+    }
+
+    auto continueBranch = RISCVInstruction::createBType(
+        invertBranchOpcode(branch->getOpcode()), branchOps[0]->getReg(), branchOps[1]->getReg(),
+        continueLabel);
+    branch->replaceInstruction(continueBranch);
+    return PeepOptiState::DELETE;
+}
+
 // ========== FoldXorZeroBranchPass ==========
 
 namespace
