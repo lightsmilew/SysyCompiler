@@ -108,7 +108,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         //
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -121,7 +121,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<SchedulingDepBreakPass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
@@ -169,7 +168,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         //
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -182,7 +181,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<SchedulingDepBreakPass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
@@ -291,8 +289,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 conv2d 嵌套匹配失败
-        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
+        // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
+        pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -312,7 +310,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<SchedulingDepBreakPass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
@@ -371,8 +368,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
-        // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 conv2d 嵌套匹配失败
-        pm->addPass(std::make_unique<Conv2dInteriorSplitPass>(verbose));
+        // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
+        pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<AllocaCoalescePass>(verbose));
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
@@ -392,7 +389,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<SchedulingDepBreakPass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));

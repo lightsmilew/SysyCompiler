@@ -58,12 +58,6 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                 auto found = exprMap.find(key);
                 if (found != exprMap.end())
                 {
-                    if (inst->NoCSE || found->second.first->NoCSE)
-                    {
-                        exprMap[key] = {inst, bb.get()};
-                        ++it;
-                        continue;
-                    }
                     // 只有原表达式所在基本块支配当前基本块时才可消除
                     BasicBlock *defBB = found->second.second;
                     Instruction *defInst = found->second.first;
@@ -197,8 +191,6 @@ std::pair<std::string, std::vector<std::string>> CommonSubexpressionEliminationP
 // 判断指令是否可以作为公共子表达式
 bool CommonSubexpressionEliminationPass::canBeCommonSubexpression(Instruction *inst, BasicBlock *bb)
 {
-    if (inst->NoCSE)
-        return false;
     // 处理无副作用的二元运算、getelementptr、load以及无副作用的call
     // 不包括Store Ret Br
     return (inst->isBinaryOp() ||

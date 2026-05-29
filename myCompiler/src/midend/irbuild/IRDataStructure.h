@@ -451,8 +451,6 @@ class Instruction : public User
 {
 public:
     Opcode Op;
-    /// 为 true 时不参与公共子表达式消除（用于刻意保留的并行计算链）
-    bool NoCSE = false;
     // 无操作数的构造函数
     Instruction(Type *ty, Opcode op, const string &name = "") 
         : User(ty, {}, name), Op(op)

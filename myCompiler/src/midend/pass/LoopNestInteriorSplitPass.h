@@ -3,20 +3,20 @@
 
 namespace optimization
 {
-    /// 将 conv2d 拆为 interior（无边界检查）与 border（保留 guard）两段。
-    /// 通过循环嵌套与 IR 结构匹配，不依赖基本块名称。
-    class Conv2dInteriorSplitPass : public Pass
+    /// 基于循环嵌套与内存访问结构，将 guarded kernel 拆为 interior（无边界检查）
+    /// 与 border（保留 guard）两段，不依赖基本块或变量名称。
+    class LoopNestInteriorSplitPass : public Pass
     {
     public:
         static constexpr int kPad = 2;
         static constexpr int kKernelSize = 5;
 
-        Conv2dInteriorSplitPass(bool verbose = false) : Pass(verbose) {}
+        LoopNestInteriorSplitPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
-        std::string getName() const override { return "Conv2dInteriorSplit"; }
+        std::string getName() const override { return "LoopNestInteriorSplit"; }
 
     private:
-        struct Conv2dPattern
+        struct KernelNestInfo
         {
             const Loop *repeatLoop = nullptr;
             const Loop *rLoop = nullptr;
@@ -44,7 +44,7 @@ namespace optimization
             int kSize = kKernelSize;
         };
 
-        static bool matchConv2dNest(Function *func, const vector<Loop> &loops, Conv2dPattern &pat);
-        static bool applySplit(Function *func, Conv2dPattern &pat, bool verbose, std::stringstream &dbg);
+        static bool analyzeKernelNest(Function *func, const vector<Loop> &loops, KernelNestInfo &info);
+        static bool applySplit(Function *func, KernelNestInfo &info, bool verbose, std::stringstream &dbg);
     };
 }

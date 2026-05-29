@@ -1,4 +1,4 @@
-#include "LiLocalCSE.h"
+#include "BlockLocalCSE.h"
 #include <algorithm>
 
 using std::optional;
@@ -7,13 +7,13 @@ using std::vector;
 
 namespace RISCV
 {
-    bool LiLocalCSE::ExprKey::operator==(const ExprKey &o) const
+    bool BlockLocalCSE::ExprKey::operator==(const ExprKey &o) const
     {
         return opcode == o.opcode && op1 == o.op1 && op2 == o.op2 && hasImm == o.hasImm &&
                (!hasImm || imm == o.imm) && usesSp == o.usesSp;
     }
 
-    size_t LiLocalCSE::ExprKeyHash::operator()(const ExprKey &k) const
+    size_t BlockLocalCSE::ExprKeyHash::operator()(const ExprKey &k) const
     {
         size_t h = std::hash<int>()(static_cast<int>(k.opcode));
         h ^= std::hash<std::string>()(k.op1) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -24,7 +24,7 @@ namespace RISCV
         return h;
     }
 
-    bool LiLocalCSE::MaterialKey::operator==(const MaterialKey &o) const
+    bool BlockLocalCSE::MaterialKey::operator==(const MaterialKey &o) const
     {
         if (opcode != o.opcode)
             return false;
@@ -35,7 +35,7 @@ namespace RISCV
         return false;
     }
 
-    size_t LiLocalCSE::MaterialKeyHash::operator()(const MaterialKey &k) const
+    size_t BlockLocalCSE::MaterialKeyHash::operator()(const MaterialKey &k) const
     {
         size_t h = std::hash<int>()(static_cast<int>(k.opcode));
         if (k.hasImm)
@@ -44,13 +44,13 @@ namespace RISCV
         return h;
     }
 
-    shared_ptr<RISCVRegister> LiLocalCSE::getSpRegister()
+    shared_ptr<RISCVRegister> BlockLocalCSE::getSpRegister()
     {
         static auto sp = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
         return sp;
     }
 
-    shared_ptr<RISCVRegister> LiLocalCSE::getDestReg(const shared_ptr<RISCVInstruction> &inst)
+    shared_ptr<RISCVRegister> BlockLocalCSE::getDestReg(const shared_ptr<RISCVInstruction> &inst)
     {
         if (!inst)
             return nullptr;
@@ -60,18 +60,18 @@ namespace RISCV
         return ops[0]->getReg();
     }
 
-    string LiLocalCSE::regKey(const shared_ptr<RISCVRegister> &reg)
+    string BlockLocalCSE::regKey(const shared_ptr<RISCVRegister> &reg)
     {
         return reg ? reg->toString() : "";
     }
 
-    bool LiLocalCSE::isSpRegister(const shared_ptr<RISCVRegister> &reg)
+    bool BlockLocalCSE::isSpRegister(const shared_ptr<RISCVRegister> &reg)
     {
         return reg && reg->isPhysical() &&
                reg->getPhysicalReg() == RISCVRegister::PhysicalReg::SP;
     }
 
-    bool LiLocalCSE::isCSEableOpcode(RISCVOpcode op)
+    bool BlockLocalCSE::isCSEableOpcode(RISCVOpcode op)
     {
         switch (op)
         {
@@ -109,7 +109,7 @@ namespace RISCV
         }
     }
 
-    shared_ptr<RISCVLoop> LiLocalCSE::findInnermostLoop(const LoopInfo &loopInfo,
+    shared_ptr<RISCVLoop> BlockLocalCSE::findInnermostLoop(const LoopInfo &loopInfo,
                                                         shared_ptr<RISCVBasicBlock> bb)
     {
         shared_ptr<RISCVLoop> innermost;
@@ -128,7 +128,7 @@ namespace RISCV
         return innermost;
     }
 
-    bool LiLocalCSE::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
+    bool BlockLocalCSE::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
                                              const vector<shared_ptr<RISCVBasicBlock>> &blocks)
     {
         if (!inst)
@@ -156,7 +156,7 @@ namespace RISCV
         return true;
     }
 
-    bool LiLocalCSE::skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
+    bool BlockLocalCSE::skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
                                         const shared_ptr<RISCVInstruction> &inst,
                                         const shared_ptr<RISCVLoop> &loop)
     {
@@ -166,7 +166,7 @@ namespace RISCV
         return inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader();
     }
 
-    bool LiLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
+    bool BlockLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
                                             const shared_ptr<RISCVInstruction> &inst,
                                             const shared_ptr<RISCVLoop> &loop)
     {
@@ -183,7 +183,7 @@ namespace RISCV
         return false;
     }
 
-    optional<LiLocalCSE::MaterialKey> LiLocalCSE::buildMaterialKey(
+    optional<BlockLocalCSE::MaterialKey> BlockLocalCSE::buildMaterialKey(
         const shared_ptr<RISCVInstruction> &inst, shared_ptr<RISCVRegister> &outRd)
     {
         outRd = nullptr;
@@ -213,7 +213,7 @@ namespace RISCV
         return key;
     }
 
-    void LiLocalCSE::invalidateMaterialAvail(
+    void BlockLocalCSE::invalidateMaterialAvail(
         unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
         const shared_ptr<RISCVInstruction> &producer)
     {
@@ -241,7 +241,7 @@ namespace RISCV
         }
     }
 
-    void LiLocalCSE::decrementMaterialDefIdxAfter(
+    void BlockLocalCSE::decrementMaterialDefIdxAfter(
         unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail, size_t erasedIdx)
     {
         for (auto &entry : materialAvail)
@@ -251,7 +251,7 @@ namespace RISCV
         }
     }
 
-    string LiLocalCSE::operandKey(const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
+    string BlockLocalCSE::operandKey(const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
                                   const shared_ptr<RISCVRegister> &reg)
     {
         if (!reg)
@@ -275,7 +275,7 @@ namespace RISCV
         return regKey(reg);
     }
 
-    optional<LiLocalCSE::ExprKey> LiLocalCSE::buildExprKey(
+    optional<BlockLocalCSE::ExprKey> BlockLocalCSE::buildExprKey(
         const vector<shared_ptr<RISCVInstruction>> &insts, size_t idx,
         const shared_ptr<RISCVInstruction> &inst, shared_ptr<RISCVRegister> &outRd)
     {
@@ -341,7 +341,7 @@ namespace RISCV
         }
     }
 
-    bool LiLocalCSE::isRegDefinedSince(const vector<shared_ptr<RISCVInstruction>> &insts, size_t fromIdx,
+    bool BlockLocalCSE::isRegDefinedSince(const vector<shared_ptr<RISCVInstruction>> &insts, size_t fromIdx,
                                        size_t toIdx, const shared_ptr<RISCVRegister> &reg)
     {
         if (!reg || fromIdx >= toIdx)
@@ -361,7 +361,7 @@ namespace RISCV
         return false;
     }
 
-    bool LiLocalCSE::areSourceOperandsLiveSinceDef(
+    bool BlockLocalCSE::areSourceOperandsLiveSinceDef(
         const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
         const shared_ptr<RISCVInstruction> &defInst, size_t defIdx)
     {
@@ -377,7 +377,7 @@ namespace RISCV
         return true;
     }
 
-    bool LiLocalCSE::isAvailEntryLive(const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
+    bool BlockLocalCSE::isAvailEntryLive(const vector<shared_ptr<RISCVInstruction>> &insts, size_t useIdx,
                                       const AvailEntry &entry)
     {
         if (!entry.defInst)
@@ -391,7 +391,7 @@ namespace RISCV
         return areSourceOperandsLiveSinceDef(insts, useIdx, entry.defInst, entry.defIdx);
     }
 
-    bool LiLocalCSE::allUsesReplaceable(const vector<shared_ptr<RISCVInstruction>> &insts,
+    bool BlockLocalCSE::allUsesReplaceable(const vector<shared_ptr<RISCVInstruction>> &insts,
                                         size_t dupIdx, size_t canonDefIdx,
                                         const shared_ptr<RISCVRegister> &dupRd,
                                         const shared_ptr<RISCVRegister> &canon)
@@ -415,7 +415,7 @@ namespace RISCV
         return true;
     }
 
-    bool LiLocalCSE::hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
+    bool BlockLocalCSE::hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
                                         shared_ptr<RISCVBasicBlock> bb,
                                         const shared_ptr<RISCVRegister> &reg)
     {
@@ -439,7 +439,7 @@ namespace RISCV
         return false;
     }
 
-    void LiLocalCSE::replaceUsesWithCanon(const vector<shared_ptr<RISCVInstruction>> &insts,
+    void BlockLocalCSE::replaceUsesWithCanon(const vector<shared_ptr<RISCVInstruction>> &insts,
                                           size_t dupIdx, size_t canonDefIdx,
                                           const shared_ptr<RISCVRegister> &dupRd,
                                           const shared_ptr<RISCVRegister> &canon)
@@ -462,7 +462,7 @@ namespace RISCV
         }
     }
 
-    void LiLocalCSE::decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+    void BlockLocalCSE::decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                           size_t erasedIdx)
     {
         for (auto &entry : avail)
@@ -472,7 +472,7 @@ namespace RISCV
         }
     }
 
-    void LiLocalCSE::invalidateDefsOfInst(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+    void BlockLocalCSE::invalidateDefsOfInst(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                         const shared_ptr<RISCVInstruction> &producer)
     {
         if (!producer)
@@ -507,7 +507,7 @@ namespace RISCV
         }
     }
 
-    void LiLocalCSE::invalidateForSp(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+    void BlockLocalCSE::invalidateForSp(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                      int &spVersion)
     {
         ++spVersion;
@@ -520,7 +520,7 @@ namespace RISCV
         }
     }
 
-    bool LiLocalCSE::isSpDefinedBy(const shared_ptr<RISCVInstruction> &inst)
+    bool BlockLocalCSE::isSpDefinedBy(const shared_ptr<RISCVInstruction> &inst)
     {
         if (!inst)
             return false;
@@ -532,7 +532,7 @@ namespace RISCV
         return false;
     }
 
-    bool LiLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function)
+    bool BlockLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function)
     {
         if (!function)
             return false;
@@ -677,7 +677,7 @@ namespace RISCV
         return changed;
     }
 
-    void LiLocalCSE::run(shared_ptr<RISCVFunction> function)
+    void BlockLocalCSE::run(shared_ptr<RISCVFunction> function)
     {
         if (!function)
             return;

@@ -1,4 +1,4 @@
-#include "Conv2dInteriorSplitPass.h"
+#include "LoopNestInteriorSplitPass.h"
 #include <algorithm>
 using namespace std;
 using namespace optimization;
@@ -137,14 +137,11 @@ namespace
         return body;
     }
 
-    static bool isRepeatBound(Value *bound)
+    static bool isLoadedGlobalBound(Value *bound)
     {
         bound = stripCopy(bound);
         if (auto *load = dynamic_cast<LoadInst *>(bound))
-        {
-            if (auto *gv = dynamic_cast<GlobalVariable *>(load->getPointer()))
-                return gv->getName() == "repeat_factor";
-        }
+            return dynamic_cast<GlobalVariable *>(load->getPointer()) != nullptr;
         return false;
     }
 
@@ -170,21 +167,170 @@ namespace
         return false;
     }
 
-    static Value *resolveArrayBase(Value *v, const string &name)
+    static Value *stripArrayBase(Value *v)
     {
-        if (!v)
-            return nullptr;
-        if (auto *arg = dynamic_cast<Argument *>(v))
+        while (v)
         {
-            if (arg->getName() == name)
+            if (auto *arg = dynamic_cast<Argument *>(v))
                 return v;
-        }
-        if (auto *gv = dynamic_cast<GlobalVariable *>(v))
-        {
-            if (gv->getName() == name)
+            if (auto *gv = dynamic_cast<GlobalVariable *>(v))
                 return v;
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(v))
+            {
+                v = gep->getPointerOperand();
+                continue;
+            }
+            if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            {
+                v = cpy->getSource();
+                continue;
+            }
+            break;
         }
         return nullptr;
+    }
+
+    static bool exprReferences(Value *expr, Value *target)
+    {
+        if (!expr || !target)
+            return false;
+        expr = stripCopy(expr);
+        if (sameValue(expr, target))
+            return true;
+        if (auto *bin = dynamic_cast<BinaryOperator *>(expr))
+            return exprReferences(bin->getLHS(), target) || exprReferences(bin->getRHS(), target);
+        return false;
+    }
+
+    static Value *linearIndexFromPointer(Value *ptr)
+    {
+        auto *gep = dynamic_cast<GetElementPtrInst *>(ptr);
+        if (!gep)
+            return nullptr;
+        auto indices = gep->getIndices();
+        if (indices.empty())
+            return nullptr;
+        return stripCopy(indices.back());
+    }
+
+    static bool indexUsesKernelStride(Value *idx, Value *krIV, int kSize)
+    {
+        if (!idx)
+            return false;
+        idx = stripCopy(idx);
+        if (auto *mul = dynamic_cast<BinaryOperator *>(idx))
+        {
+            if (mul->getOpcode() == Opcode::Mul)
+            {
+                auto *lhs = stripCopy(mul->getLHS());
+                auto *rhs = stripCopy(mul->getRHS());
+                auto matches = [&](Value *a, Value *b) {
+                    if (!exprReferences(a, krIV))
+                        return false;
+                    if (auto *c = dynamic_cast<ConstantInt *>(b))
+                        return c->Value == kSize;
+                    return false;
+                };
+                if (matches(lhs, rhs) || matches(rhs, lhs))
+                    return true;
+            }
+            return indexUsesKernelStride(mul->getLHS(), krIV, kSize) ||
+                   indexUsesKernelStride(mul->getRHS(), krIV, kSize);
+        }
+        if (auto *bin = dynamic_cast<BinaryOperator *>(idx))
+            return indexUsesKernelStride(bin->getLHS(), krIV, kSize) ||
+                   indexUsesKernelStride(bin->getRHS(), krIV, kSize);
+        return false;
+    }
+
+    static bool indexUsesRowStride(Value *idx, Value *stride)
+    {
+        if (!idx || !stride)
+            return false;
+        idx = stripCopy(idx);
+        if (auto *mul = dynamic_cast<BinaryOperator *>(idx))
+        {
+            if (mul->getOpcode() == Opcode::Mul &&
+                (sameValue(stripCopy(mul->getLHS()), stride) ||
+                 sameValue(stripCopy(mul->getRHS()), stride) ||
+                 exprReferences(mul->getLHS(), stride) || exprReferences(mul->getRHS(), stride)))
+                return true;
+            return indexUsesRowStride(mul->getLHS(), stride) ||
+                   indexUsesRowStride(mul->getRHS(), stride);
+        }
+        if (auto *bin = dynamic_cast<BinaryOperator *>(idx))
+            return indexUsesRowStride(bin->getLHS(), stride) ||
+                   indexUsesRowStride(bin->getRHS(), stride);
+        return false;
+    }
+
+    static void collectLoopLoads(const Loop &loop, vector<pair<Value *, Value *>> &sites)
+    {
+        for (BasicBlock *bb : loop.blocks)
+        {
+            if (!bb)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *load = dynamic_cast<LoadInst *>(instPtr.get());
+                if (!load)
+                    continue;
+                Value *base = stripArrayBase(load->getPointer());
+                Value *idx = linearIndexFromPointer(load->getPointer());
+                if (base && idx)
+                    sites.emplace_back(base, idx);
+            }
+        }
+    }
+
+    static bool identifyKernelArrays(const Loop &krLoop, const Loop &kcLoop, Value *krIV,
+                                     Value *kcIV, Value *stride, int kSize, Value *&inputArray,
+                                     Value *&weightArray)
+    {
+        inputArray = nullptr;
+        weightArray = nullptr;
+        vector<pair<Value *, Value *>> sites;
+        collectLoopLoads(krLoop, sites);
+        collectLoopLoads(kcLoop, sites);
+        for (const auto &[base, idx] : sites)
+        {
+            if (indexUsesKernelStride(idx, krIV, kSize))
+                weightArray = base;
+            if (indexUsesRowStride(idx, stride))
+                inputArray = base;
+        }
+        return inputArray && weightArray && inputArray != weightArray;
+    }
+
+    static bool identifyOutputArray(const vector<BasicBlock *> &blocks, Value *rIV, Value *cIV,
+                                    Value *stride, Value *inputArray, Value *weightArray,
+                                    Value *&outputArray, BasicBlock *&storeBB)
+    {
+        outputArray = nullptr;
+        storeBB = nullptr;
+        for (BasicBlock *bb : blocks)
+        {
+            if (!bb)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *st = dynamic_cast<StoreInst *>(instPtr.get());
+                if (!st)
+                    continue;
+                Value *base = stripArrayBase(st->getPointer());
+                Value *idx = linearIndexFromPointer(st->getPointer());
+                if (!base || !idx || base == inputArray || base == weightArray)
+                    continue;
+                if (!exprReferences(idx, rIV) || !exprReferences(idx, cIV))
+                    continue;
+                if (!indexUsesRowStride(idx, stride))
+                    continue;
+                outputArray = base;
+                storeBB = bb;
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool blockLoadsFromArray(BasicBlock *bb, Value *arrayBase, LoadInst *&outLoad)
@@ -209,7 +355,7 @@ namespace
         return false;
     }
 
-    static bool matchGuardedAccumulate(const Loop &searchLoop, Value *inArray, Value *kArray,
+    static bool findGuardedAccumulate(const Loop &searchLoop, Value *inArray, Value *kArray,
                                        BasicBlock *&guardEntry, BasicBlock *&thenBB,
                                        BasicBlock *&mergeBB)
     {
@@ -293,25 +439,13 @@ namespace
         return thenBB != nullptr;
     }
 
-    static bool detectConv2dAccumulate(const Loop &searchLoop, Value *inArray, Value *kArray)
+    static bool hasKernelAccumulate(const Loop &searchLoop, Value *inArray, Value *kArray)
     {
         BasicBlock *guardEntry = nullptr;
         BasicBlock *thenBB = nullptr;
         BasicBlock *mergeBB = nullptr;
-        if (matchGuardedAccumulate(searchLoop, inArray, kArray, guardEntry, thenBB, mergeBB))
+        if (findGuardedAccumulate(searchLoop, inArray, kArray, guardEntry, thenBB, mergeBB))
             return true;
-        for (BasicBlock *bb : searchLoop.blocks)
-        {
-            for (auto &instPtr : bb->getInstructions())
-            {
-                if (auto *mul = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (mul->getOpcode() == Opcode::Mul &&
-                        mul->getName().find("cga_scaled") != string::npos)
-                        return true;
-                }
-            }
-        }
         for (BasicBlock *bb : searchLoop.blocks)
         {
             LoadInst *inLoad = nullptr;
@@ -421,20 +555,20 @@ namespace
         kcBody->addInstruction(own(cPlusKc));
         auto *cc = new BinaryOperator(Opcode::Sub, cPlusKc, padC, tag + "_cc");
         kcBody->addInstruction(own(cc));
-        auto *inIdx = new BinaryOperator(Opcode::Add, rowBase, cc, tag + "_in_idx");
+        auto *inIdx = new BinaryOperator(Opcode::Add, rowBase, cc, tag + "_src_idx");
         kcBody->addInstruction(own(inIdx));
-        auto *inGep = new GetElementPtrInst(inArray, {inIdx}, tag + "_in_gep");
+        auto *inGep = new GetElementPtrInst(inArray, {inIdx}, tag + "_src_gep");
         kcBody->addInstruction(own(inGep));
-        auto *inLoad = new LoadInst(inGep, tag + "_in_val");
+        auto *inLoad = new LoadInst(inGep, tag + "_src_val");
         kcBody->addInstruction(own(inLoad));
 
-        auto *kRow = new BinaryOperator(Opcode::Mul, krPhi, kBound, tag + "_k_row");
+        auto *kRow = new BinaryOperator(Opcode::Mul, krPhi, kBound, tag + "_coef_row");
         kcBody->addInstruction(own(kRow));
-        auto *kIdx = new BinaryOperator(Opcode::Add, kRow, kcPhi, tag + "_k_idx");
+        auto *kIdx = new BinaryOperator(Opcode::Add, kRow, kcPhi, tag + "_coef_idx");
         kcBody->addInstruction(own(kIdx));
-        auto *kGep = new GetElementPtrInst(kArray, {kIdx}, tag + "_k_gep");
+        auto *kGep = new GetElementPtrInst(kArray, {kIdx}, tag + "_coef_gep");
         kcBody->addInstruction(own(kGep));
-        auto *kLoad = new LoadInst(kGep, tag + "_k_val");
+        auto *kLoad = new LoadInst(kGep, tag + "_coef_val");
         kcBody->addInstruction(own(kLoad));
 
         auto *prod = new BinaryOperator(Opcode::Mul, inLoad, kLoad, tag + "_prod");
@@ -454,11 +588,11 @@ namespace
         krLatch->addInstruction(own(new BranchInst(krHeader)));
         wireEdge(krLatch, krHeader);
 
-        auto *rMul = new BinaryOperator(Opcode::Mul, rIV, nEff, tag + "_out_row");
+        auto *rMul = new BinaryOperator(Opcode::Mul, rIV, nEff, tag + "_dst_row");
         storeBB->addInstruction(own(rMul));
-        auto *outIdx = new BinaryOperator(Opcode::Add, rMul, cIV, tag + "_out_idx");
+        auto *outIdx = new BinaryOperator(Opcode::Add, rMul, cIV, tag + "_dst_idx");
         storeBB->addInstruction(own(outIdx));
-        auto *outGep = new GetElementPtrInst(outArray, {outIdx}, tag + "_out_gep");
+        auto *outGep = new GetElementPtrInst(outArray, {outIdx}, tag + "_dst_gep");
         storeBB->addInstruction(own(outGep));
         // 用 sumKrPhi 写回；kc 完全展开后 newSum 会被删掉，但 sumKcPhi 会 replaceAllUsesWith 末次累加值并更新 phi 操作数
         storeBB->addInstruction(own(new StoreInst(sumKrPhi, outGep)));
@@ -547,8 +681,8 @@ namespace
     }
 }
 
-bool Conv2dInteriorSplitPass::matchConv2dNest(Function *func, const vector<Loop> &loops,
-                                              Conv2dPattern &pat)
+bool LoopNestInteriorSplitPass::analyzeKernelNest(Function *func, const vector<Loop> &loops,
+                                                  KernelNestInfo &info)
 {
     (void)func;
     for (const auto &kcLoop : loops)
@@ -597,62 +731,25 @@ bool Conv2dInteriorSplitPass::matchConv2dNest(Function *func, const vector<Loop>
 
         Value *inArray = nullptr;
         Value *kArray = nullptr;
-        auto scanInK = [&](BasicBlock *bb) {
-            if (!bb)
-                return;
-            for (auto &instPtr : bb->getInstructions())
-            {
-                auto *load = dynamic_cast<LoadInst *>(instPtr.get());
-                if (!load)
-                    continue;
-                auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
-                if (!gep)
-                    continue;
-                Value *base = gep->getPointerOperand();
-                if (Value *in = resolveArrayBase(base, "In"))
-                    inArray = in;
-                if (Value *k = resolveArrayBase(base, "K"))
-                    kArray = k;
-            }
-        };
-        for (BasicBlock *bb : krLoop->blocks)
-            scanInK(bb);
-        for (BasicBlock *bb : kcLoop.blocks)
-            scanInK(bb);
-        if (!inArray || !kArray)
+        if (!identifyKernelArrays(*krLoop, kcLoop, krIV, kcIV, cBound, kKernelSize, inArray,
+                                  kArray))
             continue;
 
-        if (!detectConv2dAccumulate(*krLoop, inArray, kArray) &&
-            !detectConv2dAccumulate(kcLoop, inArray, kArray))
+        if (!hasKernelAccumulate(*krLoop, inArray, kArray) &&
+            !hasKernelAccumulate(kcLoop, inArray, kArray))
             continue;
 
         Value *outArray = nullptr;
         BasicBlock *krExit = nullptr;
-        auto scanOutStore = [&](BasicBlock *bb) {
-            if (!bb || outArray)
-                return;
-            for (auto &instPtr : bb->getInstructions())
-            {
-                auto *st = dynamic_cast<StoreInst *>(instPtr.get());
-                if (!st)
-                    continue;
-                auto *gep = dynamic_cast<GetElementPtrInst *>(st->getPointer());
-                if (!gep)
-                    continue;
-                if (Value *out = resolveArrayBase(gep->getPointerOperand(), "Out"))
-                {
-                    outArray = out;
-                    krExit = bb;
-                }
-            }
-        };
+        vector<BasicBlock *> outScanBlocks;
         for (BasicBlock *bb : krLoop->blocks)
-            scanOutStore(bb);
+            outScanBlocks.push_back(bb);
         for (BasicBlock *bb : krLoop->exits)
-            scanOutStore(bb);
+            outScanBlocks.push_back(bb);
         for (BasicBlock *bb : cLoop->blocks)
-            scanOutStore(bb);
-        if (!outArray || !krExit)
+            outScanBlocks.push_back(bb);
+        if (!identifyOutputArray(outScanBlocks, rIV, cIV, cBound, inArray, kArray, outArray,
+                                 krExit))
             continue;
 
         BasicBlock *cBody = getTrueBody(cLoop->header, *cLoop);
@@ -671,55 +768,55 @@ bool Conv2dInteriorSplitPass::matchConv2dNest(Function *func, const vector<Loop>
         {
             Value *repIV = nullptr;
             Value *repBound = nullptr;
-            if (getHeaderBoundCmp(repeatLoop->header, repIV, repBound) && isRepeatBound(repBound))
+            if (getHeaderBoundCmp(repeatLoop->header, repIV, repBound) && isLoadedGlobalBound(repBound))
                 repeatBody = getTrueBody(repeatLoop->header, *repeatLoop);
             else
                 repeatLoop = nullptr;
         }
 
-        pat.kcLoop = &kcLoop;
-        pat.krLoop = krLoop;
-        pat.cLoop = cLoop;
-        pat.rLoop = rLoop;
-        pat.repeatLoop = repeatLoop;
-        pat.rIV = rIV;
-        pat.cIV = cIV;
-        pat.krIV = krIV;
-        pat.kcIV = kcIV;
-        pat.nEff = cBound;
-        pat.inArray = inArray;
-        pat.outArray = outArray;
-        pat.kArray = kArray;
-        pat.pad = pad;
-        pat.kSize = kKernelSize;
-        pat.rHeader = rLoop->header;
-        pat.cBody = cBody;
-        pat.krHeader = krHeader;
-        pat.krExitStore = krExit;
-        pat.repeatBody = repeatBody;
+        info.kcLoop = &kcLoop;
+        info.krLoop = krLoop;
+        info.cLoop = cLoop;
+        info.rLoop = rLoop;
+        info.repeatLoop = repeatLoop;
+        info.rIV = rIV;
+        info.cIV = cIV;
+        info.krIV = krIV;
+        info.kcIV = kcIV;
+        info.nEff = cBound;
+        info.inArray = inArray;
+        info.outArray = outArray;
+        info.kArray = kArray;
+        info.pad = pad;
+        info.kSize = kKernelSize;
+        info.rHeader = rLoop->header;
+        info.cBody = cBody;
+        info.krHeader = krHeader;
+        info.krExitStore = krExit;
+        info.repeatBody = repeatBody;
         (void)func;
         return true;
     }
     return false;
 }
 
-bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, bool verbose,
-                                         stringstream &dbg)
+bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info, bool verbose,
+                                           stringstream &dbg)
 {
-    if (pat.pad != kPad || pat.kSize != kKernelSize)
+    if (info.pad != kPad || info.kSize != kKernelSize)
     {
-        dbg << "Conv2dInteriorSplit: bad pad=" << pat.pad << "\n";
+        dbg << "LoopNestInteriorSplit: bad pad=" << info.pad << "\n";
         return false;
     }
-    if (!pat.cBody || !pat.krHeader || !pat.krExitStore || !pat.rHeader)
+    if (!info.cBody || !info.krHeader || !info.krExitStore || !info.rHeader)
     {
-        dbg << "Conv2dInteriorSplit: missing blocks\n";
+        dbg << "LoopNestInteriorSplit: missing blocks\n";
         return false;
     }
 
-    BasicBlock *cHeader = pat.cLoop->header;
-    BasicBlock *entryFromRepeat = pat.repeatBody ? pat.repeatBody : nullptr;
-    const string tag = "c2int";
+    BasicBlock *cHeader = info.cLoop->header;
+    BasicBlock *entryFromRepeat = info.repeatBody ? info.repeatBody : nullptr;
+    const string tag = "lnis";
 
     BasicBlock *intRHeader = func->addBasicBlock(tag + "_r_hdr");
     BasicBlock *intRBody = func->addBasicBlock(tag + "_r_body");
@@ -733,7 +830,7 @@ bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, boo
     auto *two = ci(2);
     auto *one = ci(1);
 
-    auto *nMinus2 = new BinaryOperator(Opcode::Sub, pat.nEff, two, tag + "_n_m2");
+    auto *nMinus2 = new BinaryOperator(Opcode::Sub, info.nEff, two, tag + "_n_m2");
     intRHeader->addInstruction(own(nMinus2));
 
     auto *intRPhi = new PhiInst(i32, tag + "_r");
@@ -751,14 +848,14 @@ bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, boo
     auto *intCPhi = new PhiInst(i32, tag + "_c");
     intCHeader->addInstruction(own(intCPhi));
 
-    auto *nMinus2c = new BinaryOperator(Opcode::Sub, pat.nEff, two, tag + "_c_n_m2");
+    auto *nMinus2c = new BinaryOperator(Opcode::Sub, info.nEff, two, tag + "_c_n_m2");
     intCHeader->addInstruction(own(nMinus2c));
     auto *intCCmp = new ICmpInst(ICmpInst::ICMP_SLT, intCPhi, nMinus2c, tag + "_c_cmp");
     intCHeader->addInstruction(own(intCCmp));
 
     KernelNestResult kernel = buildUnguardedKernelNest(
-        func, intRPhi, intCPhi, pat.nEff, pat.inArray, pat.outArray, pat.kArray, pat.pad,
-        pat.kSize, intCHeader, intCLatch, tag + "_kern");
+        func, intRPhi, intCPhi, info.nEff, info.inArray, info.outArray, info.kArray, info.pad,
+        info.kSize, intCHeader, intCLatch, tag + "_kern");
 
     intCHeader->addInstruction(own(new BranchInst(intCCmp, kernel.entry, intCExit)));
     wireEdge(intCHeader, kernel.entry);
@@ -779,8 +876,8 @@ bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, boo
     intRLatch->addInstruction(own(new BranchInst(intRHeader)));
     wireEdge(intRLatch, intRHeader);
 
-    intRExit->addInstruction(own(new BranchInst(pat.rHeader)));
-    wireEdge(intRExit, pat.rHeader);
+    intRExit->addInstruction(own(new BranchInst(info.rHeader)));
+    wireEdge(intRExit, info.rHeader);
 
     BasicBlock *intRInitPred = nullptr;
     if (entryFromRepeat)
@@ -791,17 +888,17 @@ bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, boo
     }
     else
     {
-        vector<BasicBlock *> rPreds = pat.rHeader->getPredecessors();
+        vector<BasicBlock *> rPreds = info.rHeader->getPredecessors();
         for (auto *pred : rPreds)
         {
             auto *br = getTerminator(pred);
             if (!br)
                 continue;
-            if (br->getTrueBlock() == pat.rHeader)
+            if (br->getTrueBlock() == info.rHeader)
                 br->setTrueBlock(intRHeader);
-            if (br->isConditional() && br->getFalseBlock() == pat.rHeader)
+            if (br->isConditional() && br->getFalseBlock() == info.rHeader)
                 br->setFalseBlock(intRHeader);
-            pred->removeSuccessor(pat.rHeader);
+            pred->removeSuccessor(info.rHeader);
             wireEdge(pred, intRHeader);
             if (!intRInitPred)
                 intRInitPred = pred;
@@ -814,38 +911,38 @@ bool Conv2dInteriorSplitPass::applySplit(Function *func, Conv2dPattern &pat, boo
     BasicBlock *cBorderDispatch = func->addBasicBlock(tag + "_border_dispatch");
     BasicBlock *cSkipLatch = func->addBasicBlock(tag + "_border_skip");
 
-    replaceTerminator(pat.cBody, own(new BranchInst(cBorderDispatch)));
-    wireEdge(pat.cBody, cBorderDispatch);
+    replaceTerminator(info.cBody, own(new BranchInst(cBorderDispatch)));
+    wireEdge(info.cBody, cBorderDispatch);
 
     Value *interiorCond =
-        buildInteriorCond(cBorderDispatch, pat.rIV, pat.cIV, pat.nEff, tag + "_bd");
+        buildInteriorCond(cBorderDispatch, info.rIV, info.cIV, info.nEff, tag + "_bd");
     cBorderDispatch->addInstruction(
-        own(new BranchInst(interiorCond, cSkipLatch, pat.krHeader)));
+        own(new BranchInst(interiorCond, cSkipLatch, info.krHeader)));
     wireEdge(cBorderDispatch, cSkipLatch);
-    wireEdge(cBorderDispatch, pat.krHeader);
+    wireEdge(cBorderDispatch, info.krHeader);
 
-    finishBorderSkip(cSkipLatch, pat.cIV, cHeader, pat.krExitStore, tag);
+    finishBorderSkip(cSkipLatch, info.cIV, cHeader, info.krExitStore, tag);
 
     if (verbose)
     {
-        dbg << "Conv2dInteriorSplit: interior nest inserted; border dispatch at "
-            << pat.cBody->getName() << "\n";
+        dbg << "LoopNestInteriorSplit: interior nest inserted; border dispatch at "
+            << info.cBody->getName() << "\n";
     }
     return true;
 }
 
-bool Conv2dInteriorSplitPass::runOnFunction(Function *func)
+bool LoopNestInteriorSplitPass::runOnFunction(Function *func)
 {
     func->setLoops(ControlFlowAnalysis::findLoops(func));
-    Conv2dPattern pat;
-    if (!matchConv2dNest(func, func->getLoops(), pat))
+    KernelNestInfo info;
+    if (!analyzeKernelNest(func, func->getLoops(), info))
     {
         if (verbose)
-            debugInfo << "Conv2dInteriorSplit: no conv2d nest matched in " << func->getName()
+            debugInfo << "LoopNestInteriorSplit: no kernel nest found in " << func->getName()
                       << "\n";
         return false;
     }
-    bool changed = applySplit(func, pat, verbose, debugInfo);
+    bool changed = applySplit(func, info, verbose, debugInfo);
     if (changed)
         func->setLoops(ControlFlowAnalysis::findLoops(func));
     return changed;

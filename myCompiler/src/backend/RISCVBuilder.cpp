@@ -8,7 +8,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     initializeModule(irModule);
     generateInstructions();
     FirstPeep();
-    runLiLocalCSEPass();
+    runBlockLocalCSEPass();
     runLICMPass();
     // instructionScheduler();
     allocateRegisters();
@@ -484,13 +484,13 @@ void RISCVBuilder::runLICMPass()
     }
 }
 
-void RISCVBuilder::runLiLocalCSEPass()
+void RISCVBuilder::runBlockLocalCSEPass()
 {
     for (auto &func : riscvModule->getFunctions())
     {
         if (isLibraryFunction(func->getName()))
             continue;
-        LiLocalCSE pass;
+        BlockLocalCSE pass;
         pass.run(func);
     }
 }

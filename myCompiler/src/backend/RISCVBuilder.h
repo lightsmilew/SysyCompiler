@@ -8,7 +8,7 @@
 #include "PeepholeOptimizer/PeepOptimizationManager.h"
 #include "PeepholeOptimizer/PeepPass.h"
 #include "LICM.h"
-#include "LiLocalCSE.h"
+#include "BlockLocalCSE.h"
 #include <unordered_map>
 using std::cout;
 using std::endl;
@@ -37,7 +37,7 @@ namespace RISCV
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
         void runLICMPass();     // 循环不变 la/li 外提
-        void runLiLocalCSEPass(); // 块内 li/算术 CSE（不含 la）
+        void runBlockLocalCSEPass(); // 块内 li/la 物化与算术 CSE
         void instructionSheduler();
         void allocateRegisters();
         void FirstPeep();

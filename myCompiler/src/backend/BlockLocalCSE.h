@@ -7,7 +7,7 @@ namespace RISCV
 {
     /// 基本块内 CSE：li/la 只读物化（同立即数/符号合并，后续 rd 复用先前 def）+ 纯算术。
     /// avail 不跨块；循环头归纳 li 不做物化合并；命中时替换 use 并删除重复指令，不生成 MV。
-    class LiLocalCSE
+    class BlockLocalCSE
     {
     public:
         void run(shared_ptr<RISCVFunction> function);
