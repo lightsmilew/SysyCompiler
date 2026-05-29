@@ -1,4 +1,5 @@
 #include "LoopPass.h"
+#include <algorithm>
 #include <functional>
 #include <unordered_set>
 using namespace std;
@@ -285,6 +286,692 @@ std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
         }
     }
     return perIter;
+}
+
+static constexpr int kFullUnrollMaxTripCount = 100;
+static constexpr int kPartialUnrollFactor = 4;
+static constexpr int kPartialUnrollMaxBodyInsts = 40;
+
+void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
+{
+    latch = nullptr;
+    if (loop.blocks.size() == 3)
+    {
+        latch = findLoopLatchBlock(loop);
+    }
+    body = nullptr;
+    for (auto *bb : loop.blocks)
+    {
+        if (bb != loop.header && bb != latch)
+        {
+            body = bb;
+            break;
+        }
+    }
+}
+
+bool isUnrollableSimpleLoop(const Loop &loop, const vector<Loop> &allLoops)
+{
+    if (hasNestedLoopInside(loop, allLoops))
+    {
+        return false;
+    }
+    if (loop.blocks.size() <= 2)
+    {
+        return true;
+    }
+    if (loop.blocks.size() == 3 && findLoopLatchBlock(loop))
+    {
+        return true;
+    }
+    return false;
+}
+
+int countLoopBodyInsts(BasicBlock *body, BasicBlock *latch)
+{
+    int count = 0;
+    auto countBlock = [&](BasicBlock *bb)
+    {
+        if (!bb)
+        {
+            return;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            if (!instPtr->isTerminator())
+            {
+                count++;
+            }
+        }
+    };
+    countBlock(body);
+    countBlock(latch);
+    return count;
+}
+
+bool verifySimpleLoopControl(BasicBlock *header, BasicBlock *body, BasicBlock *latch)
+{
+    if (!body || !header)
+    {
+        return false;
+    }
+    auto &bodyInsts = body->getInstructions();
+    if (bodyInsts.empty() || !bodyInsts.back()->isTerminator())
+    {
+        return false;
+    }
+    if (latch)
+    {
+        auto *bodyBr = dynamic_cast<BranchInst *>(bodyInsts.back().get());
+        if (!bodyBr || bodyBr->isConditional() || bodyBr->getTrueBlock() != latch)
+        {
+            return false;
+        }
+        auto &latchInsts = latch->getInstructions();
+        if (latchInsts.empty() || !latchInsts.back()->isTerminator())
+        {
+            return false;
+        }
+        auto *latchBr = dynamic_cast<BranchInst *>(latchInsts.back().get());
+        return latchBr && !latchBr->isConditional() && latchBr->getTrueBlock() == header;
+    }
+    auto *br = dynamic_cast<BranchInst *>(bodyInsts.back().get());
+    return br && !br->isConditional() && br->getTrueBlock() == header;
+}
+
+int loopNestingDepth(const Loop &loop, const vector<Loop> &allLoops)
+{
+    int depth = 0;
+    for (const auto &other : allLoops)
+    {
+        if (other.header != loop.header && other.containsBlock(loop.header))
+        {
+            depth++;
+        }
+    }
+    return depth;
+}
+
+void sortLoopsInnermostFirst(vector<Loop> &loops)
+{
+    std::sort(loops.begin(), loops.end(),
+              [&loops](const Loop &a, const Loop &b)
+              {
+                  int depthA = loopNestingDepth(a, loops);
+                  int depthB = loopNestingDepth(b, loops);
+                  if (depthA != depthB)
+                  {
+                      return depthA > depthB;
+                  }
+                  return a.blocks.size() < b.blocks.size();
+              });
+}
+
+enum class UnrollResult
+{
+    None,
+    Partial,
+    Full
+};
+
+struct CopyLoopIVInfo
+{
+    Value *iv = nullptr;
+    Value *init = nullptr;
+    BinaryOperator *incAdd = nullptr;
+    int step = -1;
+};
+
+bool detectCopyLoopIV(const Loop &loop,
+                      BasicBlock *preheader,
+                      BasicBlock *body,
+                      BasicBlock *latch,
+                      ICmpInst *cmp,
+                      CopyLoopIVInfo &info,
+                      Value *&boundVal,
+                      int &cmpSide)
+{
+    if (!preheader || !body || !cmp)
+    {
+        return false;
+    }
+
+    Value *ivVal = nullptr;
+    if (dynamic_cast<ConstantInt *>(stripCopy(cmp->getRHS())))
+    {
+        ivVal = cmp->getLHS();
+        boundVal = cmp->getRHS();
+        cmpSide = 0;
+    }
+    else if (dynamic_cast<ConstantInt *>(stripCopy(cmp->getLHS())))
+    {
+        ivVal = cmp->getRHS();
+        boundVal = cmp->getLHS();
+        cmpSide = 1;
+    }
+    else
+    {
+        return false;
+    }
+
+    Value *init = nullptr;
+    for (auto &instPtr : preheader->getInstructions())
+    {
+        auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+        if (cpy && sameLoopValue(cpy, ivVal))
+        {
+            init = cpy->getSource();
+            break;
+        }
+    }
+    if (!init)
+    {
+        return false;
+    }
+
+    BinaryOperator *incAdd = nullptr;
+    CopyInst *nextCopy = nullptr;
+    auto scanBlock = [&](BasicBlock *bb)
+    {
+        if (!bb)
+        {
+            return;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            if (auto *add = dynamic_cast<BinaryOperator *>(instPtr.get()))
+            {
+                if (add->getOpcode() == Opcode::Add &&
+                    (sameLoopValue(add->getLHS(), ivVal) || sameLoopValue(add->getRHS(), ivVal)))
+                {
+                    incAdd = add;
+                }
+            }
+            else if (auto *cpy = dynamic_cast<CopyInst *>(instPtr.get()))
+            {
+                if (sameLoopValue(cpy, ivVal))
+                {
+                    nextCopy = cpy;
+                }
+            }
+        }
+    };
+    scanBlock(body);
+    scanBlock(latch);
+    if (!incAdd || !nextCopy || stripCopy(nextCopy->getSource()) != incAdd)
+    {
+        return false;
+    }
+
+    int step = -1;
+    if (auto *stepConst = dynamic_cast<ConstantInt *>(stripCopy(
+            sameLoopValue(incAdd->getLHS(), ivVal) ? incAdd->getRHS() : incAdd->getLHS())))
+    {
+        step = stepConst->Value;
+    }
+    if (step <= 0)
+    {
+        return false;
+    }
+
+    info.iv = ivVal;
+    info.init = init;
+    info.incAdd = incAdd;
+    info.step = step;
+    return true;
+}
+
+UnrollResult tryUnrollOneLoop(Function *func,
+                              const Loop &loop,
+                              const vector<Loop> &allLoops,
+                              bool verbose,
+                              std::stringstream &debugInfo)
+{
+    BasicBlock *header = loop.header;
+    if (header->getName().find("_unroll_") != string::npos)
+        return UnrollResult::None;
+    if (!isUnrollableSimpleLoop(loop, allLoops))
+        return UnrollResult::None;
+    if (header->getInstructions().size() < 2)
+        return UnrollResult::None;
+
+    // 1. 收集所有phi指令
+    std::vector<PhiInst *> headerPhis;
+    for (auto &instPtr : header->getInstructions())
+        if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+            headerPhis.push_back(phi);
+
+    // 2. 找到循环条件cmp
+    auto &headerInsts = header->getInstructions();
+
+    auto *cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
+    if (!cmp)
+        return UnrollResult::None;
+    // 只处理 < 或 <=，否则跳过
+    if (cmp->getPredicate() != ICmpInst::ICMP_SLT && cmp->getPredicate() != ICmpInst::ICMP_SLE)
+        return UnrollResult::None;
+
+    // 7. 找到循环体与 latch
+    BasicBlock *body = nullptr;
+    BasicBlock *latch = nullptr;
+    collectLoopBodyAndLatch(loop, body, latch);
+    if (!body)
+        return UnrollResult::None;
+    if (!verifySimpleLoopControl(header, body, latch))
+        return UnrollResult::None;
+    BasicBlock *preheader = nullptr;
+    BasicBlock *exitBlock = nullptr;
+    for (auto *pred : header->getPredecessors())
+        if (std::find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
+            preheader = pred;
+    for (auto *succ : header->getSuccessors())
+        if (std::find(loop.blocks.begin(), loop.blocks.end(), succ) == loop.blocks.end())
+            exitBlock = succ;
+    if (!preheader || !exitBlock)
+        return UnrollResult::None;
+
+    for (auto *pred : header->getPredecessors())
+    {
+        if (pred->getName().find("_unroll_exit") != string::npos)
+            return UnrollResult::None;
+    }
+
+    const int bodyInstCount = countLoopBodyInsts(body, latch);
+
+    // 3. 找到induction variable phi 或 copy 归纳变量
+    PhiInst *indPhi = nullptr;
+    Value *indVar = nullptr;
+    Value *boundVal = nullptr;
+    int cmpSide = -1;
+    bool copyBasedIV = false;
+    CopyLoopIVInfo copyIV;
+    std::unordered_map<PhiInst *, Value *> phiInit, phiInc;
+    int intcValue = -1;
+
+    for (int side = 0; side < 2; ++side)
+    {
+        Value *v = (side == 0) ? cmp->getLHS() : cmp->getRHS();
+        for (auto *phi : headerPhis)
+        {
+            if (v == phi || sameLoopValue(v, phi))
+            {
+                indVar = phi;
+                indPhi = phi;
+                cmpSide = side;
+                boundVal = (side == 0) ? cmp->getRHS() : cmp->getLHS();
+                break;
+            }
+        }
+        if (indPhi)
+            break;
+    }
+
+    if (indPhi)
+    {
+        for (auto *phi : headerPhis)
+        {
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                BasicBlock *from = phi->getIncomingBlock(i);
+                if (std::find(loop.blocks.begin(), loop.blocks.end(), from) == loop.blocks.end())
+                    phiInit[phi] = phi->getIncomingValue(i);
+                else
+                    phiInc[phi] = phi->getIncomingValue(i);
+            }
+        }
+        if (phiInit[indPhi])
+        {
+            if (auto *bin = dynamic_cast<BinaryOperator *>(phiInc[indPhi]))
+            {
+                if (bin->getOpcode() == Opcode::Add &&
+                    (sameLoopValue(bin->getLHS(), indVar) || sameLoopValue(bin->getRHS(), indVar)))
+                {
+                    if (auto *constVal = dynamic_cast<ConstantInt *>(stripCopy(bin->getRHS())))
+                        intcValue = constVal->Value;
+                    else if (auto *constVal = dynamic_cast<ConstantInt *>(stripCopy(bin->getLHS())))
+                        intcValue = constVal->Value;
+                }
+            }
+        }
+    }
+
+    if (intcValue < 0 &&
+        detectCopyLoopIV(loop, preheader, body, latch, cmp, copyIV, boundVal, cmpSide))
+    {
+        copyBasedIV = true;
+        indVar = copyIV.iv;
+        intcValue = copyIV.step;
+        indPhi = nullptr;
+    }
+    else if (intcValue < 0)
+    {
+        return UnrollResult::None;
+    }
+
+    // 6. tripCount
+    int tripCount = -1;
+    Value *initVal = copyBasedIV ? copyIV.init : phiInit[indPhi];
+    auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(initVal));
+    auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(boundVal));
+    if (initConst && boundConst)
+    {
+        int init = initConst->Value;
+        int bound = boundConst->Value;
+        if (cmp->getPredicate() == ICmpInst::ICMP_SLT)
+            tripCount = (cmpSide == 0) ? (bound - init) : (init - bound);
+        else if (cmp->getPredicate() == ICmpInst::ICMP_SLE)
+            tripCount = (cmpSide == 0) ? (bound - init + 1) : (init - bound + 1);
+        tripCount = tripCount / intcValue;
+    }
+
+    // 9. 完全展开
+    if (tripCount > 0 && tripCount <= kFullUnrollMaxTripCount)
+    {
+        auto &preInsts = preheader->getInstructions();
+        auto insertPos = preInsts.size();
+        if (!preInsts.empty() && preInsts.back()->isTerminator())
+            insertPos--;
+        std::unordered_map<Value *, Value *> valueMap;
+        if (copyBasedIV)
+        {
+            valueMap[indVar] = copyIV.init;
+        }
+        else
+        {
+            for (auto *phi : headerPhis)
+                valueMap[phi] = phiInit[phi];
+        }
+
+        for (int i = 0; i < tripCount; ++i)
+        {
+            std::vector<Instruction *> clonedInsts;
+            auto cloneFromBlock = [&](BasicBlock *bb)
+            {
+                if (!bb)
+                {
+                    return;
+                }
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    if (instPtr->isTerminator())
+                        continue;
+                    Instruction *cloned = instPtr->clone();
+                    cloned->setName(cloned->getName() + "_unroll" + std::to_string(i));
+                    for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+                    {
+                        Value *oldOp = cloned->getOperands()[k];
+                        if (copyBasedIV)
+                        {
+                            if (sameLoopValue(oldOp, indVar))
+                                cloned->setOperandByIndex(k, valueMap[indVar]);
+                        }
+                        else
+                        {
+                            for (auto *phi : headerPhis)
+                            {
+                                if (oldOp == phi)
+                                    cloned->setOperandByIndex(k, valueMap[phi]);
+                            }
+                        }
+                        if (valueMap.count(oldOp))
+                            cloned->setOperandByIndex(k, valueMap[oldOp]);
+                    }
+                    valueMap[instPtr.get()] = cloned;
+                    clonedInsts.push_back(cloned);
+                }
+            };
+            cloneFromBlock(body);
+            cloneFromBlock(latch);
+            for (auto *cloned : clonedInsts)
+                preInsts.insert(preInsts.begin() + insertPos++, std::unique_ptr<Instruction>(cloned));
+            if (copyBasedIV)
+            {
+                valueMap[indVar] = valueMap[copyIV.incAdd];
+            }
+            else
+            {
+                for (auto *phi : headerPhis)
+                {
+                    auto *inc = phiInc[phi];
+                    if (inc)
+                        valueMap[phi] = valueMap[inc];
+                }
+            }
+        }
+        for (auto &instPtr : preInsts)
+        {
+            if (auto *preBr = dynamic_cast<BranchInst *>(instPtr.get()))
+            {
+                if (preBr->getTrueBlock() == header)
+                    preBr->setTrueBlock(exitBlock);
+                if (preBr->getFalseBlock() == header)
+                    preBr->setFalseBlock(exitBlock);
+            }
+        }
+        for (auto &instPtr : exitBlock->getInstructions())
+        {
+            if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+            {
+                for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
+                {
+                    if (phi->getIncomingBlock(i) == header)
+                    {
+                        phi->setIncomingBlock(i, preheader);
+                        if (valueMap.count(phi))
+                            phi->setIncomingValue(i, valueMap[phi]);
+                    }
+                }
+            }
+        }
+        if (!copyBasedIV)
+        {
+            for (auto *phi : headerPhis)
+                phi->replaceAllUsesWith(valueMap[phi]);
+        }
+        else
+        {
+            for (auto &instPtr : preheader->getInstructions())
+            {
+                if (auto *cpy = dynamic_cast<CopyInst *>(instPtr.get()))
+                {
+                    if (sameLoopValue(cpy, indVar))
+                        cpy->setOperandByIndex(0, valueMap[indVar]);
+                }
+            }
+        }
+        for (auto *bb : loop.blocks)
+            bb->removeSelfBasicBlock();
+        preheader->addSuccessor(exitBlock);
+        exitBlock->addPredecessor(preheader);
+        if (verbose)
+            debugInfo << "LoopUnrollingPass: Fully unrolled loop at " << header->getName()
+                      << " tripCount=" << tripCount
+                      << (copyBasedIV ? " (copy iv)" : "") << "\n";
+        return UnrollResult::Full;
+    }
+
+    if (copyBasedIV || headerPhis.empty())
+        return UnrollResult::None;
+
+    // 10. 部分展开（四路展开）：循环体过大则跳过
+    if (bodyInstCount > kPartialUnrollMaxBodyInsts)
+        return UnrollResult::None;
+
+    int unrollFactor = kPartialUnrollFactor;
+    auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
+    auto *unrollBody = new BasicBlock(body->getName() + "_unroll_body", func);
+    auto *unrollExit = new BasicBlock(header->getName() + "_unroll_exit", func);
+
+    std::unordered_map<PhiInst *, PhiInst *> phiMap;
+    for (auto *phi : headerPhis)
+    {
+        auto *newPhi = new PhiInst(phi->getType(), phi->getName() + "_unroll_phi");
+        unrollHeader->addInstruction(std::unique_ptr<Instruction>(newPhi));
+        newPhi->addIncoming(phiInit[phi], preheader);
+        phiMap[phi] = newPhi;
+    }
+    auto *unrollPhi = phiMap[indPhi];
+
+    ICmpInst *loopCondCmp = cmp;
+    std::unordered_map<Value *, Value *> headerValueMap;
+    for (auto &instPtr : header->getInstructions())
+    {
+        Instruction *inst = instPtr.get();
+        if (dynamic_cast<PhiInst *>(inst) || dynamic_cast<BranchInst *>(inst))
+            continue;
+        if (inst == loopCondCmp)
+            continue;
+        Instruction *cloned = inst->clone();
+        for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+        {
+            Value *oldOp = cloned->getOperands()[k];
+            for (auto *phi : headerPhis)
+            {
+                if (oldOp == phi)
+                    cloned->setOperandByIndex(k, phiMap[phi]);
+            }
+            if (headerValueMap.count(oldOp))
+                cloned->setOperandByIndex(k, headerValueMap[oldOp]);
+        }
+        headerValueMap[inst] = cloned;
+        unrollHeader->addInstruction(std::unique_ptr<Instruction>(cloned));
+    }
+    Value *condLHS = unrollPhi;
+    Value *condRHS = boundVal;
+    auto replaceSSA = [&](Value *v) -> Value *
+    {
+        if (headerValueMap.count(v))
+            return headerValueMap[v];
+        for (auto *phi : headerPhis)
+            if (v == phi)
+                return phiMap[phi];
+        return v;
+    };
+    condLHS = replaceSSA(condLHS);
+    condRHS = replaceSSA(condRHS);
+
+    auto *unrollStep = new BinaryOperator(
+        Opcode::Add,
+        condLHS,
+        new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
+        unrollPhi->getName() + "_unroll_step");
+    unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollStep));
+    auto *unrollCond = new ICmpInst(ICmpInst::ICMP_SLT, unrollStep, condRHS, "unroll_cmp");
+    unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollCond));
+
+    auto *unrollBr = new BranchInst(unrollCond, unrollBody, unrollExit);
+    unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollBr));
+
+    std::unordered_map<Value *, Value *> valueMap;
+    for (auto *phi : headerPhis)
+        valueMap[phi] = phiMap[phi];
+
+    for (int u = 0; u < unrollFactor; ++u)
+    {
+        auto cloneToUnrollBody = [&](BasicBlock *bb)
+        {
+            if (!bb)
+            {
+                return;
+            }
+            for (auto &instPtr : bb->getInstructions())
+            {
+                if (instPtr->isTerminator())
+                    continue;
+                Instruction *cloned = instPtr->clone();
+                cloned->setName(cloned->getName() + "_unroll" + std::to_string(u));
+                for (size_t k = 0; k < cloned->getOperands().size(); ++k)
+                {
+                    Value *oldOp = cloned->getOperands()[k];
+                    for (auto *phi : headerPhis)
+                    {
+                        if (oldOp == phi)
+                            cloned->setOperandByIndex(k, valueMap[phi]);
+                    }
+                    if (valueMap.count(oldOp))
+                        cloned->setOperandByIndex(k, valueMap[oldOp]);
+                }
+                unrollBody->addInstruction(std::unique_ptr<Instruction>(cloned));
+                valueMap[instPtr.get()] = cloned;
+            }
+        };
+        cloneToUnrollBody(body);
+        cloneToUnrollBody(latch);
+        for (auto *phi : headerPhis)
+        {
+            auto *inc = phiInc[phi];
+            if (inc)
+                valueMap[phi] = valueMap[inc];
+        }
+    }
+    for (auto *phi : headerPhis)
+    {
+        if (phi == indPhi)
+        {
+            auto *unrollInc = new BinaryOperator(
+                Opcode::Add,
+                phiMap[phi],
+                new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
+                phiMap[phi]->getName() + "_inc");
+            unrollBody->addInstruction(std::unique_ptr<Instruction>(unrollInc));
+            phiMap[phi]->addIncoming(unrollInc, unrollBody);
+        }
+        else
+        {
+            auto *inc = phiInc[phi];
+            if (inc)
+                phiMap[phi]->addIncoming(valueMap[phi], unrollBody);
+        }
+    }
+    for (auto &instPtr : preheader->getInstructions())
+    {
+        if (auto *preBr = dynamic_cast<BranchInst *>(instPtr.get()))
+        {
+            if (preBr->getTrueBlock() == header)
+                preBr->setTrueBlock(unrollHeader);
+            if (preBr->getFalseBlock() == header)
+                preBr->setFalseBlock(unrollExit);
+        }
+    }
+    unrollBody->addInstruction(std::make_unique<BranchInst>(unrollHeader));
+    unrollExit->addInstruction(std::make_unique<BranchInst>(header));
+    preheader->removeSuccessor(header);
+    header->removePredecessor(preheader);
+
+    preheader->addSuccessor(unrollHeader);
+    unrollHeader->addPredecessor(preheader);
+    unrollHeader->addSuccessor(unrollBody);
+    unrollBody->addPredecessor(unrollHeader);
+    unrollBody->addSuccessor(unrollHeader);
+    unrollHeader->addPredecessor(unrollBody);
+    unrollHeader->addSuccessor(unrollExit);
+    unrollExit->addPredecessor(unrollHeader);
+    unrollExit->addSuccessor(header);
+    header->addPredecessor(unrollExit);
+
+    func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollHeader));
+    func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollBody));
+    func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollExit));
+    for (auto &instPtr : header->getInstructions())
+    {
+        if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
+        {
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                if (phi->getIncomingBlock(i) == preheader)
+                {
+                    phi->setIncomingBlock(i, unrollExit);
+                    if (phiMap.count(phi))
+                        phi->setIncomingValue(i, phiMap[phi]);
+                }
+            }
+        }
+    }
+
+    if (verbose)
+        debugInfo << "LoopUnrollingPass: 4-way unrolled loop at " << header->getName()
+                  << " (bodyInsts=" << bodyInstCount << ", inserted unroll loop before original)\n";
+    return UnrollResult::Partial;
 }
 } // namespace
 // ========== 循环不变代码移动 ==========
@@ -1237,439 +1924,31 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
 bool LoopUnrollingPass::runOnFunction(Function *func)
 {
     bool changed = false;
-    func->setLoops(ControlFlowAnalysis::findLoops(func));
-    auto &loops = func->getLoops();
-    for (const auto &loop : loops)
+    bool fullUnrolledThisRound;
+    do
     {
-        BasicBlock *header = loop.header;
-        // 只处理简单循环
-        if (header->getInstructions().size() < 2 || loop.blocks.size() > 2)
-            continue;
-
-        // 1. 收集所有phi指令
-        std::vector<PhiInst *> headerPhis;
-        for (auto &instPtr : header->getInstructions())
-            if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
-                headerPhis.push_back(phi);
-        if (headerPhis.empty())
-            continue;
-
-        // 2. 找到循环条件cmp
-        auto &headerInsts = header->getInstructions();
-
-        auto *cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
-        if (!cmp)
-            continue;
-        // 只处理 < 或 <=，否则跳过
-        if (cmp->getPredicate() != ICmpInst::ICMP_SLT && cmp->getPredicate() != ICmpInst::ICMP_SLE)
-            continue;
-        // 3. 找到induction variable phi
-        PhiInst *indPhi = nullptr;
-        Value *indVar = nullptr;
-        Value *boundVal = nullptr;
-        int cmpSide = -1;
-        for (int side = 0; side < 2; ++side)
+        fullUnrolledThisRound = false;
+        func->setLoops(ControlFlowAnalysis::findLoops(func));
+        auto loops = func->getLoops();
+        sortLoopsInnermostFirst(loops);
+        for (const auto &loop : loops)
         {
-            Value *v = (side == 0) ? cmp->getLHS() : cmp->getRHS();
-            for (auto *phi : headerPhis)
+            switch (tryUnrollOneLoop(func, loop, loops, verbose, debugInfo))
             {
-                if (v == phi)
-                {
-                    indVar = v;
-                    indPhi = phi;
-                    cmpSide = side;
-                    boundVal = (side == 0) ? cmp->getRHS() : cmp->getLHS();
-                    break; // 找到就退出
-                }
+            case UnrollResult::Full:
+                changed = true;
+                fullUnrolledThisRound = true;
+                break;
+            case UnrollResult::Partial:
+                changed = true;
+                continue;
+            case UnrollResult::None:
+                continue;
             }
-            if (indPhi)
+            if (fullUnrolledThisRound)
                 break;
         }
-        if (!indVar || !indPhi || !boundVal)
-            continue;
-
-        // 4. 获取所有phi的初值和增量
-        std::unordered_map<PhiInst *, Value *> phiInit, phiInc;
-        for (auto *phi : headerPhis)
-        {
-            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
-            {
-                BasicBlock *from = phi->getIncomingBlock(i);
-                if (std::find(loop.blocks.begin(), loop.blocks.end(), from) == loop.blocks.end())
-                    phiInit[phi] = phi->getIncomingValue(i);
-                else
-                    phiInc[phi] = phi->getIncomingValue(i);
-            }
-        }
-        if (!phiInit[indPhi])
-            continue;
-
-        // 5. 获取indVar增量
-        int intcValue = -1;
-        // 如果不是i=i+1自增则跳过
-        if (auto *bin = dynamic_cast<BinaryOperator *>(phiInc[indPhi]))
-        {
-            if (bin->getOpcode() != Opcode::Add || (bin->getLHS() != indVar && bin->getRHS() != indVar))
-                continue;
-            if (auto *constVal = dynamic_cast<ConstantInt *>(bin->getRHS()))
-                intcValue = constVal->Value;
-            else if (auto *constVal = dynamic_cast<ConstantInt *>(bin->getLHS()))
-                intcValue = constVal->Value;
-            else
-                continue;
-        }
-        // 不是常数，跳过
-        if (intcValue < 0)
-            continue;
-
-        // 6. tripCount
-        int tripCount = -1;
-        auto *initConst = dynamic_cast<ConstantInt *>(phiInit[indPhi]);
-        auto *boundConst = dynamic_cast<ConstantInt *>(boundVal);
-        if (initConst && boundConst)
-        {
-            int init = initConst->Value;
-            int bound = boundConst->Value;
-            if (cmp->getPredicate() == ICmpInst::ICMP_SLT)
-                tripCount = (cmpSide == 0) ? (bound - init) : (init - bound);
-            else if (cmp->getPredicate() == ICmpInst::ICMP_SLE)
-                tripCount = (cmpSide == 0) ? (bound - init + 1) : (init - bound + 1);
-            tripCount = tripCount / intcValue;
-        }
-
-        // 7. 找到循环体
-        BasicBlock *body = nullptr;
-        for (auto *bb : loop.blocks)
-            if (bb != header)
-                body = bb;
-        if (!body)
-            continue;
-        // // 判断内存访问比例是否超过阈值0.66
-        // // 0.66对应循环体只有a[i]=b[i]这种情况
-        // int totalInst = 0, memInst = 0;
-        // for (auto &instPtr : body->getInstructions())
-        // {
-        //     if (dynamic_cast<LoadInst *>(instPtr.get()) || dynamic_cast<StoreInst *>(instPtr.get()))
-        //     {
-        //         memInst++;
-        //         totalInst++;
-        //     }
-        //     else if (dynamic_cast<BinaryOperator *>(instPtr.get()))
-        //         totalInst++;
-        // }
-        // if (totalInst > 0 && memInst * 1.0 / totalInst > 0.66)
-        //     continue;
-        // 新增：只处理 body 的终结指令唯一跳转回 header 的情况（防止 break）
-        auto &bodyInsts = body->getInstructions();
-        if (bodyInsts.empty() || !bodyInsts.back()->isTerminator())
-            continue;
-        auto *br = dynamic_cast<BranchInst *>(bodyInsts.back().get());
-        if (!br || br->getTrueBlock() != header || br->isConditional())
-            continue;
-        // 8. 找到preheader和exitblock
-        BasicBlock *preheader = nullptr;
-        BasicBlock *exitBlock = nullptr;
-        for (auto *pred : header->getPredecessors())
-            if (std::find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
-                preheader = pred;
-        for (auto *succ : header->getSuccessors())
-            if (std::find(loop.blocks.begin(), loop.blocks.end(), succ) == loop.blocks.end())
-                exitBlock = succ;
-        if (!preheader || !exitBlock)
-            continue;
-
-        // 9. 完全展开
-        if (tripCount > 0 && tripCount <= 100)
-        {
-            auto &preInsts = preheader->getInstructions();
-            auto insertPos = preInsts.size();
-            if (!preInsts.empty() && preInsts.back()->isTerminator())
-                insertPos--;
-            std::unordered_map<Value *, Value *> valueMap;
-            for (auto *phi : headerPhis)
-                valueMap[phi] = phiInit[phi];
-
-            for (int i = 0; i < tripCount; ++i)
-            {
-                std::vector<Instruction *> clonedInsts;
-                for (auto &instPtr : body->getInstructions())
-                {
-                    if (instPtr->isTerminator())
-                        continue;
-                    // 不跳过任何指令
-                    Instruction *cloned = instPtr->clone();
-                    cloned->setName(cloned->getName() + "_unroll" + std::to_string(i));
-                    // 替换操作数
-                    for (size_t k = 0; k < cloned->getOperands().size(); ++k)
-                    {
-                        Value *oldOp = cloned->getOperands()[k];
-                        for (auto *phi : headerPhis)
-                        {
-                            if (oldOp == phi)
-                                cloned->setOperandByIndex(k, valueMap[phi]);
-                        }
-                        if (valueMap.count(oldOp))
-                            cloned->setOperandByIndex(k, valueMap[oldOp]);
-                    }
-                    valueMap[instPtr.get()] = cloned;
-                    clonedInsts.push_back(cloned);
-                }
-                // 插入到preheader
-                for (auto *cloned : clonedInsts)
-                    preInsts.insert(preInsts.begin() + insertPos++, std::unique_ptr<Instruction>(cloned));
-                // 递推所有phi的值
-                for (auto *phi : headerPhis)
-                {
-                    auto *inc = phiInc[phi];
-                    if (inc)
-                        valueMap[phi] = valueMap[inc];
-                }
-            }
-            // 修正preheader跳转到loop exit
-            for (auto &instPtr : preInsts)
-            {
-                if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
-                {
-                    if (br->getTrueBlock() == header)
-                        br->setTrueBlock(exitBlock);
-                    if (br->getFalseBlock() == header)
-                        br->setFalseBlock(exitBlock);
-                }
-            }
-            // 修正退出块phi的输入和基本块来源
-            for (auto &instPtr : exitBlock->getInstructions())
-            {
-                if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
-                {
-                    for (size_t i = 0; i < phi->getIncomingBlocks().size(); ++i)
-                    {
-                        if (phi->getIncomingBlock(i) == header)
-                        {
-                            phi->setIncomingBlock(i, preheader);
-                            if (valueMap.count(phi))
-                                phi->setIncomingValue(i, valueMap[phi]);
-                        }
-                    }
-                }
-            }
-            // 替换所有phi的引用为最后一次递推的值
-            for (auto *phi : headerPhis)
-                phi->replaceAllUsesWith(valueMap[phi]);
-            // 删除原循环体
-            for (auto *bb : loop.blocks)
-                bb->removeSelfBasicBlock();
-            // 增加preheader到exit的连接
-            preheader->addSuccessor(exitBlock);
-            exitBlock->addPredecessor(preheader);
-            changed = true;
-            if (verbose)
-                debugInfo << "LoopUnrollingPass: Fully unrolled loop at " << header->getName() << " tripCount=" << tripCount << "\n";
-        }
-        // 10. 部分展开（四路展开，类似处理所有phi）
-        else
-        {
-            int unrollFactor = 4;
-            // 1. 新建展开循环块
-            auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
-            auto *unrollBody = new BasicBlock(body->getName() + "_unroll_body", func);
-            auto *unrollExit = new BasicBlock(header->getName() + "_unroll_exit", func);
-
-            // 2. 构造unrollHeader的phi（每个header phi都要新建）
-            std::unordered_map<PhiInst *, PhiInst *> phiMap;
-            for (auto *phi : headerPhis)
-            {
-                auto *newPhi = new PhiInst(phi->getType(), phi->getName() + "_unroll_phi");
-                unrollHeader->addInstruction(std::unique_ptr<Instruction>(newPhi));
-                newPhi->addIncoming(phiInit[phi], preheader);
-                phiMap[phi] = newPhi;
-            }
-            auto *unrollPhi = phiMap[indPhi];
-
-            // 2.5 复制原 header 中非 phi、非循环条件 cmp、非 br 的指令到 unrollHeader
-            ICmpInst *loopCondCmp = cmp;
-            std::unordered_map<Value *, Value *> headerValueMap;
-            for (auto &instPtr : header->getInstructions())
-            {
-                Instruction *inst = instPtr.get();
-                if (dynamic_cast<PhiInst *>(inst) || dynamic_cast<BranchInst *>(inst))
-                    continue;
-                if (inst == loopCondCmp)
-                    continue;
-                Instruction *cloned = inst->clone();
-                // 替换操作数
-                for (size_t k = 0; k < cloned->getOperands().size(); ++k)
-                {
-                    Value *oldOp = cloned->getOperands()[k];
-                    // phi变量用新phi
-                    for (auto *phi : headerPhis)
-                    {
-                        if (oldOp == phi)
-                            cloned->setOperandByIndex(k, phiMap[phi]);
-                    }
-                    // 其它header内SSA变量
-                    if (headerValueMap.count(oldOp))
-                        cloned->setOperandByIndex(k, headerValueMap[oldOp]);
-                }
-                headerValueMap[inst] = cloned;
-                unrollHeader->addInstruction(std::unique_ptr<Instruction>(cloned));
-            }
-            // 3. 构造unrollHeader的条件判断
-            Value *condLHS = unrollPhi;
-            Value *condRHS = boundVal;
-            // 替换操作数为 headerValueMap 或 phiMap 中的克隆
-            auto replaceSSA = [&](Value *v) -> Value *
-            {
-                if (headerValueMap.count(v))
-                    return headerValueMap[v];
-                for (auto *phi : headerPhis)
-                    if (v == phi)
-                        return phiMap[phi];
-                return v;
-            };
-            condLHS = replaceSSA(condLHS);
-            condRHS = replaceSSA(condRHS);
-
-            auto *unrollStep = new BinaryOperator(
-                Opcode::Add,
-                condLHS,
-                new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
-                unrollPhi->getName() + "_unroll_step");
-            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollStep));
-            auto *unrollCond = new ICmpInst(ICmpInst::ICMP_SLT, unrollStep, condRHS, "unroll_cmp");
-            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollCond));
-
-            // 4. 构造unrollHeader的分支
-            auto *unrollBr = new BranchInst(unrollCond, unrollBody, unrollExit);
-            unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollBr));
-
-            // 5. 构造unrollBody：展开unrollFactor次，递推所有phi
-            // 记录每个phi在本次展开前的“当前值”
-            std::unordered_map<Value *, Value *> valueMap;
-            for (auto *phi : headerPhis)
-                valueMap[phi] = phiMap[phi];
-
-            for (int u = 0; u < unrollFactor; ++u)
-            {
-                // 克隆循环体，替换所有phi为valueMap[phi]
-                std::vector<Instruction *> clonedInsts;
-                for (auto &instPtr : body->getInstructions())
-                {
-                    if (instPtr->isTerminator())
-                        continue;
-                    Instruction *cloned = instPtr->clone();
-                    cloned->setName(cloned->getName() + "_unroll" + std::to_string(u));
-                    // 替换操作数
-                    for (size_t k = 0; k < cloned->getOperands().size(); ++k)
-                    {
-                        Value *oldOp = cloned->getOperands()[k];
-                        for (auto *phi : headerPhis)
-                        {
-                            if (oldOp == phi)
-                                cloned->setOperandByIndex(k, valueMap[phi]);
-                        }
-                        if (valueMap.count(oldOp))
-                            cloned->setOperandByIndex(k, valueMap[oldOp]);
-                    }
-                    unrollBody->addInstruction(std::unique_ptr<Instruction>(cloned));
-                    // 递推更新
-                    valueMap[instPtr.get()] = cloned;
-                }
-                // 更新phi的值
-                for (auto *phi : headerPhis)
-                {
-                    auto *inc = phiInc[phi];
-                    if (inc)
-                    {
-                        valueMap[phi] = valueMap[inc];
-                    }
-                }
-            }
-            // 6. unrollBody末尾插入所有phi的自增和跳转
-            for (auto *phi : headerPhis)
-            {
-                if (phi == indPhi)
-                {
-                    auto *unrollInc = new BinaryOperator(
-                        Opcode::Add,
-                        phiMap[phi],
-                        new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
-                        phiMap[phi]->getName() + "_inc");
-                    unrollBody->addInstruction(std::unique_ptr<Instruction>(unrollInc));
-                    phiMap[phi]->addIncoming(unrollInc, unrollBody);
-                }
-                else
-                {
-                    // 其它phi的自增使用最后一次更新值
-                    auto *inc = phiInc[phi];
-                    if (inc)
-                    {
-                        phiMap[phi]->addIncoming(valueMap[phi], unrollBody);
-                    }
-                }
-            }
-            // 修正prehead的跳转到新循环头
-            for (auto &instPtr : preheader->getInstructions())
-            {
-                if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
-                {
-                    if (br->getTrueBlock() == header)
-                        br->setTrueBlock(unrollHeader);
-                    if (br->getFalseBlock() == header)
-                        br->setFalseBlock(unrollExit);
-                }
-            }
-            unrollBody->addInstruction(std::make_unique<BranchInst>(unrollHeader));
-            // exit添加跳转到原来的循环
-            unrollExit->addInstruction(std::make_unique<BranchInst>(header));
-            // 7. CFG连接
-            // 断开连接
-            preheader->removeSuccessor(header);
-            header->removePredecessor(preheader);
-
-            preheader->addSuccessor(unrollHeader);
-            unrollHeader->addPredecessor(preheader);
-            // 内部连接
-            unrollHeader->addSuccessor(unrollBody);
-            unrollBody->addPredecessor(unrollHeader);
-
-            unrollBody->addSuccessor(unrollHeader);
-            unrollHeader->addPredecessor(unrollBody);
-
-            unrollHeader->addSuccessor(unrollExit);
-            unrollExit->addPredecessor(unrollHeader);
-            // 外部连接
-            unrollExit->addSuccessor(header);
-            header->addPredecessor(unrollExit);
-
-            // 8. 插入新基本块到函数
-            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollHeader));
-            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollBody));
-            func->addBasicBlock(std::unique_ptr<BasicBlock>(unrollExit));
-            // 修改原来循环phi输入为第一个循环结束后的值
-            for (auto &instPtr : header->getInstructions())
-            {
-                if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
-                {
-                    for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
-                    {
-                        if (phi->getIncomingBlock(i) == preheader)
-                        {
-                            phi->setIncomingBlock(i, unrollExit);
-                            // 如果是原来的循环变量，则把初值替换成第一循环的phi
-                            if (phiMap.count(phi))
-                            {
-                                phi->setIncomingValue(i, phiMap[phi]);
-                            }
-                        }
-                    }
-                }
-            }
-
-            changed = true;
-            if (verbose)
-                debugInfo << "LoopUnrollingPass: 4-way unrolled loop at " << header->getName() << " (inserted unroll loop before original)\n";
-        }
-    }
+    } while (fullUnrolledThisRound);
     return changed;
 }
 
