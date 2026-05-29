@@ -25,8 +25,12 @@ void LICM::analyseLoops()
 
 bool isTerminatorOpcode(RISCVOpcode op)
 {
-    return op == RISCVOpcode::BNE ||
-           op == RISCVOpcode::BEQ ||
+    return op == RISCVOpcode::BEQ ||
+           op == RISCVOpcode::BNE ||
+           op == RISCVOpcode::BLT ||
+           op == RISCVOpcode::BGE ||
+           op == RISCVOpcode::BLTU ||
+           op == RISCVOpcode::BGEU ||
            op == RISCVOpcode::JAL ||
            op == RISCVOpcode::JALR ||
            op == RISCVOpcode::RET ||

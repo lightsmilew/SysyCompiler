@@ -106,9 +106,14 @@ namespace
                name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
     }
 
+    bool isHeaderBranchConditionInst(Instruction *inst, Value *branchCond)
+    {
+        return branchCond && static_cast<Value *>(inst) == branchCond;
+    }
+
     vector<unique_ptr<Instruction>> cloneInstructionsForPreheader(const vector<Instruction *> &prefix,
                                                                   unordered_map<Value *, Value *> &cloneMap,
-                                                                  bool unrollLoop)
+                                                                  Value *branchCond)
     {
         vector<unique_ptr<Instruction>> clones;
         clones.reserve(prefix.size());
@@ -116,8 +121,14 @@ namespace
         {
             Instruction *cloned = inst->clone();
             const string &origName = inst->getName();
-            const bool keepUnrollName = unrollLoop && nameEndsWith(origName, "_unroll_step");
-            cloned->setName(keepUnrollName ? origName : origName + "_gcc_entry");
+            if (dynamic_cast<ICmpInst *>(inst) && isHeaderBranchConditionInst(inst, branchCond))
+            {
+                cloned->setName(origName + "_gcc_entry");
+            }
+            else
+            {
+                cloned->setName(origName);
+            }
             for (size_t i = 0; i < cloned->getOperands().size(); ++i)
             {
                 cloned->setOperandByIndex(i, remapValue(cloned->getOperandByIndex(i), cloneMap));
@@ -236,6 +247,16 @@ namespace
         }
 
         return latchInsts.size();
+    }
+
+    BranchInst *makeBranchPreservingHeaderOrder(Value *cond, BranchInst *headerBr, BasicBlock *bodyBB,
+                                                BasicBlock *exitBB)
+    {
+        if (headerBr->getTrueBlock() == bodyBB)
+        {
+            return new BranchInst(cond, bodyBB, exitBB);
+        }
+        return new BranchInst(cond, exitBB, bodyBB);
     }
 
     // 展开循环 latch：add 的 lhs 改为 copy 结果（先 copy 再 phi+4）
@@ -363,9 +384,10 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
     const bool unrollLoop = isUnrollLoopHeader(header);
 
     unordered_map<Value *, Value *> cloneMap;
+    Value *branchCond = headerBr->getCondition();
     vector<unique_ptr<Instruction>> entryInsts =
-        cloneInstructionsForPreheader(headerPrefix, cloneMap, unrollLoop);
-    Value *entryCond = remapValue(headerBr->getCondition(), cloneMap);
+        cloneInstructionsForPreheader(headerPrefix, cloneMap, branchCond);
+    Value *entryCond = remapValue(branchCond, cloneMap);
 
     // preheader: 入库判断 body / exit
     auto *preBr = getUnconditionalBranchTo(preheader, header);
@@ -387,7 +409,8 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
     {
         preheader->addInstruction(std::move(inst));
     }
-    preheader->addInstruction(unique_ptr<Instruction>(new BranchInst(entryCond, bodyBB, exitBB)));
+    preheader->addInstruction(
+        unique_ptr<Instruction>(makeBranchPreservingHeaderOrder(entryCond, headerBr, bodyBB, exitBB)));
 
     // latch：删除回 cond 的无条件跳
     backBr->removeThisFromOperands();
@@ -433,8 +456,9 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
         remapUnrollLatchAddAfterCopy(latchInsts, insertIdx);
     }
 
-    Value *loopCond = headerBr->getCondition();
-    latchInsts.push_back(unique_ptr<Instruction>(new BranchInst(loopCond, bodyBB, exitBB)));
+      Value *loopCond = headerBr->getCondition();
+    latchInsts.push_back(
+        unique_ptr<Instruction>(makeBranchPreservingHeaderOrder(loopCond, headerBr, bodyBB, exitBB)));
     connectEdge(latch, bodyBB);
     connectEdge(latch, exitBB);
     replacePhiIncomingBlock(exitBB, header, latch);
