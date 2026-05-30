@@ -3,7 +3,8 @@
 
 namespace optimization
 {
-    // 将元素总数相同的 alloca 合并到同一支配块，便于后端集中生成初始化代码
+    // 将元素总数相同的 alloca 合并到同一支配块；并将带 {} 初始化的 alloca
+    // 推迟到首次真正使用块（跳过早退路径），同时在目标块插入 array_init 空块供后端清零。
     class AllocaCoalescePass : public Pass
     {
     public:
