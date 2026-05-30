@@ -244,6 +244,32 @@ namespace
         return false;
     }
 
+    bool reachableWithoutUses(BasicBlock *from, BasicBlock *avoid,
+                              BasicBlock *target, const vector<AllocaInst *> &allocas)
+    {
+        if (!from || !target)
+            return false;
+        queue<BasicBlock *> q;
+        unordered_set<BasicBlock *> visited;
+        q.push(from);
+        visited.insert(from);
+        while (!q.empty())
+        {
+            BasicBlock *bb = q.front();
+            q.pop();
+            if (bb == target)
+                return true;
+            for (BasicBlock *succ : bb->getSuccessors())
+            {
+                if (succ == avoid || visited.count(succ) || blockUsesAnyAlloca(succ, allocas))
+                    continue;
+                visited.insert(succ);
+                q.push(succ);
+            }
+        }
+        return false;
+    }
+
     void detachBranchFromBlock(BasicBlock *from, BranchInst *br)
     {
         if (!from || !br)
@@ -592,7 +618,7 @@ namespace
             }
             if (!hasRet || blockUsesAnyAlloca(bb, initAllocas))
                 continue;
-            if (reachableWithoutBlock(entry, nullptr, bb))
+            if (reachableWithoutUses(postInit, nullptr, bb, initAllocas))
             {
                 earlyRetBB = bb;
                 break;
@@ -608,6 +634,13 @@ namespace
         if (!reachableWithoutBlock(entry, sinkBB, earlyRetBB))
             return false;
 
+        if (!reachableWithoutUses(postInit, sinkBB, earlyRetBB, initAllocas))
+            return false;
+
+        // Real early-exit blocks are not reachable from the sink region (e.g. loop body).
+        if (reachableWithoutBlock(sinkBB, nullptr, earlyRetBB))
+            return false;
+
         vector<BasicBlock *> gatePreds = findGatePredsToSink(sinkBB, earlyRetBB);
         if (gatePreds.empty())
             return false;
@@ -617,8 +650,6 @@ namespace
             if (!gatePredBranchesTo(pred, sinkBB))
                 return false;
         }
-
-        unordered_set<BasicBlock *> stubSet(stubBlocks.begin(), stubBlocks.end());
 
         BasicBlock *allocaSetup = func->addBasicBlock(entry->getName() + ".ac_setup");
 
@@ -706,7 +737,8 @@ namespace
         {
             log << "AllocaCoalescePass: sank " << initAllocas.size()
                 << " initialized alloca(s) to " << allocaSetup->getName()
-                << " with init stub before " << sinkBB->getName() << "\n";
+                << " with init stub before " << sinkBB->getName()
+                << " in " << func->getName() << "\n";
         }
         return true;
     }
