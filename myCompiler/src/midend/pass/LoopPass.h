@@ -38,6 +38,20 @@ namespace optimization
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "ModLoopReduction"; }
     };
+    // 19b.幂次基除法循环规约（重复 /base 再 %base → 移位取位）
+    class PowDivLoopReductionPass : public Pass
+    {
+    public:
+        PowDivLoopReductionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        std::string getName() const override { return "PowDivLoopReduction"; }
+
+    private:
+        static constexpr int kPosShiftLog2 = 2;
+        static constexpr int kRadixMask = 15;
+        bool rewriteDivLoopCallee(Function *func);
+        bool replaceDivLoopCalls(Function *func);
+    };
     // 21.循环展开
     class LoopUnrollingPass : public Pass
     {
