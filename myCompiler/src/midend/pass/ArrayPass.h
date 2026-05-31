@@ -38,6 +38,7 @@ namespace optimization
 
     private:
         std::string buildArrayIndexKey(Value *ptr) const;
+        std::string getForwardingKey(Value *ptr) const;
     };
 
 }

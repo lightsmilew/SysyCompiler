@@ -598,6 +598,63 @@ namespace
         }
         return changed;
     }
+
+    static int elemSizeBytesForGep(GetElementPtrInst *gep)
+    {
+        if (auto *ptrTy = dynamic_cast<PointerType *>(gep->getType()))
+        {
+            return getElemSizeBytes(ptrTy->ElementType);
+        }
+        return 4;
+    }
+
+    // gep i32*, base, constIdx  -> addd(base, constIdx * elemSize)
+    bool tryFoldConstIndex1DGep(BasicBlock *bb, GetElementPtrInst *gep, bool verbose,
+                                std::stringstream &debugInfo, vector<Value *> &needToDelete,
+                                bool &changed)
+    {
+        if (!isFoldable1DGep(gep))
+        {
+            return false;
+        }
+        Value *idxVal = getActiveIndex(gep);
+        auto *cIdx = dynamic_cast<ConstantInt *>(stripCopy(idxVal));
+        if (!cIdx)
+        {
+            return false;
+        }
+
+        Value *basePtr = gep->getPointerOperand();
+        const int elemSize = elemSizeBytesForGep(gep);
+        const int64_t byteOff = static_cast<int64_t>(cIdx->Value) * elemSize;
+        auto *byteOffVal = new ConstantLong(LongType::getInstance(), byteOff);
+        auto *newAddr =
+            new BinaryOperator(Opcode::Addd, basePtr, byteOffVal, gep->getName() + "_foldadd");
+
+        auto &insts = bb->getInstructions();
+        for (auto it = insts.begin(); it != insts.end(); ++it)
+        {
+            if (it->get() != gep)
+            {
+                continue;
+            }
+            it = insts.insert(it, std::unique_ptr<Instruction>(newAddr));
+            ++it;
+            gep->replaceAllUsesWith(newAddr);
+            gep->removeThisFromOperands();
+            if (verbose)
+            {
+                debugInfo << "GEPChainFold: const 1D GEP " << gep->getName() << " -> addd("
+                          << basePtr->toRef() << ", " << byteOff << "B) in " << bb->getName()
+                          << "\n";
+            }
+            needToDelete.push_back(gep);
+            it = insts.erase(it);
+            changed = true;
+            return true;
+        }
+        return false;
+    }
 } // namespace
 bool GEPExpansionPass ::runOnFunction(Function *func)
 {
@@ -813,6 +870,16 @@ bool GEPChainFoldPass::runOnFunction(Function *func)
             int64_t stride = groupStride[kv.first];
             for (vector<GepChainEntry> &chain : clusterByIndexChain(std::move(kv.second)))
                 foldGepGroup(bb, chain, stride, verbose, debugInfo, needToDelete, changed);
+        }
+
+        for (auto it = insts.begin(); it != insts.end();)
+        {
+            auto *gep = dynamic_cast<GetElementPtrInst *>(it->get());
+            if (gep && tryFoldConstIndex1DGep(bb, gep, verbose, debugInfo, needToDelete, changed))
+            {
+                continue;
+            }
+            ++it;
         }
     }
     return changed;

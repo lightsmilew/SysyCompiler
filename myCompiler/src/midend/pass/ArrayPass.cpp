@@ -822,6 +822,16 @@ string ArrayStoreLoadForwardPass::buildArrayIndexKey(Value *ptr) const
     return key;
 }
 
+string ArrayStoreLoadForwardPass::getForwardingKey(Value *ptr) const
+{
+    if (!ptr)
+        return "";
+    string key = buildArrayIndexKey(ptr);
+    if (!key.empty())
+        return key;
+    return ptr->toRef();
+}
+
 bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -831,8 +841,6 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
         BasicBlock *bb = bbPtr.get();
         auto &insts = bb->getInstructions();
         unordered_map<string, Value *> latestStoredValue;
-        Value *lastStorePtr = nullptr;
-        Value *lastStoreVal = nullptr;
 
         for (auto it = insts.begin(); it != insts.end();)
         {
@@ -840,16 +848,14 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
 
             if (auto *loadInst = dynamic_cast<LoadInst *>(inst))
             {
+                const string key = getForwardingKey(loadInst->getPointer());
                 Value *forwardVal = nullptr;
-                string key = buildArrayIndexKey(loadInst->getPointer());
                 if (!key.empty())
                 {
                     auto found = latestStoredValue.find(key);
                     if (found != latestStoredValue.end())
                         forwardVal = found->second;
                 }
-                if (!forwardVal && lastStorePtr && loadInst->getPointer() == lastStorePtr)
-                    forwardVal = lastStoreVal;
 
                 if (forwardVal)
                 {
@@ -871,23 +877,15 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
             if (dynamic_cast<CallInst *>(inst))
             {
                 latestStoredValue.clear();
-                lastStorePtr = nullptr;
-                lastStoreVal = nullptr;
                 ++it;
                 continue;
             }
 
             if (auto *storeInst = dynamic_cast<StoreInst *>(inst))
             {
-                // 保守起见，任何store先清空已记录映射，再记录当前store。
-                latestStoredValue.clear();
-                lastStorePtr = storeInst->getPointer();
-                lastStoreVal = storeInst->getValueToStore();
-                string key = buildArrayIndexKey(storeInst->getPointer());
+                const string key = getForwardingKey(storeInst->getPointer());
                 if (!key.empty())
-                {
-                    latestStoredValue[key] = lastStoreVal;
-                }
+                    latestStoredValue[key] = storeInst->getValueToStore();
             }
 
             ++it;
