@@ -288,7 +288,7 @@ std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
     return perIter;
 }
 
-static constexpr int kFullUnrollMaxTripCount = 100;
+static constexpr int kFullUnrollMaxTripCount = 20;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
 static constexpr int kPartialUnrollFactor = 4;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
