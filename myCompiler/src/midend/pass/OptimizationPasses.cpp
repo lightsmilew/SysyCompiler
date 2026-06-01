@@ -22,7 +22,8 @@ bool PassManager::runOnModule(Module *module)
         }
         // 先不删除用于调试
         // 如果是函数内联pass，则在内联后删除内联的函数
-        if (dynamic_cast<FunctionInliningPass *>(pass.get()))
+        if (dynamic_cast<FunctionInliningPass *>(pass.get()) ||
+            dynamic_cast<RemoveUnusedGlobalAndFunctionPass *>(pass.get()))
         {
             module->Functions.erase(
                 std::remove_if(
@@ -154,6 +155,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     else if (level == OptimizationLevel::O1)
@@ -214,6 +216,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
@@ -439,6 +442,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
         //必须要有死代码消除，处理寄存器分配潜在问题
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     return pm;

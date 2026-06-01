@@ -23,4 +23,17 @@ namespace optimization
             bool runOnFunction(Function *func) override;
             string getName() const override { return "RemoveRedundantStore"; }
     };
+    // 无用全局变量与无用函数删除
+    class RemoveUnusedGlobalAndFunctionPass : public Pass
+    {
+    public:
+        RemoveUnusedGlobalAndFunctionPass(bool verbose = false) : Pass(verbose) {}
+        bool runOnFunction(Function *func) override;
+        string getName() const override { return "RemoveUnusedGlobalAndFunction"; }
+
+    private:
+        bool moduleProcessed = false;
+        bool removeUnusedGlobals(Module *module);
+        bool removeUnusedFunctions(Module *module);
+    };
 }

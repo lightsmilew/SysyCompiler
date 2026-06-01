@@ -427,3 +427,103 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
     }
     return changed;
 }
+
+namespace
+{
+void collectReachableFunctions(Function *root, std::unordered_set<Function *> &reachable)
+{
+    if (!root || root->isLibraryFunction() || root->isDeletedFunction())
+        return;
+
+    std::stack<Function *> worklist;
+    reachable.insert(root);
+    worklist.push(root);
+
+    while (!worklist.empty())
+    {
+        Function *func = worklist.top();
+        worklist.pop();
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                auto *call = dynamic_cast<CallInst *>(instPtr.get());
+                if (!call)
+                    continue;
+                Function *callee = call->getCalledFunction();
+                if (!callee || callee->isLibraryFunction() || callee->isDeletedFunction())
+                    continue;
+                if (reachable.insert(callee).second)
+                    worklist.push(callee);
+            }
+        }
+    }
+}
+} // namespace
+
+bool RemoveUnusedGlobalAndFunctionPass::removeUnusedGlobals(Module *module)
+{
+    bool changed = false;
+    for (auto &gvPtr : module->GlobalVariables)
+    {
+        GlobalVariable *gv = gvPtr.get();
+        if (gv->isEliminated || !gv->getUsers().empty())
+            continue;
+        gv->isEliminated = true;
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "RemoveUnusedGlobalAndFunctionPass: Eliminated unused global @"
+                      << gv->getName() << "\n";
+        }
+    }
+    return changed;
+}
+
+bool RemoveUnusedGlobalAndFunctionPass::removeUnusedFunctions(Module *module)
+{
+    Function *mainFunc = module->getFunction("main");
+    if (!mainFunc)
+        return false;
+
+    std::unordered_set<Function *> reachable;
+    collectReachableFunctions(mainFunc, reachable);
+
+    bool changed = false;
+    for (auto &funcPtr : module->Functions)
+    {
+        Function *func = funcPtr.get();
+        if (func->isLibraryFunction() || func->getName() == "main" || func->isDeletedFunction())
+            continue;
+        if (reachable.count(func))
+            continue;
+        func->setDeleted(true);
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "RemoveUnusedGlobalAndFunctionPass: Eliminated unused function @"
+                      << func->getName() << "\n";
+        }
+    }
+    return changed;
+}
+
+bool RemoveUnusedGlobalAndFunctionPass::runOnFunction(Function *func)
+{
+    Module *module = func->getParent();
+    if (!module || moduleProcessed)
+        return false;
+
+    moduleProcessed = true;
+    bool changed = false;
+    bool localChanged = false;
+    do
+    {
+        localChanged = false;
+        localChanged |= removeUnusedFunctions(module);
+        localChanged |= removeUnusedGlobals(module);
+        changed |= localChanged;
+    } while (localChanged);
+
+    return changed;
+}
