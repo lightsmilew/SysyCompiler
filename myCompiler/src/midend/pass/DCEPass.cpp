@@ -387,8 +387,20 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                     Instruction *prev = insts[j].get();
                     if (prev == nullptr)
                         continue;
-                    if (dynamic_cast<CallInst *>(prev) ||
-                        (prev->mayHaveSideEffects() && prev->getOpcode() != Opcode::Load))
+                    if (dynamic_cast<CallInst *>(prev))
+                    {
+                        break;
+                    }
+                    if (auto storeInst = dynamic_cast<StoreInst *>(prev))
+                    {
+                        // 仅同地址 store 会截断；不同地址 store 不影响当前地址的 load-store 冗余判断
+                        if (isSameAddr(storeInst->getPointer(), addr))
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                    if (prev->mayHaveSideEffects() && prev->getOpcode() != Opcode::Load)
                     {
                         break;
                     }
@@ -397,14 +409,6 @@ bool RemoveRedundantStorePass::runOnFunction(Function *func)
                         if (isSameAddr(loadInst->getPointer(), addr))
                         {
                             lastLoad = prev;
-                            break;
-                        }
-                    }
-                    // 如果遇到对该地址的store则停止
-                    else if (auto storeInst = dynamic_cast<StoreInst *>(prev))
-                    {
-                        if (isSameAddr(storeInst->getPointer(), addr))
-                        {
                             break;
                         }
                     }
