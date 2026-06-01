@@ -292,6 +292,8 @@ static constexpr int kFullUnrollMaxTripCount = 20;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
 static constexpr int kPartialUnrollFactor = 4;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
+/// 纯计算循环体指令数超过此值时不做 4 路展开（展开后 I-cache 压力大、收益小）
+static constexpr int kPureComputePartialUnrollMaxBodyInsts = 4;
 
 void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
 {
@@ -350,9 +352,44 @@ int countLoopBodyInsts(BasicBlock *body, BasicBlock *latch)
     return count;
 }
 
+static bool isPureComputationInst(Instruction *inst)
+{
+    if (!inst || inst->isTerminator())
+    {
+        return true;
+    }
+    const Opcode op = inst->getOpcode();
+    if (op == Opcode::Load || op == Opcode::Store || op == Opcode::Stored || op == Opcode::Call)
+    {
+        return false;
+    }
+    return !inst->mayHaveSideEffects();
+}
+
+static bool loopBodyIsPureComputation(BasicBlock *body, BasicBlock *latch)
+{
+    auto blockIsPure = [](BasicBlock *bb)
+    {
+        if (!bb)
+        {
+            return true;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            if (!isPureComputationInst(instPtr.get()))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    return blockIsPure(body) && blockIsPure(latch);
+}
+
 struct PartialUnrollCost
 {
     int bodyInstCount = 0;
+    bool isPureComputation = false;
     bool profitable = false;
 };
 
@@ -360,7 +397,12 @@ static PartialUnrollCost computePartialUnrollCost(BasicBlock *body, BasicBlock *
 {
     PartialUnrollCost cost;
     cost.bodyInstCount = countLoopBodyInsts(body, latch);
+    cost.isPureComputation = loopBodyIsPureComputation(body, latch);
     if (cost.bodyInstCount > kPartialUnrollMaxBodyInsts)
+    {
+        return cost;
+    }
+    if (cost.isPureComputation && cost.bodyInstCount > kPureComputePartialUnrollMaxBodyInsts)
     {
         return cost;
     }
@@ -821,7 +863,17 @@ UnrollResult tryUnrollOneLoop(Function *func,
         if (verbose)
         {
             debugInfo << "LoopUnrollingPass: skip 4-way unroll at " << header->getName()
-                      << " (bodyInsts=" << partialCost.bodyInstCount << ")\n";
+                      << " (bodyInsts=" << partialCost.bodyInstCount;
+            if (partialCost.isPureComputation &&
+                partialCost.bodyInstCount > kPureComputePartialUnrollMaxBodyInsts)
+            {
+                debugInfo << ", pure-compute body > " << kPureComputePartialUnrollMaxBodyInsts;
+            }
+            else if (partialCost.bodyInstCount > kPartialUnrollMaxBodyInsts)
+            {
+                debugInfo << ", body > " << kPartialUnrollMaxBodyInsts;
+            }
+            debugInfo << ")\n";
         }
         return UnrollResult::None;
     }

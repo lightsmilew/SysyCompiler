@@ -44,12 +44,6 @@ namespace RISCV
         return h;
     }
 
-    shared_ptr<RISCVRegister> BlockLocalCSE::getSpRegister()
-    {
-        static auto sp = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::SP);
-        return sp;
-    }
-
     shared_ptr<RISCVRegister> BlockLocalCSE::getDestReg(const shared_ptr<RISCVInstruction> &inst)
     {
         if (!inst)
@@ -75,7 +69,6 @@ namespace RISCV
     {
         switch (op)
         {
-        case RISCVOpcode::LI:
         case RISCVOpcode::ADD:
         case RISCVOpcode::ADDI:
         case RISCVOpcode::ADDW:
@@ -156,27 +149,10 @@ namespace RISCV
         return true;
     }
 
-    bool BlockLocalCSE::skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
-                                        const shared_ptr<RISCVInstruction> &inst,
-                                        const shared_ptr<RISCVLoop> &loop)
-    {
-        if (!inst || !loop || !bb)
-            return false;
-        (void)bb;
-        (void)loop;
-        // 不因位于 header/latch 而跳过 li 的 materialize CSE；归纳/临时由 isLoopInductionRelated 等约束
-        return false;
-    }
-
-    bool BlockLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
-                                            const shared_ptr<RISCVInstruction> &inst,
+    bool BlockLocalCSE::isLoopInductionRelated(const shared_ptr<RISCVInstruction> &inst,
                                             const shared_ptr<RISCVLoop> &loop)
     {
-        if (!inst || !loop || !bb)
-            return false;
-
-        // li/la 只读物化走 materialAvail；此处仅约束算术 CSE
-        if (inst->getOpcode() == RISCVOpcode::LI || inst->getOpcode() == RISCVOpcode::LA)
+        if (!inst || !loop)
             return false;
 
         if (!isOnlyDefOfDestInBlocks(inst, loop->getBlocks()))
@@ -297,19 +273,6 @@ namespace RISCV
 
         ExprKey key;
         key.opcode = inst->getOpcode();
-
-        if (key.opcode == RISCVOpcode::LI)
-        {
-            if (inst->isCopyInitLi())
-                return std::nullopt;
-            if (ops.size() < 2 || ops[1]->getType() != RISCVOperand::Type::IMMEDIATE)
-                return std::nullopt;
-            key.hasImm = true;
-            key.imm = ops[1]->getImmediate();
-            // 不同虚拟寄存器的 li 不能仅因立即数相同就合并，否则 canon 可能已被后续指令改写
-            key.op1 = regKey(outRd);
-            return key;
-        }
 
         switch (inst->getInstrType())
         {
@@ -515,6 +478,30 @@ namespace RISCV
         }
     }
 
+    bool BlockLocalCSE::eraseMaterialDuplicate(
+        shared_ptr<RISCVFunction> function, shared_ptr<RISCVBasicBlock> bb,
+        vector<shared_ptr<RISCVInstruction>> &insts, size_t dupIdx, size_t canonDefIdx,
+        const shared_ptr<RISCVRegister> &dupRd, const shared_ptr<RISCVRegister> &canon,
+        unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+        unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail)
+    {
+        if (!function || !canon || !dupRd ||
+            !allUsesReplaceable(insts, dupIdx, canonDefIdx, dupRd, canon))
+            return false;
+
+        if (isSingleDefInFunction(function, canon) && isSingleDefInFunction(function, dupRd))
+            replaceUsesInFunction(function, dupRd, canon);
+        else if (!hasUseOutsideBlock(function, bb, dupRd))
+            replaceUsesWithCanon(insts, dupIdx, canonDefIdx, dupRd, canon);
+        else
+            return false;
+
+        insts.erase(insts.begin() + static_cast<long>(dupIdx));
+        decrementDefIdxAfter(avail, dupIdx);
+        decrementMaterialDefIdxAfter(materialAvail, dupIdx);
+        return true;
+    }
+
     void BlockLocalCSE::decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                           size_t erasedIdx)
     {
@@ -585,7 +572,7 @@ namespace RISCV
         return false;
     }
 
-    bool BlockLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function, bool laMaterializeOnly)
+    bool BlockLocalCSE::optimizeFunction(shared_ptr<RISCVFunction> function)
     {
         if (!function)
             return false;
@@ -631,76 +618,39 @@ namespace RISCV
                 }
 
                 // li/la 只读物化：同立即数/符号则删重复指令，后续 use 改用首次的 rd
-                const bool allowMaterialize = laMaterializeOnly
-                                                  ? inst->getOpcode() == RISCVOpcode::LA
-                                                  : !skipMaterializeCSE(bb, inst, innerLoop);
-                if (allowMaterialize)
+                shared_ptr<RISCVRegister> matRd;
+                if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
                 {
-                    shared_ptr<RISCVRegister> matRd;
-                    if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
+                    bool matHandled = false;
+                    auto matIt = materialAvail.find(*matKey);
+                    if (matIt != materialAvail.end())
                     {
-                        bool matHandled = false;
-                        auto matIt = materialAvail.find(*matKey);
-                        if (matIt != materialAvail.end())
+                        if (isAvailEntryLive(insts, idx, matIt->second))
                         {
-                            if (isAvailEntryLive(insts, idx, matIt->second))
+                            auto canon = getDestReg(matIt->second.defInst);
+                            if (eraseMaterialDuplicate(function, bb, insts, idx, matIt->second.defIdx, matRd,
+                                                     canon, avail, materialAvail))
                             {
-                                auto canon = getDestReg(matIt->second.defInst);
-                                const bool readOnlyLi =
-                                    matKey->opcode == RISCVOpcode::LI && inst && !inst->isCopyInitLi();
-                                const bool readOnlyLa = matKey->opcode == RISCVOpcode::LA;
-                                // 同块内发现重复 li/la：canon 全函数唯一定义时，删 dup 并把 dup 的 vr 全部换成 canon
-                                // （LICM 外提后 dup 的 use 常在其它块，不能用 hasUseOutsideBlock 一票否决）
-                                if ((readOnlyLi || readOnlyLa) && canon && matRd &&
-                                    isSingleDefInFunction(function, canon) &&
-                                    isSingleDefInFunction(function, matRd) &&
-                                    allUsesReplaceable(insts, idx, matIt->second.defIdx, matRd, canon))
-                                {
-                                    replaceUsesInFunction(function, matRd, canon);
-                                    insts.erase(insts.begin() + static_cast<long>(idx));
-                                    if (!laMaterializeOnly)
-                                        decrementDefIdxAfter(avail, idx);
-                                    decrementMaterialDefIdxAfter(materialAvail, idx);
-                                    changed = true;
-                                    matHandled = true;
-                                    --idx;
-                                }
-                                else if (canon && !hasUseOutsideBlock(function, bb, matRd) &&
-                                         allUsesReplaceable(insts, idx, matIt->second.defIdx, matRd, canon))
-                                {
-                                    replaceUsesWithCanon(insts, idx, matIt->second.defIdx, matRd, canon);
-                                    insts.erase(insts.begin() + static_cast<long>(idx));
-                                    if (!laMaterializeOnly)
-                                        decrementDefIdxAfter(avail, idx);
-                                    decrementMaterialDefIdxAfter(materialAvail, idx);
-                                    changed = true;
-                                    matHandled = true;
-                                    --idx;
-                                }
-                                else
-                                {
-                                    materialAvail.erase(matIt);
-                                }
+                                changed = true;
+                                matHandled = true;
+                                --idx;
                             }
                             else
-                            {
                                 materialAvail.erase(matIt);
-                            }
                         }
-                        if (!matHandled)
-                        {
-                            AvailEntry entry;
-                            entry.defInst = inst;
-                            entry.defIdx = idx;
-                            materialAvail[*matKey] = entry;
-                        }
+                        else
+                            materialAvail.erase(matIt);
+                    }
+                    if (!matHandled)
+                    {
+                        AvailEntry entry;
+                        entry.defInst = inst;
+                        entry.defIdx = idx;
+                        materialAvail[*matKey] = entry;
                     }
                 }
 
-                if (laMaterializeOnly)
-                    continue;
-
-                if (isLoopInductionRelated(bb, inst, innerLoop))
+                if (isLoopInductionRelated(inst, innerLoop))
                     continue;
 
                 shared_ptr<RISCVRegister> rd;
@@ -756,11 +706,11 @@ namespace RISCV
         return changed;
     }
 
-    void BlockLocalCSE::run(shared_ptr<RISCVFunction> function, bool laMaterializeOnly)
+    void BlockLocalCSE::run(shared_ptr<RISCVFunction> function)
     {
         if (!function)
             return;
-        while (optimizeFunction(function, laMaterializeOnly))
+        while (optimizeFunction(function))
         {
         }
     }

@@ -30,6 +30,25 @@ namespace
     }
 }
 
+// ========== RemoveRedundantAddwZeroPass ==========
+
+PeepOptiState RemoveRedundantAddwZeroPass::optimize(shared_ptr<RISCVInstruction> instr,
+                                                   shared_ptr<RISCVBasicBlock> bb)
+{
+    (void)bb;
+    if (!instr || instr->getOpcode() != RISCVOpcode::ADDW)
+        return PeepOptiState::KEEP;
+
+    const auto &ops = instr->getOperands();
+    if (ops.size() < 3 || !ops[0]->getReg() || !ops[1]->getReg())
+        return PeepOptiState::KEEP;
+
+    if (!(*ops[0]->getReg() == *ops[1]->getReg()) || !isZeroRegOperand(ops[2]))
+        return PeepOptiState::KEEP;
+
+    return PeepOptiState::DELETE;
+}
+
 // ========== RemoveRedundantMovePass ==========
 
 PeepOptiState RemoveRedundantMovePass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

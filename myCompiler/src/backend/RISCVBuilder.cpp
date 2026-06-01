@@ -276,6 +276,7 @@ void RISCVBuilder::FirstPeep()
     peep.addPass(make_shared<FoldXorZeroBranchPass>());
     peep.addPass(make_shared<FoldLoopContinueBranchPass>());
     peep.addPass(make_shared<DeadCodeEliminationPass>());
+    peep.addPass(make_shared<RemoveRedundantAddwZeroPass>());
     peep.addPass(make_shared<RemoveRedundantJalPass>());
     peep.addPass(make_shared<StrengthReductionPass>());
     peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
@@ -287,6 +288,7 @@ void RISCVBuilder::FirstPeep()
 void RISCVBuilder::SecondPeep()
 {
     PeepOptimizationManager peep;
+    peep.addPass(make_shared<RemoveRedundantAddwZeroPass>());
     peep.addPass(make_shared<RemoveRedundantMovePass>());
     peep.optimizeModule(riscvModule);
 }
@@ -503,13 +505,13 @@ void RISCVBuilder::runLICMPass()
     }
 }
 
-void RISCVBuilder::runBlockLocalCSEPass(bool laMaterializeOnly)
+void RISCVBuilder::runBlockLocalCSEPass()
 {
     for (auto &func : riscvModule->getFunctions())
     {
         if (isLibraryFunction(func->getName()))
             continue;
         BlockLocalCSE pass;
-        pass.run(func, laMaterializeOnly);
+        pass.run(func);
     }
 }

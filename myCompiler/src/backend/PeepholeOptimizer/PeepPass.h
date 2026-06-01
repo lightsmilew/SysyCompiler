@@ -8,6 +8,15 @@ using std::dynamic_pointer_cast;
 using std::nullopt;
 using std::optional;
 using std::tuple;
+// 删除 addw rd, rd, zero（visitTruncInst 在 rd==src 时的 i64→i32 截断，语义为恒等）
+class RemoveRedundantAddwZeroPass : public PeepPass
+{
+public:
+    RemoveRedundantAddwZeroPass() : PeepPass("RemoveRedundantAddwZero") {}
+
+    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
+};
+
 // 删除多余move指令
 class RemoveRedundantMovePass : public PeepPass
 {

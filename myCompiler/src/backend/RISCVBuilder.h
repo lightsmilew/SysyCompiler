@@ -38,7 +38,7 @@ namespace RISCV
         void initializeModule(shared_ptr<Module> irModule);
         void generateInstructions();
         void runLICMPass();          // 循环不变 la/li 外提
-        void runBlockLocalCSEPass(bool laMaterializeOnly = false);
+        void runBlockLocalCSEPass();
         void instructionSheduler();
         void allocateRegisters();
         void FirstPeep();

@@ -5,12 +5,11 @@
 
 namespace RISCV
 {
-    /// 基本块内 CSE：li/la 只读物化 + 纯算术。
-    /// run(laMaterializeOnly=true) 时仅合并 la（供 LICM 后使用，避免误消 latch 内 li）。
+    /// 基本块内 CSE：li/la 只读物化（materialAvail）+ 纯算术（avail）。copy-init li 不参与物化。
     class BlockLocalCSE
     {
     public:
-        void run(shared_ptr<RISCVFunction> function, bool laMaterializeOnly = false);
+        void run(shared_ptr<RISCVFunction> function);
 
     private:
         struct ExprKey
@@ -53,8 +52,7 @@ namespace RISCV
             size_t operator()(const MaterialKey &k) const;
         };
 
-        static bool optimizeFunction(shared_ptr<RISCVFunction> function, bool laMaterializeOnly);
-        static shared_ptr<RISCVRegister> getSpRegister();
+        static bool optimizeFunction(shared_ptr<RISCVFunction> function);
         static shared_ptr<RISCVRegister> getDestReg(const shared_ptr<RISCVInstruction> &inst);
         static std::string regKey(const shared_ptr<RISCVRegister> &reg);
         static bool isSpRegister(const shared_ptr<RISCVRegister> &reg);
@@ -63,12 +61,8 @@ namespace RISCV
                                                        shared_ptr<RISCVBasicBlock> bb);
         static bool isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
                                             const vector<shared_ptr<RISCVBasicBlock>> &blocks);
-        static bool isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
-                                           const shared_ptr<RISCVInstruction> &inst,
+        static bool isLoopInductionRelated(const shared_ptr<RISCVInstruction> &inst,
                                            const shared_ptr<RISCVLoop> &loop);
-        static bool skipMaterializeCSE(shared_ptr<RISCVBasicBlock> bb,
-                                       const shared_ptr<RISCVInstruction> &inst,
-                                       const shared_ptr<RISCVLoop> &loop);
         static std::optional<MaterialKey> buildMaterialKey(const shared_ptr<RISCVInstruction> &inst,
                                                              shared_ptr<RISCVRegister> &outRd);
         static void invalidateMaterialAvail(
@@ -105,6 +99,12 @@ namespace RISCV
                                          size_t dupIdx, size_t canonDefIdx,
                                          const shared_ptr<RISCVRegister> &dupRd,
                                          const shared_ptr<RISCVRegister> &canon);
+        static bool eraseMaterialDuplicate(
+            shared_ptr<RISCVFunction> function, shared_ptr<RISCVBasicBlock> bb,
+            vector<shared_ptr<RISCVInstruction>> &insts, size_t dupIdx, size_t canonDefIdx,
+            const shared_ptr<RISCVRegister> &dupRd, const shared_ptr<RISCVRegister> &canon,
+            unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
+            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail);
         static void decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
                                          size_t erasedIdx);
         static void invalidateDefsOfInst(
