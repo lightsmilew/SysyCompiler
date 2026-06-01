@@ -92,6 +92,11 @@ namespace RISCV
         static bool hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
                                        shared_ptr<RISCVBasicBlock> bb,
                                        const shared_ptr<RISCVRegister> &reg);
+        static bool isSingleDefInFunction(shared_ptr<RISCVFunction> function,
+                                          const shared_ptr<RISCVRegister> &reg);
+        static void replaceUsesInFunction(shared_ptr<RISCVFunction> function,
+                                          const shared_ptr<RISCVRegister> &dup,
+                                          const shared_ptr<RISCVRegister> &canon);
         static bool allUsesReplaceable(const vector<shared_ptr<RISCVInstruction>> &insts,
                                        size_t dupIdx, size_t canonDefIdx,
                                        const shared_ptr<RISCVRegister> &dupRd,

@@ -421,6 +421,53 @@ namespace RISCV
         return true;
     }
 
+    bool BlockLocalCSE::isSingleDefInFunction(shared_ptr<RISCVFunction> function,
+                                              const shared_ptr<RISCVRegister> &reg)
+    {
+        if (!function || !reg)
+            return false;
+        int defCount = 0;
+        for (const auto &bb : function->getBasicBlocks())
+        {
+            if (!bb)
+                continue;
+            for (const auto &inst : bb->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &def : inst->getDefRegisters())
+                {
+                    if (def && *def == *reg)
+                        ++defCount;
+                }
+            }
+        }
+        return defCount == 1;
+    }
+
+    void BlockLocalCSE::replaceUsesInFunction(shared_ptr<RISCVFunction> function,
+                                              const shared_ptr<RISCVRegister> &dup,
+                                              const shared_ptr<RISCVRegister> &canon)
+    {
+        if (!function || !dup || !canon)
+            return;
+        for (const auto &bb : function->getBasicBlocks())
+        {
+            if (!bb)
+                continue;
+            for (const auto &inst : bb->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &use : inst->getUseRegisters())
+                {
+                    if (use && *use == *dup)
+                        inst->replaceUseRegister(use, canon);
+                }
+            }
+        }
+    }
+
     bool BlockLocalCSE::hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
                                         shared_ptr<RISCVBasicBlock> bb,
                                         const shared_ptr<RISCVRegister> &reg)
@@ -599,8 +646,27 @@ namespace RISCV
                             if (isAvailEntryLive(insts, idx, matIt->second))
                             {
                                 auto canon = getDestReg(matIt->second.defInst);
-                                if (canon && !hasUseOutsideBlock(function, bb, matRd) &&
+                                const bool readOnlyLi =
+                                    matKey->opcode == RISCVOpcode::LI && inst && !inst->isCopyInitLi();
+                                const bool readOnlyLa = matKey->opcode == RISCVOpcode::LA;
+                                // 同块内发现重复 li/la：canon 全函数唯一定义时，删 dup 并把 dup 的 vr 全部换成 canon
+                                // （LICM 外提后 dup 的 use 常在其它块，不能用 hasUseOutsideBlock 一票否决）
+                                if ((readOnlyLi || readOnlyLa) && canon && matRd &&
+                                    isSingleDefInFunction(function, canon) &&
+                                    isSingleDefInFunction(function, matRd) &&
                                     allUsesReplaceable(insts, idx, matIt->second.defIdx, matRd, canon))
+                                {
+                                    replaceUsesInFunction(function, matRd, canon);
+                                    insts.erase(insts.begin() + static_cast<long>(idx));
+                                    if (!laMaterializeOnly)
+                                        decrementDefIdxAfter(avail, idx);
+                                    decrementMaterialDefIdxAfter(materialAvail, idx);
+                                    changed = true;
+                                    matHandled = true;
+                                    --idx;
+                                }
+                                else if (canon && !hasUseOutsideBlock(function, bb, matRd) &&
+                                         allUsesReplaceable(insts, idx, matIt->second.defIdx, matRd, canon))
                                 {
                                     replaceUsesWithCanon(insts, idx, matIt->second.defIdx, matRd, canon);
                                     insts.erase(insts.begin() + static_cast<long>(idx));
