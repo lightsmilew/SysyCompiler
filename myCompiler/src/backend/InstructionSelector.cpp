@@ -1567,8 +1567,17 @@ void InstructionSelector::visitCopyInst(CopyInst *inst)
     // Copy指令用于将源值复制到目标位置
     // 在我们的"所有变量溢出到栈上"策略中，这实际上是从源位置加载值，然后存储到目标位置
 
-    // 获取源值的寄存器
-    auto srcReg = getOrCreateVirtualReg(inst->getSource());
+    // copy 源为常数时单独物化 li 并打 copyInit 标记（归纳/循环初始化），避免 LICM/CSE 与只读 li 合并
+    shared_ptr<RISCVRegister> srcReg;
+    Value *src = inst->getSource();
+    if (auto *c = dynamic_cast<ConstantInt *>(src))
+        srcReg = LiInt(c->Value, false, true);
+    else if (auto *cl = dynamic_cast<ConstantLong *>(src))
+        srcReg = LiLong(cl->Value, false, true);
+    else if (auto *cf = dynamic_cast<ConstantFloat *>(src))
+        srcReg = LiFloat(cf->Value, false, true);
+    else
+        srcReg = getOrCreateVirtualReg(src);
 
     // 创建临时寄存器进行复制操作
     auto destReg = getOrCreateVirtualReg(inst->getDest());
@@ -2062,22 +2071,22 @@ shared_ptr<RISCVRegister> InstructionSelector::LaGlobl(GlobalVariable *globlvar)
     return globReg;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value, bool isPhysical)
+shared_ptr<RISCVRegister> InstructionSelector::LiInt(int value, bool isPhysical, bool copyInit)
 {
     auto destReg = getTempReg(isPhysical);
-    auto LiInst = RISCVInstruction::createPseudoLI(destReg, value);
+    auto LiInst = RISCVInstruction::createPseudoLI(destReg, value, copyInit);
     currentLiInstruction = LiInst; // 保存当前的立即数指令
     currentBB->addInstruction(LiInst);
 
     return destReg;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue, bool isPhysical)
+shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue, bool isPhysical, bool copyInit)
 {
     auto tmpReg = getTempReg(isPhysical);
     uint32_t hexValue;
     memcpy(&hexValue, &floatValue, sizeof(floatValue));
-    auto LiInst = RISCVInstruction::createPseudoLI(tmpReg, hexValue);
+    auto LiInst = RISCVInstruction::createPseudoLI(tmpReg, hexValue, copyInit);
     currentBB->addInstruction(LiInst);
 
     auto destReg = getTempFloatReg(isPhysical);
@@ -2087,10 +2096,10 @@ shared_ptr<RISCVRegister> InstructionSelector::LiFloat(float floatValue, bool is
     return destReg;
 }
 
-shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhysical)
+shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhysical, bool copyInit)
 {
     auto destReg = getTempReg(isPhysical);
-    auto LiInst = RISCVInstruction::createPseudoLI(destReg, longValue);
+    auto LiInst = RISCVInstruction::createPseudoLI(destReg, longValue, copyInit);
     currentLiInstruction = LiInst; // 保存当前的立即数指令
     currentBB->addInstruction(LiInst);
 

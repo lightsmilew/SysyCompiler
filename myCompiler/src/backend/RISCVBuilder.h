@@ -1,6 +1,7 @@
 #pragma once
 #include "RISCVDataStructure.h"
 #include "../midend/irbuild/IRDataStructure.h"
+#include "../midend/pass/ControlFlowAnalysis.h"
 #include "AssemblyEmitter.h"
 #include "InstructionSelector.h"
 #include "GraphRegisterAllocator/GraphColorRegisterAllocator.h"

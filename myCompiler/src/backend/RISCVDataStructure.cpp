@@ -984,11 +984,13 @@ namespace RISCV
         return instr;
     }
 
-    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm)
+    shared_ptr<RISCVInstruction> RISCVInstruction::createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm,
+                                                                  bool copyInitLi)
     {
         auto instr = make_shared<RISCVInstruction>(RISCVOpcode::LI, InstructionType::PSEUDO);
         instr->operands = {make_shared<RISCVOperand>(rd),
                            make_shared<RISCVOperand>(imm)};
+        instr->copyInitLi_ = copyInitLi;
         return instr;
     }
 

@@ -292,7 +292,6 @@ static constexpr int kFullUnrollMaxTripCount = 20;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
 static constexpr int kPartialUnrollFactor = 4;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
-static constexpr int kPureComputePartialUnrollMaxBodyInsts = 4;
 
 void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
 {
@@ -351,53 +350,9 @@ int countLoopBodyInsts(BasicBlock *body, BasicBlock *latch)
     return count;
 }
 
-static bool isImpureLoopBodyInst(const Instruction *inst)
-{
-    if (!inst)
-    {
-        return true;
-    }
-    switch (inst->getOpcode())
-    {
-    case Opcode::Load:
-    case Opcode::Store:
-    case Opcode::Stored:
-    case Opcode::Call:
-    case Opcode::Alloca:
-        return true;
-    default:
-        return inst->mayHaveSideEffects();
-    }
-}
-
-static bool loopBodyIsPureComputationOnly(BasicBlock *body, BasicBlock *latch)
-{
-    auto scan = [&](BasicBlock *bb) -> bool
-    {
-        if (!bb)
-        {
-            return true;
-        }
-        for (auto &instPtr : bb->getInstructions())
-        {
-            if (instPtr->isTerminator())
-            {
-                continue;
-            }
-            if (isImpureLoopBodyInst(instPtr.get()))
-            {
-                return false;
-            }
-        }
-        return true;
-    };
-    return scan(body) && scan(latch);
-}
-
 struct PartialUnrollCost
 {
     int bodyInstCount = 0;
-    bool pureComputationOnly = false;
     bool profitable = false;
 };
 
@@ -405,14 +360,7 @@ static PartialUnrollCost computePartialUnrollCost(BasicBlock *body, BasicBlock *
 {
     PartialUnrollCost cost;
     cost.bodyInstCount = countLoopBodyInsts(body, latch);
-    cost.pureComputationOnly = loopBodyIsPureComputationOnly(body, latch);
-
     if (cost.bodyInstCount > kPartialUnrollMaxBodyInsts)
-    {
-        return cost;
-    }
-    // 纯计算循环体指令数超过阈值时展开无收益（无法摊薄访存/分支开销）
-    if (cost.pureComputationOnly && cost.bodyInstCount > kPureComputePartialUnrollMaxBodyInsts)
     {
         return cost;
     }
@@ -873,9 +821,7 @@ UnrollResult tryUnrollOneLoop(Function *func,
         if (verbose)
         {
             debugInfo << "LoopUnrollingPass: skip 4-way unroll at " << header->getName()
-                      << " (bodyInsts=" << partialCost.bodyInstCount
-                      << ", pureCompute=" << (partialCost.pureComputationOnly ? "true" : "false")
-                      << ")\n";
+                      << " (bodyInsts=" << partialCost.bodyInstCount << ")\n";
         }
         return UnrollResult::None;
     }

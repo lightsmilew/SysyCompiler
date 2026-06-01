@@ -1,6 +1,128 @@
 #include "ControlFlowAnalysis.h"
 #include <stack>
+#include <unordered_set>
 using namespace optimization;
+
+namespace
+{
+    BasicBlock *findUniqueLatchToHeader(const Loop &loop)
+    {
+        BasicBlock *latch = nullptr;
+        for (auto *bb : loop.blocks)
+        {
+            if (bb == loop.header)
+            {
+                continue;
+            }
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (succ != loop.header)
+                {
+                    continue;
+                }
+                if (latch)
+                {
+                    return nullptr;
+                }
+                latch = bb;
+            }
+        }
+        return latch;
+    }
+
+    bool condBranchesToBodyAndExit(BasicBlock *bb, BasicBlock *body, const Loop &loop)
+    {
+        if (!bb || !body)
+        {
+            return false;
+        }
+        auto *br = dynamic_cast<BranchInst *>(bb->getTerminator());
+        if (!br || !br->isConditional())
+        {
+            return false;
+        }
+        BasicBlock *t = br->getTrueBlock();
+        BasicBlock *f = br->getFalseBlock();
+        const bool toBody = (t == body || f == body);
+        const bool toExit =
+            (t == body && !loop.containsBlock(f)) || (f == body && !loop.containsBlock(t));
+        return toBody && toExit;
+    }
+
+    void collectLoopExits(Loop &loop)
+    {
+        std::unordered_set<BasicBlock *> inLoop(loop.blocks.begin(), loop.blocks.end());
+        std::unordered_set<BasicBlock *> exitSet;
+        for (auto *bb : loop.blocks)
+        {
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (!inLoop.count(succ))
+                {
+                    exitSet.insert(succ);
+                }
+            }
+        }
+        loop.exits.assign(exitSet.begin(), exitSet.end());
+    }
+
+    bool tryClassifyGccStyleLoop(Loop &loop)
+    {
+        BasicBlock *body = loop.header;
+        if (!body)
+        {
+            return false;
+        }
+
+        BasicBlock *latch = findUniqueLatchToHeader(loop);
+        if (!latch || !loop.containsBlock(latch))
+        {
+            return false;
+        }
+
+        if (!condBranchesToBodyAndExit(latch, body, loop))
+        {
+            return false;
+        }
+
+        loop.computePreheader();
+        BasicBlock *preheader = loop.getPreheader();
+        if (!preheader || !condBranchesToBodyAndExit(preheader, body, loop))
+        {
+            return false;
+        }
+
+        bool hasLatchPred = false;
+        int predsFromOutsideLoop = 0;
+        for (auto *pred : body->getPredecessors())
+        {
+            if (pred == latch)
+            {
+                hasLatchPred = true;
+                continue;
+            }
+            if (!loop.containsBlock(pred))
+            {
+                if (pred != preheader)
+                {
+                    return false;
+                }
+                ++predsFromOutsideLoop;
+            }
+        }
+        if (!hasLatchPred || predsFromOutsideLoop != 1)
+        {
+            return false;
+        }
+
+        loop.isGccStyle = true;
+        loop.body = body;
+        loop.latch = latch;
+        loop.preheader = preheader;
+        collectLoopExits(loop);
+        return true;
+    }
+} // namespace
 unordered_map<BasicBlock *, BasicBlock *> ControlFlowAnalysis::analyze(Function *func)
 {
     // 1. 使用Lengauer-Tarjan算法计算支配树
@@ -131,6 +253,20 @@ vector<Loop> ControlFlowAnalysis::findLoops(Function *func)
     }
     return loops;
 }
+
+vector<Loop> ControlFlowAnalysis::findGccLoops(Function *func)
+{
+    vector<Loop> loops = findLoops(func);
+    for (auto &loop : loops)
+    {
+        loop.isGccStyle = false;
+        loop.body = nullptr;
+        loop.latch = nullptr;
+        tryClassifyGccStyleLoop(loop);
+    }
+    return loops;
+}
+
 // 用于消除数组使用
 // 判断从 startBB 到 endBB 的所有路径上是否有其它 store 到 arr
 bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr)

@@ -518,7 +518,7 @@ bool LoopGccStyleTransformPass::runOnFunction(Function *func)
         return false;
     }
 
-    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    func->setLoops(ControlFlowAnalysis::findGccLoops(func));
     vector<Loop> loops = func->getLoops();
     std::sort(loops.begin(), loops.end(), [](const Loop &a, const Loop &b)
               { return a.blocks.size() < b.blocks.size(); });
@@ -529,7 +529,7 @@ bool LoopGccStyleTransformPass::runOnFunction(Function *func)
         if (tryTransform(func, loop))
         {
             changed = true;
-            func->setLoops(ControlFlowAnalysis::findLoops(func));
+            func->setLoops(ControlFlowAnalysis::findGccLoops(func));
             loops = func->getLoops();
             std::sort(loops.begin(), loops.end(), [](const Loop &a, const Loop &b)
                       { return a.blocks.size() < b.blocks.size(); });

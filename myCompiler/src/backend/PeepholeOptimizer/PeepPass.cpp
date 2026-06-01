@@ -193,7 +193,7 @@ PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstructi
             {
                 auto dest = mvOps[0]->getReg();
                 int64_t imm = liOps[1]->getImmediate();
-                auto newLi = RISCVInstruction::createPseudoLI(dest, imm);
+                auto newLi = RISCVInstruction::createPseudoLI(dest, imm, instr->isCopyInitLi());
                 (*nextIt)->replaceInstruction(newLi);
                 return PeepOptiState::DELETE;
             }

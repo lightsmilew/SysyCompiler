@@ -841,15 +841,18 @@ public:
 class Loop
 {
 public:
-    BasicBlock *header;
+    BasicBlock *header;              // 自然循环头（回边目标）；GCC 形态下与 body 相同
     BasicBlock *preheader = nullptr; // 循环前置块（唯一循环外前驱），供后端 LICM 使用
+    BasicBlock *body = nullptr;      // GCC 形态：循环体入口（自环块）
+    BasicBlock *latch = nullptr;       // GCC 形态：循环尾条件块（回边来源）
+    bool isGccStyle = false;         // 是否为 preheader/body/latch/exit 的 GCC 循环
     // blocks是循环体内的所有基本块
     // exits是循环体的出口基本块（可能有多个）
     vector<BasicBlock *> blocks;
     vector<BasicBlock *> exits;
     Loop(BasicBlock *h, const vector<BasicBlock *> &b, const vector<BasicBlock *> &e)
         : header(h), blocks(b), exits(e) {}
-    Loop() : header(nullptr), preheader(nullptr) {}
+    Loop() : header(nullptr), preheader(nullptr), body(nullptr), latch(nullptr), isGccStyle(false) {}
     bool containsInst(Instruction *inst) const;         // 循环中是否包含某条指令
     bool containsBlock(BasicBlock *bb) const;           // 循环中是否包含某个基本块
     bool containsInBody(Instruction *inst) const;       // 循环体中是否包含某条指令

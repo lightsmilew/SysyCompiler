@@ -162,8 +162,10 @@ namespace RISCV
     {
         if (!inst || !loop || !bb)
             return false;
-        // 循环头里的 li 每轮迭代都会执行，不能当作块内可复用的常量
-        return inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader();
+        (void)bb;
+        (void)loop;
+        // 不因位于 header/latch 而跳过 li 的 materialize CSE；归纳/临时由 isLoopInductionRelated 等约束
+        return false;
     }
 
     bool BlockLocalCSE::isLoopInductionRelated(shared_ptr<RISCVBasicBlock> bb,
@@ -188,6 +190,8 @@ namespace RISCV
     {
         outRd = nullptr;
         if (!inst)
+            return std::nullopt;
+        if (inst->isCopyInitLi())
             return std::nullopt;
         const auto op = inst->getOpcode();
         if (op != RISCVOpcode::LI && op != RISCVOpcode::LA)
@@ -296,6 +300,8 @@ namespace RISCV
 
         if (key.opcode == RISCVOpcode::LI)
         {
+            if (inst->isCopyInitLi())
+                return std::nullopt;
             if (ops.size() < 2 || ops[1]->getType() != RISCVOperand::Type::IMMEDIATE)
                 return std::nullopt;
             key.hasImm = true;

@@ -17,6 +17,8 @@ namespace optimization
                         std::unordered_map<BasicBlock *, int> &inStack,
                         std::vector<std::pair<BasicBlock *, BasicBlock *>> &backedges);
         static vector<Loop> findLoops(Function *func);
+        // 在 findLoops 基础上识别 GCC 形态（preheader/body/latch/exit），供后端使用
+        static vector<Loop> findGccLoops(Function *func);
         static bool hasStoreOnPath(BasicBlock *startBB,BasicBlock *endBB,Value *arr);
         static bool hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *arr,Value *inst1,Value *inst2);
         static bool hasPhiInputOnPath(BasicBlock *startBB, BasicBlock *endBB, Value *phi,Value *inst1,Value *inst2);

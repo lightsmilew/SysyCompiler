@@ -49,6 +49,8 @@ bool LICM::isLoopInvariant(shared_ptr<RISCVInstruction> inst)
     }
     if (inst->getOpcode() == RISCVOpcode::LI)
     {
+        if (inst->isCopyInitLi())
+            return false;
         auto operands = inst->getOperands();
         auto rd = operands.size() >= 1 ? operands[0]->getReg() : nullptr;
         // 物理临时寄存器假定“加载后立即使用”，不能外提到 preheader
@@ -94,6 +96,8 @@ bool LICM::sameInvariantKey(const shared_ptr<RISCVInstruction> &a,
     }
     if (a->getOpcode() == RISCVOpcode::LI)
     {
+        if (a->isCopyInitLi() || b->isCopyInitLi())
+            return false;
         auto aRd = aOps[0]->getReg();
         auto bRd = bOps[0]->getReg();
         if (!aRd || !bRd || !(*aRd == *bRd))
@@ -225,9 +229,8 @@ bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
     if (!isOnlyDefOfDestInBlocks(inst, loopBlocks))
         return false;
 
-    // 循环头内的 li 每轮迭代都会执行；外提到 preheader 只执行一次，等同错误外提归纳变量初值
-    if (inst->getOpcode() == RISCVOpcode::LI && loop->getHeader() && bb == loop->getHeader())
-        return false;
+    // 不按“在 header/latch 块里”一刀切禁止 li：LICM 在寄存器分配前，各 li 使用独立虚拟寄存器，
+    // 归纳变量/临时复写由 isOnlyDefOfDestInBlocks 与同块 hasDefOfRegLaterInSameBlock 判定。
 
     if (inst->getOpcode() == RISCVOpcode::LI || inst->getOpcode() == RISCVOpcode::LA)
     {
@@ -300,13 +303,15 @@ void LICM::collectInvariantsInBlocks(
     {
         if (!bb)
             continue;
-        // 子循环 preheader 不在子循环块集合内，会被父循环误当作“非子循环块”；
-        // 若在此收集 la 会外提到祖先 preheader，基址寄存器跨子循环存活并被踩坏（mm/matmul）。
-        if (isChildLoopPreheader(loop, bb))
-            continue;
+        // 子循环 preheader 可能是父循环体块（GCC 入口）；整块跳过会拦住已外提到此的只读 li。
+        // la 仍不在此收集：外提到祖先 preheader 会使基址虚拟寄存器跨子循环存活并被踩坏（mm/matmul）。
+        const bool childPreheader = isChildLoopPreheader(loop, bb);
         auto &insts = bb->getInstructions();
         for (size_t idx = 0; idx < insts.size(); ++idx)
         {
+            if (childPreheader && insts[idx] &&
+                insts[idx]->getOpcode() == RISCVOpcode::LA)
+                continue;
             if (!canHoistInvariantInst(insts[idx], bb, loop))
                 continue;
 

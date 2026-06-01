@@ -319,6 +319,8 @@ namespace RISCV
         InstructionType instrType;
         vector<shared_ptr<RISCVOperand>> operands;
         string comment; // 调试注释
+        // copy  lowering 物化常数（循环归纳/初始化），不可 LICM 外提或与只读 li 合并
+        bool copyInitLi_{false};
 
     public:
         // 基础构造函数
@@ -358,7 +360,8 @@ namespace RISCV
                                                          shared_ptr<RISCVRegister> rd,
                                                          shared_ptr<RISCVRegister> rs1);
 
-        static shared_ptr<RISCVInstruction> createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm);
+        static shared_ptr<RISCVInstruction> createPseudoLI(shared_ptr<RISCVRegister> rd, int64_t imm,
+                                                         bool copyInitLi = false);
         static shared_ptr<RISCVInstruction> createPseudoLA(shared_ptr<RISCVRegister> rd, const string &label);
         static shared_ptr<RISCVInstruction> createPseudoCALL(const string &label = "");
         static shared_ptr<RISCVInstruction> createPseudoRET();
@@ -375,6 +378,9 @@ namespace RISCV
 
         // 设置注释
         void setComment(const string &c) { comment = c; }
+
+        bool isCopyInitLi() const { return copyInitLi_; }
+        void setCopyInitLi(bool v) { copyInitLi_ = v; }
 
         void setOffsetForLiInstruction(int64_t offset)
         {
@@ -418,6 +424,7 @@ namespace RISCV
             instrType = newInstr->getInstrType();
             operands = newInstr->getOperands();
             comment = newInstr->comment; // 保留注释
+            copyInitLi_ = newInstr->copyInitLi_;
         }
 
         void replaceOperand(int index, shared_ptr<RISCVOperand> newOperand)
@@ -779,7 +786,9 @@ namespace RISCV
     {
     private:
         int depth;
-        shared_ptr<RISCVBasicBlock> header;       // 循环头部基本块
+        shared_ptr<RISCVBasicBlock> header;       // 循环头部基本块（回边目标 / GCC 的 body 入口）
+        shared_ptr<RISCVBasicBlock> latchBlock;   // GCC 形态：循环尾条件块
+        bool gccStyle = false;
         vector<shared_ptr<RISCVBasicBlock>> body; // 循环体基本块
         vector<shared_ptr<RISCVBasicBlock>> exit; // 循环出口基本块
         shared_ptr<RISCVBasicBlock> preHeaderBlock; // 中端分析的前置块
@@ -818,6 +827,10 @@ namespace RISCV
             return false;
         }
         void setHeader(shared_ptr<RISCVBasicBlock> h) { header = h; }
+        void setLatch(shared_ptr<RISCVBasicBlock> bb) { latchBlock = bb; }
+        void setGccStyle(bool v) { gccStyle = v; }
+        bool isGccStyle() const { return gccStyle; }
+        shared_ptr<RISCVBasicBlock> getLatch() const { return latchBlock; }
         void setPreHeader(shared_ptr<RISCVBasicBlock> bb) { preHeaderBlock = bb; }
         void addBodyBlock(shared_ptr<RISCVBasicBlock> block) { body.push_back(block); }
         void addExitBlock(shared_ptr<RISCVBasicBlock> block) { exit.push_back(block); }

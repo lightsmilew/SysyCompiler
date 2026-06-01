@@ -1857,6 +1857,12 @@ Value *IRBuilder::createCast(Value *value, Type *targetType, string statement)
 
 Value *IRBuilder::convertToBool(Value *value, int line)
 {
+    // icmp/fcmp 结果已是 0/1，短路分支可直接使用，无需再 icmp ne ..., 0
+    if (dynamic_cast<ICmpInst *>(value) || dynamic_cast<FCmpInst *>(value))
+    {
+        return value;
+    }
+
     // 将值转换为布尔值（非零为真，零为假）
     Value *zero;
     if (value->getType()->isFloatTy())

@@ -10,7 +10,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     FirstPeep();
     runBlockLocalCSEPass();
     runLICMPass();
-    runBlockLocalCSEPass(true); // LICM 后仅合并重复 la，不碰 li（避免误消归纳/每轮 li）
+    runBlockLocalCSEPass(); // LICM 后再做 li/la 物化 CSE；copy 源 li 带 copyInit 标记，不参与合并
     // instructionScheduler();
     allocateRegisters();
     SecondPeep();
@@ -346,15 +346,32 @@ void RISCVBuilder::buildBackendLoopInfo(shared_ptr<RISCVFunction> riscvFunc,
 {
     LoopInfo backendLoopInfo;
 
-    // 遍历IR函数中的所有循环
-    for (const auto &irLoop : irFunc->getLoops())
+    // 使用 GCC 形态循环分析（未变换的循环会回落为自然循环语义）
+    const vector<Loop> irLoops = optimization::ControlFlowAnalysis::findGccLoops(irFunc);
+
+    for (const auto &irLoop : irLoops)
     {
         auto riscvLoop = make_shared<RISCVLoop>();
 
-        // 映射循环头部
-        if (blockMapping.find(irLoop.header) != blockMapping.end())
+        BasicBlock *irHeader = irLoop.header;
+        if (irLoop.isGccStyle && irLoop.body)
         {
-            riscvLoop->setHeader(blockMapping.at(irLoop.header));
+            irHeader = irLoop.body;
+        }
+
+        // 映射循环头部（GCC 下为 body 入口，用于循环块集合与嵌套关系）
+        if (irHeader && blockMapping.find(irHeader) != blockMapping.end())
+        {
+            riscvLoop->setHeader(blockMapping.at(irHeader));
+        }
+
+        if (irLoop.isGccStyle)
+        {
+            riscvLoop->setGccStyle(true);
+            if (irLoop.latch && blockMapping.find(irLoop.latch) != blockMapping.end())
+            {
+                riscvLoop->setLatch(blockMapping.at(irLoop.latch));
+            }
         }
 
         // 映射中端分析的前置块
@@ -382,14 +399,14 @@ void RISCVBuilder::buildBackendLoopInfo(shared_ptr<RISCVFunction> riscvFunc,
         }
 
         // 计算循环深度
-        int depth = calculateLoopDepth(irLoop, irFunc->getLoops());
+        int depth = calculateLoopDepth(irLoop, irLoops);
         riscvLoop->setDepth(depth);
 
         backendLoopInfo.addLoop(riscvLoop);
     }
 
     // 建立循环的父子关系
-    establishLoopHierarchy(backendLoopInfo, irFunc->getLoops(), blockMapping);
+    establishLoopHierarchy(backendLoopInfo, irLoops, blockMapping);
 
     // 将循环信息设置到RISC-V函数中
     riscvFunc->setLoopInfo(backendLoopInfo);
