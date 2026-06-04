@@ -931,13 +931,13 @@ UnrollResult tryUnrollOneLoop(Function *func,
     condLHS = replaceSSA(condLHS);
     condRHS = replaceSSA(condRHS);
 
-    auto *unrollStep = new BinaryOperator(
-        Opcode::Add,
-        condLHS,
+    auto *unrollBoundAdj = new BinaryOperator(
+        Opcode::Sub,
+        condRHS,
         new ConstantInt(IntegerType::getInstance(), unrollFactor * intcValue),
-        unrollPhi->getName() + "_unroll_step");
-    unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollStep));
-    auto *unrollCond = new ICmpInst(ICmpInst::ICMP_SLT, unrollStep, condRHS, "unroll_cmp");
+        unrollPhi->getName() + "_unroll_bound");
+    unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollBoundAdj));
+    auto *unrollCond = new ICmpInst(ICmpInst::ICMP_SLT, condLHS, unrollBoundAdj, "unroll_cmp");
     unrollHeader->addInstruction(std::unique_ptr<Instruction>(unrollCond));
 
     auto *unrollBr = new BranchInst(unrollCond, unrollBody, unrollExit);

@@ -154,9 +154,40 @@ namespace
         return defined;
     }
 
+    // 部分展开循环条件为 iv < bound-4；icmp 的归纳变量操作数（非 _unroll_bound）。
+    Value *findUnrollIvOperand(const vector<Instruction *> &headerPrefix)
+    {
+        for (auto *inst : headerPrefix)
+        {
+            auto *icmp = dynamic_cast<ICmpInst *>(inst);
+            if (!icmp)
+            {
+                continue;
+            }
+            Value *lhs = icmp->getLHS();
+            Value *rhs = icmp->getRHS();
+            if (lhs && !nameEndsWith(lhs->getName(), "_unroll_bound"))
+            {
+                return lhs;
+            }
+            if (rhs && !nameEndsWith(rhs->getName(), "_unroll_bound"))
+            {
+                return rhs;
+            }
+        }
+        return nullptr;
+    }
+
     Value *findHeaderStepValue(const vector<Instruction *> &headerPrefix,
                                const unordered_set<Value *> &headerDefined, bool unrollLoop)
     {
+        if (unrollLoop)
+        {
+            if (Value *iv = findUnrollIvOperand(headerPrefix))
+            {
+                return iv;
+            }
+        }
         for (auto *inst : headerPrefix)
         {
             auto *icmp = dynamic_cast<ICmpInst *>(inst);
@@ -174,24 +205,28 @@ namespace
             {
                 return rhs;
             }
-            if (unrollLoop)
-            {
-                if (lhs && nameEndsWith(lhs->getName(), "_unroll_step"))
-                {
-                    return lhs;
-                }
-                if (rhs && nameEndsWith(rhs->getName(), "_unroll_step"))
-                {
-                    return rhs;
-                }
-            }
         }
         return nullptr;
+    }
+
+    bool sameValueName(Value *a, Value *b)
+    {
+        return a && b && !a->getName().empty() && a->getName() == b->getName();
+    }
+
+    bool copyDefinesIv(CopyInst *copy, Value *ivOperand)
+    {
+        if (!copy || !ivOperand)
+        {
+            return false;
+        }
+        return sameValueName(copy, ivOperand) || sameValueName(copy->getSource(), ivOperand);
     }
 
     bool copySourcesStepValue(CopyInst *copy, const unordered_set<Value *> &headerDefined, Value *stepValue,
                               bool unrollLoop)
     {
+        (void)unrollLoop;
         if (!copy)
         {
             return false;
@@ -201,27 +236,49 @@ namespace
         {
             return false;
         }
-        if (headerDefined.count(src) || (stepValue && src == stepValue))
+        return headerDefined.count(src) || (stepValue && src == stepValue);
+    }
+
+    // 部分展开 latch：在 iv+=factor 之前插入 icmp(iv, bound-4)，bound-4 可能已被 LICM 外提。
+    size_t findUnrollLatchCmpInsertIndex(const vector<unique_ptr<Instruction>> &latchInsts, Value *ivOperand)
+    {
+        for (size_t i = 0; i < latchInsts.size(); ++i)
         {
-            return true;
+            auto *add = dynamic_cast<BinaryOperator *>(latchInsts[i].get());
+            if (!add || add->getOpcode() != Opcode::Add)
+            {
+                continue;
+            }
+            if (ivOperand &&
+                (add->getLHS() == ivOperand || add->getRHS() == ivOperand ||
+                 sameValueName(add->getLHS(), ivOperand) || sameValueName(add->getRHS(), ivOperand)))
+            {
+                return i;
+            }
+            const string &addName = add->getName();
+            if (addName.find("_unroll_phi_inc") != string::npos || addName.find("_inc") != string::npos)
+            {
+                return i;
+            }
         }
-        if (unrollLoop && nameEndsWith(src->getName(), "_unroll_step"))
-        {
-            return true;
-        }
-        if (stepValue && nameEndsWith(stepValue->getName(), "_unroll_step") &&
-            nameEndsWith(src->getName(), "_unroll_step"))
-        {
-            return true;
-        }
-        return false;
+        return latchInsts.size();
     }
 
     // 普通循环：header 非 icmp 部分插在 phi copy 之前；仅 icmp 时追加到末尾。
-    // 展开循环：header 的 add+icmp 插在 phi copy 之后（先 copy 再加 4 比较）。
+    // 部分展开：icmp 插在 latch 中 iv 自增 add 之前（与 header 入口语义 iv < bound-4 一致）。
     size_t findLatchHeaderInsertIndex(const vector<unique_ptr<Instruction>> &latchInsts,
                                       const vector<Instruction *> &headerPrefix, bool unrollLoop)
     {
+        if (unrollLoop)
+        {
+            Value *ivOperand = findUnrollIvOperand(headerPrefix);
+            size_t idx = findUnrollLatchCmpInsertIndex(latchInsts, ivOperand);
+            if (idx < latchInsts.size())
+            {
+                return idx;
+            }
+        }
+
         const unordered_set<Value *> headerDefined = collectHeaderDefinedValues(headerPrefix);
         Value *stepValue = findHeaderStepValue(headerPrefix, headerDefined, unrollLoop);
 
@@ -239,6 +296,10 @@ namespace
             for (size_t i = 0; i < latchInsts.size(); ++i)
             {
                 auto *copy = dynamic_cast<CopyInst *>(latchInsts[i].get());
+                if (unrollLoop && copyDefinesIv(copy, stepValue))
+                {
+                    return i + 1;
+                }
                 if (copySourcesStepValue(copy, headerDefined, stepValue, unrollLoop))
                 {
                     return unrollLoop ? i + 1 : i;
@@ -259,26 +320,32 @@ namespace
         return new BranchInst(cond, exitBB, bodyBB);
     }
 
-    // 展开循环 latch：add 的 lhs 改为 copy 结果（先 copy 再 phi+4）
-    void remapUnrollLatchAddAfterCopy(vector<unique_ptr<Instruction>> &latchInsts, size_t insertIdx)
+    // 部分展开：icmp 在 add 前时，add 的 lhs 与 icmp 使用同一归纳变量；否则沿用 copy。
+    void remapUnrollLatchAddForCmp(vector<unique_ptr<Instruction>> &latchInsts, size_t insertIdx,
+                                   Value *ivOperand)
     {
+        if (insertIdx >= latchInsts.size())
+        {
+            return;
+        }
+        auto *add = dynamic_cast<BinaryOperator *>(latchInsts[insertIdx].get());
+        if (!add || add->getOpcode() != Opcode::Add)
+        {
+            return;
+        }
+        if (ivOperand)
+        {
+            add->setOperandByIndex(0, ivOperand);
+            return;
+        }
         if (insertIdx == 0)
         {
             return;
         }
         auto *copy = dynamic_cast<CopyInst *>(latchInsts[insertIdx - 1].get());
-        if (!copy)
+        if (copy)
         {
-            return;
-        }
-        for (size_t i = insertIdx; i < latchInsts.size(); ++i)
-        {
-            auto *add = dynamic_cast<BinaryOperator *>(latchInsts[i].get());
-            if (add && add->getOpcode() == Opcode::Add)
-            {
-                add->setOperandByIndex(0, copy);
-                return;
-            }
+            add->setOperandByIndex(0, copy);
         }
     }
 }
@@ -453,7 +520,7 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
 
     if (unrollLoop)
     {
-        remapUnrollLatchAddAfterCopy(latchInsts, insertIdx);
+        remapUnrollLatchAddForCmp(latchInsts, insertIdx, findUnrollIvOperand(headerPrefix));
     }
 
       Value *loopCond = headerBr->getCondition();
