@@ -24,6 +24,7 @@
 #include "PhiEliminationPass.h"
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
+#include "HelperReturnAnalysisPass.h"
 #include "MemoizationPass.h"
 #include "MemoizationV2Pass.h"
 #include "SRFixedPass.h"

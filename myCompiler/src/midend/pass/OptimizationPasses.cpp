@@ -13,6 +13,11 @@ bool PassManager::runOnModule(Module *module)
     // 先对每个 pass，依次作用于所有函数
     for (auto &pass : passes)
     {
+        if (auto *helperRet = dynamic_cast<HelperReturnAnalysisPass *>(pass.get()))
+        {
+            changed |= helperRet->runOnModule(module);
+            continue;
+        }
         for (auto &func : module->Functions)
         {
             if (!func->isLibraryFunction())
@@ -107,6 +112,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -167,6 +173,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -290,7 +297,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -369,7 +378,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
+        pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));

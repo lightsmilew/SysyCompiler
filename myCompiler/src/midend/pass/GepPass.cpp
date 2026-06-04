@@ -163,6 +163,24 @@ namespace
         return false;
     }
 
+    // 顶层 sub 拆成 (lhs, rhs)；非 sub 则整体视为 rhs
+    static bool splitTopLevelSub(Value *offset, Value *&lhs, Value *&rhs)
+    {
+        offset = stripCopy(offset);
+        if (auto *sub = dynamic_cast<BinaryOperator *>(offset))
+        {
+            if (sub->getOpcode() == Opcode::Sub)
+            {
+                lhs = sub->getLHS();
+                rhs = sub->getRHS();
+                return true;
+            }
+        }
+        lhs = nullptr;
+        rhs = offset;
+        return false;
+    }
+
     // offset = baseOff + delta（常量），仅比较两个标量/表达式
     bool tryDeltaFromBaseOff(Value *offset, Value *baseOff, int &delta)
     {
@@ -455,6 +473,65 @@ namespace
         return false;
     }
 
+    // sub 链递推：offset = lhs - fixed，lhs 沿 add 链递推（如 sub(t32,1), sub(add(t32,1),1)）
+    bool analyzeSubAffineIndexChain(const vector<GepChainEntry> &entries, IndexChainInfo &info)
+    {
+        info = {};
+        if (entries.empty())
+            return false;
+
+        vector<Value *> lhsPart(entries.size(), nullptr);
+        vector<Value *> rhsPart(entries.size(), nullptr);
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            Value *l = nullptr, *r = nullptr;
+            if (!splitTopLevelSub(entries[i].offset, l, r))
+                return false;
+            lhsPart[i] = l;
+            rhsPart[i] = r;
+        }
+
+        Value *commonRhs = stripCopy(rhsPart[0]);
+        for (size_t i = 1; i < entries.size(); ++i)
+        {
+            if (!sameOffsetValue(rhsPart[i], commonRhs))
+                return false;
+        }
+
+        info.indexDeltas.assign(entries.size(), 0);
+        Value *prevLhs = stripCopy(lhsPart[0]);
+        int prevDelta = 0;
+        Value *chainStep = nullptr;
+        bool useVarStep = false;
+        for (size_t i = 1; i < entries.size(); ++i)
+        {
+            int d = 0;
+            Value *curLhs = stripCopy(lhsPart[i]);
+            if (tryDeltaBetweenOffsetsPrev(curLhs, prevLhs, prevDelta, d))
+            {
+                info.indexDeltas[i] = d;
+            }
+            else if (tryDeltaFromPrevWithInvariantStep(curLhs, prevLhs, prevDelta, chainStep, d))
+            {
+                useVarStep = true;
+                info.indexDeltas[i] = d;
+            }
+            else
+            {
+                return false;
+            }
+            prevLhs = curLhs;
+            prevDelta = d;
+        }
+        if (useVarStep)
+        {
+            info.useVarIndexStep = true;
+            info.varIndexStep = chainStep;
+        }
+        info.ok = true;
+        return true;
+    }
+
     bool computeIndexDeltas(const vector<GepChainEntry> &entries, vector<int> &deltas)
     {
         IndexChainInfo info;
@@ -466,7 +543,10 @@ namespace
 
     bool analyzeIndexChain(const vector<GepChainEntry> &entries, IndexChainInfo &info)
     {
-        return analyzeAffineIndexChain(entries, info) && info.ok;
+        if (analyzeAffineIndexChain(entries, info) && info.ok)
+            return true;
+        info = {};
+        return analyzeSubAffineIndexChain(entries, info) && info.ok;
     }
 
     // 同一 (基址, 常数下标签名) 下再按「变化维递推链」拆簇，避免 t3 / t12 等混组
