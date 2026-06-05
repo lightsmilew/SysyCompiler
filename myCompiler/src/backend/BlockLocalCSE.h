@@ -5,7 +5,8 @@
 
 namespace RISCV
 {
-    /// 基本块内 CSE：li/la 只读物化（materialAvail）+ 纯算术（avail）。copy-init li 不参与物化。
+    /// 函数级 CSE（支配关系）：li/la 只读物化（materialAvail）+ 纯算术（avail）。
+    /// copy-init li 不参与物化。寄存器分配前运行，call 不清空；la/非 copy-init li 的虚拟寄存器单定义。
     class BlockLocalCSE
     {
     public:
@@ -32,6 +33,7 @@ namespace RISCV
         struct AvailEntry
         {
             shared_ptr<RISCVInstruction> defInst;
+            shared_ptr<RISCVBasicBlock> defBB;
             size_t defIdx = 0;
             int spVersion = 0;
         };
@@ -57,19 +59,11 @@ namespace RISCV
         static std::string regKey(const shared_ptr<RISCVRegister> &reg);
         static bool isSpRegister(const shared_ptr<RISCVRegister> &reg);
         static bool isCSEableOpcode(RISCVOpcode op);
-        static shared_ptr<RISCVLoop> findInnermostLoop(const LoopInfo &loopInfo,
-                                                       shared_ptr<RISCVBasicBlock> bb);
-        static bool isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
-                                            const vector<shared_ptr<RISCVBasicBlock>> &blocks);
-        static bool isLoopInductionRelated(const shared_ptr<RISCVInstruction> &inst,
-                                           const shared_ptr<RISCVLoop> &loop);
         static std::optional<MaterialKey> buildMaterialKey(const shared_ptr<RISCVInstruction> &inst,
                                                              shared_ptr<RISCVRegister> &outRd);
         static void invalidateMaterialAvail(
             unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
             const shared_ptr<RISCVInstruction> &producer);
-        static void decrementMaterialDefIdxAfter(
-            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail, size_t erasedIdx);
         static std::string operandKey(const vector<shared_ptr<RISCVInstruction>> &insts,
                                       size_t idx, const shared_ptr<RISCVRegister> &reg);
         static std::optional<ExprKey> buildExprKey(const vector<shared_ptr<RISCVInstruction>> &insts,
@@ -86,6 +80,9 @@ namespace RISCV
         static bool hasUseOutsideBlock(shared_ptr<RISCVFunction> function,
                                        shared_ptr<RISCVBasicBlock> bb,
                                        const shared_ptr<RISCVRegister> &reg);
+        static bool allUsesDominatedByDefBB(shared_ptr<RISCVFunction> function,
+                                            shared_ptr<RISCVBasicBlock> defBB,
+                                            const shared_ptr<RISCVRegister> &reg);
         static bool isSingleDefInFunction(shared_ptr<RISCVFunction> function,
                                           const shared_ptr<RISCVRegister> &reg);
         static void replaceUsesInFunction(shared_ptr<RISCVFunction> function,
@@ -102,11 +99,15 @@ namespace RISCV
         static bool eraseMaterialDuplicate(
             shared_ptr<RISCVFunction> function, shared_ptr<RISCVBasicBlock> bb,
             vector<shared_ptr<RISCVInstruction>> &insts, size_t dupIdx, size_t canonDefIdx,
-            const shared_ptr<RISCVRegister> &dupRd, const shared_ptr<RISCVRegister> &canon,
+            shared_ptr<RISCVBasicBlock> canonBB, const shared_ptr<RISCVRegister> &dupRd,
+            const shared_ptr<RISCVRegister> &canon,
             unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
             unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail);
         static void decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
-                                         size_t erasedIdx);
+                                         shared_ptr<RISCVBasicBlock> bb, size_t erasedIdx);
+        static void decrementMaterialDefIdxAfter(
+            unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
+            shared_ptr<RISCVBasicBlock> bb, size_t erasedIdx);
         static void invalidateDefsOfInst(
             unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
             const shared_ptr<RISCVInstruction> &producer);

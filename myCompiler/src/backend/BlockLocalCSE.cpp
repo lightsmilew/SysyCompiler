@@ -102,65 +102,6 @@ namespace RISCV
         }
     }
 
-    shared_ptr<RISCVLoop> BlockLocalCSE::findInnermostLoop(const LoopInfo &loopInfo,
-                                                        shared_ptr<RISCVBasicBlock> bb)
-    {
-        shared_ptr<RISCVLoop> innermost;
-        int maxDepth = -1;
-        for (const auto &loop : loopInfo.getLoops())
-        {
-            if (!loop || !bb || !loop->containsBlock(bb))
-                continue;
-            const int depth = loop->getDepth();
-            if (depth > maxDepth)
-            {
-                maxDepth = depth;
-                innermost = loop;
-            }
-        }
-        return innermost;
-    }
-
-    bool BlockLocalCSE::isOnlyDefOfDestInBlocks(const shared_ptr<RISCVInstruction> &inst,
-                                             const vector<shared_ptr<RISCVBasicBlock>> &blocks)
-    {
-        if (!inst)
-            return false;
-        auto defs = inst->getDefRegisters();
-        if (defs.empty() || !defs[0])
-            return false;
-        const auto &destReg = defs[0];
-
-        for (const auto &bb : blocks)
-        {
-            if (!bb)
-                continue;
-            for (const auto &other : bb->getInstructions())
-            {
-                if (!other || other == inst)
-                    continue;
-                for (const auto &d : other->getDefRegisters())
-                {
-                    if (d && *d == *destReg)
-                        return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    bool BlockLocalCSE::isLoopInductionRelated(const shared_ptr<RISCVInstruction> &inst,
-                                            const shared_ptr<RISCVLoop> &loop)
-    {
-        if (!inst || !loop)
-            return false;
-
-        if (!isOnlyDefOfDestInBlocks(inst, loop->getBlocks()))
-            return true;
-
-        return false;
-    }
-
     optional<BlockLocalCSE::MaterialKey> BlockLocalCSE::buildMaterialKey(
         const shared_ptr<RISCVInstruction> &inst, shared_ptr<RISCVRegister> &outRd)
     {
@@ -222,11 +163,12 @@ namespace RISCV
     }
 
     void BlockLocalCSE::decrementMaterialDefIdxAfter(
-        unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail, size_t erasedIdx)
+        unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail,
+        shared_ptr<RISCVBasicBlock> bb, size_t erasedIdx)
     {
         for (auto &entry : materialAvail)
         {
-            if (entry.second.defIdx > erasedIdx)
+            if (entry.second.defBB == bb && entry.second.defIdx > erasedIdx)
                 --entry.second.defIdx;
         }
     }
@@ -455,6 +397,32 @@ namespace RISCV
         return false;
     }
 
+    bool BlockLocalCSE::allUsesDominatedByDefBB(shared_ptr<RISCVFunction> function,
+                                                shared_ptr<RISCVBasicBlock> defBB,
+                                                const shared_ptr<RISCVRegister> &reg)
+    {
+        if (!function || !defBB || !reg)
+            return false;
+        for (const auto &useBB : function->getBasicBlocks())
+        {
+            if (!useBB)
+                continue;
+            for (const auto &inst : useBB->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &use : inst->getUseRegisters())
+                {
+                    if (!use || !(*use == *reg))
+                        continue;
+                    if (useBB != defBB && !function->dominates(defBB, useBB))
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
+
     void BlockLocalCSE::replaceUsesWithCanon(const vector<shared_ptr<RISCVInstruction>> &insts,
                                           size_t dupIdx, size_t canonDefIdx,
                                           const shared_ptr<RISCVRegister> &dupRd,
@@ -481,33 +449,42 @@ namespace RISCV
     bool BlockLocalCSE::eraseMaterialDuplicate(
         shared_ptr<RISCVFunction> function, shared_ptr<RISCVBasicBlock> bb,
         vector<shared_ptr<RISCVInstruction>> &insts, size_t dupIdx, size_t canonDefIdx,
-        const shared_ptr<RISCVRegister> &dupRd, const shared_ptr<RISCVRegister> &canon,
+        shared_ptr<RISCVBasicBlock> canonBB, const shared_ptr<RISCVRegister> &dupRd,
+        const shared_ptr<RISCVRegister> &canon,
         unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
         unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> &materialAvail)
     {
-        if (!function || !canon || !dupRd ||
-            !allUsesReplaceable(insts, dupIdx, canonDefIdx, dupRd, canon))
+        if (!function || !canon || !dupRd || !canonBB)
             return false;
 
-        if (isSingleDefInFunction(function, canon) && isSingleDefInFunction(function, dupRd))
-            replaceUsesInFunction(function, dupRd, canon);
-        else if (!hasUseOutsideBlock(function, bb, dupRd))
-            replaceUsesWithCanon(insts, dupIdx, canonDefIdx, dupRd, canon);
-        else
+        // la / 非 copy-init li 在寄存器分配前均为单定义虚拟寄存器
+        if (!isSingleDefInFunction(function, canon) || !isSingleDefInFunction(function, dupRd))
             return false;
+        if (!allUsesDominatedByDefBB(function, canonBB, dupRd))
+            return false;
+
+        if (canonBB == bb && !hasUseOutsideBlock(function, bb, dupRd) &&
+            allUsesReplaceable(insts, dupIdx, canonDefIdx, dupRd, canon))
+        {
+            replaceUsesWithCanon(insts, dupIdx, canonDefIdx, dupRd, canon);
+        }
+        else
+        {
+            replaceUsesInFunction(function, dupRd, canon);
+        }
 
         insts.erase(insts.begin() + static_cast<long>(dupIdx));
-        decrementDefIdxAfter(avail, dupIdx);
-        decrementMaterialDefIdxAfter(materialAvail, dupIdx);
+        decrementDefIdxAfter(avail, bb, dupIdx);
+        decrementMaterialDefIdxAfter(materialAvail, bb, dupIdx);
         return true;
     }
 
     void BlockLocalCSE::decrementDefIdxAfter(unordered_map<ExprKey, AvailEntry, ExprKeyHash> &avail,
-                                          size_t erasedIdx)
+                                          shared_ptr<RISCVBasicBlock> bb, size_t erasedIdx)
     {
         for (auto &entry : avail)
         {
-            if (entry.second.defIdx > erasedIdx)
+            if (entry.second.defBB == bb && entry.second.defIdx > erasedIdx)
                 --entry.second.defIdx;
         }
     }
@@ -577,131 +554,154 @@ namespace RISCV
         if (!function)
             return false;
 
-        bool changed = false;
-        const LoopInfo &loopInfo = function->getLoopInfo();
-        unordered_map<shared_ptr<RISCVBasicBlock>, shared_ptr<RISCVLoop>> bbInnerLoop;
-        for (auto &bb : function->getBasicBlocks())
-        {
-            if (bb)
-                bbInnerLoop[bb] = findInnermostLoop(loopInfo, bb);
-        }
+        function->computeDominators();
 
-        for (auto &bb : function->getBasicBlocks())
+        bool changed = false;
+        bool localChanged = false;
+        do
         {
+            localChanged = false;
             unordered_map<ExprKey, AvailEntry, ExprKeyHash> avail;
             unordered_map<MaterialKey, AvailEntry, MaterialKeyHash> materialAvail;
-            int spVersion = 0;
-            auto &insts = bb->getInstructions();
-            const shared_ptr<RISCVLoop> innerLoop = bb ? bbInnerLoop[bb] : nullptr;
 
-            for (size_t idx = 0; idx < insts.size(); ++idx)
+            for (auto &bb : function->getBasicBlocks())
             {
-                auto &inst = insts[idx];
-                if (!inst)
-                    continue;
+                int spVersion = 0;
+                auto &insts = bb->getInstructions();
 
-                if (idx > 0 && insts[idx - 1])
+                for (size_t idx = 0; idx < insts.size();)
                 {
-                    invalidateDefsOfInst(avail, insts[idx - 1]);
-                    invalidateMaterialAvail(materialAvail, insts[idx - 1]);
-                }
-
-                if (isSpDefinedBy(inst))
-                {
-                    invalidateForSp(avail, spVersion);
-                }
-
-                if (inst->getOpcode() == RISCVOpcode::CALL)
-                {
-                    avail.clear();
-                    materialAvail.clear();
-                }
-
-                // li/la 只读物化：同立即数/符号则删重复指令，后续 use 改用首次的 rd
-                shared_ptr<RISCVRegister> matRd;
-                if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
-                {
-                    bool matHandled = false;
-                    auto matIt = materialAvail.find(*matKey);
-                    if (matIt != materialAvail.end())
+                    auto &inst = insts[idx];
+                    if (!inst)
                     {
-                        if (isAvailEntryLive(insts, idx, matIt->second))
+                        ++idx;
+                        continue;
+                    }
+
+                    if (idx > 0 && insts[idx - 1])
+                    {
+                        invalidateDefsOfInst(avail, insts[idx - 1]);
+                        invalidateMaterialAvail(materialAvail, insts[idx - 1]);
+                    }
+
+                    if (isSpDefinedBy(inst))
+                        invalidateForSp(avail, spVersion);
+
+                    // li/la 只读物化：同立即数/符号则删重复指令，后续 use 改用首次的 rd
+                    shared_ptr<RISCVRegister> matRd;
+                    if (auto matKey = buildMaterialKey(inst, matRd); matKey && matRd)
+                    {
+                        bool matHandled = false;
+                        auto matIt = materialAvail.find(*matKey);
+                        if (matIt != materialAvail.end())
                         {
-                            auto canon = getDestReg(matIt->second.defInst);
-                            if (eraseMaterialDuplicate(function, bb, insts, idx, matIt->second.defIdx, matRd,
-                                                     canon, avail, materialAvail))
+                            const auto &entry = matIt->second;
+                            const auto canonBB = entry.defBB;
+                            bool canElim = false;
+                            if (canonBB == bb)
+                                canElim = isAvailEntryLive(insts, idx, entry);
+                            else if (canonBB && function->dominates(canonBB, bb))
+                                canElim = true;
+
+                            if (canElim)
                             {
-                                changed = true;
-                                matHandled = true;
-                                --idx;
+                                auto canon = getDestReg(entry.defInst);
+                                if (eraseMaterialDuplicate(function, bb, insts, idx, entry.defIdx, canonBB,
+                                                         matRd, canon, avail, materialAvail))
+                                {
+                                    changed = true;
+                                    localChanged = true;
+                                    matHandled = true;
+                                    continue;
+                                }
+                                else
+                                    materialAvail.erase(matIt);
                             }
                             else
                                 materialAvail.erase(matIt);
                         }
-                        else
-                            materialAvail.erase(matIt);
-                    }
-                    if (!matHandled)
-                    {
-                        AvailEntry entry;
-                        entry.defInst = inst;
-                        entry.defIdx = idx;
-                        materialAvail[*matKey] = entry;
-                    }
-                }
-
-                if (isLoopInductionRelated(inst, innerLoop))
-                    continue;
-
-                shared_ptr<RISCVRegister> rd;
-                auto keyOpt = buildExprKey(insts, idx, inst, rd);
-                bool handled = false;
-                if (keyOpt && rd)
-                {
-                    auto it = avail.find(*keyOpt);
-                    if (it != avail.end())
-                    {
-                        if (isAvailEntryLive(insts, idx, it->second) &&
-                            (!keyOpt->usesSp || it->second.spVersion == spVersion))
+                        if (!matHandled)
                         {
-                            auto canon = getDestReg(it->second.defInst);
-                            if (canon && !hasUseOutsideBlock(function, bb, rd) &&
-                                allUsesReplaceable(insts, idx, it->second.defIdx, rd, canon))
-                            {
-                                replaceUsesWithCanon(insts, idx, it->second.defIdx, rd, canon);
-                                insts.erase(insts.begin() + static_cast<long>(idx));
-                                decrementDefIdxAfter(avail, idx);
-                                changed = true;
-                                handled = true;
-                                --idx;
-                            }
-                            else
-                            {
-                                avail.erase(it);
-                            }
-                        }
-                        else
-                        {
-                            avail.erase(it);
+                            AvailEntry entry;
+                            entry.defInst = inst;
+                            entry.defBB = bb;
+                            entry.defIdx = idx;
+                            materialAvail[*matKey] = entry;
                         }
                     }
 
-                    if (!handled)
+                    shared_ptr<RISCVRegister> rd;
+                    auto keyOpt = buildExprKey(insts, idx, inst, rd);
+                    if (keyOpt && rd)
                     {
+                        bool eliminated = false;
+                        auto it = avail.find(*keyOpt);
+                        if (it != avail.end())
+                        {
+                            const auto &entry = it->second;
+                            const auto canonBB = entry.defBB;
+                            auto canon = getDestReg(entry.defInst);
+                            bool canElim = false;
+                            if (canonBB == bb)
+                            {
+                                canElim = isAvailEntryLive(insts, idx, entry) &&
+                                          (!keyOpt->usesSp || entry.spVersion == spVersion);
+                            }
+                            else if (!keyOpt->usesSp && canonBB && function->dominates(canonBB, bb) &&
+                                     canon && isSingleDefInFunction(function, canon))
+                            {
+                                canElim = true;
+                            }
+
+                            if (canElim && canon)
+                            {
+                                bool replaced = false;
+                                if (canonBB == bb && !hasUseOutsideBlock(function, bb, rd) &&
+                                    allUsesReplaceable(insts, idx, entry.defIdx, rd, canon))
+                                {
+                                    replaceUsesWithCanon(insts, idx, entry.defIdx, rd, canon);
+                                    replaced = true;
+                                }
+                                else if (isSingleDefInFunction(function, rd) &&
+                                         allUsesDominatedByDefBB(function, canonBB, rd))
+                                {
+                                    replaceUsesInFunction(function, rd, canon);
+                                    replaced = true;
+                                }
+
+                                if (replaced)
+                                {
+                                    insts.erase(insts.begin() + static_cast<long>(idx));
+                                    decrementDefIdxAfter(avail, bb, idx);
+                                    decrementMaterialDefIdxAfter(materialAvail, bb, idx);
+                                    changed = true;
+                                    localChanged = true;
+                                    eliminated = true;
+                                }
+                            }
+                        }
+
+                        if (eliminated)
+                            continue;
+
                         AvailEntry entry;
                         entry.defInst = inst;
+                        entry.defBB = bb;
                         entry.defIdx = idx;
                         entry.spVersion = spVersion;
                         avail[*keyOpt] = entry;
                     }
+
+                    ++idx;
+                }
+
+                if (!insts.empty() && insts.back())
+                {
+                    invalidateDefsOfInst(avail, insts.back());
+                    invalidateMaterialAvail(materialAvail, insts.back());
                 }
             }
-
-            if (!insts.empty() && insts.back())
-            {
-                invalidateDefsOfInst(avail, insts.back());
-            }
-        }
+        } while (localChanged);
 
         return changed;
     }
