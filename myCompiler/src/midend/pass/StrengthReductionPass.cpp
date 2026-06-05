@@ -3,6 +3,98 @@
 using namespace std;
 using namespace optimization;
 
+namespace
+{
+    static Value *stripCopy(Value *v)
+    {
+        while (v)
+        {
+            if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            {
+                v = cpy->getSource();
+                continue;
+            }
+            break;
+        }
+        return v;
+    }
+
+    static bool isConstPowerOfTwo(int d, int &absD)
+    {
+        absD = d < 0 ? -d : d;
+        return absD > 0 && (absD & (absD - 1)) == 0;
+    }
+
+    // n % 2^k == 0  <=>  (n & (2^k-1)) == 0；eq/ne 与 0、除数为 2 的幂，且 SRem 仅一个 use
+    static bool tryFoldSRemPow2EqZero(ICmpInst *icmp, std::vector<std::unique_ptr<Instruction>> &insts,
+                                      size_t icmpIndex, bool verbose, std::stringstream &debugInfo,
+                                      BasicBlock *bb, bool &changed)
+    {
+        ICmpInst::Predicate pred = icmp->getPredicate();
+        if (pred != ICmpInst::ICMP_EQ && pred != ICmpInst::ICMP_NE)
+        {
+            return false;
+        }
+
+        Value *cmpOther = nullptr;
+        if (auto *zero = dynamic_cast<ConstantInt *>(icmp->getRHS());
+            zero && zero->Value == 0)
+        {
+            cmpOther = icmp->getLHS();
+        }
+        else if (auto *zero = dynamic_cast<ConstantInt *>(icmp->getLHS());
+                 zero && zero->Value == 0)
+        {
+            cmpOther = icmp->getRHS();
+        }
+        else
+        {
+            return false;
+        }
+
+        auto *srem = dynamic_cast<BinaryOperator *>(stripCopy(cmpOther));
+        if (!srem || srem->getOpcode() != Opcode::SRem)
+        {
+            return false;
+        }
+        auto *divisor = dynamic_cast<ConstantInt *>(srem->getRHS());
+        int absDivisor = 0;
+        if (!divisor || !isConstPowerOfTwo(divisor->Value, absDivisor))
+        {
+            return false;
+        }
+        if (srem->getUsers().size() > 1)
+        {
+            return false;
+        }
+
+        Value *n = srem->getLHS();
+        auto *ty = IntegerType::getInstance();
+        int maskVal = absDivisor - 1;
+        auto *andInst = new BinaryOperator(Opcode::And, n, new ConstantInt(ty, maskVal),
+                                           icmp->getName() + "_pmod_and");
+        insts.insert(insts.begin() + static_cast<ptrdiff_t>(icmpIndex),
+                     std::unique_ptr<Instruction>(andInst));
+
+        if (cmpOther == icmp->getLHS())
+        {
+            icmp->setOperandByIndex(0, andInst);
+        }
+        else
+        {
+            icmp->setOperandByIndex(1, andInst);
+        }
+
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "Strength Reduction: Folded (n % " << absDivisor << ") == 0 to (n & "
+                      << maskVal << ") == 0 in " << bb->getName() << ": " << icmp->toString() << "\n";
+        }
+        return true;
+    }
+} // namespace
+
 std::pair<int64_t, int> StrengthReductionPass::compute_magic(int32_t d)
 {
     const uint64_t two32 = 1ULL << 32;
@@ -52,6 +144,19 @@ std::pair<int64_t, int> StrengthReductionPass::compute_magic(int32_t d)
 bool StrengthReductionPass::runOnFunction(Function *func)
 {
     bool changed = false;
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        auto &insts = bb->getInstructions();
+        for (size_t i = 0; i < insts.size(); ++i)
+        {
+            if (auto *icmp = dynamic_cast<ICmpInst *>(insts[i].get()))
+            {
+                tryFoldSRemPow2EqZero(icmp, insts, i, verbose, debugInfo, bb, changed);
+            }
+        }
+    }
+
     for (auto &bb : func->getBasicBlocks())
     {
         auto &insts = bb->getInstructions();
