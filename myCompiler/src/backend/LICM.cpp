@@ -214,6 +214,48 @@ namespace
         }
         return false;
     }
+
+    bool isRegDefinedInBlocks(const shared_ptr<RISCVRegister> &reg,
+                              const vector<shared_ptr<RISCVBasicBlock>> &blocks)
+    {
+        if (!reg)
+            return false;
+        for (const auto &block : blocks)
+        {
+            if (!block)
+                continue;
+            for (const auto &inst : block->getInstructions())
+            {
+                if (!inst)
+                    continue;
+                for (const auto &def : inst->getDefRegisters())
+                {
+                    if (def && *def == *reg)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    vector<shared_ptr<RISCVBasicBlock>> childLoopBodyBlocks(
+        const shared_ptr<RISCVLoop> &loop, shared_ptr<RISCVBasicBlock> preheader)
+    {
+        vector<shared_ptr<RISCVBasicBlock>> out;
+        if (!loop)
+            return out;
+        for (const auto &child : loop->getChildLoops())
+        {
+            if (!child)
+                continue;
+            for (const auto &b : child->getBlocks())
+            {
+                if (b && b != preheader)
+                    out.push_back(b);
+            }
+        }
+        return out;
+    }
 }
 
 bool LICM::canHoistInvariantInst(const shared_ptr<RISCVInstruction> &inst,
@@ -303,15 +345,17 @@ void LICM::collectInvariantsInBlocks(
     {
         if (!bb)
             continue;
-        // 子循环 preheader 可能是父循环体块（GCC 入口）；整块跳过会拦住已外提到此的只读 li。
-        // la 仍不在此收集：外提到祖先 preheader 会使基址虚拟寄存器跨子循环存活并被踩坏（mm/matmul）。
+        // 子循环 preheader 上的 la：仅当基址 vr 在子循环体内被重新定义时才禁止外提
         const bool childPreheader = isChildLoopPreheader(loop, bb);
         auto &insts = bb->getInstructions();
         for (size_t idx = 0; idx < insts.size(); ++idx)
         {
-            if (childPreheader && insts[idx] &&
-                insts[idx]->getOpcode() == RISCVOpcode::LA)
-                continue;
+            if (childPreheader && insts[idx] && insts[idx]->getOpcode() == RISCVOpcode::LA)
+            {
+                auto laReg = insts[idx]->getOperands()[0]->getReg();
+                if (laReg && isRegDefinedInBlocks(laReg, childLoopBodyBlocks(loop, bb)))
+                    continue;
+            }
             if (!canHoistInvariantInst(insts[idx], bb, loop))
                 continue;
 
