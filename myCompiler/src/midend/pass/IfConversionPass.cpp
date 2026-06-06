@@ -1,6 +1,40 @@
 #include "IfConversionPass.h"
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+    bool isIntegerValue(Value *value)
+    {
+        return value && !value->getType()->isFloatTy();
+    }
+
+    bool mergePhisAreIntegerConvertible(BasicBlock *mergeBB, BasicBlock *thenBB, BasicBlock *elseBB)
+    {
+        bool found = false;
+        for (const auto &inst : mergeBB->getInstructions())
+        {
+            auto *phi = dynamic_cast<PhiInst *>(inst.get());
+            if (!phi || phi->getNumIncomingValues() != 2)
+            {
+                continue;
+            }
+            BasicBlock *bb1 = phi->getIncomingBlock(0);
+            BasicBlock *bb2 = phi->getIncomingBlock(1);
+            if (!((bb1 == thenBB && bb2 == elseBB) || (bb1 == elseBB && bb2 == thenBB)))
+            {
+                continue;
+            }
+            if (phi->getType()->isFloatTy())
+            {
+                return false;
+            }
+            found = true;
+        }
+        return found;
+    }
+}
+
 bool IfConversionPass::isSideEffectFree(BasicBlock *bb)
 {
     for (const auto &inst : bb->getInstructions())
@@ -47,7 +81,8 @@ bool IfConversionPass::runOnFunction(Function *func)
         {
             auto *thenRet = dynamic_cast<ReturnInst *>(thenBB->getInstructions().front().get());
             auto *elseRet = dynamic_cast<ReturnInst *>(elseBB->getInstructions().front().get());
-            if (thenRet && elseRet)
+            if (thenRet && elseRet && isIntegerValue(thenRet->getReturnValue()) &&
+                isIntegerValue(elseRet->getReturnValue()))
             {
                 Value *thenVal = thenRet->getReturnValue();
                 Value *elseVal = elseRet->getReturnValue();
@@ -70,7 +105,8 @@ bool IfConversionPass::runOnFunction(Function *func)
         BasicBlock *mergeBB = (thenBB->getSuccessors().size() == 1 && elseBB->getSuccessors().size() == 1 && thenBB->getSuccessors()[0] == elseBB->getSuccessors()[0])
                                   ? thenBB->getSuccessors()[0]
                                   : nullptr;
-        if (mergeBB && isSideEffectFree(thenBB) && isSideEffectFree(elseBB))
+        if (mergeBB && isSideEffectFree(thenBB) && isSideEffectFree(elseBB) &&
+            mergePhisAreIntegerConvertible(mergeBB, thenBB, elseBB))
         {
             // 把then/else所有非终结指令移动到ifcond块br前
             auto &condInsts = bb->getInstructions();
@@ -103,7 +139,7 @@ bool IfConversionPass::runOnFunction(Function *func)
                     ++it;
                     continue;
                 }
-                if (phi->getNumIncomingValues() != 2)
+                if (phi->getNumIncomingValues() != 2 || phi->getType()->isFloatTy())
                 {
                     ++it;
                     continue;

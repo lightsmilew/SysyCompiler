@@ -59,6 +59,21 @@ namespace
         }
         return false;
     }
+
+    bool isBooleanCompareCondition(Value *cond)
+    {
+        cond = stripValueWrappers(cond);
+        if (!cond)
+        {
+            return false;
+        }
+        auto *inst = dynamic_cast<Instruction *>(cond);
+        if (!inst)
+        {
+            return false;
+        }
+        return inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp;
+    }
 }
 
 void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc)
@@ -1675,17 +1690,43 @@ void InstructionSelector::visitSelectInst(SelectInst *inst)
     auto destReg = getOrCreateVirtualReg(inst->getDest());
 
     bool isFloat = inst->getType()->isFloatTy();
+    bool isBoolCond = isBooleanCompareCondition(inst->getCondition());
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
 
-    // 1. 生成条件掩码 (0 或 1)
-    // 2. fullMaskReg = maskReg ? 0xFFFFFFFF : 0x00000000;
-    auto maskReg = getTempReg(true);
-    auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, maskReg,
-                                                  make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), condReg);
-    currentBB->addInstruction(snezInst);
+    if (!isFloat && isBoolCond)
+    {
+        // cond 来自 ICmp/FCmp，值为 0/1：dest = false ^ ((true ^ false) & (-cond))
+        auto maskReg = getTempReg(true);
+        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, maskReg, zeroReg, condReg);
+        currentBB->addInstruction(negInst);
+
+        auto diffReg = getTempReg(true);
+        auto xorDiffInst = RISCVInstruction::createRType(RISCVOpcode::XOR, diffReg, trueReg, falseReg);
+        currentBB->addInstruction(xorDiffInst);
+
+        auto maskedReg = getTempReg(true);
+        auto andInst = RISCVInstruction::createRType(RISCVOpcode::AND, maskedReg, diffReg, maskReg);
+        currentBB->addInstruction(andInst);
+
+        auto xorDestInst = RISCVInstruction::createRType(RISCVOpcode::XOR, destReg, falseReg, maskedReg);
+        currentBB->addInstruction(xorDestInst);
+        return;
+    }
+
     auto fullMaskReg = getTempReg(true);
-    auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, fullMaskReg,
-                                                 make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO), maskReg);
-    currentBB->addInstruction(negInst);
+    if (isBoolCond)
+    {
+        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, fullMaskReg, zeroReg, condReg);
+        currentBB->addInstruction(negInst);
+    }
+    else
+    {
+        auto maskReg = getTempReg(true);
+        auto snezInst = RISCVInstruction::createRType(RISCVOpcode::SLTU, maskReg, zeroReg, condReg);
+        currentBB->addInstruction(snezInst);
+        auto negInst = RISCVInstruction::createRType(RISCVOpcode::SUB, fullMaskReg, zeroReg, maskReg);
+        currentBB->addInstruction(negInst);
+    }
 
     auto tvalReg = getTempReg(true);
     auto invMaskReg = getTempReg(true);
