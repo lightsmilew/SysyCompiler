@@ -146,6 +146,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
+        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -176,7 +177,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -207,6 +207,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O1)
     {
+        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -237,7 +238,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -403,9 +403,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O17)
     {
+        // 消除简单整数 if-else（浮点保留分支）
+        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<MemoizationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -450,8 +451,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-        // 消除简单整数 if-else（浮点保留分支）
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         // 这里基本块和死代码消除多次迭代保证完全消除和合并
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
