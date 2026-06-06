@@ -146,7 +146,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
 
     if (level == OptimizationLevel::O0)
     {
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -207,7 +206,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     }
     else if (level == OptimizationLevel::O1)
     {
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -301,7 +299,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         // pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
 
-        
         // // 这里进行指令合并
         // pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -403,8 +400,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O17)
     {
-        // 消除简单整数 if-else（浮点保留分支）
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
