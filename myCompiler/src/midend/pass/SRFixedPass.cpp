@@ -321,20 +321,32 @@ bool SRFixedPass::runOnFunction(Function *func)
                             val >>= 1;
                             shift++;
                         }
-                        // 替换为右移操作
-                        // 负数除法需要加掩码
-                        auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
-                        auto *mask = new ConstantInt(IntegerType::getInstance(), (1 << shift) - 1);
-                        auto *signedDiv = new BinaryOperator(Opcode::Sra, lhs, new ConstantInt(IntegerType::getInstance(), 31), instName + "_signedDiv");
-                        auto *addand = new BinaryOperator(Opcode::And, signedDiv, mask, instName + "_addand");
-                        auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, addand, instName + "_lhsAdj");
-                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, new ConstantInt(IntegerType::getInstance(), shift), instName + "_sra");
+                        // 负数除法：先加 bias 再右移；bias = (x>>31)&mask
+                        auto *type = IntegerType::getInstance();
+                        auto *zero = new ConstantInt(type, 0);
+                        auto *shiftConst = new ConstantInt(type, shift);
+                        std::unique_ptr<Instruction> signedDivHolder;
+                        Instruction *bias = nullptr;
+                        if (rhs_value_abs == 2)
+                        {
+                            // mask==1 时 (x>>31)&1 等价于 slt(x,0)
+                            bias = new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, instName + "_bias");
+                        }
+                        else
+                        {
+                            auto *mask = new ConstantInt(type, (1 << shift) - 1);
+                            signedDivHolder = std::make_unique<BinaryOperator>(
+                                Opcode::Sra, lhs, new ConstantInt(type, 31), instName + "_signedDiv");
+                            bias = new BinaryOperator(Opcode::And, signedDivHolder.get(), mask, instName + "_bias");
+                        }
+                        auto *lhsAdj = new BinaryOperator(Opcode::Add, lhs, bias, instName + "_lhsAdj");
+                        auto *sraInst = new BinaryOperator(Opcode::Sra, lhsAdj, shiftConst, instName + "_sra");
+                        std::unique_ptr<Instruction> negHolder;
                         Instruction *finalRes = sraInst;
                         if (rhs_value < 0)
                         {
-                            auto *neg = new BinaryOperator(Opcode::Sub, zero, sraInst, instName + "_neg");
-                            finalRes = neg;
-                            insts.insert(insts.begin() + i + 1, std::unique_ptr<Instruction>(neg));
+                            negHolder = std::make_unique<BinaryOperator>(Opcode::Sub, zero, sraInst, instName + "_neg");
+                            finalRes = negHolder.get();
                         }
                         inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(finalRes);
@@ -342,12 +354,22 @@ bool SRFixedPass::runOnFunction(Function *func)
                         insts.erase(insts.begin() + i);
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sraInst));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhsAdj));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(addand));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(signedDiv));
+                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(bias));
+                        size_t pow2DivInstCount = 3;
+                        if (signedDivHolder)
+                        {
+                            insts.insert(insts.begin() + i, std::move(signedDivHolder));
+                            pow2DivInstCount++;
+                        }
+                        if (negHolder)
+                        {
+                            insts.insert(insts.begin() + i + pow2DivInstCount, std::move(negHolder));
+                        }
                         changed = true;
                         if (verbose)
                         {
                             debugInfo << "SRFixedPass: Replaced SDiv with Sra for " << constInt->Value
+                                      << (rhs_value_abs == 2 ? " (slt bias)" : "")
                                       << " in " << bb->getName() << "\n";
                         }
                     }
@@ -431,40 +453,44 @@ bool SRFixedPass::runOnFunction(Function *func)
                     if ((rhs_value_abs & (rhs_value_abs - 1)) == 0)
                     {
                         // x % 2^n == ((x + bias) & mask) - bias
-                        // bias = (x >> 31) & mask
-                        // mask = 2^n - 1
-                        // 当x大于0时简化为x&mask mask为低n位全为1，等价于取低n位的数值
-                        // 当x小于0时先加上一个偏移量转移到正数范围内计算后再减去偏移量
+                        // bias = (x >> 31) & mask；mask==1 时 bias = slt(x,0)
                         auto *type = IntegerType::getInstance();
                         int mask_val = rhs_value_abs - 1;
                         auto *mask_const = new ConstantInt(type, mask_val);
-                        auto *shift31 = new ConstantInt(type, 31);
-
-                        // sign_mask = x >> 31
-                        auto *sign_mask = new BinaryOperator(Opcode::Sra, lhs, shift31, instName + "_signmask");
-                        // bias = sign_mask & mask 如果为负数则为mask，否则为0，用于修正负数计算的削弱
-                        auto *bias = new BinaryOperator(Opcode::And, sign_mask, mask_const, instName + "_bias");
-                        // x + bias
+                        auto *zero = new ConstantInt(type, 0);
+                        std::unique_ptr<Instruction> signMaskHolder;
+                        Instruction *bias = nullptr;
+                        if (rhs_value_abs == 2)
+                        {
+                            bias = new ICmpInst(ICmpInst::ICMP_SLT, lhs, zero, instName + "_bias");
+                        }
+                        else
+                        {
+                            signMaskHolder = std::make_unique<BinaryOperator>(
+                                Opcode::Sra, lhs, new ConstantInt(type, 31), instName + "_signmask");
+                            bias = new BinaryOperator(Opcode::And, signMaskHolder.get(), mask_const, instName + "_bias");
+                        }
                         auto *x_add_bias = new BinaryOperator(Opcode::Add, lhs, bias, instName + "_addbias");
-                        // (x + bias) & mask
                         auto *and_mask = new BinaryOperator(Opcode::And, x_add_bias, mask_const, instName + "_andmask");
-                        // ((x + bias) & mask) - bias
                         auto *final_res = new BinaryOperator(Opcode::Sub, and_mask, bias, instName + "_mod2n");
 
                         inst->removeThisFromOperands();
                         inst->replaceAllUsesWith(final_res);
                         needToDelete.push_back(insts[i].release());
                         insts.erase(insts.begin() + i);
-                        // 按顺序插入新指令
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(final_res));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(and_mask));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(x_add_bias));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(bias));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sign_mask));
+                        if (signMaskHolder)
+                        {
+                            insts.insert(insts.begin() + i, std::move(signMaskHolder));
+                        }
                         changed = true;
                         if (verbose)
                         {
                             debugInfo << "SRFixedPass: Replaced SRem with ((x+bias)&mask)-bias for " << rhs_value_abs
+                                      << (rhs_value_abs == 2 ? " (slt bias)" : "")
                                       << " in " << bb->getName() << "\n";
                         }
                     }
