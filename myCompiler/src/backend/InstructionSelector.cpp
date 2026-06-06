@@ -502,7 +502,7 @@ void InstructionSelector::visitLoadInst(LoadInst *inst)
 shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Value *lo, bool isPhysical)
 {
     (void)isPhysical;
-    // 仅用虚拟临时寄存器，避免与外层归纳变量（常分配到 t0）同色后被 slli/srli 覆盖
+    // 仅用虚拟临时寄存器，避免与外层归纳变量（常分配到 t0）同色后被覆盖
     auto materializeHalf = [this](Value *v) -> shared_ptr<RISCVRegister> {
         if (auto *c = dynamic_cast<ConstantInt *>(v))
             return LiInt(c->Value, false);
@@ -518,20 +518,12 @@ shared_ptr<RISCVRegister> InstructionSelector::packI64FromHalves(Value *hi, Valu
     currentBB->addInstruction(
         RISCVInstruction::createIType(RISCVOpcode::SLLI, hiShifted, hiRaw, 32));
 
-    shared_ptr<RISCVRegister> loZext = getTempReg();
-    if (sameHalf)
-    {
-        currentBB->addInstruction(
-            RISCVInstruction::createIType(RISCVOpcode::SRLI, loZext, hiShifted, 32));
-    }
-    else
-    {
-        auto loRaw = materializeHalf(lo);
-        currentBB->addInstruction(
-            RISCVInstruction::createIType(RISCVOpcode::SLLI, loZext, loRaw, 32));
-        currentBB->addInstruction(
-            RISCVInstruction::createIType(RISCVOpcode::SRLI, loZext, loZext, 32));
-    }
+    auto loRaw = sameHalf ? hiRaw : materializeHalf(lo);
+    // 0x00000000FFFFFFFF：低位与掩码做零扩展，掩码 li 可由后端 CSE 复用
+    auto maskReg = LiLong(static_cast<int64_t>(0xFFFFFFFFu));
+    auto loZext = getTempReg();
+    currentBB->addInstruction(
+        RISCVInstruction::createRType(RISCVOpcode::AND, loZext, loRaw, maskReg));
 
     auto destReg = getTempReg();
     currentBB->addInstruction(
