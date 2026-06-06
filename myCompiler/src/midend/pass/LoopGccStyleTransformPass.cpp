@@ -545,7 +545,6 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
                   << (unrollLoop ? " (unroll)" : "") << " -> body " << bodyBB->getName() << ", latch "
                   << latch->getName() << ", entry at " << preheader->getName() << "\n";
     }
-
     for (auto &instPtr : exitBB->getInstructions())
     {
         auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
@@ -585,21 +584,23 @@ bool LoopGccStyleTransformPass::runOnFunction(Function *func)
         return false;
     }
 
-    func->setLoops(ControlFlowAnalysis::findGccLoops(func));
-    vector<Loop> loops = func->getLoops();
-    std::sort(loops.begin(), loops.end(), [](const Loop &a, const Loop &b)
-              { return a.blocks.size() < b.blocks.size(); });
-
     bool changed = false;
-    for (const auto &loop : loops)
+    bool progress = true;
+    while (progress)
     {
-        if (tryTransform(func, loop))
+        progress = false;
+        func->setLoops(ControlFlowAnalysis::findGccLoops(func));
+        vector<Loop> loops = func->getLoops();
+        std::sort(loops.begin(), loops.end(), [](const Loop &a, const Loop &b)
+                  { return a.blocks.size() < b.blocks.size(); });
+        for (const auto &loop : loops)
         {
-            changed = true;
-            func->setLoops(ControlFlowAnalysis::findGccLoops(func));
-            loops = func->getLoops();
-            std::sort(loops.begin(), loops.end(), [](const Loop &a, const Loop &b)
-                      { return a.blocks.size() < b.blocks.size(); });
+            if (tryTransform(func, loop))
+            {
+                changed = true;
+                progress = true;
+                break;
+            }
         }
     }
 
