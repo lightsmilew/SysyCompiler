@@ -151,7 +151,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
-        //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
@@ -162,17 +161,18 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
-        pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestedBoundTighteningPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
-        pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
-        pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
+        pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
@@ -213,7 +213,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
-        //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
@@ -224,17 +223,18 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ArrayEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
-        pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestedBoundTighteningPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
-        pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
-        pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
+        pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
@@ -278,7 +278,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        // pm->addPass(std::make_unique<MemoizationPass>(verbose));
         //  消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         // 删除冗余store，如果store的值和原来load的值相同，则删除
@@ -291,7 +290,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         // //消除数组消除pass后留下的gep指令，便于无用while消除
         // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        // pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
         // // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         // pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
@@ -300,7 +299,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         // pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
         // // 进行循环展开后再来一次合并基本块
-        // pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        // pm->addPass(std::make_unique<LoopNestedBoundTighteningPass>(verbose));
         // pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         // pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
 
@@ -329,7 +328,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     {
         // 先简化CFG，然后函数内联后可以暴露更多优化机会:删除数组，优化后再删除无用循环
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
-        //pm->addPass(std::make_unique<MemoizationPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         // 消除无用函数调用 这里还没进行函数内联和gep展开以及后面的优化，可以宽松判断
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
@@ -353,7 +351,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 多面体循环变换尽量前置，避免 DCE 提前删除归纳 phi 影响循环识别与融合
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
@@ -362,14 +360,15 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         //这三个绑定
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
-        pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestedBoundTighteningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
-        pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
-        pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
+        pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
@@ -434,7 +433,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 多面体循环变换尽量前置，避免 DCE 提前删除归纳 phi 影响循环识别与融合
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        pm->addPass(std::make_unique<LoopCopyCallCollapsePass>(verbose));
+        pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
@@ -443,14 +442,15 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         //这三个绑定
         pm->addPass(std::make_unique<LoopIfGuardHoistPass>(verbose));
-        pm->addPass(std::make_unique<LoopSkipContinueElimPass>(verbose));
+        pm->addPass(std::make_unique<LoopNestedBoundTighteningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         pm->addPass(std::make_unique<LoopInductionStrengthReductionPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
-        pm->addPass(std::make_unique<TransposePairLoadRewritePass>(verbose));
-        pm->addPass(std::make_unique<SymmetricNegateUpperTrianglePass>(verbose));
+        pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
+        pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<LoopFusionPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));

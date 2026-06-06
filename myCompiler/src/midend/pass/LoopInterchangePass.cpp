@@ -2,6 +2,7 @@
 #include <algorithm>
 using namespace std;
 using namespace optimization;
+using namespace matrixStructure;
 
 namespace
 {
@@ -35,351 +36,6 @@ namespace
     }
 }
 
-Value *LoopInterchangePass::stripCopy(Value *v)
-{
-    while (auto *cpy = dynamic_cast<CopyInst *>(v))
-        v = cpy->getSource();
-    return v;
-}
-
-bool LoopInterchangePass::sameValue(Value *a, Value *b)
-{
-    return stripCopy(a) == stripCopy(b);
-}
-
-const Loop *LoopInterchangePass::findParentLoop(const Loop &inner, const vector<Loop> &loops)
-{
-    const Loop *best = nullptr;
-    size_t bestSize = 0;
-    for (const auto &cand : loops)
-    {
-        if (&cand == &inner || cand.header == inner.header)
-            continue;
-        if (!cand.containsBlock(inner.header))
-            continue;
-        if (!best || cand.blocks.size() < bestSize)
-        {
-            best = &cand;
-            bestSize = cand.blocks.size();
-        }
-    }
-    return best;
-}
-
-BasicBlock *LoopInterchangePass::getLoopLatch(const Loop &loop)
-{
-    BasicBlock *latch = nullptr;
-    for (auto *pred : loop.header->getPredecessors())
-    {
-        if (loop.containsBlock(pred) && pred != loop.header)
-        {
-            if (latch)
-                return nullptr;
-            latch = pred;
-        }
-    }
-    return latch;
-}
-
-BasicBlock *LoopInterchangePass::getLoopExit(const Loop &loop)
-{
-    auto *br = dynamic_cast<BranchInst *>(loop.header->getTerminator());
-    if (!br || !br->isConditional())
-        return nullptr;
-    BasicBlock *candidates[2] = {br->getTrueBlock(), br->getFalseBlock()};
-    for (BasicBlock *bb : candidates)
-    {
-        if (bb && !loop.containsBlock(bb))
-            return bb;
-    }
-    return nullptr;
-}
-
-bool LoopInterchangePass::isSimpleTwoBlockLoop(const Loop &loop)
-{
-    return loop.header && loop.blocks.size() == 2;
-}
-
-bool LoopInterchangePass::getHeaderBoundCmp(BasicBlock *header, Value *&iv, Value *&bound,
-                                            ICmpInst *&cmp)
-{
-    cmp = nullptr;
-    iv = nullptr;
-    bound = nullptr;
-    if (!header)
-        return false;
-    for (auto &instPtr : header->getInstructions())
-    {
-        auto *icmp = dynamic_cast<ICmpInst *>(instPtr.get());
-        if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
-            continue;
-        cmp = icmp;
-        iv = icmp->getLHS();
-        bound = icmp->getRHS();
-        return true;
-    }
-    return false;
-}
-
-PhiInst *LoopInterchangePass::findPhiAtHeader(BasicBlock *header, Value *iv)
-{
-    if (!header || !iv)
-        return nullptr;
-    for (auto &instPtr : header->getInstructions())
-    {
-        if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
-        {
-            if (phi == iv || sameValue(phi, iv))
-                return phi;
-        }
-    }
-    return nullptr;
-}
-
-bool LoopInterchangePass::parse2DAccess(Value *ptr, Value *&rowIdx, Value *&colIdx,
-                                        Value *&arrayBase)
-{
-    rowIdx = nullptr;
-    colIdx = nullptr;
-    arrayBase = nullptr;
-    auto *gep = dynamic_cast<GetElementPtrInst *>(ptr);
-    if (!gep)
-        return false;
-
-    auto indices = gep->getIndices();
-    if (indices.size() == 2)
-    {
-        rowIdx = stripCopy(indices[0]);
-        colIdx = stripCopy(indices[1]);
-        arrayBase = gep->getPointerOperand();
-        return true;
-    }
-
-    if (indices.size() == 1)
-    {
-        colIdx = stripCopy(indices[0]);
-        auto *rowGep = dynamic_cast<GetElementPtrInst *>(gep->getPointerOperand());
-        if (!rowGep)
-            return false;
-        auto rowIndices = rowGep->getIndices();
-        if (rowIndices.size() != 2)
-            return false;
-        rowIdx = stripCopy(rowIndices[0]);
-        arrayBase = rowGep->getPointerOperand();
-        return true;
-    }
-    return false;
-}
-
-bool LoopInterchangePass::storeUsesSum(StoreInst *store, PhiInst *sumPhi, BasicBlock *kHeader)
-{
-    if (!store || !sumPhi || !kHeader)
-        return false;
-    Value *val = store->getValueToStore();
-    if (val == sumPhi)
-        return true;
-    auto *exitPhi = dynamic_cast<PhiInst *>(val);
-    if (!exitPhi)
-        return false;
-    for (unsigned i = 0; i < exitPhi->getNumIncomingValues(); ++i)
-    {
-        if (exitPhi->getIncomingBlock(i) == kHeader &&
-            exitPhi->getIncomingValue(i) == sumPhi)
-            return true;
-    }
-    return false;
-}
-
-bool LoopInterchangePass::matchDotProductNest(Function *func, const vector<Loop> &loops,
-                                              NestPattern &pat)
-{
-    (void)func;
-    for (const auto &kLoop : loops)
-    {
-        if (!isSimpleTwoBlockLoop(kLoop))
-            continue;
-
-        const Loop *jLoop = findParentLoop(kLoop, loops);
-        if (!jLoop)
-            continue;
-        const Loop *iLoop = findParentLoop(*jLoop, loops);
-        if (!iLoop)
-            continue;
-
-        BasicBlock *kHeader = kLoop.header;
-        BasicBlock *kBody = getLoopLatch(kLoop);
-        BasicBlock *kExit = getLoopExit(kLoop);
-        if (!kBody || !kExit || kBody == kHeader)
-            continue;
-
-        Value *kIV = nullptr;
-        Value *bound = nullptr;
-        ICmpInst *kCmp = nullptr;
-        if (!getHeaderBoundCmp(kHeader, kIV, bound, kCmp))
-            continue;
-        pat.kPhi = findPhiAtHeader(kHeader, kIV);
-        if (!pat.kPhi)
-            continue;
-
-        vector<PhiInst *> kHeaderPhis;
-        for (auto &instPtr : kHeader->getInstructions())
-            if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
-                kHeaderPhis.push_back(phi);
-        if (kHeaderPhis.size() != 2)
-            continue;
-
-        pat.sumPhi = (kHeaderPhis[0] == pat.kPhi) ? kHeaderPhis[1] : kHeaderPhis[0];
-        if (pat.sumPhi == pat.kPhi)
-            continue;
-
-        Value *sumInit = nullptr;
-        for (unsigned i = 0; i < pat.sumPhi->getNumIncomingValues(); ++i)
-        {
-            if (!kLoop.containsBlock(pat.sumPhi->getIncomingBlock(i)))
-            {
-                sumInit = pat.sumPhi->getIncomingValue(i);
-                break;
-            }
-        }
-        auto *sumInitC = dynamic_cast<ConstantInt *>(stripCopy(sumInit));
-        if (!sumInitC || sumInitC->Value != 0)
-            continue;
-
-        BinaryOperator *mulOp = nullptr;
-        for (auto &instPtr : kBody->getInstructions())
-        {
-            if (auto *add = dynamic_cast<BinaryOperator *>(instPtr.get()))
-            {
-                if (add->getOpcode() != Opcode::Add)
-                    continue;
-                if (add->getLHS() != pat.sumPhi && add->getRHS() != pat.sumPhi)
-                    continue;
-                Value *other = add->getLHS() == pat.sumPhi ? add->getRHS() : add->getLHS();
-                mulOp = dynamic_cast<BinaryOperator *>(other);
-                if (mulOp && mulOp->getOpcode() == Opcode::Mul)
-                    break;
-            }
-        }
-        if (!mulOp)
-            continue;
-
-        pat.cLoad = dynamic_cast<LoadInst *>(mulOp->getLHS());
-        pat.aLoad = dynamic_cast<LoadInst *>(mulOp->getRHS());
-        if (!pat.cLoad || !pat.aLoad)
-        {
-            pat.cLoad = dynamic_cast<LoadInst *>(mulOp->getRHS());
-            pat.aLoad = dynamic_cast<LoadInst *>(mulOp->getLHS());
-        }
-        if (!pat.cLoad || !pat.aLoad)
-            continue;
-
-        Value *cRow = nullptr, *cCol = nullptr, *aRow = nullptr, *aCol = nullptr;
-        Value *cArray = nullptr, *aArray = nullptr;
-        if (!parse2DAccess(pat.cLoad->getPointer(), cRow, cCol, cArray))
-            continue;
-        if (!parse2DAccess(pat.aLoad->getPointer(), aRow, aCol, aArray))
-            continue;
-        if (!sameValue(cCol, pat.kPhi) || !sameValue(aRow, pat.kPhi))
-            continue;
-
-        BasicBlock *jHeader = jLoop->header;
-        Value *jIV = nullptr;
-        Value *jBound = nullptr;
-        ICmpInst *jCmp = nullptr;
-        if (!getHeaderBoundCmp(jHeader, jIV, jBound, jCmp))
-            continue;
-        if (!sameValue(jBound, bound))
-            continue;
-        if (!sameValue(aCol, jIV))
-            continue;
-
-        pat.aStore = nullptr;
-        for (auto &instPtr : kExit->getInstructions())
-        {
-            if (auto *st = dynamic_cast<StoreInst *>(instPtr.get()))
-            {
-                pat.aStore = st;
-                break;
-            }
-        }
-        if (!pat.aStore || !storeUsesSum(pat.aStore, pat.sumPhi, kHeader))
-            continue;
-
-        Value *stRow = nullptr, *stCol = nullptr, *stArray = nullptr;
-        if (!parse2DAccess(pat.aStore->getPointer(), stRow, stCol, stArray))
-            continue;
-        if (!sameValue(stCol, jIV))
-            continue;
-        if (stArray != aArray)
-            continue;
-
-        Value *iIV = nullptr;
-        Value *iBound = nullptr;
-        ICmpInst *iCmp = nullptr;
-        if (!getHeaderBoundCmp(iLoop->header, iIV, iBound, iCmp))
-            continue;
-        if (!sameValue(cRow, iIV) || !sameValue(stRow, iIV))
-            continue;
-
-        auto *jBr = dynamic_cast<BranchInst *>(jHeader->getTerminator());
-        if (!jBr || !jBr->isConditional())
-            continue;
-
-        BasicBlock *jExit = getLoopExit(*jLoop);
-        if (!jExit)
-            continue;
-
-        BasicBlock *iBody = nullptr;
-        auto *iBr = dynamic_cast<BranchInst *>(iLoop->header->getTerminator());
-        if (iBr && iBr->isConditional())
-            iBody = iBr->getTrueBlock();
-        if (!iBody || !iLoop->containsBlock(iBody))
-            continue;
-
-        BinaryOperator *kInc = nullptr;
-        for (auto &instPtr : kBody->getInstructions())
-        {
-            if (auto *add = dynamic_cast<BinaryOperator *>(instPtr.get()))
-            {
-                if (add->getOpcode() != Opcode::Add)
-                    continue;
-                if (sameValue(add->getLHS(), pat.kPhi) || sameValue(add->getRHS(), pat.kPhi))
-                {
-                    Value *other = sameValue(add->getLHS(), pat.kPhi) ? add->getRHS()
-                                                                      : add->getLHS();
-                    if (auto *step = dynamic_cast<ConstantInt *>(stripCopy(other)))
-                    {
-                        if (step->Value == 1)
-                        {
-                            kInc = add;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (!kInc)
-            continue;
-
-        pat.iLoop = iLoop;
-        pat.jLoop = jLoop;
-        pat.kLoop = &kLoop;
-        pat.iIV = iIV;
-        pat.jIV = jIV;
-        pat.bound = bound;
-        pat.cArray = cArray;
-        pat.aArray = aArray;
-        pat.jHeader = jHeader;
-        pat.kHeader = kHeader;
-        pat.kBody = kBody;
-        pat.kExit = kExit;
-        pat.jExit = jExit;
-        pat.iBody = iBody;
-        return true;
-    }
-    return false;
-}
-
 AllocaInst *LoopInterchangePass::getOrCreateAccBuffer(Function *func)
 {
     BasicBlock *entry = func->getEntryBlock();
@@ -397,7 +53,7 @@ AllocaInst *LoopInterchangePass::getOrCreateAccBuffer(Function *func)
     return acc;
 }
 
-bool LoopInterchangePass::applyInterchange(Function *func, NestPattern &pat)
+bool LoopInterchangePass::applyInterchange(Function *func, MatMulDotProductNest &pat)
 {
     AllocaInst *acc = getOrCreateAccBuffer(func);
     auto *zero = ci(0);
@@ -449,7 +105,7 @@ bool LoopInterchangePass::applyInterchange(Function *func, NestPattern &pat)
     wireEdge(kHeader, kBody);
     wireEdge(kHeader, kExit);
 
-    auto *cElemGep = new GetElementPtrInst(pat.cArray, {pat.iIV, kPhi}, "licc_c_gep");
+    auto *cElemGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, kPhi}, "licc_c_gep");
     kBody->addInstruction(own(cElemGep));
     auto *cVal = new LoadInst(cElemGep, "licc_c_val");
     kBody->addInstruction(own(cVal));
@@ -471,7 +127,7 @@ bool LoopInterchangePass::applyInterchange(Function *func, NestPattern &pat)
     auto *accLoad = new LoadInst(accGep, "licc_acc_load");
     jBody->addInstruction(own(accLoad));
 
-    auto *aElemGep = new GetElementPtrInst(pat.aArray, {kPhi, jPhi}, "licc_a_gep");
+    auto *aElemGep = new GetElementPtrInst(pat.rhsArray, {kPhi, jPhi}, "licc_a_gep");
     jBody->addInstruction(own(aElemGep));
     auto *aVal = new LoadInst(aElemGep, "licc_a_val");
     jBody->addInstruction(own(aVal));
@@ -509,7 +165,7 @@ bool LoopInterchangePass::applyInterchange(Function *func, NestPattern &pat)
     storeBody->addInstruction(own(accReadGep));
     auto *accRead = new LoadInst(accReadGep, "licc_acc_read");
     storeBody->addInstruction(own(accRead));
-    auto *aOutGep = new GetElementPtrInst(pat.aArray, {pat.iIV, jStorePhi}, "licc_a_out_gep");
+    auto *aOutGep = new GetElementPtrInst(pat.rhsArray, {pat.iIV, jStorePhi}, "licc_a_out_gep");
     storeBody->addInstruction(own(aOutGep));
     storeBody->addInstruction(own(new StoreInst(accRead, aOutGep)));
     auto *jStoreInc = new BinaryOperator(Opcode::Add, jStorePhi, one, "licc_j_store_inc");
@@ -573,10 +229,12 @@ bool LoopInterchangePass::applyInterchange(Function *func, NestPattern &pat)
 
 bool LoopInterchangePass::runOnFunction(Function *func)
 {
-    func->setLoops(ControlFlowAnalysis::findLoops(func));
-    NestPattern pat;
-    if (!matchDotProductNest(func, func->getLoops(), pat))
+    const MatrixFunctionAnalysis *analysis = getAnalysis(func);
+    if (!analysis || analysis->matMulDotProductNests.empty())
         return false;
+
+    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    MatMulDotProductNest pat = analysis->matMulDotProductNests.front();
     bool changed = applyInterchange(func, pat);
     if (changed)
         func->setLoops(ControlFlowAnalysis::findLoops(func));

@@ -1,4 +1,4 @@
-#include "LoopSkipContinueElimPass.h"
+#include "LoopNestedBoundTighteningPass.h"
 #include <algorithm>
 using namespace std;
 using namespace optimization;
@@ -137,16 +137,16 @@ namespace
         }
     }
 
-    // if (outer < inner) continue  =>  仅执行 j<=outer，即 j < min(rowsize, outer+1)
-    // 须在 preheader 中计算 tripBound：展开后 unroll_header 从 preheader 直接进入，
+    // 内层仅执行 j <= outer，等价于 j < min(rowsize, outer+1)。
+    // tripBound 须在 preheader 中计算：展开后 unroll_header 从 preheader 直接进入，
     // 若放在 inner header，则首次迭代时 inner_tight_sel 尚未定义。
     static void tightenInnerLoopBound(BasicBlock *preheader, ICmpInst *headerCmp, Value *outerIV,
                                     Value *rowsizeBound)
     {
         auto *one = new ConstantInt(IntegerType::getInstance(), 1);
-        auto *outerPlus1 = new BinaryOperator(Opcode::Add, outerIV, one, "outer_iv_plus_1_lsc");
-        auto *useTightBound = new ICmpInst(ICmpInst::ICMP_SLT, outerPlus1, rowsizeBound, "inner_tight_sel_lsc");
-        auto *tripBound = new SelectInst(useTightBound, outerPlus1, rowsizeBound, "inner_trip_bound_lsc");
+        auto *outerPlus1 = new BinaryOperator(Opcode::Add, outerIV, one, "outer_iv_plus_1_lnbt");
+        auto *useTightBound = new ICmpInst(ICmpInst::ICMP_SLT, outerPlus1, rowsizeBound, "inner_tight_sel_lnbt");
+        auto *tripBound = new SelectInst(useTightBound, outerPlus1, rowsizeBound, "inner_trip_bound_lnbt");
 
         preheader->insertBeforeTerminator(unique_ptr<Instruction>(outerPlus1));
         preheader->insertBeforeTerminator(unique_ptr<Instruction>(useTightBound));
@@ -155,7 +155,8 @@ namespace
     }
 }
 
-bool LoopSkipContinueElimPass::tryEliminate(Function *func, const Loop &innerLoop, const Loop &outerLoop)
+bool LoopNestedBoundTighteningPass::tryTightenNestedBound(Function *func, const Loop &innerLoop,
+                                                          const Loop &outerLoop)
 {
     (void)func;
     (void)outerLoop;
@@ -264,7 +265,7 @@ bool LoopSkipContinueElimPass::tryEliminate(Function *func, const Loop &innerLoo
     return true;
 }
 
-bool LoopSkipContinueElimPass::runOnFunction(Function *func)
+bool LoopNestedBoundTighteningPass::runOnFunction(Function *func)
 {
     if (!func)
     {
@@ -282,13 +283,13 @@ bool LoopSkipContinueElimPass::runOnFunction(Function *func)
         {
             continue;
         }
-        if (this->tryEliminate(func, inner, *outer))
+        if (this->tryTightenNestedBound(func, inner, *outer))
         {
             changed = true;
             if (verbose)
             {
-                debugInfo << "LoopSkipContinueElim: inner loop " << inner.header->getName()
-                          << " trip bound := min(rowsize, outer+1), continue removed\n";
+                debugInfo << "LoopNestedBoundTightening: inner loop " << inner.header->getName()
+                          << " trip bound := min(rowsize, outer+1), guard removed\n";
             }
         }
     }
