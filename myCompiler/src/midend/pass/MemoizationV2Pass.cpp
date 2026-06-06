@@ -52,6 +52,45 @@ static int countRecursiveCalls(Function *func)
     return count;
 }
 
+// Match TailRecursionEliminationPass: call immediately before ret, returning call result.
+static bool isTailRecursiveReturn(BasicBlock *bb, CallInst *call)
+{
+    auto *ret = dynamic_cast<ReturnInst *>(bb->getTerminator());
+    if (!ret || ret->getReturnValue() != call)
+    {
+        return false;
+    }
+    auto &insts = bb->getInstructions();
+    if (insts.size() < 2)
+    {
+        return false;
+    }
+    return dynamic_cast<CallInst *>(insts[insts.size() - 2].get()) == call;
+}
+
+static bool isAllTailRecursive(Function *func)
+{
+    bool sawRecursive = false;
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (!call || call->getCalledFunction() != func)
+            {
+                continue;
+            }
+            sawRecursive = true;
+            if (!isTailRecursiveReturn(bb, call))
+            {
+                return false;
+            }
+        }
+    }
+    return sawRecursive;
+}
+
 static bool storeIsLocalAllocaOnly(StoreInst *store)
 {
     Value *ptr = store->getOriginalPointer();
@@ -443,6 +482,19 @@ void MemoizationV2Pass::addMemoizationToFunction(Function *func)
 
 bool MemoizationV2Pass::runOnFunction(Function *func)
 {
+    if (func->isLibraryFunction() || isMainFunction(func))
+        return false;
+
+    if (isAllTailRecursive(func))
+    {
+        if (verbose)
+        {
+            debugInfo << "MemoizationV2Pass: skip tail-recursive function " << func->getName()
+                      << "\n";
+        }
+        return false;
+    }
+
     if (!analyzeFunctionForMemoization(func))
         return false;
 
