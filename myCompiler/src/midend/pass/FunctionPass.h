@@ -3,11 +3,11 @@
 #include "Pass.h"
 namespace optimization
 {
-    // 4. 函数内联 Pass（将函数调用替换为函数体）
     class FunctionInliningPass : public Pass
     {
     public:
-        FunctionInliningPass(bool verbose = false) : Pass(verbose) {}
+        FunctionInliningPass(bool verbose = false, bool inlineMainCalleeLayer = false)
+            : Pass(verbose), inlineMainCalleeLayer(inlineMainCalleeLayer) {}
         bool runOnFunction(Function *func) override;
         string getsuffix(string funcname)
         {
@@ -17,14 +17,13 @@ namespace optimization
         std::string getName() const override { return "FunctionInlining"; }
 
     private:
-        unordered_map<string, int> inlineCountMap; // 记录每个函数的内联次数
-        bool shouldInline(Function *callee);
+        bool inlineMainCalleeLayer; // true: 仅 main 内联一层（TRE 后的原递归函数，替换全部 call）
+        unordered_map<string, int> inlineCountMap;
+        bool shouldInline(Function *callee, Function *caller);
         int inlineAt(CallInst *call, Function *caller, BasicBlock *bb, size_t insertPos);
-        // debug
         void verifyCFG(Function *func);
     };
 
-    // 17.尾递归消除
     class TailRecursionEliminationPass : public Pass
     {
     public:

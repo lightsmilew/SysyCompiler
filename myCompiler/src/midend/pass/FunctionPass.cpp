@@ -1,6 +1,19 @@
 #include "FunctionPass.h"
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+// TRE 后会插入 xxx.preheader 作为新入口
+static bool isTailRecursionEliminatedFunction(Function *func)
+{
+    if (!func)
+        return false;
+    BasicBlock *entry = func->getEntryBlock();
+    return entry && entry->getName().find(".preheader") != string::npos;
+}
+} // namespace
+
 // 函数内联
 bool FunctionInliningPass::runOnFunction(Function *caller)
 {
@@ -22,17 +35,14 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
                 if (auto *call = dynamic_cast<CallInst *>(it->get()))
                 {
                     Function *callee = call->getCalledFunction();
-                    if (shouldInline(callee))
+                    if (shouldInline(callee, caller))
                     {
                         auto insertPos = it - insts.begin();
                         inlineAt(call, caller, bb, insertPos);
-                        // 重新获取迭代器位置
-                        // 这里如果是单个基本块函数内联则会破坏原来基本块结构，it已失效，需要重新获取
                         it = insts.begin() + insertPos;
                         call->removeThisFromOperands();
                         needToDelete.push_back(it->release());
                         it = insts.erase(it);
-                        // 标记为已删除
                         callee->setDeleted(true);
                         changed = true;
                         localChanged = true;
@@ -60,9 +70,18 @@ bool FunctionInliningPass::runOnFunction(Function *caller)
     return changed;
 }
 // 判断是否适合内联
-bool FunctionInliningPass::shouldInline(Function *callee)
+bool FunctionInliningPass::shouldInline(Function *callee, Function *caller)
 {
-    if (callee->isLibraryFunction() || callee->isRecursive())
+    if (!callee || callee->isLibraryFunction())
+        return false;
+    if (inlineMainCalleeLayer)
+    {
+        if (caller->getName() != "main")
+            return false;
+        if (!isTailRecursionEliminatedFunction(callee))
+            return false;
+    }
+    if (callee->isRecursive())
         return false;
     // 新增：如果只有一个基本块，且所有指令都是算术运算（不含控制流/调用/副作用），也允许内联,此时不考虑指令大小
     if (callee->getBasicBlocks().size() == 1)
@@ -428,47 +447,81 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
     if (bbs.empty())
         return false;
 
-    BasicBlock *entryBB = func->getEntryBlock();
+    BasicBlock *loopHeader = func->getEntryBlock();
+    BasicBlock *preheader = nullptr;
+    std::unordered_map<Value *, PhiInst *> paramPhis;
+
+    auto ensureLoopStructure = [&]() {
+        if (preheader)
+            return;
+
+        unsigned insertPos = 0;
+        for (auto &paramPtr : func->getArguments())
+        {
+            Value *param = paramPtr.get();
+            if (param->getType()->isPointerTy())
+                continue;
+            auto *phi = new PhiInst(param->getType(), param->getName());
+            loopHeader->insert(std::unique_ptr<Instruction>(phi), insertPos++);
+            param->replaceAllUsesWith(phi);
+            paramPhis[param] = phi;
+        }
+
+        preheader = new BasicBlock(func->getName() + ".preheader", func);
+        preheader->addInstruction(std::make_unique<BranchInst>(loopHeader));
+        loopHeader->addPredecessor(preheader);
+        preheader->addSuccessor(loopHeader);
+        for (auto &[param, phi] : paramPhis)
+            phi->addIncoming(param, preheader);
+
+        bbs.insert(bbs.begin(), std::unique_ptr<BasicBlock>(preheader));
+    };
+
     auto exitBBs = func->getExitBlocks();
     for (auto bb : exitBBs)
     {
         if (bb->getInstructions().size() < 2)
-            continue; // exit block至少需要两条指令
+            continue;
         auto *ret = dynamic_cast<ReturnInst *>(bb->getInstructions().back().get());
         auto *call = dynamic_cast<CallInst *>(bb->getInstructions()[bb->getInstructions().size() - 2].get());
         if (!ret || !call || ret->getReturnValue() != call || call->getCalledFunction() != func)
-            continue; // 不是尾递归调用
+            continue;
         if (call->getIntArguments().size() > 8 || call->getFloatArguments().size() > 8)
-            continue; // 只处理参数不超过8个的函数
+            continue;
         auto &params = func->getArguments();
         const auto &args = call->getArguments();
         if (params.size() != args.size())
-            continue; // 参数数量不匹配，无法进行尾递归优化
-        // 如果参数有指针也无法进行尾递归优化
+            continue;
+        bool skipBlock = false;
         for (const auto &param : params)
         {
             if (param->getType()->isPointerTy())
             {
                 if (verbose)
                 {
-                    debugInfo << "TailRecursionEliminationPass: Skipping tail recursion elimination for function " << func->getName()
+                    debugInfo << "TailRecursionEliminationPass: Skipping tail recursion elimination for function "
+                              << func->getName() << " at block " << bb->getName()
                               << " due to pointer parameter " << param->getName() << "\n";
                 }
-                return false; // 不支持指针参数的尾递归优化
+                skipBlock = true;
+                break;
             }
         }
+        if (skipBlock)
+            continue;
+
+        ensureLoopStructure();
         for (size_t i = 0; i < params.size(); ++i)
         {
             Value *param = params[i].get();
-            Value *arg = args[i];
-            auto *copy = new CopyInst(arg, param->getName());
-            bb->insert(std::unique_ptr<Instruction>(copy), bb->getInstructions().size() - 2);
+            if (paramPhis.count(param))
+                paramPhis[param]->addIncoming(args[i], bb);
         }
         if (verbose)
         {
-            debugInfo << "TailRecursionEliminationPass: Eliminating tail recursion in function " << func->getName() << " at block " << bb->getName() << "\n";
+            debugInfo << "TailRecursionEliminationPass: Eliminating tail recursion in function " << func->getName()
+                      << " at block " << bb->getName() << "\n";
         }
-        // 删除call和return
         call->removeThisFromOperands();
         ret->removeThisFromOperands();
         needToDelete.push_back(call);
@@ -479,11 +532,9 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
                                                        return inst.get() == call || inst.get() == ret;
                                                    }),
                                     bb->getInstructions().end());
-        // 插入无条件跳转到入口
-        bb->addInstruction(std::make_unique<BranchInst>(entryBB));
-        // 更新cfg
-        entryBB->addPredecessor(bb);
-        bb->addSuccessor(entryBB);
+        bb->addInstruction(std::make_unique<BranchInst>(loopHeader));
+        loopHeader->addPredecessor(bb);
+        bb->addSuccessor(loopHeader);
         changed = true;
     }
     return changed;

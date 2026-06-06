@@ -1,6 +1,45 @@
 #include "OptimizationPasses.h"
 using namespace std;
 using namespace optimization;
+
+namespace
+{
+bool functionHasRemainingCalls(Module *module, Function *target)
+{
+    if (!module || !target || target->isLibraryFunction())
+        return false;
+
+    const string targetName = target->getName();
+    for (auto &funcPtr : module->Functions)
+    {
+        Function *func = funcPtr.get();
+        if (!func || func->isLibraryFunction() || func == target || func->isDeletedFunction())
+            continue;
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            if (!bb)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                if (!inst)
+                    continue;
+                auto *call = dynamic_cast<CallInst *>(inst);
+                if (!call)
+                    continue;
+                Function *callee = call->getCalledFunction();
+                if (!callee)
+                    continue;
+                if (callee == target || callee->getName() == targetName)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+} // namespace
+
 // ========== PassManager 实现 ==========
 void PassManager::addPass(std::unique_ptr<Pass> pass)
 {
@@ -34,8 +73,11 @@ bool PassManager::runOnModule(Module *module)
                 std::remove_if(
                     module->Functions.begin(),
                     module->Functions.end(),
-                    [](const auto &func)
-                    { return func->isDeletedFunction(); }),
+                    [module](const auto &func)
+                    {
+                        return func->isDeletedFunction() &&
+                               !functionHasRemainingCalls(module, func.get());
+                    }),
                 module->Functions.end());
         }
     }
@@ -149,6 +191,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
@@ -210,6 +253,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
@@ -433,6 +477,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 尾递归消除必须在函数内联之后
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
