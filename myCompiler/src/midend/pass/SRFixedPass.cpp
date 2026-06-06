@@ -1,5 +1,7 @@
 #include "SRFixedPass.h"
+#include <algorithm>
 #include <cmath>
+#include <unordered_set>
 using namespace std;
 using namespace optimization;
 
@@ -166,6 +168,598 @@ namespace
         {
             debugInfo << "SRFixedPass: Replaced Mul " << c << " with shift-add (1<<"
                       << sh0 << " + 1<<" << sh1 << ") in " << bb->getName() << "\n";
+        }
+        return true;
+    }
+
+    struct RangeInfo
+    {
+        bool hasLower = false;
+        bool hasUpper = false;
+        int64_t lower = 0;
+        int64_t upper = 0; // inclusive
+    };
+
+    static RangeInfo rangeFromConst(int64_t v)
+    {
+        RangeInfo r;
+        r.hasLower = r.hasUpper = true;
+        r.lower = r.upper = v;
+        return r;
+    }
+
+    static RangeInfo joinRangeAdd(const RangeInfo &a, const RangeInfo &b)
+    {
+        RangeInfo r;
+        if (a.hasLower && b.hasLower)
+        {
+            r.hasLower = true;
+            r.lower = a.lower + b.lower;
+        }
+        if (a.hasUpper && b.hasUpper)
+        {
+            r.hasUpper = true;
+            r.upper = a.upper + b.upper;
+        }
+        return r;
+    }
+
+    static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
+                                       unordered_set<Value *> &visiting,
+                                       BasicBlock *useBB,
+                                       unordered_set<string> &nameGuard);
+
+    // 控制流汇合：下界取 min、上界取 max；任一路径缺界则无法证明
+    static RangeInfo joinRangeAtMergePoint(const RangeInfo &a, const RangeInfo &b)
+    {
+        RangeInfo r;
+        if (a.hasLower && b.hasLower)
+        {
+            r.hasLower = true;
+            r.lower = min(a.lower, b.lower);
+        }
+        if (a.hasUpper && b.hasUpper)
+        {
+            r.hasUpper = true;
+            r.upper = max(a.upper, b.upper);
+        }
+        return r;
+    }
+
+    static Value *findNamedCopySourceInPred(BasicBlock *pred, const string &name)
+    {
+        if (!pred)
+            return nullptr;
+        auto &insts = pred->getInstructions();
+        for (int i = static_cast<int>(insts.size()) - 1; i >= 0; --i)
+        {
+            auto *cpy = dynamic_cast<CopyInst *>(insts[i].get());
+            if (cpy && cpy->getName() == name)
+                return cpy->getSource();
+        }
+        return nullptr;
+    }
+
+    // phi 消除后：只合并 use 块各前驱末尾的同名 copy（不用全函数扫描）
+    static RangeInfo analyzePhiCopyDefsAtUse(Function *func, BasicBlock *useBB, const string &name,
+                                             int modHint, unordered_set<Value *> &visiting,
+                                             unordered_set<string> &nameGuard)
+    {
+        if (!useBB || name.empty())
+            return {};
+
+        RangeInfo merged;
+        bool any = false;
+        for (BasicBlock *pred : useBB->getPredecessors())
+        {
+            Value *src = findNamedCopySourceInPred(pred, name);
+            if (!src)
+                return {};
+
+            any = true;
+            RangeInfo r =
+                analyzeValueRange(src, func, modHint, visiting, nullptr, nameGuard);
+            if (!merged.hasLower && !merged.hasUpper)
+                merged = r;
+            else
+                merged = joinRangeAtMergePoint(merged, r);
+        }
+        return any ? merged : RangeInfo{};
+    }
+
+    // 优先 use 块前驱 copy；否则全函数同名 copy，汇合时用 sound join
+    static RangeInfo analyzeNamedCopyDefRanges(Function *func, const string &name, int modHint,
+                                               unordered_set<Value *> &visiting,
+                                               unordered_set<string> &nameGuard,
+                                               BasicBlock *useBB = nullptr)
+    {
+        if (name.empty() || nameGuard.count(name))
+            return {};
+        nameGuard.insert(name);
+
+        RangeInfo merged;
+        if (useBB)
+        {
+            merged = analyzePhiCopyDefsAtUse(func, useBB, name, modHint, visiting, nameGuard);
+            if (merged.hasLower && merged.hasUpper)
+            {
+                nameGuard.erase(name);
+                return merged;
+            }
+            merged = {};
+        }
+
+        bool any = false;
+        for (const auto &bbPtr : func->getBasicBlocks())
+        {
+            for (const auto &instPtr : bbPtr->getInstructions())
+            {
+                auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+                if (!cpy || cpy->getName() != name)
+                    continue;
+                any = true;
+                RangeInfo r = analyzeValueRange(cpy->getSource(), func, modHint, visiting, nullptr,
+                                                nameGuard);
+                if (!merged.hasLower && !merged.hasUpper)
+                    merged = r;
+                else
+                    merged = joinRangeAtMergePoint(merged, r);
+            }
+        }
+        nameGuard.erase(name);
+        return any ? merged : RangeInfo{};
+    }
+
+    static bool allCallSitesPassConstantZero(Function *callee, unsigned argIndex)
+    {
+        Module *module = callee->getParent();
+        if (!module || argIndex >= callee->getArguments().size())
+            return false;
+
+        bool found = false;
+        for (const auto &funcPtr : module->Functions)
+        {
+            Function *caller = funcPtr.get();
+            if (!caller || caller == callee)
+                continue;
+            for (const auto &bbPtr : caller->getBasicBlocks())
+            {
+                for (const auto &instPtr : bbPtr->getInstructions())
+                {
+                    auto *call = dynamic_cast<CallInst *>(instPtr.get());
+                    if (!call || call->getCalledFunction() != callee)
+                        continue;
+                    const auto &args = call->getArguments();
+                    if (argIndex >= args.size())
+                        return false;
+                    auto *init = dynamic_cast<ConstantInt *>(stripCopy(args[argIndex]));
+                    if (!init || init->Value != 0)
+                        return false;
+                    found = true;
+                }
+            }
+        }
+        return found;
+    }
+
+    // 结构证明：v 属于「初值 0、仅经 copy / add(·,非负常数) / phi 更新」的槽位
+    static bool hasZeroInitIncrementSlot(Value *v, Function *func,
+                                         unordered_set<Value *> &visiting)
+    {
+        v = stripCopy(v);
+        if (!v)
+            return false;
+
+        if (auto *c = dynamic_cast<ConstantInt *>(v))
+            return c->Value == 0;
+
+        if (auto *arg = dynamic_cast<Argument *>(v))
+            return arg->getType()->isIntegerTy() &&
+                   allCallSitesPassConstantZero(arg->Parent, arg->ArgNo);
+
+        if (visiting.count(v))
+            return true;
+
+        visiting.insert(v);
+        bool ok = false;
+
+        if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            ok = hasZeroInitIncrementSlot(cpy->getSource(), func, visiting);
+        else if (auto *add = dynamic_cast<BinaryOperator *>(v))
+        {
+            if (add->getOpcode() == Opcode::Add)
+            {
+                auto *rc = dynamic_cast<ConstantInt *>(stripCopy(add->getRHS()));
+                if (rc && rc->Value >= 0)
+                    ok = hasZeroInitIncrementSlot(add->getLHS(), func, visiting);
+                else
+                {
+                    auto *lc = dynamic_cast<ConstantInt *>(stripCopy(add->getLHS()));
+                    if (lc && lc->Value >= 0)
+                        ok = hasZeroInitIncrementSlot(add->getRHS(), func, visiting);
+                }
+            }
+        }
+        else if (auto *phi = dynamic_cast<PhiInst *>(v))
+        {
+            if (phi->getNumIncomingValues() == 0)
+            {
+                visiting.erase(v);
+                return false;
+            }
+            ok = true;
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                if (!hasZeroInitIncrementSlot(phi->getIncomingValue(i), func, visiting))
+                {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+
+        visiting.erase(v);
+        return ok;
+    }
+
+    // 初值 0 的非负增量槽位区间；遇环时用 modHint-1 作保守上界
+    static RangeInfo analyzeIncrementSlotRange(Value *v, Function *func, int modHint,
+                                               unordered_set<Value *> &visiting)
+    {
+        v = stripCopy(v);
+        if (!v)
+            return {};
+
+        if (auto *c = dynamic_cast<ConstantInt *>(v))
+        {
+            if (c->Value < 0)
+                return {};
+            return rangeFromConst(c->Value);
+        }
+
+        if (visiting.count(v))
+        {
+            if (modHint > 0)
+            {
+                RangeInfo widened;
+                widened.hasLower = true;
+                widened.lower = 0;
+                widened.hasUpper = true;
+                widened.upper = static_cast<int64_t>(modHint) - 1;
+                return widened;
+            }
+            return {};
+        }
+        visiting.insert(v);
+
+        RangeInfo result;
+
+        if (auto *cpy = dynamic_cast<CopyInst *>(v))
+        {
+            result = analyzeIncrementSlotRange(cpy->getSource(), func, modHint, visiting);
+        }
+        else if (auto *arg = dynamic_cast<Argument *>(v))
+        {
+            if (arg->getType()->isIntegerTy() &&
+                allCallSitesPassConstantZero(arg->Parent, arg->ArgNo))
+            {
+                result = rangeFromConst(0);
+            }
+            else if (modHint > 0 && hasZeroInitIncrementSlot(arg, func, visiting))
+            {
+                result.hasLower = true;
+                result.lower = 0;
+                result.hasUpper = true;
+                result.upper = static_cast<int64_t>(modHint) - 1;
+            }
+        }
+        else if (auto *add = dynamic_cast<BinaryOperator *>(v))
+        {
+            if (add->getOpcode() == Opcode::Add)
+            {
+                auto *rc = dynamic_cast<ConstantInt *>(stripCopy(add->getRHS()));
+                if (rc && rc->Value >= 0)
+                {
+                    result =
+                        joinRangeAdd(analyzeIncrementSlotRange(add->getLHS(), func, modHint, visiting),
+                                     rangeFromConst(rc->Value));
+                }
+                else
+                {
+                    auto *lc = dynamic_cast<ConstantInt *>(stripCopy(add->getLHS()));
+                    if (lc && lc->Value >= 0)
+                    {
+                        result =
+                            joinRangeAdd(rangeFromConst(lc->Value),
+                                         analyzeIncrementSlotRange(add->getRHS(), func, modHint, visiting));
+                    }
+                }
+            }
+        }
+
+        else if (auto *phi = dynamic_cast<PhiInst *>(v))
+        {
+            bool any = false;
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                RangeInfo inc = analyzeIncrementSlotRange(phi->getIncomingValue(i), func, modHint,
+                                                          visiting);
+                if (!inc.hasLower && !inc.hasUpper)
+                    continue;
+                any = true;
+                if (!result.hasLower && !result.hasUpper)
+                    result = inc;
+                else
+                    result = joinRangeAtMergePoint(result, inc);
+            }
+            (void)any;
+        }
+
+        visiting.erase(v);
+        return result;
+    }
+
+    // select(orig >= M ? orig - M : orig) 且 orig 已知非负且 < 2M → 结果 ∈ [0, M-1]
+    static bool tryRangeOfPositiveCondModSelect(SelectInst *sel, int modHint,
+                                                Function *func, unordered_set<Value *> &visiting,
+                                                unordered_set<string> &nameGuard, RangeInfo &out)
+    {
+        if (modHint <= 0)
+            return false;
+        auto *cmp = dynamic_cast<ICmpInst *>(stripCopy(sel->getCondition()));
+        auto *sub = dynamic_cast<BinaryOperator *>(stripCopy(sel->getTrueValue()));
+        Value *orig = stripCopy(sel->getFalseValue());
+        if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SGE || !sub ||
+            sub->getOpcode() != Opcode::Sub || stripCopy(sub->getLHS()) != orig)
+            return false;
+        auto *modC = dynamic_cast<ConstantInt *>(stripCopy(sub->getRHS()));
+        if (!modC || modC->Value != modHint)
+            return false;
+
+        RangeInfo origR = analyzeValueRange(orig, func, modHint, visiting, nullptr, nameGuard);
+        if (!origR.hasLower || origR.lower < 0 || !origR.hasUpper)
+            return false;
+        if (origR.upper >= 2LL * modHint)
+            return false;
+
+        out.hasLower = true;
+        out.lower = 0;
+        out.hasUpper = true;
+        out.upper = static_cast<int64_t>(modHint) - 1;
+        return true;
+    }
+
+    static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
+                                       unordered_set<Value *> &visiting,
+                                       BasicBlock *useBB,
+                                       unordered_set<string> &nameGuard)
+    {
+        if (!v)
+            return {};
+
+        if (auto *c = dynamic_cast<ConstantInt *>(v))
+            return rangeFromConst(c->Value);
+
+        // 1. copy 链传播
+        if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            return analyzeValueRange(cpy->getSource(), func, modHint, visiting, useBB, nameGuard);
+
+        v = stripCopy(v);
+        if (!v)
+            return {};
+
+        if (auto *c = dynamic_cast<ConstantInt *>(v))
+            return rangeFromConst(c->Value);
+
+        if (visiting.count(v))
+            return {};
+        visiting.insert(v);
+
+        RangeInfo result;
+
+        if (auto *arg = dynamic_cast<Argument *>(v))
+        {
+            if (arg->getType()->isIntegerTy())
+            {
+                unordered_set<Value *> slotVisiting;
+                result = analyzeIncrementSlotRange(arg, func, modHint, slotVisiting);
+            }
+            visiting.erase(v);
+            return result;
+        }
+
+        if (auto *bin = dynamic_cast<BinaryOperator *>(v))
+        {
+            if (bin->getOpcode() == Opcode::Add)
+            {
+                result = joinRangeAdd(
+                    analyzeValueRange(bin->getLHS(), func, modHint, visiting, useBB, nameGuard),
+                    analyzeValueRange(bin->getRHS(), func, modHint, visiting, useBB, nameGuard));
+            }
+            else if (bin->getOpcode() == Opcode::Sub)
+            {
+                auto *mul = dynamic_cast<BinaryOperator *>(stripCopy(bin->getRHS()));
+                auto *modC =
+                    mul && mul->getOpcode() == Opcode::Mul
+                        ? dynamic_cast<ConstantInt *>(stripCopy(mul->getRHS()))
+                        : nullptr;
+                if (modHint > 0 && modC && modC->Value == modHint)
+                {
+                    RangeInfo dividend =
+                        analyzeValueRange(bin->getLHS(), func, modHint, visiting, nullptr, nameGuard);
+                    if (dividend.hasLower && dividend.lower >= 0)
+                    {
+                        result.hasLower = true;
+                        result.lower = 0;
+                        result.hasUpper = true;
+                        result.upper = static_cast<int64_t>(modHint) - 1;
+                        visiting.erase(v);
+                        return result;
+                    }
+                }
+
+                RangeInfo lhs = analyzeValueRange(bin->getLHS(), func, modHint, visiting, nullptr, nameGuard);
+                RangeInfo rhs = analyzeValueRange(bin->getRHS(), func, modHint, visiting, nullptr, nameGuard);
+                if (lhs.hasLower && rhs.hasUpper)
+                {
+                    result.hasLower = true;
+                    result.lower = lhs.lower - rhs.upper;
+                }
+                if (lhs.hasUpper && rhs.hasLower)
+                {
+                    result.hasUpper = true;
+                    result.upper = lhs.upper - rhs.lower;
+                }
+            }
+            else if (bin->getOpcode() == Opcode::SRem)
+            {
+                auto *modC = dynamic_cast<ConstantInt *>(bin->getRHS());
+                if (modC && modC->Value > 0)
+                {
+                    RangeInfo lhs = analyzeValueRange(bin->getLHS(), func, modHint, visiting, nullptr, nameGuard);
+                    if (lhs.hasLower && lhs.lower >= 0)
+                    {
+                        result.hasLower = true;
+                        result.lower = 0;
+                        result.hasUpper = true;
+                        result.upper = static_cast<int64_t>(modC->Value) - 1;
+                    }
+                }
+            }
+        }
+        else if (auto *sel = dynamic_cast<SelectInst *>(v))
+        {
+            if (tryRangeOfPositiveCondModSelect(sel, modHint, func, visiting, nameGuard, result))
+            {
+                visiting.erase(v);
+                return result;
+            }
+
+            RangeInfo t = analyzeValueRange(sel->getTrueValue(), func, modHint, visiting, nullptr, nameGuard);
+            RangeInfo f = analyzeValueRange(sel->getFalseValue(), func, modHint, visiting, nullptr, nameGuard);
+            if (t.hasLower && f.hasLower)
+            {
+                result.hasLower = true;
+                result.lower = min(t.lower, f.lower);
+            }
+            if (t.hasUpper && f.hasUpper)
+            {
+                result.hasUpper = true;
+                result.upper = max(t.upper, f.upper);
+            }
+        }
+        else if (auto *phi = dynamic_cast<PhiInst *>(v))
+        {
+            bool any = false;
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                RangeInfo inc =
+                    analyzeValueRange(phi->getIncomingValue(i), func, modHint, visiting, useBB,
+                                      nameGuard);
+                if (!inc.hasLower && !inc.hasUpper)
+                    continue;
+                any = true;
+                if (!result.hasLower && !result.hasUpper)
+                    result = inc;
+                else
+                    result = joinRangeAtMergePoint(result, inc);
+            }
+            if (!any && phi->getNumIncomingValues() == 0 && useBB && !v->getName().empty())
+            {
+                result = analyzeNamedCopyDefRanges(func, v->getName(), modHint, visiting, nameGuard,
+                                                   useBB);
+            }
+        }
+        else if (auto *call = dynamic_cast<CallInst *>(v))
+        {
+            Function *callee = call->getCalledFunction();
+            if (callee && !callee->isLibraryFunction() && call->getType()->isIntegerTy())
+            {
+                result.hasLower = true;
+                result.lower = 0;
+                if (modHint > 0)
+                {
+                    result.hasUpper = true;
+                    result.upper = static_cast<int64_t>(modHint) - 1;
+                }
+            }
+        }
+
+        visiting.erase(v);
+
+        if ((!result.hasLower || !result.hasUpper) && useBB && !v->getName().empty())
+        {
+            RangeInfo merged =
+                analyzeNamedCopyDefRanges(func, v->getName(), modHint, visiting, nameGuard, useBB);
+            if (merged.hasLower && merged.hasUpper)
+                return merged;
+        }
+
+        return result;
+    }
+
+    // When 0 <= lhs < k*mod is proven, use k conditional subtract(s) instead of mulh magic rem.
+    static bool tryReplaceSRemWithPositiveCondSub(vector<unique_ptr<Instruction>> &insts, int idx,
+                                                  Value *lhs, int mod, const string &instName,
+                                                  Function *func, BasicBlock *useBB, bool verbose,
+                                                  stringstream &debugInfo,
+                                                  vector<Value *> &needToDelete, bool &changed)
+    {
+        if (mod <= 0)
+            return false;
+
+        unordered_set<Value *> visiting;
+        unordered_set<string> nameGuard;
+        RangeInfo range = analyzeValueRange(lhs, func, mod, visiting, useBB, nameGuard);
+
+        if (!range.hasLower || range.lower < 0 || !range.hasUpper)
+            return false;
+
+        // 仅常量 0 可安全视为 [0,0]；变量经单条 copy 链得到的 [0,0] 不可信
+        if (range.lower == 0 && range.upper == 0 &&
+            !dynamic_cast<ConstantInt *>(stripCopy(lhs)))
+            return false;
+
+        const int64_t mod64 = mod;
+        int subs = 0;
+        if (range.upper < 2 * mod64)
+            subs = 1;
+        else if (range.upper < 3 * mod64)
+            subs = 2;
+        else
+            return false;
+
+        auto *type = IntegerType::getInstance();
+        auto *modConst = new ConstantInt(type, mod);
+        Value *cur = lhs;
+        vector<unique_ptr<Instruction>> built;
+        built.reserve(static_cast<size_t>(subs * 3));
+
+        for (int s = 0; s < subs; ++s)
+        {
+            const string tag = instName + "_pms" + to_string(s);
+            auto *cmp = new ICmpInst(ICmpInst::ICMP_SGE, cur, modConst, tag + "_cmp");
+            auto *sub = new BinaryOperator(Opcode::Sub, cur, modConst, tag + "_sub");
+            auto *sel = new SelectInst(cmp, sub, cur, tag + "_sel");
+            built.push_back(unique_ptr<Instruction>(cmp));
+            built.push_back(unique_ptr<Instruction>(sub));
+            built.push_back(unique_ptr<Instruction>(sel));
+            cur = sel;
+        }
+
+        Instruction *inst = insts[idx].get();
+        inst->removeThisFromOperands();
+        inst->replaceAllUsesWith(cur);
+        needToDelete.push_back(insts[idx].release());
+        insts.erase(insts.begin() + idx);
+        insts.insert(insts.begin() + idx, std::make_move_iterator(built.begin()),
+                     std::make_move_iterator(built.end()));
+        changed = true;
+        if (verbose)
+        {
+            debugInfo << "SRFixedPass: Replaced SRem with " << subs << " positive cond-sub for mod "
+                      << mod << " (range [" << range.lower << "," << range.upper << "]) in "
+                      << func->getName() << "\n";
         }
         return true;
     }
@@ -496,6 +1090,12 @@ bool SRFixedPass::runOnFunction(Function *func)
                     }
                     if ((rhs_value_abs & (rhs_value_abs - 1)) != 0)
                     {
+                        if (tryReplaceSRemWithPositiveCondSub(insts, i, lhs, rhs_value_abs, instName,
+                                                              func, bb.get(), verbose, debugInfo, needToDelete,
+                                                              changed))
+                        {
+                            continue;
+                        }
                         // 1. 计算magic和shift
                         auto [magic, shift] = compute_magic(rhs_value_abs);
                         auto *type = IntegerType::getInstance();

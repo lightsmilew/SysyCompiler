@@ -1286,6 +1286,19 @@ unsigned PhiInst::getIndexByBasicBlock(BasicBlock *block) const
     }
     return -1; // 如果没有找到，返回无效索引
 }
+void PhiInst::removeThisFromOperands()
+{
+    for (BasicBlock *block : IncomingValues)
+    {
+        if (block)
+        {
+            block->removeUser(this);
+        }
+    }
+    IncomingValues.clear();
+    User::removeThisFromOperands();
+}
+
 void PhiInst::addIncoming(Value *value, BasicBlock *block)
 {
     IncomingValues.emplace_back(block);

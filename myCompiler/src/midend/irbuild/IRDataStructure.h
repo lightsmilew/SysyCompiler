@@ -278,7 +278,7 @@ public:
     {
         // removeThisFromOperands();
     }
-    void removeThisFromOperands();                         // 从所有操作数的Users列表中移除自己
+    virtual void removeThisFromOperands();                 // 从所有操作数的Users列表中移除自己
     void addOperand(Value *operand);                       // 添加操作数
     void setOperands(const vector<Value *> &operands);     // 设置操作数
     void replaceOperand(Value *oldValue, Value *newValue); // 替换操作数
@@ -725,6 +725,7 @@ public:
     void setIncomingBlock(unsigned index, BasicBlock *block);                   // 设置前驱基本块
     vector<BasicBlock *> getIncomingBlocks() const;                             // 获取所有前驱基本块
     Value *getDest() const { return const_cast<PhiInst *>(this); }              // 获取目的操作数(本身)
+    void removeThisFromOperands() override;
     string toString() const override;
 };
 
