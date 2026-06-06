@@ -4,13 +4,10 @@ using namespace optimization;
 
 namespace
 {
-// TRE 后会插入 xxx.preheader 作为新入口
+// TRE 后会标记 tailRecursionEliminated
 static bool isTailRecursionEliminatedFunction(Function *func)
 {
-    if (!func)
-        return false;
-    BasicBlock *entry = func->getEntryBlock();
-    return entry && entry->getName().find(".preheader") != string::npos;
+    return func && func->isTailRecursionEliminated();
 }
 } // namespace
 
@@ -125,10 +122,22 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
     std::unordered_map<Value *, Value *> valueMap;
     auto &params = callee->getArguments();
     const auto &args = call->getArguments();
-    for (size_t i = 0; i < params.size(); ++i)
-        valueMap[params[i].get()] = args[i];
-    int num = 0;
     string suffix = getsuffix(callee->getName());
+    std::vector<std::unique_ptr<Instruction>> tailRecParamInits;
+    for (size_t i = 0; i < params.size(); ++i)
+    {
+        if (callee->isTailRecursionEliminated() && !params[i]->getType()->isPointerTy())
+        {
+            auto initCopy = std::make_unique<CopyInst>(args[i], params[i]->getName() + suffix);
+            valueMap[params[i].get()] = initCopy.get();
+            tailRecParamInits.push_back(std::move(initCopy));
+        }
+        else
+        {
+            valueMap[params[i].get()] = args[i];
+        }
+    }
+    int num = 0;
 
     // 复制所有基本块，建立映射
     std::unordered_map<BasicBlock *, BasicBlock *> bbMap;
@@ -320,6 +329,8 @@ int FunctionInliningPass::inlineAt(CallInst *call, Function *caller, BasicBlock 
 
     // 在调用点插入跳转到内联入口块
     auto *entryBB = bbMap[callee->getEntryBlock()];
+    for (auto &initCopy : tailRecParamInits)
+        bb->addInstruction(std::move(initCopy));
     bb->addInstruction(std::make_unique<BranchInst>(entryBB));
     entryBB->addPredecessor(bb);
     bb->addSuccessor(entryBB);
@@ -447,36 +458,7 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
     if (bbs.empty())
         return false;
 
-    BasicBlock *loopHeader = func->getEntryBlock();
-    BasicBlock *preheader = nullptr;
-    std::unordered_map<Value *, PhiInst *> paramPhis;
-
-    auto ensureLoopStructure = [&]() {
-        if (preheader)
-            return;
-
-        unsigned insertPos = 0;
-        for (auto &paramPtr : func->getArguments())
-        {
-            Value *param = paramPtr.get();
-            if (param->getType()->isPointerTy())
-                continue;
-            auto *phi = new PhiInst(param->getType(), param->getName());
-            loopHeader->insert(std::unique_ptr<Instruction>(phi), insertPos++);
-            param->replaceAllUsesWith(phi);
-            paramPhis[param] = phi;
-        }
-
-        preheader = new BasicBlock(func->getName() + ".preheader", func);
-        preheader->addInstruction(std::make_unique<BranchInst>(loopHeader));
-        loopHeader->addPredecessor(preheader);
-        preheader->addSuccessor(loopHeader);
-        for (auto &[param, phi] : paramPhis)
-            phi->addIncoming(param, preheader);
-
-        bbs.insert(bbs.begin(), std::unique_ptr<BasicBlock>(preheader));
-    };
-
+    BasicBlock *entryBB = func->getEntryBlock();
     auto exitBBs = func->getExitBlocks();
     for (auto bb : exitBBs)
     {
@@ -510,12 +492,12 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
         if (skipBlock)
             continue;
 
-        ensureLoopStructure();
         for (size_t i = 0; i < params.size(); ++i)
         {
             Value *param = params[i].get();
-            if (paramPhis.count(param))
-                paramPhis[param]->addIncoming(args[i], bb);
+            Value *arg = args[i];
+            auto *copy = new CopyInst(arg, param->getName());
+            bb->insert(std::unique_ptr<Instruction>(copy), bb->getInstructions().size() - 2);
         }
         if (verbose)
         {
@@ -532,10 +514,12 @@ bool TailRecursionEliminationPass::runOnFunction(Function *func)
                                                        return inst.get() == call || inst.get() == ret;
                                                    }),
                                     bb->getInstructions().end());
-        bb->addInstruction(std::make_unique<BranchInst>(loopHeader));
-        loopHeader->addPredecessor(bb);
-        bb->addSuccessor(loopHeader);
+        bb->addInstruction(std::make_unique<BranchInst>(entryBB));
+        entryBB->addPredecessor(bb);
+        bb->addSuccessor(entryBB);
         changed = true;
     }
+    if (changed)
+        func->setTailRecursionEliminated(true);
     return changed;
 }

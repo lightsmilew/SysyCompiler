@@ -872,8 +872,9 @@ public:
     vector<Loop> Loops;                        // 循环信息
     Module *Parent;                            // 所属模块
     bool isDeleted = false;                    // 标记函数是否被删除
+    bool tailRecursionEliminated = false;      // 已做尾递归消除（copy 循环形式）
     Function(FunctionType *funcTy, const string &name = "", Module *parent = nullptr)
-        : Value(funcTy, name), Parent(parent), isDeleted(false) {}
+        : Value(funcTy, name), Parent(parent), isDeleted(false), tailRecursionEliminated(false) {}
 
     BasicBlock *addBasicBlock(const string &name = ""); // 添加基本块
     void addBasicBlock(unique_ptr<BasicBlock> block);   // 添加基本块(使用unique_ptr)
@@ -897,6 +898,8 @@ public:
     bool isRecursive() const;                                   // 是否为递归函数
     void setDeleted(bool deleted);                              // 设置函数是否被删除
     bool isDeletedFunction() const;                             // 获取函数是否被删除
+    void setTailRecursionEliminated(bool eliminated);           // 标记已尾递归消除
+    bool isTailRecursionEliminated() const;                     // 是否已尾递归消除
     bool shouldBeOutput() const;                                // 是否应该输出到IR文件
     vector<size_t> getIndexOfNotUsedArguments() const;          // 获取未使用参数的索引
     string toString() const override;

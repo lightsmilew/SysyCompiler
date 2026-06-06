@@ -1952,6 +1952,14 @@ bool Function::isDeletedFunction() const
 {
     return isDeleted;
 }
+void Function::setTailRecursionEliminated(bool eliminated)
+{
+    tailRecursionEliminated = eliminated;
+}
+bool Function::isTailRecursionEliminated() const
+{
+    return tailRecursionEliminated;
+}
 bool Function::shouldBeOutput() const
 {
     // 如果是库函数或被标记为删除，则不输出
