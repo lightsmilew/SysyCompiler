@@ -205,20 +205,24 @@ namespace
 
         auto *type = IntegerType::getInstance();
         auto *modConst = new ConstantInt(type, mod);
+        auto *zero = new ConstantInt(type, 0);
         Value *cur = lhs;
         vector<unique_ptr<Instruction>> built;
-        built.reserve(static_cast<size_t>(subs * 3));
+        built.reserve(static_cast<size_t>(subs * 4));
 
         for (int s = 0; s < subs; ++s)
         {
             const string tag = instName + "_pms" + to_string(s);
+            // cur >= mod ? cur - mod : cur  ==>  cur - (mod & (0 - (cur >= mod)))
             auto *cmp = new ICmpInst(ICmpInst::ICMP_SGE, cur, modConst, tag + "_cmp");
-            auto *sub = new BinaryOperator(Opcode::Sub, cur, modConst, tag + "_sub");
-            auto *sel = new SelectInst(cmp, sub, cur, tag + "_sel");
+            auto *mask = new BinaryOperator(Opcode::Sub, zero, cmp, tag + "_mask");
+            auto *adjust = new BinaryOperator(Opcode::And, mask, modConst, tag + "_adj");
+            auto *res = new BinaryOperator(Opcode::Sub, cur, adjust, tag + "_res");
             built.push_back(unique_ptr<Instruction>(cmp));
-            built.push_back(unique_ptr<Instruction>(sub));
-            built.push_back(unique_ptr<Instruction>(sel));
-            cur = sel;
+            built.push_back(unique_ptr<Instruction>(mask));
+            built.push_back(unique_ptr<Instruction>(adjust));
+            built.push_back(unique_ptr<Instruction>(res));
+            cur = res;
         }
 
         Instruction *inst = insts[idx].get();
@@ -500,7 +504,8 @@ bool SRFixedPass::runOnFunction(Function *func)
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q));
                         if (sign)
                             insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sign));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q0));
+                        if (q != q0)
+                            insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q0));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sra_div));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(mulh));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhs_sll));
@@ -644,7 +649,8 @@ bool SRFixedPass::runOnFunction(Function *func)
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q));
                         if (sign)
                             insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sign));
-                        insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q0));
+                        if (q != q0)
+                            insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(q0));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(sra_div));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(mulh));
                         insts.insert(insts.begin() + i, std::unique_ptr<Instruction>(lhs_sll));

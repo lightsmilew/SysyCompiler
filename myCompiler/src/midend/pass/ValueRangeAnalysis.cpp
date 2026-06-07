@@ -1,5 +1,6 @@
 #include "ValueRangeAnalysis.h"
 #include <algorithm>
+#include <map>
 #include <unordered_set>
 #include <vector>
 using namespace std;
@@ -317,13 +318,21 @@ static bool allCallSitesPassConstantZero(Function *callee, unsigned argIndex)
     return found;
 }
 
-static RangeInfo rangeFromCallSiteActualArg(Value *actualArg, Argument *param,
+struct CallSiteActualArg
+{
+    Function *caller = nullptr;
+    Value *arg = nullptr;
+};
+
+static map<pair<Argument *, int>, RangeInfo> argCallSiteRangeCache;
+
+static RangeInfo rangeFromCallSiteActualArg(const CallSiteActualArg &site, Argument *param,
                                             const RangeInfo &paramHint, Function *func,
                                             int modHint, unordered_set<Value *> &visiting,
                                             unordered_set<string> &nameGuard)
 {
-    actualArg = stripCopy(actualArg);
-    if (!actualArg || actualArg == param)
+    Value *actualArg = stripCopy(site.arg);
+    if (!actualArg || actualArg == param || !site.caller)
         return {};
 
     if (auto *sra = dynamic_cast<BinaryOperator *>(actualArg))
@@ -351,7 +360,7 @@ static RangeInfo rangeFromCallSiteActualArg(Value *actualArg, Argument *param,
         }
     }
 
-    return analyzeValueRange(actualArg, func, modHint, visiting, nullptr, nameGuard);
+    return analyzeValueRange(actualArg, site.caller, modHint, visiting, nullptr, nameGuard);
 }
 
 static RangeInfo analyzeArgumentFromCallSites(Argument *arg, Function *func, int modHint,
@@ -362,8 +371,16 @@ static RangeInfo analyzeArgumentFromCallSites(Argument *arg, Function *func, int
     if (!module)
         return {};
 
+    auto cacheKey = make_pair(arg, modHint);
+    if (auto cached = argCallSiteRangeCache.find(cacheKey); cached != argCallSiteRangeCache.end())
+        return cached->second;
+
+    if (visiting.count(arg))
+        return {};
+    visiting.insert(arg);
+
     unsigned argIndex = arg->ArgNo;
-    vector<Value *> callArgs;
+    vector<CallSiteActualArg> callArgs;
     callArgs.reserve(8);
 
     for (const auto &funcPtr : module->Functions)
@@ -380,22 +397,28 @@ static RangeInfo analyzeArgumentFromCallSites(Argument *arg, Function *func, int
                     continue;
                 const auto &args = call->getArguments();
                 if (argIndex >= args.size())
+                {
+                    visiting.erase(arg);
                     return {};
-                callArgs.push_back(args[argIndex]);
+                }
+                callArgs.push_back({caller, args[argIndex]});
             }
         }
     }
 
+    const unsigned paramCount = func->getArguments().size();
+    const int maxRounds = paramCount > 16 ? 1 : 4;
+
     RangeInfo merged;
     bool any = false;
-    for (int round = 0; round < 4; ++round)
+    for (int round = 0; round < maxRounds; ++round)
     {
         RangeInfo next = merged;
         bool nextAny = any;
-        for (Value *actualArg : callArgs)
+        for (const CallSiteActualArg &site : callArgs)
         {
-            RangeInfo r = rangeFromCallSiteActualArg(actualArg, arg, merged, func, modHint,
-                                                     visiting, nameGuard);
+            RangeInfo r =
+                rangeFromCallSiteActualArg(site, arg, merged, func, modHint, visiting, nameGuard);
             if (!r.hasLower && !r.hasUpper)
                 continue;
             nextAny = true;
@@ -415,7 +438,11 @@ static RangeInfo analyzeArgumentFromCallSites(Argument *arg, Function *func, int
         if (stable)
             break;
     }
-    return any ? merged : RangeInfo{};
+
+    visiting.erase(arg);
+    RangeInfo result = any ? merged : RangeInfo{};
+    argCallSiteRangeCache.emplace(cacheKey, result);
+    return result;
 }
 
 // 结构证明：v 属于「初值 0、仅经 copy / add(·,非负常数) / phi 更新」的槽位
