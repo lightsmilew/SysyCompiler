@@ -397,7 +397,21 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
 
         if (hasShiftConst && isValidImmediate(shiftAmt, inst->Op))
         {
-            auto lhsReg = getOrCreateVirtualReg(inst->getLHS());
+            Value *shiftSrc = inst->getLHS();
+            CastInst *fusedSext = nullptr;
+            if (inst->Op == Opcode::Slld)
+            {
+                if (auto *sext = dynamic_cast<CastInst *>(shiftSrc))
+                {
+                    if (sext->Op == Opcode::Sext && sext->getUsers().size() == 1)
+                    {
+                        fusedSext = sext;
+                        shiftSrc = sext->getOperand();
+                    }
+                }
+            }
+
+            auto lhsReg = getOrCreateVirtualReg(shiftSrc);
             RISCVOpcode opcode;
             switch (inst->Op)
             {
@@ -418,6 +432,10 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
             }
             auto immInst = RISCVInstruction::createIType(opcode, destReg, lhsReg, shiftAmt);
             currentBB->addInstruction(immInst);
+            if (fusedSext)
+            {
+                registerMap[fusedSext->getName()] = destReg;
+            }
             return;
         }
     }
@@ -1646,13 +1664,38 @@ void InstructionSelector::visitBitCastInst(CastInst *inst)
 
 void InstructionSelector::visitSExtInst(CastInst *inst)
 {
-    // 处理符号扩展指令
+    // sext 后紧跟 slld(常量) 时，由 visitBinaryOp 融合为单条 slli
+    const auto &users = inst->getUsers();
+    if (users.size() == 1)
+    {
+        if (auto *slld = dynamic_cast<BinaryOperator *>(users[0]))
+        {
+            if (slld->Op == Opcode::Slld)
+            {
+                int64_t shiftAmt = 0;
+                bool hasShiftConst = false;
+                if (auto *rhsConst = dynamic_cast<ConstantInt *>(slld->getRHS()))
+                {
+                    shiftAmt = rhsConst->Value;
+                    hasShiftConst = true;
+                }
+                else if (auto *rhsLong = dynamic_cast<ConstantLong *>(slld->getRHS()))
+                {
+                    shiftAmt = rhsLong->Value;
+                    hasShiftConst = true;
+                }
+                if (hasShiftConst && isValidImmediate(shiftAmt, Opcode::Slld))
+                {
+                    return;
+                }
+            }
+        }
+    }
+
     auto srcReg = getOrCreateVirtualReg(inst->getOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
-
-    // 生成 RISC-V 的 slli 指令（左移）和 addi 指令（加法）
-    auto slliInst = RISCVInstruction::createIType(RISCVOpcode::ADDIW, destReg, srcReg, 0);
-    currentBB->addInstruction(slliInst);
+    auto sextInst = RISCVInstruction::createIType(RISCVOpcode::ADDIW, destReg, srcReg, 0);
+    currentBB->addInstruction(sextInst);
 }
 
 void InstructionSelector::visitTruncInst(CastInst *inst)

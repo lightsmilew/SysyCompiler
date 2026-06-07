@@ -957,6 +957,8 @@ bool GEPChainFoldPass::runOnFunction(Function *func)
             auto *gep = dynamic_cast<GetElementPtrInst *>(it->get());
             if (gep && tryFoldConstIndex1DGep(bb, gep, verbose, debugInfo, needToDelete, changed))
             {
+                // tryFoldConstIndex1DGep erases *gep*; iterator invalidated — restart scan.
+                it = insts.begin();
                 continue;
             }
             ++it;
