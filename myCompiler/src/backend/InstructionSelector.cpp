@@ -74,6 +74,110 @@ namespace
         }
         return inst->getOpcode() == Opcode::ICmp || inst->getOpcode() == Opcode::FCmp;
     }
+
+    bool isConstantIntZero(Value *value)
+    {
+        if (auto *c = dynamic_cast<ConstantInt *>(value))
+        {
+            return c->Value == 0;
+        }
+        return false;
+    }
+
+    struct MagicDivSignFixAdd
+    {
+        CastInst *trunc;
+        ICmpInst *signIcmp;
+        Value *sradResult;
+        Value *dividend;
+    };
+
+    bool tryMatchMagicDivSignFixAdd(BinaryOperator *add, MagicDivSignFixAdd &out)
+    {
+        if (!add || add->Op != Opcode::Add)
+        {
+            return false;
+        }
+
+        CastInst *trunc = nullptr;
+        ICmpInst *signIcmp = nullptr;
+
+        if (auto *t = dynamic_cast<CastInst *>(add->getLHS()))
+        {
+            if (t->Op == Opcode::Trunc)
+            {
+                trunc = t;
+            }
+        }
+        if (auto *i = dynamic_cast<ICmpInst *>(add->getLHS()))
+        {
+            signIcmp = i;
+        }
+        if (auto *t = dynamic_cast<CastInst *>(add->getRHS()))
+        {
+            if (t->Op == Opcode::Trunc)
+            {
+                trunc = t;
+            }
+        }
+        if (auto *i = dynamic_cast<ICmpInst *>(add->getRHS()))
+        {
+            signIcmp = i;
+        }
+
+        if (!trunc || !signIcmp || signIcmp->Pred != ICmpInst::ICMP_SLT ||
+            !isConstantIntZero(signIcmp->getRHS()))
+        {
+            return false;
+        }
+
+        Value *operand = trunc->getOperand();
+        if (!operand || !operand->getType()->isLongTy() || trunc->getType()->isLongTy())
+        {
+            return false;
+        }
+
+        if (trunc->getUsers().size() != 1 || signIcmp->getUsers().size() != 1)
+        {
+            return false;
+        }
+
+        out.trunc = trunc;
+        out.signIcmp = signIcmp;
+        out.sradResult = operand;
+        out.dividend = signIcmp->getLHS();
+        return true;
+    }
+
+    bool isTruncFusableWithMagicDivSignFix(CastInst *trunc)
+    {
+        if (!trunc || trunc->Op != Opcode::Trunc || trunc->getUsers().size() != 1)
+        {
+            return false;
+        }
+        auto *add = dynamic_cast<BinaryOperator *>(trunc->getUsers()[0]);
+        if (!add)
+        {
+            return false;
+        }
+        MagicDivSignFixAdd fusion;
+        return tryMatchMagicDivSignFixAdd(add, fusion) && fusion.trunc == trunc;
+    }
+
+    bool isIcmpFusableWithMagicDivSignFix(ICmpInst *icmp)
+    {
+        if (!icmp || icmp->getUsers().size() != 1)
+        {
+            return false;
+        }
+        auto *add = dynamic_cast<BinaryOperator *>(icmp->getUsers()[0]);
+        if (!add)
+        {
+            return false;
+        }
+        MagicDivSignFixAdd fusion;
+        return tryMatchMagicDivSignFixAdd(add, fusion) && fusion.signIcmp == icmp;
+    }
 }
 
 void InstructionSelector::selectInstructions(shared_ptr<RISCVFunction> func, Function *irFunc)
@@ -293,6 +397,23 @@ void InstructionSelector::visitBinaryOp(BinaryOperator *inst)
     auto *rhsConst = dynamic_cast<ConstantInt *>(inst->getRHS());
 
     auto destReg = getOrCreateVirtualReg(inst->getDest());
+
+    // trunc i64 + icmp slt(dividend,0) + add → slti + addw（magic div 符号修正）
+    if (inst->Op == Opcode::Add)
+    {
+        MagicDivSignFixAdd fusion;
+        if (tryMatchMagicDivSignFixAdd(inst, fusion))
+        {
+            auto sradReg = getOrCreateVirtualReg(fusion.sradResult);
+            auto dividendReg = getOrCreateVirtualReg(fusion.dividend);
+            auto signReg = getTempReg();
+            currentBB->addInstruction(
+                RISCVInstruction::createIType(RISCVOpcode::SLTI, signReg, dividendReg, 0));
+            currentBB->addInstruction(
+                RISCVInstruction::createRType(RISCVOpcode::ADDW, destReg, sradReg, signReg));
+            return;
+        }
+    }
 
     // 尝试使用立即数形式
     // 1. 处理可交换的运算 (Add, Addd, And, Or, Xor, ...)
@@ -1312,6 +1433,11 @@ void InstructionSelector::visitBranchInst(BranchInst *inst)
 
 void InstructionSelector::visitICmpInst(ICmpInst *inst)
 {
+    if (isIcmpFusableWithMagicDivSignFix(inst))
+    {
+        return;
+    }
+
     if (icmpOnlyUsedByBranch(inst) &&
         (inst->getPredicate() == ICmpInst::ICMP_NE || inst->getPredicate() == ICmpInst::ICMP_EQ))
     {
@@ -1700,13 +1826,18 @@ void InstructionSelector::visitSExtInst(CastInst *inst)
 
 void InstructionSelector::visitTruncInst(CastInst *inst)
 {
-    // 处理截断指令
+    // trunc + divsign + add 时由 visitBinaryOp 融合为 slti + addw
+    if (isTruncFusableWithMagicDivSignFix(inst))
+    {
+        return;
+    }
+
     auto srcReg = getOrCreateVirtualReg(inst->getOperand());
     auto destReg = getOrCreateVirtualReg(inst->getDest());
-
-    // 生成 RISC-V 的 srli 指令（右移）和 addi 指令（加法）
-    auto srliInst = RISCVInstruction::createRType(RISCVOpcode::ADDW, destReg, srcReg, std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
-    currentBB->addInstruction(srliInst);
+    auto truncInst = RISCVInstruction::createRType(
+        RISCVOpcode::ADDW, destReg, srcReg,
+        std::make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO));
+    currentBB->addInstruction(truncInst);
 }
 
 void InstructionSelector::visitXnorInst(BinaryOperator *inst)
