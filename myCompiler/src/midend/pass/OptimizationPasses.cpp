@@ -446,8 +446,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-        // 消除简单整数 if-else（浮点保留分支）；须在 loop unroll 之后、CFG 含多路 phi 已稳定时运行
-        pm->addPass(std::make_unique<IfConversionPass>(verbose));
         // 这里基本块和死代码消除多次迭代保证完全消除和合并
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
@@ -470,7 +468,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
-        pm->addPass(std::make_unique<CondGuardedAccumulatePass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
