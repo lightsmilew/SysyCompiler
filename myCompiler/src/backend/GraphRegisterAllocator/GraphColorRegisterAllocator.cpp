@@ -438,6 +438,7 @@ void GraphColorRegisterAllocator::assignColors()
   // 从栈中弹出节点并为其分配颜色
   int coloredCount = 0;
   int spilledCount = 0;
+  const vector<int> callSiteIndices = collectCallSiteIndices();
 
   while (!selectStack.empty())
   {
@@ -476,16 +477,9 @@ void GraphColorRegisterAllocator::assignColors()
       }
     }
 
-    // 4. 选择一个未被使用的颜色
-    shared_ptr<RISCVRegister> selectedColor = nullptr;
-    for (size_t i = 0; i < availableColors.size(); i++)
-    {
-      if (!colorUsed[i])
-      {
-        selectedColor = availableColors[i];
-        break;
-      }
-    }
+    // 4. 按 biased coloring 策略选择最优可用颜色
+    shared_ptr<RISCVRegister> selectedColor =
+        selectBiasedColor(reg, availableColors, colorUsed, callSiteIndices);
 
     // 5. 如果找到可用颜色，则分配；否则标记为溢出
     if (selectedColor)
@@ -496,6 +490,9 @@ void GraphColorRegisterAllocator::assignColors()
       coloredCount++;
 #ifdef DEBUG_REG_ALLOC
       std::cout << "  Assigned color: " << selectedColor->toString()
+                << " (liveAcrossCall="
+                << isLiveAcrossCall(reg, callSiteIndices)
+                << ", loopDepth=" << getMaxLoopDepthForReg(reg) << ")"
                 << std::endl;
 #endif
     }

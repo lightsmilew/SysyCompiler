@@ -336,6 +336,27 @@ namespace RISCV
     void handleSpilledRegisters();
     void applyAllocation();
 
+    // Biased coloring：按跨 call / 循环深度 / coalesce 偏好选择物理寄存器
+    bool isCalleeSavedColor(const shared_ptr<RISCVRegister> &color) const;
+    bool isLiveAcrossCall(shared_ptr<RISCVRegister> reg,
+                          const vector<int> &callSiteIndices) const;
+    int getMaxLoopDepthForReg(shared_ptr<RISCVRegister> reg) const;
+    shared_ptr<RISCVRegister> getPrecoloredCoalesceHint(
+        shared_ptr<RISCVRegister> reg) const;
+    unordered_set<RISCVRegister::PhysicalReg>
+    collectUsedCalleeSavedColors() const;
+    int scoreColorCandidate(
+        bool liveAcrossCall, int maxLoopDepth,
+        const shared_ptr<RISCVRegister> &coalesceHint,
+        const shared_ptr<RISCVRegister> &color, size_t colorIndex,
+        const unordered_set<RISCVRegister::PhysicalReg> &usedCalleeSaved) const;
+    shared_ptr<RISCVRegister> selectBiasedColor(
+        shared_ptr<RISCVRegister> reg,
+        const vector<shared_ptr<RISCVRegister>> &availableColors,
+        const vector<bool> &colorUsed,
+        const vector<int> &callSiteIndices) const;
+    vector<int> collectCallSiteIndices() const;
+
     // 溢出代价计算
     double calculateSpillCost(shared_ptr<RISCVRegister> reg);
 
