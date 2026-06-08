@@ -321,7 +321,7 @@ namespace RISCV
     // 可用寄存器
     static const vector<shared_ptr<RISCVRegister>> availableGeneralRegs;
     static const vector<shared_ptr<RISCVRegister>> availableFloatRegs;
-    static const int K_GENERAL = 25; // 可用通用寄存器数量
+    static const int K_GENERAL = 27; // 可用通用寄存器数量 (T0-T6 + A0-A7 + S0-S11)
     static const int K_FLOAT = 32;   // 可用浮点寄存器数量
 
     // 算法阶段
