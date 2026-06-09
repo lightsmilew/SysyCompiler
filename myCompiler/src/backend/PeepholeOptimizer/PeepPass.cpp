@@ -63,6 +63,11 @@ PeepOptiState RemoveRedundantMovePass::optimize(shared_ptr<RISCVInstruction> ins
         return PeepOptiState::DELETE;
     }
 
+    if (isRedundantPingPongMove(instr, bb))
+    {
+        return PeepOptiState::DELETE;
+    }
+
     return PeepOptiState::KEEP;
 }
 
@@ -181,6 +186,72 @@ bool RemoveRedundantMovePass::isDeadConsecutiveMoveToSameDest(shared_ptr<RISCVIn
     }
 
     return true;
+}
+
+bool RemoveRedundantMovePass::isRedundantPingPongMove(shared_ptr<RISCVInstruction> instr,
+                                                     shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb)
+    {
+        return false;
+    }
+
+    const auto opcode = instr->getOpcode();
+    if (opcode != RISCVOpcode::MV && opcode != RISCVOpcode::FMV_S)
+    {
+        return false;
+    }
+
+    auto ops = instr->getOperands();
+    if (ops.size() < 2 || ops[0]->getType() != RISCVOperand::Type::REGISTER ||
+        ops[1]->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return false;
+    }
+
+    auto rd = ops[0]->getReg();
+    auto rs = ops[1]->getReg();
+    if (!rd || !rs || !rd->isPhysical() || !rs->isPhysical())
+    {
+        return false;
+    }
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.begin() || it == instrs.end())
+    {
+        return false;
+    }
+
+    auto prevIt = it - 1;
+    if (!*prevIt)
+    {
+        return false;
+    }
+
+    const auto prevOpcode = (*prevIt)->getOpcode();
+    if (prevOpcode != opcode)
+    {
+        return false;
+    }
+
+    auto prevOps = (*prevIt)->getOperands();
+    if (prevOps.size() < 2 || prevOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        prevOps[1]->getType() != RISCVOperand::Type::REGISTER)
+    {
+        return false;
+    }
+
+    auto prevRd = prevOps[0]->getReg();
+    auto prevRs = prevOps[1]->getReg();
+    if (!prevRd || !prevRs || !prevRd->isPhysical() || !prevRs->isPhysical())
+    {
+        return false;
+    }
+
+    // mv prevRd, prevRs  ;  mv rd, rs
+    // 当 rd==prevRs 且 rs==prevRd 时，第二条不改变任何寄存器的值
+    return *rd == *prevRs && *rs == *prevRd;
 }
 
 PeepOptiState FoldAdjacentMoveAndAddressPass::optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb)

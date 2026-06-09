@@ -285,6 +285,7 @@ namespace RISCV
   private:
     // 核心数据结构
     shared_ptr<RISCVFunction> currentFunc;
+    shared_ptr<Module> currentModule;
     InterferenceGraph interferenceGraph;
     InterferenceGraph readInterferenceGraph;
     MoveList moveList;
@@ -335,6 +336,7 @@ namespace RISCV
     void assignColors();
     void handleSpilledRegisters();
     void applyAllocation();
+    void eliminateRedundantCallerArgSaveMoves();
 
     // Biased coloring：按跨 call / 循环深度 / coalesce 偏好选择物理寄存器
     bool isCalleeSavedColor(const shared_ptr<RISCVRegister> &color) const;

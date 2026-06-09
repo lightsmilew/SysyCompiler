@@ -1164,7 +1164,7 @@ void InstructionSelector::visitCallInst(CallInst *inst)
     if (!callerArgs.empty())
     {
         // 如果有参数，先处理参数传递
-        tempMoveArgMap = moveCallerArgsTwoPhase();
+        tempMoveArgMap = moveCallerArgsTwoPhase(inst->getCalledFunction()->getName());
     }
 
     // 2. 处理栈参数传递（超过8个寄存器参数的情况）
@@ -2023,7 +2023,7 @@ void InstructionSelector::DealArgumentsInStart()
     }
 }
 
-unordered_map<string, shared_ptr<RISCVRegister>> InstructionSelector::moveCallerArgsTwoPhase()
+unordered_map<string, shared_ptr<RISCVRegister>> InstructionSelector::moveCallerArgsTwoPhase(const string &calleeName)
 {
     const auto &callerArgsVec = irFunction->getArguments();
     vector<Argument *> callerArgs;
@@ -2063,6 +2063,7 @@ unordered_map<string, shared_ptr<RISCVRegister>> InstructionSelector::moveCaller
         RISCVOpcode moveOpcode = callerArgs[i]->getType()->isFloatTy() ? RISCVOpcode::FMV_S : RISCVOpcode::MV;
         auto moveInst = RISCVInstruction::createPseudo(moveOpcode, tempRegs[i], argReg);
         currentBB->addInstruction(moveInst);
+        currentFunc->addMoveInstructionBeforeCall(calleeName, moveInst);
         // 更新临时寄存器映射
         tempMoveArgMap[callerArgs[i]->getName()] = tempRegs[i];
     }

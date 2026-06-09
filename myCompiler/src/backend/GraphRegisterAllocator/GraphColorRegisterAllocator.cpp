@@ -130,6 +130,7 @@ void GraphColorRegisterAllocator::allocateRegisters(
     shared_ptr<RISCVFunction> func, shared_ptr<Module> irModule)
 {
   currentFunc = func;
+  currentModule = irModule;
 
   bool needRestart = false;
   int spillIterations = 0;
@@ -919,6 +920,149 @@ void GraphColorRegisterAllocator::applyAllocation()
   std::cout << "Register allocation applied: replaced " << replacedCount
             << " out of " << totalVirtualRegs << " virtual register references"
             << std::endl;
+#endif
+
+  eliminateRedundantCallerArgSaveMoves();
+}
+
+void GraphColorRegisterAllocator::eliminateRedundantCallerArgSaveMoves()
+{
+  if (!currentModule)
+    return;
+
+  auto irFunc = currentModule->getFunction(currentFunc->getName());
+  // 超过 8 个寄存器形参时会用到栈传参，save/restore 逻辑更复杂，暂不优化
+  if (irFunc && irFunc->getArguments().size() > 8)
+    return;
+
+  static const vector<RISCVRegister::PhysicalReg> kCallArgDestRegs = {
+      RISCVRegister::PhysicalReg::A0, RISCVRegister::PhysicalReg::A1,
+      RISCVRegister::PhysicalReg::A2, RISCVRegister::PhysicalReg::A3,
+      RISCVRegister::PhysicalReg::A4, RISCVRegister::PhysicalReg::A5,
+      RISCVRegister::PhysicalReg::A6, RISCVRegister::PhysicalReg::A7,
+      RISCVRegister::PhysicalReg::FA0, RISCVRegister::PhysicalReg::FA1,
+      RISCVRegister::PhysicalReg::FA2, RISCVRegister::PhysicalReg::FA3,
+      RISCVRegister::PhysicalReg::FA4, RISCVRegister::PhysicalReg::FA5,
+      RISCVRegister::PhysicalReg::FA6, RISCVRegister::PhysicalReg::FA7};
+
+  auto isCallArgDestReg = [&](const shared_ptr<RISCVRegister> &reg) -> bool
+  {
+    if (!reg || !reg->isPhysical())
+      return false;
+    for (auto pr : kCallArgDestRegs)
+    {
+      if (reg->getPhysicalReg() == pr)
+        return true;
+    }
+    return false;
+  };
+
+  struct SaveInfo
+  {
+    shared_ptr<RISCVRegister> temp;
+    shared_ptr<RISCVRegister> src;
+    shared_ptr<RISCVInstruction> saveInstr;
+    bool shouldDelete;
+  };
+  vector<SaveInfo> redundantSaves;
+
+  for (const auto &entry : currentFunc->getMoveInstructionsBeforeCallMap())
+  {
+    for (const auto &moveInstr : entry.second)
+    {
+      if (!moveInstr || !isMoveInstruction(moveInstr))
+        continue;
+
+      const auto &useRegs = moveInstr->getUseRegisters();
+      const auto &defRegs = moveInstr->getDefRegisters();
+      if (useRegs.size() != 1 || defRegs.size() != 1)
+        continue;
+
+      const auto &src = useRegs[0];
+      const auto &temp = defRegs[0];
+      if (!src->isPhysical() || !isCalleeSavedColor(src))
+        continue;
+
+      // mv a0, s0 等同时承担 call 实参传递，需保留；mv s5/t0, s0 等可消除
+      const bool shouldDelete = !isCallArgDestReg(temp);
+      redundantSaves.push_back({temp, src, moveInstr, shouldDelete});
+    }
+  }
+
+  if (redundantSaves.empty())
+    return;
+
+  auto rewriteCallArgMovesBeforeCall = [&](const SaveInfo &info)
+  {
+    for (auto &bb : currentFunc->getBasicBlocks())
+    {
+      auto &instrs = bb->getInstructions();
+      auto saveIt = std::find(instrs.begin(), instrs.end(), info.saveInstr);
+      if (saveIt == instrs.end())
+        continue;
+
+      for (auto it = saveIt + 1; it != instrs.end(); ++it)
+      {
+        if ((*it)->getOpcode() == RISCVOpcode::CALL)
+          break;
+
+        for (const auto &defReg : (*it)->getDefRegisters())
+        {
+          if (*defReg == *info.temp)
+            return;
+        }
+
+        if (!isMoveInstruction(*it))
+          continue;
+
+        const auto &useRegs = (*it)->getUseRegisters();
+        const auto &defRegs = (*it)->getDefRegisters();
+        if (useRegs.size() != 1 || defRegs.size() != 1)
+          continue;
+
+        if (*useRegs[0] == *info.temp && isCallArgDestReg(defRegs[0]))
+        {
+          (*it)->replaceUseRegister(useRegs[0], info.src);
+        }
+      }
+    }
+  };
+
+  for (const auto &info : redundantSaves)
+  {
+    rewriteCallArgMovesBeforeCall(info);
+  }
+
+  for (const auto &info : redundantSaves)
+  {
+    if (!info.shouldDelete)
+      continue;
+
+    for (auto &bb : currentFunc->getBasicBlocks())
+    {
+      auto &instrs = bb->getInstructions();
+      auto it = std::find(instrs.begin(), instrs.end(), info.saveInstr);
+      if (it != instrs.end())
+      {
+        instrs.erase(it);
+        break;
+      }
+    }
+  }
+
+#ifdef DEBUG_REG_ALLOC
+  size_t deletedCount = 0;
+  for (const auto &info : redundantSaves)
+  {
+    if (info.shouldDelete)
+      ++deletedCount;
+  }
+  if (deletedCount > 0)
+  {
+    std::cout << "Eliminated " << deletedCount
+              << " redundant caller-arg save moves (callee-saved source)"
+              << std::endl;
+  }
 #endif
 }
 

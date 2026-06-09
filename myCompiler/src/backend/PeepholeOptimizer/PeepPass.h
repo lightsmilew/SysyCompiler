@@ -30,6 +30,9 @@ private:
     /// mv rd, x 后紧跟 mv rd, y：前一条结果被完全覆盖，可删
     bool isDeadConsecutiveMoveToSameDest(shared_ptr<RISCVInstruction> instr,
                                          shared_ptr<RISCVBasicBlock> bb);
+    /// mv a, b 后紧跟 mv b, a：第二条多余（b 未被改写，a 已等于 b 的原值）
+    bool isRedundantPingPongMove(shared_ptr<RISCVInstruction> instr,
+                                 shared_ptr<RISCVBasicBlock> bb);
 };
 
 // 融合相邻的li+mv和地址计算+load/store

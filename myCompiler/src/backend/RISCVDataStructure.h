@@ -907,7 +907,8 @@ namespace RISCV
         LivenessInfo livenessInfo;                                                             // 活跃性分析结果
         LoopInfo loopInfo;                                                                     // 循环信息
         vector<shared_ptr<RISCVRegister>> usedCalleeSavedRegs;                                 // 被调用函数使用的保存寄存器
-        unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsAfterCall; // 用于函数调用后移动指令的映射
+        unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsAfterCall;  // 用于函数调用后移动指令的映射
+        unordered_map<string, vector<shared_ptr<RISCVInstruction>>> moveInstructionsBeforeCall; // 用于函数调用前形参保存移动指令的映射
         unordered_map<string, shared_ptr<RISCVInstruction>> instructionNeedReGetOffset;        // 用于溢出处理的指令
         // 中端 IR 到 后端寄存器映射（Value name -> RISCVRegister）
         unordered_map<string, shared_ptr<RISCVRegister>> irValueToRegMap;
@@ -938,6 +939,14 @@ namespace RISCV
             static vector<shared_ptr<RISCVInstruction>> empty;
             auto it = moveInstructionsAfterCall.find(calleeName);
             return it != moveInstructionsAfterCall.end() ? it->second : empty;
+        }
+        void addMoveInstructionBeforeCall(const string &calleeName, shared_ptr<RISCVInstruction> instr)
+        {
+            moveInstructionsBeforeCall[calleeName].push_back(instr);
+        }
+        const unordered_map<string, vector<shared_ptr<RISCVInstruction>>> &getMoveInstructionsBeforeCallMap() const
+        {
+            return moveInstructionsBeforeCall;
         }
         // 活跃性信息访问
         const LivenessInfo &getLivenessInfo() const { return livenessInfo; }
