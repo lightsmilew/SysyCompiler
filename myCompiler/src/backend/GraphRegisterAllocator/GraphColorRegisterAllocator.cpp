@@ -984,13 +984,66 @@ void GraphColorRegisterAllocator::eliminateRedundantCallerArgSaveMoves()
         continue;
 
       // mv a0, s0 等同时承担 call 实参传递，需保留；mv s5/t0, s0 等可消除
-      const bool shouldDelete = !isCallArgDestReg(temp);
-      redundantSaves.push_back({temp, src, moveInstr, shouldDelete});
+      redundantSaves.push_back({temp, src, moveInstr, false});
     }
   }
 
   if (redundantSaves.empty())
     return;
+
+  auto isStackStoreOpcode = [](RISCVOpcode op) -> bool
+  {
+    return op == RISCVOpcode::SW || op == RISCVOpcode::SD ||
+           op == RISCVOpcode::FSW || op == RISCVOpcode::FSD;
+  };
+
+  auto tempHasNonRegArgUseBeforeCall = [&](const SaveInfo &info) -> bool
+  {
+    for (auto &bb : currentFunc->getBasicBlocks())
+    {
+      auto &instrs = bb->getInstructions();
+      auto saveIt = std::find(instrs.begin(), instrs.end(), info.saveInstr);
+      if (saveIt == instrs.end())
+        continue;
+
+      for (auto it = saveIt + 1; it != instrs.end(); ++it)
+      {
+        if ((*it)->getOpcode() == RISCVOpcode::CALL)
+          break;
+
+        for (const auto &defReg : (*it)->getDefRegisters())
+        {
+          if (*defReg == *info.temp)
+            return false;
+        }
+
+        for (const auto &useReg : (*it)->getUseRegisters())
+        {
+          if (!(*useReg == *info.temp))
+            continue;
+
+          if (isStackStoreOpcode((*it)->getOpcode()))
+            return true;
+
+          if (isMoveInstruction(*it))
+          {
+            const auto &defRegs = (*it)->getDefRegisters();
+            if (defRegs.size() == 1 && isCallArgDestReg(defRegs[0]))
+              continue;
+          }
+
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  for (auto &info : redundantSaves)
+  {
+    info.shouldDelete =
+        !isCallArgDestReg(info.temp) && !tempHasNonRegArgUseBeforeCall(info);
+  }
 
   auto rewriteCallArgMovesBeforeCall = [&](const SaveInfo &info)
   {
