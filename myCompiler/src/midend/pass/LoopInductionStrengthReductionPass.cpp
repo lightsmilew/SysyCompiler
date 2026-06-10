@@ -331,8 +331,8 @@ bool LoopInductionStrengthReductionPass::tryReduceMulIV(Function *func, const Lo
     return changed;
 }
 
-bool LoopInductionStrengthReductionPass::tryReduceAddIV(Function *func, const Loop &loop,
-                                                      const InductionVarInfo &iv)
+bool LoopInductionStrengthReductionPass::tryReduceAffineAddIV(Function *func, const Loop &loop,
+                                                            const InductionVarInfo &iv)
 {
     bool changed = false;
 
@@ -356,52 +356,32 @@ bool LoopInductionStrengthReductionPass::tryReduceAddIV(Function *func, const Lo
 
             Value *base = nullptr;
             Value *coeff = nullptr;
-            bool handled = false;
 
-            if (sameIV(add->getLHS(), iv.iv) && isLoopInvariant(add->getRHS(), loop))
+            if (auto *mul = dynamic_cast<BinaryOperator *>(add->getLHS()))
             {
-                base = add->getRHS();
-                coeff = new ConstantInt(IntegerType::getInstance(), 1);
+                if (mul->getOpcode() == Opcode::Mul)
+                {
+                    if (sameIV(mul->getLHS(), iv.iv) && isLoopInvariant(mul->getRHS(), loop))
+                        coeff = mul->getRHS();
+                    else if (sameIV(mul->getRHS(), iv.iv) && isLoopInvariant(mul->getLHS(), loop))
+                        coeff = mul->getLHS();
+                    if (coeff && isLoopInvariant(add->getRHS(), loop))
+                        base = add->getRHS();
+                }
             }
-            else if (sameIV(add->getRHS(), iv.iv) && isLoopInvariant(add->getLHS(), loop))
+            if (!coeff)
             {
-                base = add->getLHS();
-                coeff = new ConstantInt(IntegerType::getInstance(), 1);
-            }
-            else
-            {
-                BinaryOperator *mulPart = nullptr;
-                if (auto *mul = dynamic_cast<BinaryOperator *>(add->getLHS()))
+                if (auto *mul = dynamic_cast<BinaryOperator *>(add->getRHS()))
                 {
                     if (mul->getOpcode() == Opcode::Mul)
                     {
                         if (sameIV(mul->getLHS(), iv.iv) && isLoopInvariant(mul->getRHS(), loop))
-                            mulPart = mul;
+                            coeff = mul->getRHS();
                         else if (sameIV(mul->getRHS(), iv.iv) &&
                                  isLoopInvariant(mul->getLHS(), loop))
-                            mulPart = mul;
-                    }
-                }
-                if (mulPart && isLoopInvariant(add->getRHS(), loop))
-                {
-                    base = add->getRHS();
-                    coeff = sameIV(mulPart->getLHS(), iv.iv) ? mulPart->getRHS() : mulPart->getLHS();
-                }
-                else if (auto *mul = dynamic_cast<BinaryOperator *>(add->getRHS()))
-                {
-                    if (mul->getOpcode() == Opcode::Mul)
-                    {
-                        Value *mulCoeff = nullptr;
-                        if (sameIV(mul->getLHS(), iv.iv) && isLoopInvariant(mul->getRHS(), loop))
-                            mulCoeff = mul->getRHS();
-                        else if (sameIV(mul->getRHS(), iv.iv) &&
-                                 isLoopInvariant(mul->getLHS(), loop))
-                            mulCoeff = mul->getLHS();
-                        if (mulCoeff && isLoopInvariant(add->getLHS(), loop))
-                        {
+                            coeff = mul->getLHS();
+                        if (coeff && isLoopInvariant(add->getLHS(), loop))
                             base = add->getLHS();
-                            coeff = mulCoeff;
-                        }
                     }
                 }
             }
@@ -412,7 +392,8 @@ bool LoopInductionStrengthReductionPass::tryReduceAddIV(Function *func, const Lo
                 continue;
             }
 
-            Value *initVal = materializeAffineInit(iv.preheader, iv.init, base, coeff, add->getName());
+            Value *initVal =
+                materializeAffineInit(iv.preheader, iv.init, base, coeff, add->getName());
             Value *stepVal = materializeAffineStep(iv.latch, coeff, iv.step, add->getName());
             auto *phi = insertAffinePhi(loop, iv, initVal, stepVal, add->getName() + "_sr");
 
@@ -421,13 +402,11 @@ bool LoopInductionStrengthReductionPass::tryReduceAddIV(Function *func, const Lo
             needToDelete.push_back(it->release());
             it = bb->getInstructions().erase(it);
             changed = true;
-            handled = true;
             if (verbose)
             {
-                debugInfo << "LoopInductionStrengthReduction: affine iv expr -> phi in "
+                debugInfo << "LoopInductionStrengthReduction: base+iv*coeff -> phi in "
                           << loop.header->getName() << "\n";
             }
-            (void)handled;
         }
     }
     return changed;
@@ -455,7 +434,7 @@ bool LoopInductionStrengthReductionPass::runOnFunction(Function *func)
             continue;
 
         changed |= tryReduceMulIV(func, loop, iv);
-        changed |= tryReduceAddIV(func, loop, iv);
+        changed |= tryReduceAffineAddIV(func, loop, iv);
     }
     return changed;
 }

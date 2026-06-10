@@ -3,7 +3,7 @@
 
 namespace optimization
 {
-    /// 循环归纳变量强度削弱：将 iv 的线性表达式 mul/add 转为递推 phi（init, init+step, ...）
+    /// 循环归纳变量强度削弱：将 iv*coeff、base+iv*coeff 转为递推 phi（init, init+step, ...）
     class LoopInductionStrengthReductionPass : public Pass
     {
     public:
@@ -31,7 +31,7 @@ namespace optimization
         BinaryOperator *findIVIncrement(BasicBlock *latch, Value *iv, int64_t &step) const;
         bool feedsIVUpdate(Value *val, Value *iv, BasicBlock *latch) const;
         bool tryReduceMulIV(Function *func, const Loop &loop, const InductionVarInfo &iv);
-        bool tryReduceAddIV(Function *func, const Loop &loop, const InductionVarInfo &iv);
+        bool tryReduceAffineAddIV(Function *func, const Loop &loop, const InductionVarInfo &iv);
         Value *materializeAffineInit(BasicBlock *preheader, Value *ivInit, Value *base, Value *coeff,
                                      const string &namePrefix);
         Value *materializeAffineStep(BasicBlock *bb, Value *coeff, int64_t ivStep,
