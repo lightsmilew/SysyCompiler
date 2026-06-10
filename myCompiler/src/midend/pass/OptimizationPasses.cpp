@@ -173,7 +173,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
+        //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -234,7 +234,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
-        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
+        //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -456,7 +456,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
 
-        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
+        //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
 
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
