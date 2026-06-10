@@ -173,6 +173,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -233,6 +234,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -364,38 +366,48 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
+        pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
+        // 这里基本块和死代码消除多次迭代保证完全消除和合并
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
+        // 再次折叠有条件跳转
+        pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
-        // // 这里进行指令合并
-        // //pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
-        // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
-        // // 消除简单ifelse
-        // // pm->addPass(std::make_unique<IfConversionPass>(verbose));
-        // // 这里基本块和死代码消除多次迭代保证完全消除和合并
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        // // 再次折叠有条件跳转
-        // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
-        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
-        // pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         // pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
-        
+        // //gep折叠必须在加法链归约之后，否则会限制gep折叠
+        // pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
+        // pm->addPass(std::make_unique<GEPChainFoldPass>(verbose));
+        // //现在寄存器分配有点问题，折叠后必须接死代码消除，不然可能会覆盖结果
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // // 尾递归消除必须在函数内联之后
         // pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         // pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // // phi指令限制了循环不变量外提，所以必须先消除phi指令
         // pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         // pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
         // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        // pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(verbose));
         // //pm->addPass(std::make_unique<StrengthReductionPass>(verbose));
         // pm->addPass(std::make_unique<SRFixedPass>(verbose));
+        // pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
+        // // 基本块合并/强度折叠后可能出现同块内被覆盖的 store
+        // pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
         // pm->addPass(std::make_unique<BasicBlockReorderPass>(verbose));
+        // //必须要有死代码消除，处理寄存器分配潜在问题
+        // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
+        // pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
+        // pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
     }
     // 测试先遣版优化级别(最激进优化级别)
     else if (level == OptimizationLevel::O17)
@@ -443,6 +455,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TransposedBufferLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+
+        pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
+
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
