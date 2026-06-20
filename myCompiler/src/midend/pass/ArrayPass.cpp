@@ -1,6 +1,9 @@
 #include "ArrayPass.h"
 #include "ControlFlowAnalysis.h"
+#include <algorithm>
+#include <limits>
 #include <regex>
+#include <unordered_set>
 using namespace std;
 using namespace optimization;
 
@@ -774,6 +777,726 @@ bool RemoveOnlyWriteArrayPass::runOnFunction(Function *func)
     }
 
     return changed;
+}
+
+namespace
+{
+    bool sameArrayValue(Value *a, Value *b)
+    {
+        if (!a || !b)
+        {
+            return false;
+        }
+        if (stripCopy(a) == stripCopy(b))
+        {
+            return true;
+        }
+        if (!a->getName().empty() && a->getName() == b->getName())
+        {
+            return true;
+        }
+        return false;
+    }
+
+    bool sameValueForAccess(Value *lhs, Value *rhs)
+    {
+        if (lhs == rhs)
+        {
+            return true;
+        }
+
+        auto *lhsConstInt = dynamic_cast<ConstantInt *>(lhs);
+        auto *rhsConstInt = dynamic_cast<ConstantInt *>(rhs);
+        if (lhsConstInt && rhsConstInt)
+        {
+            return lhsConstInt->Value == rhsConstInt->Value;
+        }
+
+        if (!lhs || !rhs)
+        {
+            return false;
+        }
+
+        return isSameAddr(lhs, rhs);
+    }
+
+    bool collectAccessPattern(Value *value, Value *&baseValue, vector<Value *> &indices)
+    {
+        if (!value)
+        {
+            return false;
+        }
+
+        if (auto *castInst = dynamic_cast<CastInst *>(value))
+        {
+            return collectAccessPattern(castInst->getOperand(), baseValue, indices);
+        }
+
+        if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(value))
+        {
+            if (!collectAccessPattern(gepInst->getPointerOperand(), baseValue, indices))
+            {
+                return false;
+            }
+
+            auto gepIndices = gepInst->getIndices();
+            indices.insert(indices.end(), gepIndices.begin(), gepIndices.end());
+            return true;
+        }
+
+        if (!baseValue)
+        {
+            baseValue = value;
+            return true;
+        }
+
+        return sameValueForAccess(baseValue, value);
+    }
+
+    bool sameAccessPattern(const vector<Value *> &lhs, const vector<Value *> &rhs)
+    {
+        if (lhs.size() != rhs.size())
+        {
+            return false;
+        }
+
+        for (size_t i = 0; i < lhs.size(); ++i)
+        {
+            if (!sameValueForAccess(lhs[i], rhs[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    int getLoopConstTripUpperBound(const Loop &loop)
+    {
+        BasicBlock *header = loop.header;
+        if (!header || header->getInstructions().size() < 2)
+        {
+            return -1;
+        }
+
+        auto *cmp = dynamic_cast<ICmpInst *>(
+            header->getInstructions()[header->getInstructions().size() - 2].get());
+        if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
+        {
+            return -1;
+        }
+
+        auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(cmp->getRHS()));
+        if (!boundConst)
+        {
+            return -1;
+        }
+        return boundConst->Value;
+    }
+
+    BasicBlock *findLoopLatchBlock(const Loop &loop)
+    {
+        for (auto *bb : loop.blocks)
+        {
+            if (bb == loop.header)
+            {
+                continue;
+            }
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (succ == loop.header)
+                {
+                    return bb;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
+    {
+        set<BasicBlock *> perIter;
+        if (!outer.header)
+        {
+            return perIter;
+        }
+
+        BasicBlock *body = nullptr;
+        auto &headerInsts = outer.header->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+        if (br && br->isConditional())
+        {
+            body = br->getTrueBlock();
+            if (!outer.containsBlock(body))
+            {
+                body = br->getFalseBlock();
+            }
+        }
+        if (!body || !outer.containsBlock(body))
+        {
+            return perIter;
+        }
+
+        vector<BasicBlock *> worklist = {body};
+        perIter.insert(body);
+        while (!worklist.empty())
+        {
+            BasicBlock *bb = worklist.back();
+            worklist.pop_back();
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (succ == outer.header || !outer.containsBlock(succ) || perIter.count(succ))
+                {
+                    continue;
+                }
+                perIter.insert(succ);
+                worklist.push_back(succ);
+            }
+        }
+        return perIter;
+    }
+
+    vector<BasicBlock *> orderPerIterationBlocks(const Loop &outer)
+    {
+        vector<BasicBlock *> order;
+        if (!outer.header)
+        {
+            return order;
+        }
+
+        BasicBlock *body = nullptr;
+        auto &headerInsts = outer.header->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+        if (br && br->isConditional())
+        {
+            body = br->getTrueBlock();
+            if (!outer.containsBlock(body))
+            {
+                body = br->getFalseBlock();
+            }
+        }
+        if (!body || !outer.containsBlock(body))
+        {
+            return order;
+        }
+
+        set<BasicBlock *> visited;
+        vector<BasicBlock *> worklist = {body};
+        visited.insert(body);
+        while (!worklist.empty())
+        {
+            BasicBlock *bb = worklist.front();
+            worklist.erase(worklist.begin());
+            order.push_back(bb);
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (succ == outer.header || !outer.containsBlock(succ) || visited.count(succ))
+                {
+                    continue;
+                }
+                visited.insert(succ);
+                worklist.push_back(succ);
+            }
+        }
+        return order;
+    }
+
+    string buildMemoryAccessKey(Value *ptr);
+    string getArrayBaseKey(Value *ptr);
+    bool valueDependsOnLoadAtKey(Value *val, const string &key);
+
+    bool provePerIterFirstStoreFresh(const Loop &loop)
+    {
+        if (!loop.header || !loop.header->Parent)
+        {
+            return false;
+        }
+
+        auto ordered = orderPerIterationBlocks(loop);
+        if (ordered.empty())
+        {
+            return false;
+        }
+
+        unordered_map<string, bool> seenCellKey;
+        unordered_set<string> seenArrayBase;
+        for (BasicBlock *bb : ordered)
+        {
+            if (!bb)
+            {
+                continue;
+            }
+
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+                if (!store)
+                {
+                    continue;
+                }
+
+                const string cellKey = buildMemoryAccessKey(store->getPointer());
+                const string baseKey = getArrayBaseKey(store->getPointer());
+                if (cellKey.empty() || baseKey.empty())
+                {
+                    return false;
+                }
+                if (seenCellKey.count(cellKey))
+                {
+                    continue;
+                }
+                seenCellKey[cellKey] = true;
+                if (seenArrayBase.count(baseKey))
+                {
+                    continue;
+                }
+                seenArrayBase.insert(baseKey);
+                if (valueDependsOnLoadAtKey(store->getValueToStore(), cellKey))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    string getArrayBaseKey(Value *ptr)
+    {
+        if (!ptr)
+        {
+            return "";
+        }
+
+        Value *current = ptr;
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+        {
+            current = gep->getPointerOperand();
+        }
+        return current ? current->toRef() : "";
+    }
+
+    string buildMemoryAccessKey(Value *ptr)
+    {
+        if (!ptr)
+        {
+            return "";
+        }
+
+        vector<string> indexParts;
+        Value *current = ptr;
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+        {
+            const auto indices = gep->getIndices();
+            const int usefulCount =
+                static_cast<int>(indices.size()) - std::max(0, gep->num_addedzero);
+            if (usefulCount <= 0)
+            {
+                return "";
+            }
+
+            vector<string> level;
+            level.reserve(static_cast<size_t>(usefulCount));
+            for (int i = 0; i < usefulCount; ++i)
+            {
+                if (!indices[static_cast<size_t>(i)])
+                {
+                    return "";
+                }
+                level.push_back(indices[static_cast<size_t>(i)]->toRef());
+            }
+            indexParts.insert(indexParts.begin(), level.begin(), level.end());
+            current = gep->getPointerOperand();
+        }
+
+        string key = current->toRef();
+        for (const auto &part : indexParts)
+        {
+            key += "#";
+            key += part;
+        }
+        return key;
+    }
+
+    bool valueDependsOnLoadAtKeyImpl(Value *val,
+                                     const string &key,
+                                     unordered_set<Value *> &visited)
+    {
+        val = stripCopy(val);
+        if (!val)
+        {
+            return false;
+        }
+        if (!visited.insert(val).second)
+        {
+            return false;
+        }
+
+        if (auto *load = dynamic_cast<LoadInst *>(val))
+        {
+            if (buildMemoryAccessKey(load->getPointer()) == key)
+            {
+                return true;
+            }
+        }
+
+        if (auto *inst = dynamic_cast<Instruction *>(val))
+        {
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOnLoadAtKeyImpl(op, key, visited))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool valueDependsOnLoadAtKey(Value *val, const string &key)
+    {
+        unordered_set<Value *> visited;
+        return valueDependsOnLoadAtKeyImpl(val, key, visited);
+    }
+
+    bool storeTargetsBase(Value *ptr, Value *base)
+    {
+        Value *origin = nullptr;
+        vector<Value *> indices;
+        if (!collectAccessPattern(ptr, origin, indices) || !origin)
+        {
+            return false;
+        }
+        return isSameAddr(origin, base);
+    }
+
+    const Loop *findCopyPropagationRegion(const Loop &copyLoop,
+                                          Value *dstArray,
+                                          const vector<Loop> &allLoops)
+    {
+        const Loop *best = nullptr;
+        size_t bestSize = numeric_limits<size_t>::max();
+        set<BasicBlock *> copyBlocks(copyLoop.blocks.begin(), copyLoop.blocks.end());
+
+        for (const auto &candidate : allLoops)
+        {
+            if (!candidate.containsBlock(copyLoop.header))
+            {
+                continue;
+            }
+
+            bool hasDstStoreOutsideCopy = false;
+            for (auto *bb : candidate.blocks)
+            {
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+                    if (!store || !storeTargetsBase(store->getPointer(), dstArray))
+                    {
+                        continue;
+                    }
+                    if (copyBlocks.count(bb))
+                    {
+                        continue;
+                    }
+                    hasDstStoreOutsideCopy = true;
+                    break;
+                }
+                if (hasDstStoreOutsideCopy)
+                {
+                    break;
+                }
+            }
+
+            if (!hasDstStoreOutsideCopy)
+            {
+                continue;
+            }
+
+            if (candidate.blocks.size() < bestSize)
+            {
+                bestSize = candidate.blocks.size();
+                best = &candidate;
+            }
+        }
+        return best;
+    }
+}
+
+bool ArrayCopyPropagationPass::isPureCopyLoop(const Loop &loop,
+                                              Value *&srcArray,
+                                              Value *&dstArray) const
+{
+    srcArray = nullptr;
+    dstArray = nullptr;
+
+    int loadCount = 0;
+    int storeCount = 0;
+    LoadInst *copyLoad = nullptr;
+    StoreInst *copyStore = nullptr;
+    vector<Value *> loadIndices;
+    vector<Value *> storeIndices;
+
+    for (auto *bb : loop.blocks)
+    {
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (dynamic_cast<CallInst *>(inst))
+            {
+                return false;
+            }
+
+            if (auto *load = dynamic_cast<LoadInst *>(inst))
+            {
+                if (++loadCount > 1)
+                {
+                    return false;
+                }
+                copyLoad = load;
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(load->getPointer(), origin, indices) || !origin)
+                {
+                    return false;
+                }
+                if (!srcArray)
+                {
+                    srcArray = origin;
+                    loadIndices = std::move(indices);
+                }
+                else if (!isSameAddr(srcArray, origin) || !sameAccessPattern(loadIndices, indices))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (auto *store = dynamic_cast<StoreInst *>(inst))
+            {
+                if (++storeCount > 1)
+                {
+                    return false;
+                }
+                copyStore = store;
+                Value *origin = nullptr;
+                vector<Value *> indices;
+                if (!collectAccessPattern(store->getPointer(), origin, indices) || !origin)
+                {
+                    return false;
+                }
+                if (!dstArray)
+                {
+                    dstArray = origin;
+                    storeIndices = std::move(indices);
+                }
+                else if (!isSameAddr(dstArray, origin) || !sameAccessPattern(storeIndices, indices))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (dynamic_cast<BranchInst *>(inst) ||
+                dynamic_cast<ICmpInst *>(inst) ||
+                dynamic_cast<PhiInst *>(inst) ||
+                dynamic_cast<BinaryOperator *>(inst) ||
+                dynamic_cast<CastInst *>(inst) ||
+                dynamic_cast<GetElementPtrInst *>(inst) ||
+                dynamic_cast<CopyInst *>(inst))
+            {
+                continue;
+            }
+
+            return false;
+        }
+    }
+
+    if (loadCount != 1 || storeCount != 1 || !srcArray || !dstArray || !copyLoad || !copyStore ||
+        isSameAddr(srcArray, dstArray))
+    {
+        return false;
+    }
+
+    if (!sameAccessPattern(loadIndices, storeIndices))
+    {
+        return false;
+    }
+
+    return sameArrayValue(stripCopy(copyStore->getValueToStore()), stripCopy(copyLoad));
+}
+
+bool ArrayCopyPropagationPass::isCopyPropagationSafe(const Loop &copyLoop,
+                                                       Value *dstArray,
+                                                       const vector<Loop> &allLoops) const
+{
+    if (!dstArray)
+    {
+        return false;
+    }
+
+    const Loop *region = findCopyPropagationRegion(copyLoop, dstArray, allLoops);
+    if (!region)
+    {
+        return true;
+    }
+
+    return provePerIterFirstStoreFresh(*region);
+}
+
+void ArrayCopyPropagationPass::replaceArrayBaseInFunction(Function *func,
+                                                            Value *dstArray,
+                                                            Value *srcArray) const
+{
+    if (!func || !dstArray || !srcArray)
+    {
+        return;
+    }
+
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            for (size_t i = 0; i < inst->getOperands().size(); ++i)
+            {
+                Value *op = inst->getOperandByIndex(i);
+                if (op == dstArray || sameArrayValue(op, dstArray))
+                {
+                    inst->setOperandByIndex(i, srcArray);
+                }
+            }
+        }
+    }
+}
+
+void ArrayCopyPropagationPass::redirectAndRemoveLoop(Function *func, const Loop &loop)
+{
+    if (!func || !loop.header)
+    {
+        return;
+    }
+
+    set<BasicBlock *> loopBlocks(loop.blocks.begin(), loop.blocks.end());
+
+    BasicBlock *preheader = nullptr;
+    int externalPreds = 0;
+    for (auto *pred : loop.header->getPredecessors())
+    {
+        if (!loopBlocks.count(pred))
+        {
+            preheader = pred;
+            ++externalPreds;
+        }
+    }
+
+    BasicBlock *exitBlock = nullptr;
+    int externalSuccs = 0;
+    for (auto *succ : loop.header->getSuccessors())
+    {
+        if (!loopBlocks.count(succ))
+        {
+            exitBlock = succ;
+            ++externalSuccs;
+        }
+    }
+
+    if (externalPreds != 1 || externalSuccs != 1 || !preheader || !exitBlock)
+    {
+        return;
+    }
+
+    for (auto &instPtr : preheader->getInstructions())
+    {
+        if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
+        {
+            if (br->getTrueBlock() == loop.header)
+            {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
+                br->setTrueBlock(exitBlock);
+            }
+            if (br->getFalseBlock() == loop.header)
+            {
+                preheader->removeSuccessor(loop.header);
+                loop.header->removePredecessor(preheader);
+                preheader->addSuccessor(exitBlock);
+                exitBlock->addPredecessor(preheader);
+                br->setFalseBlock(exitBlock);
+            }
+        }
+    }
+
+    for (auto *bb : loop.blocks)
+    {
+        for (auto *succ : bb->getSuccessors())
+        {
+            if (!loopBlocks.count(succ))
+            {
+                removePhiIncomingFromPredecessor(succ, bb);
+            }
+        }
+    }
+
+    for (auto *bb : loop.blocks)
+    {
+        bb->removeSelfBasicBlock();
+    }
+
+    auto &bbs = func->getBasicBlocks();
+    for (auto it = bbs.begin(); it != bbs.end();)
+    {
+        if (loopBlocks.count(it->get()))
+        {
+            needToDelete.push_back(it->release());
+            it = bbs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+
+bool ArrayCopyPropagationPass::runOnFunction(Function *func)
+{
+    if (!func || func->isLibraryFunction())
+    {
+        return false;
+    }
+
+    func->setLoops(ControlFlowAnalysis::findLoops(func));
+    const auto loops = func->getLoops();
+
+    for (const auto &loop : loops)
+    {
+        Value *srcArray = nullptr;
+        Value *dstArray = nullptr;
+        if (!isPureCopyLoop(loop, srcArray, dstArray))
+        {
+            continue;
+        }
+        if (!isCopyPropagationSafe(loop, dstArray, loops))
+        {
+            continue;
+        }
+
+        replaceArrayBaseInFunction(func, dstArray, srcArray);
+        redirectAndRemoveLoop(func, loop);
+
+        if (verbose)
+        {
+            debugInfo << "ArrayCopyPropagation: removed pure copy loop at "
+                      << loop.header->getName() << " (" << dstArray->getName() << " -> "
+                      << srcArray->getName() << ")\n";
+        }
+        func->setLoops(ControlFlowAnalysis::findLoops(func));
+        return true;
+    }
+
+    return false;
 }
 
 namespace

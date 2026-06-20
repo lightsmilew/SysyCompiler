@@ -161,6 +161,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
+        pm->addPass(std::make_unique<ArrayCopyPropagationPass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -222,6 +223,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<RemoveOnlyWriteArrayPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
+        pm->addPass(std::make_unique<ArrayCopyPropagationPass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
@@ -348,6 +350,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
+        pm->addPass(std::make_unique<ArrayCopyPropagationPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));
@@ -437,6 +440,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // 消除数组消除pass后留下的gep指令，便于无用while消除
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<LoopLinearIterationFoldPass>(verbose));
+        pm->addPass(std::make_unique<ArrayCopyPropagationPass>(verbose));
         // 删除无用的while循环后必须进行死代码消除
         // pm->addPass(std::make_unique<RemoveUselessWhilePass>(verbose));
         pm->addPass(std::make_unique<LoopSumReductionPass>(verbose));

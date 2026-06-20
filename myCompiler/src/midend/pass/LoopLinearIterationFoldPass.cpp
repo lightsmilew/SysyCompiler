@@ -189,6 +189,10 @@ namespace
         if (br && br->isConditional())
         {
             body = br->getTrueBlock();
+            if (!outer.containsBlock(body))
+            {
+                body = br->getFalseBlock();
+            }
         }
         if (!body || !outer.containsBlock(body))
         {
@@ -214,77 +218,49 @@ namespace
         return perIter;
     }
 
-    bool sameValueForAccess(Value *lhs, Value *rhs)
+    vector<BasicBlock *> orderPerIterationBlocks(const Loop &outer)
     {
-        if (lhs == rhs)
+        vector<BasicBlock *> order;
+        if (!outer.header)
         {
-            return true;
+            return order;
         }
 
-        auto *lhsConstInt = dynamic_cast<ConstantInt *>(lhs);
-        auto *rhsConstInt = dynamic_cast<ConstantInt *>(rhs);
-        if (lhsConstInt && rhsConstInt)
+        BasicBlock *body = nullptr;
+        auto &headerInsts = outer.header->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
+        if (br && br->isConditional())
         {
-            return lhsConstInt->Value == rhsConstInt->Value;
-        }
-
-        if (!lhs || !rhs)
-        {
-            return false;
-        }
-
-        return isSameAddr(lhs, rhs);
-    }
-
-    bool collectAccessPattern(Value *value, Value *&baseValue, vector<Value *> &indices)
-    {
-        if (!value)
-        {
-            return false;
-        }
-
-        if (auto *castInst = dynamic_cast<CastInst *>(value))
-        {
-            return collectAccessPattern(castInst->getOperand(), baseValue, indices);
-        }
-
-        if (auto *gepInst = dynamic_cast<GetElementPtrInst *>(value))
-        {
-            if (!collectAccessPattern(gepInst->getPointerOperand(), baseValue, indices))
+            body = br->getTrueBlock();
+            if (!outer.containsBlock(body))
             {
-                return false;
-            }
-
-            auto gepIndices = gepInst->getIndices();
-            indices.insert(indices.end(), gepIndices.begin(), gepIndices.end());
-            return true;
-        }
-
-        if (!baseValue)
-        {
-            baseValue = value;
-            return true;
-        }
-
-        return sameValueForAccess(baseValue, value);
-    }
-
-    bool sameAccessPattern(const vector<Value *> &lhs, const vector<Value *> &rhs)
-    {
-        if (lhs.size() != rhs.size())
-        {
-            return false;
-        }
-
-        for (size_t i = 0; i < lhs.size(); ++i)
-        {
-            if (!sameValueForAccess(lhs[i], rhs[i]))
-            {
-                return false;
+                body = br->getFalseBlock();
             }
         }
+        if (!body || !outer.containsBlock(body))
+        {
+            return order;
+        }
 
-        return true;
+        set<BasicBlock *> visited;
+        vector<BasicBlock *> worklist = {body};
+        visited.insert(body);
+        while (!worklist.empty())
+        {
+            BasicBlock *bb = worklist.front();
+            worklist.erase(worklist.begin());
+            order.push_back(bb);
+            for (auto *succ : bb->getSuccessors())
+            {
+                if (succ == outer.header || !outer.containsBlock(succ) || visited.count(succ))
+                {
+                    continue;
+                }
+                visited.insert(succ);
+                worklist.push_back(succ);
+            }
+        }
+        return order;
     }
 
     bool isFoldableTripBound(Value *bound, int constTripCount)
@@ -355,79 +331,189 @@ namespace
         visiting.erase(val);
         return false;
     }
-}
 
-bool LoopLinearIterationFoldPass::getFixedTripCountLoopInfo(const Loop &loop,
-                                                            ICmpInst *&cmp,
-                                                            ConstantInt *&boundConst,
-                                                            int &tripCount) const
-{
-    cmp = nullptr;
-    boundConst = nullptr;
-    tripCount = -1;
-
-    BasicBlock *header = loop.header;
-    if (!header)
+    string getArrayBaseKey(Value *ptr)
     {
-        return false;
-    }
-
-    auto &headerInsts = header->getInstructions();
-    if (headerInsts.size() < 2)
-    {
-        return false;
-    }
-
-    auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
-    if (!br || !br->isConditional())
-    {
-        return false;
-    }
-
-    cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
-    if (!cmp)
-    {
-        return false;
-    }
-
-    if (cmp->getPredicate() != ICmpInst::ICMP_SLT && cmp->getPredicate() != ICmpInst::ICMP_SLE)
-    {
-        return false;
-    }
-
-    auto *lhsPhi = dynamic_cast<PhiInst *>(cmp->getLHS());
-    auto *rhsPhi = dynamic_cast<PhiInst *>(cmp->getRHS());
-    if (!lhsPhi && !rhsPhi)
-    {
-        return false;
-    }
-
-    auto *lhsConst = dynamic_cast<ConstantInt *>(cmp->getLHS());
-    auto *rhsConst = dynamic_cast<ConstantInt *>(cmp->getRHS());
-
-    if (lhsPhi && rhsConst)
-    {
-        boundConst = rhsConst;
-        for (size_t i = 0; i < lhsPhi->getNumIncomingValues(); ++i)
+        if (!ptr)
         {
-            if (find(loop.blocks.begin(), loop.blocks.end(), lhsPhi->getIncomingBlock(i)) == loop.blocks.end())
+            return "";
+        }
+
+        Value *current = ptr;
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+        {
+            current = gep->getPointerOperand();
+        }
+        return current ? current->toRef() : "";
+    }
+
+    string buildMemoryAccessKey(Value *ptr)
+    {
+        if (!ptr)
+        {
+            return "";
+        }
+
+        vector<string> indexParts;
+        Value *current = ptr;
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(current))
+        {
+            const auto indices = gep->getIndices();
+            const int usefulCount =
+                static_cast<int>(indices.size()) - std::max(0, gep->num_addedzero);
+            if (usefulCount <= 0)
             {
-                auto *initConst = dynamic_cast<ConstantInt *>(lhsPhi->getIncomingValue(i));
-                if (!initConst || initConst->Value != 0)
+                return "";
+            }
+
+            vector<string> level;
+            level.reserve(static_cast<size_t>(usefulCount));
+            for (int i = 0; i < usefulCount; ++i)
+            {
+                if (!indices[static_cast<size_t>(i)])
                 {
-                    return false;
+                    return "";
                 }
-                tripCount = (cmp->getPredicate() == ICmpInst::ICMP_SLT) ? boundConst->Value : boundConst->Value + 1;
-                return tripCount > 0;
+                level.push_back(indices[static_cast<size_t>(i)]->toRef());
+            }
+            indexParts.insert(indexParts.begin(), level.begin(), level.end());
+            current = gep->getPointerOperand();
+        }
+
+        string key = current->toRef();
+        for (const auto &part : indexParts)
+        {
+            key += "#";
+            key += part;
+        }
+        return key;
+    }
+
+    bool valueDependsOnLoadAtKeyImpl(Value *val,
+                                     const string &key,
+                                     unordered_set<Value *> &visited)
+    {
+        val = stripCopy(val);
+        if (!val)
+        {
+            return false;
+        }
+        if (!visited.insert(val).second)
+        {
+            return false;
+        }
+
+        if (auto *load = dynamic_cast<LoadInst *>(val))
+        {
+            if (buildMemoryAccessKey(load->getPointer()) == key)
+            {
+                return true;
             }
         }
-    }
-    else if (rhsPhi && lhsConst)
-    {
+
+        if (auto *inst = dynamic_cast<Instruction *>(val))
+        {
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOnLoadAtKeyImpl(op, key, visited))
+                {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
-    return false;
+    bool valueDependsOnLoadAtKey(Value *val, const string &key)
+    {
+        unordered_set<Value *> visited;
+        return valueDependsOnLoadAtKeyImpl(val, key, visited);
+    }
+
+    bool isAllowedIvUse(Instruction *inst, Value *iv)
+    {
+        if (!inst || !iv)
+        {
+            return false;
+        }
+        if (sameLoopValue(inst, iv))
+        {
+            return true;
+        }
+        if (dynamic_cast<PhiInst *>(inst) && sameLoopValue(inst, iv))
+        {
+            return true;
+        }
+        if (dynamic_cast<CopyInst *>(inst) && sameLoopValue(inst, iv))
+        {
+            return true;
+        }
+        if (dynamic_cast<BranchInst *>(inst))
+        {
+            return true;
+        }
+        if (auto *icmp = dynamic_cast<ICmpInst *>(inst))
+        {
+            if (icmp->getPredicate() == ICmpInst::ICMP_SLT && sameLoopValue(icmp->getLHS(), iv))
+            {
+                return true;
+            }
+        }
+        if (auto *addInst = dynamic_cast<BinaryOperator *>(inst))
+        {
+            if (addInst->getOpcode() == Opcode::Add)
+            {
+                auto *one = dynamic_cast<ConstantInt *>(stripCopy(addInst->getRHS()));
+                if (one && one->Value == 1 && sameLoopValue(addInst->getLHS(), iv))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool tryReadLoopControlFromBlock(BasicBlock *bb,
+                                     ICmpInst *&cmp,
+                                     Value *&iv,
+                                     Value *&bound,
+                                     int &constTripCount)
+    {
+        cmp = nullptr;
+        iv = nullptr;
+        bound = nullptr;
+        constTripCount = -1;
+        if (!bb || bb->getInstructions().size() < 2)
+        {
+            return false;
+        }
+
+        auto &insts = bb->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(insts.back().get());
+        if (!br || !br->isConditional())
+        {
+            return false;
+        }
+
+        cmp = dynamic_cast<ICmpInst *>(insts[insts.size() - 2].get());
+        if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
+        {
+            return false;
+        }
+
+        iv = cmp->getLHS();
+        bound = cmp->getRHS();
+        if (!iv || !bound)
+        {
+            return false;
+        }
+
+        if (auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(bound)))
+        {
+            constTripCount = boundConst->Value;
+        }
+        return true;
+    }
 }
 
 bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
@@ -441,138 +527,203 @@ bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
     bound = nullptr;
     constTripCount = -1;
 
-    BasicBlock *header = loop.header;
-    if (!header)
+    struct LoopControlCandidate
+    {
+        ICmpInst *cmp = nullptr;
+        Value *iv = nullptr;
+        Value *bound = nullptr;
+        int trip = -1;
+        bool ivUnusedInBody = false;
+    };
+
+    vector<LoopControlCandidate> candidates;
+    auto tryCollect = [&](BasicBlock *bb) {
+        if (!bb)
+        {
+            return;
+        }
+        LoopControlCandidate cand;
+        if (!tryReadLoopControlFromBlock(bb, cand.cmp, cand.iv, cand.bound, cand.trip))
+        {
+            return;
+        }
+        if (!hasZeroInitOutsideLoop(cand.iv, loop) || !hasUnitIncrementAtLatch(cand.iv, loop))
+        {
+            return;
+        }
+        cand.ivUnusedInBody = isOuterIvUnusedInBody(loop, cand.iv);
+        candidates.push_back(cand);
+    };
+
+    tryCollect(loop.header);
+    tryCollect(findLoopLatchBlock(loop));
+
+    if (candidates.empty())
     {
         return false;
     }
 
-    auto &headerInsts = header->getInstructions();
-    if (headerInsts.size() < 2)
+    const LoopControlCandidate *best = nullptr;
+    for (const auto &cand : candidates)
+    {
+        if (!cand.ivUnusedInBody)
+        {
+            continue;
+        }
+        if (!best || (best->trip <= 1 && cand.trip > 1) ||
+            (cand.trip > 1 && best->trip > 1 && cand.trip < best->trip))
+        {
+            best = &cand;
+        }
+    }
+    if (!best)
+    {
+        for (const auto &cand : candidates)
+        {
+            if (!best || cand.trip > best->trip)
+            {
+                best = &cand;
+            }
+        }
+    }
+    if (!best)
     {
         return false;
     }
 
-    auto *br = dynamic_cast<BranchInst *>(headerInsts.back().get());
-    if (!br || !br->isConditional())
-    {
-        return false;
-    }
-
-    cmp = dynamic_cast<ICmpInst *>(headerInsts[headerInsts.size() - 2].get());
-    if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
-    {
-        return false;
-    }
-
-    iv = cmp->getLHS();
-    bound = cmp->getRHS();
-    if (!iv || !bound)
-    {
-        return false;
-    }
-
-    if (!hasZeroInitOutsideLoop(iv, loop) || !hasUnitIncrementAtLatch(iv, loop))
-    {
-        return false;
-    }
-
-    if (auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(bound)))
-    {
-        constTripCount = boundConst->Value;
-    }
+    cmp = best->cmp;
+    iv = best->iv;
+    bound = best->bound;
+    constTripCount = best->trip;
     return true;
 }
 
-bool LoopLinearIterationFoldPass::isPureCopyLoop(const Loop &loop, Value *&srcArray, Value *&dstArray) const
+bool LoopLinearIterationFoldPass::isOuterIvUnusedInBody(const Loop &outer, Value *iv) const
 {
-    srcArray = nullptr;
-    dstArray = nullptr;
+    if (!iv || !outer.header)
+    {
+        return false;
+    }
 
-    int loadCount = 0;
-    int storeCount = 0;
-    vector<Value *> loadIndices;
-    vector<Value *> storeIndices;
-
-    for (auto *bb : loop.blocks)
+    for (auto *bb : outer.blocks)
     {
         for (auto &instPtr : bb->getInstructions())
         {
             Instruction *inst = instPtr.get();
-            if (dynamic_cast<CallInst *>(inst))
+            bool usesIv = false;
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOn(op, iv))
+                {
+                    usesIv = true;
+                    break;
+                }
+            }
+            if (!usesIv)
+            {
+                continue;
+            }
+            if (!isAllowedIvUse(inst, iv))
             {
                 return false;
             }
-
-            if (auto *load = dynamic_cast<LoadInst *>(inst))
-            {
-                if (++loadCount > 1)
-                {
-                    return false;
-                }
-                Value *origin = nullptr;
-                vector<Value *> indices;
-                if (!collectAccessPattern(load->getPointer(), origin, indices) || !origin)
-                {
-                    return false;
-                }
-                if (!srcArray)
-                {
-                    srcArray = origin;
-                    loadIndices = std::move(indices);
-                }
-                else if (!isSameAddr(srcArray, origin) || !sameAccessPattern(loadIndices, indices))
-                {
-                    return false;
-                }
-                continue;
-            }
-
-            if (auto *store = dynamic_cast<StoreInst *>(inst))
-            {
-                if (++storeCount > 1)
-                {
-                    return false;
-                }
-                Value *origin = nullptr;
-                vector<Value *> indices;
-                if (!collectAccessPattern(store->getPointer(), origin, indices) || !origin)
-                {
-                    return false;
-                }
-                if (!dstArray)
-                {
-                    dstArray = origin;
-                    storeIndices = std::move(indices);
-                }
-                else if (!isSameAddr(dstArray, origin) || !sameAccessPattern(storeIndices, indices))
-                {
-                    return false;
-                }
-                continue;
-            }
-
-            if (dynamic_cast<BranchInst *>(inst) ||
-                dynamic_cast<ICmpInst *>(inst) ||
-                dynamic_cast<PhiInst *>(inst) ||
-                dynamic_cast<BinaryOperator *>(inst) ||
-                dynamic_cast<CastInst *>(inst) ||
-                dynamic_cast<GetElementPtrInst *>(inst) ||
-                dynamic_cast<CopyInst *>(inst))
-            {
-                continue;
-            }
-
-            return false;
         }
     }
+    return true;
+}
 
-    if (loadCount != 1 || storeCount != 1 || !srcArray || !dstArray || isSameAddr(srcArray, dstArray))
+bool LoopLinearIterationFoldPass::allLoopCarriedValuesIterationInvariant(const Loop &outer,
+                                                                         Value *iv) const
+{
+    if (!outer.header)
     {
         return false;
     }
 
-    return sameAccessPattern(loadIndices, storeIndices);
+    BasicBlock *latch = findLoopLatchBlock(outer);
+    if (!latch)
+    {
+        return false;
+    }
+
+    for (auto &instPtr : outer.header->getInstructions())
+    {
+        auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+        if (!phi || sameLoopValue(phi, iv))
+        {
+            continue;
+        }
+
+        Value *nextVal = nullptr;
+        for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+        {
+            if (phi->getIncomingBlock(i) == latch)
+            {
+                nextVal = phi->getIncomingValue(i);
+                break;
+            }
+        }
+        if (!nextVal || !sameLoopValue(stripCopy(nextVal), stripCopy(phi)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool LoopLinearIterationFoldPass::provePerElementFirstStoreFresh(const Loop &outer) const
+{
+    if (!outer.header || !outer.header->Parent)
+    {
+        return false;
+    }
+
+    auto perIterBlocks = collectPerIterationBlocks(outer);
+    if (perIterBlocks.empty())
+    {
+        return false;
+    }
+
+    unordered_map<string, bool> seenCellKey;
+    unordered_set<string> seenArrayBase;
+    for (BasicBlock *bb : orderPerIterationBlocks(outer))
+    {
+        if (!bb)
+        {
+            continue;
+        }
+
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+            if (!store)
+            {
+                continue;
+            }
+
+            const string cellKey = buildMemoryAccessKey(store->getPointer());
+            const string baseKey = getArrayBaseKey(store->getPointer());
+            if (cellKey.empty() || baseKey.empty())
+            {
+                return false;
+            }
+            if (seenCellKey.count(cellKey))
+            {
+                continue;
+            }
+            seenCellKey[cellKey] = true;
+            if (seenArrayBase.count(baseKey))
+            {
+                continue;
+            }
+            seenArrayBase.insert(baseKey);
+            if (valueDependsOnLoadAtKey(store->getValueToStore(), cellKey))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 Instruction *LoopLinearIterationFoldPass::buildLinearCompensation(Value *acc,
@@ -896,50 +1047,60 @@ bool LoopLinearIterationFoldPass::isLinearFoldableOuterBody(const Loop &outer,
     return true;
 }
 
-bool LoopLinearIterationFoldPass::tryFoldIdentityCopyNest(Function *func,
-                                                          const Loop &outer,
-                                                          ICmpInst *cmp,
-                                                          int tripCount,
-                                                          const vector<Loop> &loops)
+bool LoopLinearIterationFoldPass::tryFoldIterationInvariantOuterLoop(Function *func,
+                                                                     const Loop &outer,
+                                                                     ICmpInst *cmp,
+                                                                     Value *iv,
+                                                                     int constTripCount)
 {
-    if (!func || !cmp || tripCount <= 1)
+    if (!func || !cmp || !iv || constTripCount <= 1)
     {
         return false;
     }
 
-    for (const auto &innerLoop : loops)
+    if (!isOuterIvUnusedInBody(outer, iv))
     {
-        if (innerLoop.header == outer.header)
-        {
-            continue;
-        }
-        if (find(outer.blocks.begin(), outer.blocks.end(), innerLoop.header) == outer.blocks.end())
-        {
-            continue;
-        }
-
-        Value *srcArray = nullptr;
-        Value *dstArray = nullptr;
-        if (!isPureCopyLoop(innerLoop, srcArray, dstArray))
-        {
-            continue;
-        }
-
-        replaceValueInFunction(func, dstArray, srcArray, {});
-        cmp->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 1));
-        redirectAndRemoveLoop(func, innerLoop);
-
-        if (verbose)
-        {
-            debugInfo << "LoopLinearIterationFold: folded identity copy nest at "
-                      << outer.header->getName() << " (identity), removed inner copy loop "
-                      << innerLoop.header->getName() << " (" << dstArray->getName() << " -> "
-                      << srcArray->getName() << ")\n";
-        }
-        return true;
+        return false;
+    }
+    if (!allLoopCarriedValuesIterationInvariant(outer, iv))
+    {
+        return false;
+    }
+    if (!provePerElementFirstStoreFresh(outer))
+    {
+        return false;
     }
 
-    return false;
+    auto *newBound = new ConstantInt(IntegerType::getInstance(), 1);
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *icmp = dynamic_cast<ICmpInst *>(instPtr.get());
+            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+            {
+                continue;
+            }
+            if (!sameLoopValue(icmp->getLHS(), iv))
+            {
+                continue;
+            }
+            auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(icmp->getRHS()));
+            if (!boundConst || boundConst->Value != constTripCount)
+            {
+                continue;
+            }
+            icmp->setOperandByIndex(1, newBound);
+        }
+    }
+
+    if (verbose)
+    {
+        debugInfo << "LoopLinearIterationFold: folded iteration-invariant outer loop "
+                  << outer.header->getName() << " (trip " << constTripCount << " -> 1)\n";
+    }
+    return true;
 }
 
 bool LoopLinearIterationFoldPass::tryFoldLinearAccumulator(Function *func,
@@ -1025,96 +1186,6 @@ bool LoopLinearIterationFoldPass::tryFoldLinearAccumulator(Function *func,
     return true;
 }
 
-void LoopLinearIterationFoldPass::redirectAndRemoveLoop(Function *func, const Loop &loop)
-{
-    if (!func || !loop.header)
-    {
-        return;
-    }
-
-    set<BasicBlock *> loopBlocks(loop.blocks.begin(), loop.blocks.end());
-
-    BasicBlock *preheader = nullptr;
-    int externalPreds = 0;
-    for (auto *pred : loop.header->getPredecessors())
-    {
-        if (!loopBlocks.count(pred))
-        {
-            preheader = pred;
-            ++externalPreds;
-        }
-    }
-
-    BasicBlock *exitBlock = nullptr;
-    int externalSuccs = 0;
-    for (auto *succ : loop.header->getSuccessors())
-    {
-        if (!loopBlocks.count(succ))
-        {
-            exitBlock = succ;
-            ++externalSuccs;
-        }
-    }
-
-    if (externalPreds != 1 || externalSuccs != 1 || !preheader || !exitBlock)
-    {
-        return;
-    }
-
-    for (auto &instPtr : preheader->getInstructions())
-    {
-        if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
-        {
-            if (br->getTrueBlock() == loop.header)
-            {
-                preheader->removeSuccessor(loop.header);
-                loop.header->removePredecessor(preheader);
-                preheader->addSuccessor(exitBlock);
-                exitBlock->addPredecessor(preheader);
-                br->setTrueBlock(exitBlock);
-            }
-            if (br->getFalseBlock() == loop.header)
-            {
-                preheader->removeSuccessor(loop.header);
-                loop.header->removePredecessor(preheader);
-                preheader->addSuccessor(exitBlock);
-                exitBlock->addPredecessor(preheader);
-                br->setFalseBlock(exitBlock);
-            }
-        }
-    }
-
-    for (auto *bb : loop.blocks)
-    {
-        for (auto *succ : bb->getSuccessors())
-        {
-            if (!loopBlocks.count(succ))
-            {
-                removePhiIncomingFromPredecessor(succ, bb);
-            }
-        }
-    }
-
-    for (auto *bb : loop.blocks)
-    {
-        bb->removeSelfBasicBlock();
-    }
-
-    auto &bbs = func->getBasicBlocks();
-    for (auto it = bbs.begin(); it != bbs.end();)
-    {
-        if (loopBlocks.count(it->get()))
-        {
-            needToDelete.push_back(it->release());
-            it = bbs.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-}
-
 bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -1128,25 +1199,6 @@ bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
 
     for (const auto &outerLoop : loops)
     {
-        int tripCount = -1;
-        ICmpInst *cmp = nullptr;
-        ConstantInt *boundConst = nullptr;
-        if (!getFixedTripCountLoopInfo(outerLoop, cmp, boundConst, tripCount) || tripCount <= 1)
-        {
-            continue;
-        }
-
-        if (tryFoldIdentityCopyNest(func, outerLoop, cmp, tripCount, loops))
-        {
-            func->setLoops(ControlFlowAnalysis::findLoops(func));
-            return true;
-        }
-    }
-
-    func->setLoops(ControlFlowAnalysis::findLoops(func));
-    loops = func->getLoops();
-    for (const auto &outerLoop : loops)
-    {
         ICmpInst *cmp = nullptr;
         Value *iv = nullptr;
         Value *bound = nullptr;
@@ -1155,6 +1207,14 @@ bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
             !isFoldableTripBound(bound, constTripCount))
         {
             continue;
+        }
+
+        if (constTripCount > 1 &&
+            isOuterIvUnusedInBody(outerLoop, iv) &&
+            tryFoldIterationInvariantOuterLoop(func, outerLoop, cmp, iv, constTripCount))
+        {
+            func->setLoops(ControlFlowAnalysis::findLoops(func));
+            return true;
         }
 
         Value *acc = nullptr;
