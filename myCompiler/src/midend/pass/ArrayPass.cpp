@@ -798,6 +798,132 @@ namespace
         return false;
     }
 
+    bool valueDependsOnImpl(Value *val, Value *target, unordered_set<Value *> &visited)
+    {
+        if (!val || !target)
+        {
+            return false;
+        }
+        if (sameArrayValue(val, target))
+        {
+            return true;
+        }
+        if (!visited.insert(val).second)
+        {
+            return false;
+        }
+        if (auto *inst = dynamic_cast<Instruction *>(val))
+        {
+            for (auto *op : inst->getOperands())
+            {
+                if (valueDependsOnImpl(op, target, visited))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool valueDependsOn(Value *val, Value *target)
+    {
+        unordered_set<Value *> visited;
+        return valueDependsOnImpl(val, target, visited);
+    }
+
+    bool findInstructionInFunction(Function *func, Instruction *inst, BasicBlock *&outBb,
+                                 unsigned &outIndex)
+    {
+        if (!func || !inst)
+        {
+            return false;
+        }
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            auto &insts = bb->getInstructions();
+            for (unsigned i = 0; i < insts.size(); ++i)
+            {
+                if (insts[i].get() == inst)
+                {
+                    outBb = bb;
+                    outIndex = i;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    Value *getLoopIvValue(const Loop &loop)
+    {
+        BasicBlock *header = loop.header;
+        if (!header || header->getInstructions().size() < 2)
+        {
+            return nullptr;
+        }
+        auto *cmp = dynamic_cast<ICmpInst *>(
+            header->getInstructions()[header->getInstructions().size() - 2].get());
+        if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
+        {
+            return nullptr;
+        }
+        return cmp->getLHS();
+    }
+
+    bool isLoopInvariantValue(Value *val, const Loop &loop, Value *loopIv)
+    {
+        (void)loop;
+        if (!val)
+        {
+            return false;
+        }
+        return !loopIv || !valueDependsOn(val, loopIv);
+    }
+
+    bool extractAddOffset(Value *expr, Value *iv, Value *&offset)
+    {
+        offset = nullptr;
+        expr = stripCopy(expr);
+        iv = stripCopy(iv);
+        auto *add = dynamic_cast<BinaryOperator *>(expr);
+        if (!add || add->getOpcode() != Opcode::Add)
+        {
+            return false;
+        }
+        Value *lhs = stripCopy(add->getLHS());
+        Value *rhs = stripCopy(add->getRHS());
+        if (sameArrayValue(lhs, iv))
+        {
+            offset = add->getRHS();
+            return true;
+        }
+        if (sameArrayValue(rhs, iv))
+        {
+            offset = add->getLHS();
+            return true;
+        }
+        return false;
+    }
+
+    size_t findIvIndexPos(const vector<Value *> &indices, Value *iv)
+    {
+        for (size_t i = 0; i < indices.size(); ++i)
+        {
+            if (sameArrayValue(stripCopy(indices[i]), stripCopy(iv)))
+            {
+                return i;
+            }
+        }
+        return static_cast<size_t>(-1);
+    }
+
+    bool isZeroIndex(Value *idx)
+    {
+        auto *c = dynamic_cast<ConstantInt *>(stripCopy(idx));
+        return c && c->Value == 0;
+    }
+
     bool sameValueForAccess(Value *lhs, Value *rhs)
     {
         if (lhs == rhs)
@@ -1222,12 +1348,10 @@ namespace
     }
 }
 
-bool ArrayCopyPropagationPass::isPureCopyLoop(const Loop &loop,
-                                              Value *&srcArray,
-                                              Value *&dstArray) const
+bool ArrayCopyPropagationPass::analyzeCopyLoop(const Loop &loop,
+                                                 CopyLoopPattern &pattern) const
 {
-    srcArray = nullptr;
-    dstArray = nullptr;
+    pattern = {};
 
     int loadCount = 0;
     int storeCount = 0;
@@ -1259,12 +1383,13 @@ bool ArrayCopyPropagationPass::isPureCopyLoop(const Loop &loop,
                 {
                     return false;
                 }
-                if (!srcArray)
+                if (!pattern.srcArray)
                 {
-                    srcArray = origin;
+                    pattern.srcArray = origin;
                     loadIndices = std::move(indices);
                 }
-                else if (!isSameAddr(srcArray, origin) || !sameAccessPattern(loadIndices, indices))
+                else if (!isSameAddr(pattern.srcArray, origin) ||
+                         !sameAccessPattern(loadIndices, indices))
                 {
                     return false;
                 }
@@ -1284,12 +1409,13 @@ bool ArrayCopyPropagationPass::isPureCopyLoop(const Loop &loop,
                 {
                     return false;
                 }
-                if (!dstArray)
+                if (!pattern.dstArray)
                 {
-                    dstArray = origin;
+                    pattern.dstArray = origin;
                     storeIndices = std::move(indices);
                 }
-                else if (!isSameAddr(dstArray, origin) || !sameAccessPattern(storeIndices, indices))
+                else if (!isSameAddr(pattern.dstArray, origin) ||
+                         !sameAccessPattern(storeIndices, indices))
                 {
                     return false;
                 }
@@ -1311,18 +1437,104 @@ bool ArrayCopyPropagationPass::isPureCopyLoop(const Loop &loop,
         }
     }
 
-    if (loadCount != 1 || storeCount != 1 || !srcArray || !dstArray || !copyLoad || !copyStore ||
-        isSameAddr(srcArray, dstArray))
+    if (loadCount != 1 || storeCount != 1 || !pattern.srcArray || !pattern.dstArray ||
+        !copyLoad || !copyStore || isSameAddr(pattern.srcArray, pattern.dstArray))
     {
         return false;
     }
 
-    if (!sameAccessPattern(loadIndices, storeIndices))
+    if (!sameArrayValue(stripCopy(copyStore->getValueToStore()), stripCopy(copyLoad)))
     {
         return false;
     }
 
-    return sameArrayValue(stripCopy(copyStore->getValueToStore()), stripCopy(copyLoad));
+    if (sameAccessPattern(loadIndices, storeIndices))
+    {
+        pattern.valid = true;
+        return true;
+    }
+
+    Value *loopIv = getLoopIvValue(loop);
+    if (!loopIv)
+    {
+        return false;
+    }
+
+    const size_t storeIvPos = findIvIndexPos(storeIndices, loopIv);
+    if (storeIvPos == static_cast<size_t>(-1))
+    {
+        return false;
+    }
+
+    if (loadIndices.size() == 1 && storeIndices.size() >= 1)
+    {
+        Value *offset = nullptr;
+        if (!extractAddOffset(loadIndices[0], loopIv, offset) ||
+            !isLoopInvariantValue(offset, loop, loopIv))
+        {
+            return false;
+        }
+        for (size_t i = 0; i < storeIvPos; ++i)
+        {
+            if (!isZeroIndex(storeIndices[i]))
+            {
+                return false;
+            }
+        }
+        for (size_t i = storeIvPos + 1; i < storeIndices.size(); ++i)
+        {
+            if (!sameValueForAccess(storeIndices[i], loadIndices[i]))
+            {
+                return false;
+            }
+        }
+        pattern.indexOffset = offset;
+        pattern.storeIvIndexPos = storeIvPos;
+        pattern.srcFlatIndex = true;
+        pattern.valid = true;
+        return true;
+    }
+
+    if (loadIndices.size() == storeIndices.size())
+    {
+        for (size_t k = 0; k < loadIndices.size(); ++k)
+        {
+            Value *offset = nullptr;
+            if (!extractAddOffset(loadIndices[k], loopIv, offset))
+            {
+                continue;
+            }
+            if (!sameArrayValue(stripCopy(storeIndices[k]), stripCopy(loopIv)) ||
+                !isLoopInvariantValue(offset, loop, loopIv))
+            {
+                continue;
+            }
+            bool othersMatch = true;
+            for (size_t j = 0; j < loadIndices.size(); ++j)
+            {
+                if (j == k)
+                {
+                    continue;
+                }
+                if (!sameValueForAccess(loadIndices[j], storeIndices[j]))
+                {
+                    othersMatch = false;
+                    break;
+                }
+            }
+            if (!othersMatch)
+            {
+                continue;
+            }
+            pattern.indexOffset = offset;
+            pattern.storeIvIndexPos = k;
+            pattern.srcFlatIndex = false;
+            pattern.valid = true;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool ArrayCopyPropagationPass::isCopyPropagationSafe(const Loop &copyLoop,
@@ -1343,30 +1555,108 @@ bool ArrayCopyPropagationPass::isCopyPropagationSafe(const Loop &copyLoop,
     return provePerIterFirstStoreFresh(*region);
 }
 
-void ArrayCopyPropagationPass::replaceArrayBaseInFunction(Function *func,
-                                                            Value *dstArray,
-                                                            Value *srcArray) const
+void ArrayCopyPropagationPass::applyCopyPropagation(Function *func,
+                                                      const CopyLoopPattern &pattern) const
 {
-    if (!func || !dstArray || !srcArray)
+    if (!func || !pattern.valid || !pattern.srcArray || !pattern.dstArray)
     {
         return;
     }
 
+    if (!pattern.indexOffset)
+    {
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            for (auto &instPtr : bb->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                for (size_t i = 0; i < inst->getOperands().size(); ++i)
+                {
+                    Value *op = inst->getOperandByIndex(i);
+                    if (op == pattern.dstArray || sameArrayValue(op, pattern.dstArray))
+                    {
+                        inst->setOperandByIndex(i, pattern.srcArray);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    vector<GetElementPtrInst *> dstGeps;
     for (auto &bbPtr : func->getBasicBlocks())
     {
         BasicBlock *bb = bbPtr.get();
         for (auto &instPtr : bb->getInstructions())
         {
-            Instruction *inst = instPtr.get();
-            for (size_t i = 0; i < inst->getOperands().size(); ++i)
+            auto *gep = dynamic_cast<GetElementPtrInst *>(instPtr.get());
+            if (!gep)
             {
-                Value *op = inst->getOperandByIndex(i);
-                if (op == dstArray || sameArrayValue(op, dstArray))
-                {
-                    inst->setOperandByIndex(i, srcArray);
-                }
+                continue;
             }
+            Value *base = nullptr;
+            vector<Value *> indices;
+            if (!collectAccessPattern(gep, base, indices) || !base)
+            {
+                continue;
+            }
+            if (!isSameAddr(base, pattern.dstArray))
+            {
+                continue;
+            }
+            dstGeps.push_back(gep);
         }
+    }
+
+    for (auto *gep : dstGeps)
+    {
+        Value *base = nullptr;
+        vector<Value *> indices;
+        if (!collectAccessPattern(gep, base, indices))
+        {
+            continue;
+        }
+
+        Value *ivVal = nullptr;
+        if (indices.size() > pattern.storeIvIndexPos)
+        {
+            ivVal = indices[pattern.storeIvIndexPos];
+        }
+        else if (indices.size() == 1 && pattern.storeIvIndexPos >= 1)
+        {
+            ivVal = indices[0];
+        }
+        if (!ivVal)
+        {
+            continue;
+        }
+
+        vector<Value *> newIndices;
+        auto *addOp = new BinaryOperator(Opcode::Add, pattern.indexOffset, ivVal, "copy_prop_idx");
+        if (pattern.srcFlatIndex)
+        {
+            newIndices.push_back(addOp);
+        }
+        else
+        {
+            newIndices = indices;
+            newIndices[pattern.storeIvIndexPos] = addOp;
+        }
+
+        BasicBlock *bb = nullptr;
+        unsigned gepIndex = 0;
+        if (!findInstructionInFunction(func, gep, bb, gepIndex))
+        {
+            delete addOp;
+            continue;
+        }
+
+        auto *newGep =
+            new GetElementPtrInst(pattern.srcArray, newIndices, gep->getName() + "_cp");
+        bb->insert(std::unique_ptr<Instruction>(addOp), gepIndex);
+        bb->insert(std::unique_ptr<Instruction>(newGep), gepIndex + 1);
+        gep->replaceAllUsesWith(newGep);
     }
 }
 
@@ -1472,25 +1762,29 @@ bool ArrayCopyPropagationPass::runOnFunction(Function *func)
 
     for (const auto &loop : loops)
     {
-        Value *srcArray = nullptr;
-        Value *dstArray = nullptr;
-        if (!isPureCopyLoop(loop, srcArray, dstArray))
+        CopyLoopPattern pattern;
+        if (!analyzeCopyLoop(loop, pattern))
         {
             continue;
         }
-        if (!isCopyPropagationSafe(loop, dstArray, loops))
+        if (!isCopyPropagationSafe(loop, pattern.dstArray, loops))
         {
             continue;
         }
 
-        replaceArrayBaseInFunction(func, dstArray, srcArray);
+        applyCopyPropagation(func, pattern);
         redirectAndRemoveLoop(func, loop);
 
         if (verbose)
         {
             debugInfo << "ArrayCopyPropagation: removed pure copy loop at "
-                      << loop.header->getName() << " (" << dstArray->getName() << " -> "
-                      << srcArray->getName() << ")\n";
+                      << loop.header->getName() << " (" << pattern.dstArray->getName() << " -> "
+                      << pattern.srcArray->getName();
+            if (pattern.indexOffset)
+            {
+                debugInfo << " + offset " << pattern.indexOffset->toRef();
+            }
+            debugInfo << ")\n";
         }
         func->setLoops(ControlFlowAnalysis::findLoops(func));
         return true;

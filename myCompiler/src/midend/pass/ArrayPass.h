@@ -28,7 +28,8 @@ namespace optimization
         bool removeWriteOnlyRootInFunction(Value *root, Function *func);
     };
 
-    // 纯拷贝循环：dst[i]=src[i] 且无其它副作用时，函数内 dst 基址替换为 src 并删除该循环
+    // 纯拷贝循环：dst[i]=src[i] 或 dst[i]=src[off+i]（off 为循环不变量）时，
+    // 删除拷贝循环并将 dst 的访问重写为带偏移的 src 访问
     class ArrayCopyPropagationPass : public Pass
     {
     public:
@@ -37,11 +38,21 @@ namespace optimization
         std::string getName() const override { return "ArrayCopyPropagation"; }
 
     private:
-        bool isPureCopyLoop(const Loop &loop, Value *&srcArray, Value *&dstArray) const;
+        struct CopyLoopPattern
+        {
+            Value *srcArray = nullptr;
+            Value *dstArray = nullptr;
+            Value *indexOffset = nullptr; // nullptr 表示同下标 identity copy
+            size_t storeIvIndexPos = 0;
+            bool srcFlatIndex = false;
+            bool valid = false;
+        };
+
+        bool analyzeCopyLoop(const Loop &loop, CopyLoopPattern &pattern) const;
         bool isCopyPropagationSafe(const Loop &copyLoop,
                                    Value *dstArray,
                                    const std::vector<Loop> &allLoops) const;
-        void replaceArrayBaseInFunction(Function *func, Value *dstArray, Value *srcArray) const;
+        void applyCopyPropagation(Function *func, const CopyLoopPattern &pattern) const;
         void redirectAndRemoveLoop(Function *func, const Loop &loop);
     };
 

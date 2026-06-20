@@ -211,9 +211,12 @@
 
 ### ArrayCopyPropagationPass（数组拷贝传播）
 
-- 识别 **纯拷贝循环**：体内仅 1 load + 1 store，同下标，**且 store 的值就是该 load**（排除 `a2[i]=f(a1[i])` 等误匹配）。
+- 识别 **纯拷贝循环**：体内仅 1 load + 1 store，**且 store 的值就是该 load**（排除 `a2[i]=f(a1[i])` 等误匹配）。
+- 支持下标模式：
+  - **同下标**：`dst[i] = src[i]`
+  - **常量偏移**：`dst[i] = src[off + i]`（`off` 为 loop-invariant，如 `M[i] = input[chunk_start + i]`）
 - 安全条件：无 enclosing 区域约束时直接传播；若 dst 在 copy 外还有 store（如 trsm），需证明区域内按执行顺序的首写 freshness。
-- 动作：函数内 `dst` 基址全局替换为 `src`，删除 copy 循环。
+- 动作：删除 copy 循环；同下标时函数内 `dst` 基址替换为 `src`；偏移时将 `dst[...]` 的 GEP 改写为 `src[off + ...]`。
 
 ---
 
