@@ -1,271 +1,309 @@
 # IRPass 设计与实现一览
 
-本节列举 `/midend/pass` 目录下所有 IR 优化 Pass，并简要描述每个 Pass 的实现思路与作用。
+本文档描述 `/midend/pass` 目录下的 IR 优化 Pass，以及 `OptimizationPasses.cpp` 中各优化等级的流水线配置。
 
 ---
 
-## 1. DeadCodeEliminationPass（死代码消除）
+## PassManager 与优化等级
 
-**实现思路**：
-- 删除不可达基本块（无前驱且非入口块），并修正所有 phi 指令的输入。
-- 遍历所有指令，标记有副作用或被使用的指令为“活跃”，递归标记其依赖。
-- 删除所有无副作用且未被使用的指令，支持多轮迭代，直到无可删除内容。
+- **PassManager**：按顺序对每个 Pass 作用于模块内所有非库函数；`FunctionInliningPass` / `RemoveUnusedGlobalAndFunctionPass` 之后清理已无引用的函数。
+- **调试**：`-debug -info` 时，各 Pass 的 `toString()` 输出追加到 `.ir.optO*` 文件末尾。
+- **优化等级**（`createOptimizationPipeline`）：
 
-**作用**：减少冗余代码，减小 IR 体积，提升后续优化和生成效率。
+| 等级 | 用途 |
+|------|------|
+| **O0 / O1** | 完整中端优化流水线（O0 与 O1 当前配置相同） |
+| **O2** | 仅 DCE + Phi 消除（调试/最小优化） |
+| **O15** | 部分 Pass 实验配置（大量 Pass 被注释，用于阶段性测试） |
+| **O16** | 完整流水线至循环展开，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等（供后端调试） |
+| **O17** | **最激进**完整流水线，含 GEP 链折叠、尾递归、Phi 消除、IR 层 LICM、GCC 风格循环变换等 |
 
----
+### O0/O1/O17 流水线阶段概览
 
-## 2. CommonSubexpressionEliminationPass（公共子表达式消除）
+**阶段 A — 预处理与内联前**
 
-**实现思路**：
-- 用哈希表记录每个表达式（包括操作数、类型、谓词等）的唯一 key。
-- 遍历基本块或支配子树，遇到重复表达式时，若操作数未被修改且无副作用，则用前者结果替换后者。
-- 对 load 指令，仅在同基本块且无 store 修改时消除；对 phi/load操作数，需分析路径安全性。
+`CFGSimplification` → `MemoizationV2` → `CSE(块内)` → `RemoveRedundantStore` → [`Normalization`] → `GlobalScalarPromotion` → `PowDivLoopReduction` → `HelperReturnAnalysis` → `FunctionInlining` → [`DCE`]
 
-**作用**：消除重复计算，减少指令数，提高执行效率。
+**阶段 B — 数组与循环结构**
 
----
+`ModLoopReduction` → `AllocaCoalesce` → `ArrayElimination` → `RemoveOnlyWriteArray` → `DCE` → **`LoopLinearIterationFold`** → **`ArrayCopyPropagation`** → `LoopSumReduction` → `BasicBlockMerge` → `ConstantFolding`
 
-## 3. LoopInvariantCodeMotionPass（循环不变代码外提）
+**阶段 C — 循环变换与展开**
 
-**实现思路**：
-- 利用支配分析和数据流分析，判断循环体内哪些指令在每次迭代结果不变（即操作数均为循环外定义或不变）。
-- 检查循环体内是否有对相关地址的 store 或副作用，确保外提安全。
-- 将不变指令移动到循环前置块（preheader），修正数据依赖和控制流。
+`LoopIfGuardHoist` → `LoopNestedBoundTightening` → [`DCE`/`BBMerge`] → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `TransposedBufferLoadForward` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → [`RelativeGepOffset`(O16)] → `LoopUnrolling` → `InstructionCombine` → `ArrayStoreLoadForward`
 
-**作用**：减少循环内重复计算，提升性能。
+**阶段 D — GEP 与算术归约**（O17）
 
----
+`DCE` → `BBMerge` → `ConstantFolding` → `GEPExpansion` → `ArrayStoreLoadForward` → `DCE` → `CSE` → `AddChainReduction` → `GEPChainFold` → `DCE`
 
-## 4. FunctionInliningPass（函数内联）
+**阶段 E — 收尾与后端准备**（O17）
 
-**实现思路**：
-- 判断被调用函数是否适合内联（如无递归、无副作用、体积小等）。
-- 在调用点复制被调用函数的 IR，替换参数和返回值，修正所有控制流和 phi 输入。
-- 删除已无调用的内联函数定义。
+`TailRecursionElimination` → `FunctionInlining(二次)` → `GEPToBitCast` → `PhiElimination` → `AddChainReduction` → **`LoopInvariantCodeMotion`(IR)** → `ConstantFolding` → `CSE` → `SRFixed` → `ConstantFolding` → `RemoveRedundantStore` → `BasicBlockReorder` → `DCE` → `RemoveUnusedGlobalAndFunction` → **`LoopGccStyleTransform`**
 
-**作用**：消除函数调用开销，暴露更多优化机会（如常量折叠、CSE等）。
+方括号内为 O17 相对 O16 多出的 Pass，或 O16/O17 差异项。
 
 ---
 
-## 5. ConstantFoldingPass（常量折叠）
+## 一、控制流与基本块
 
-**实现思路**：
-- 遍历所有指令，发现操作数均为常量的算术、比较、类型转换等表达式，直接计算结果并替换为常量。
-- 包含恒等消除（如 `x+0=x, x*1=x, x*0=0` 等）。
-- 支持条件跳转指令的常量化（如条件恒真/恒假时转为无条件跳转）。
+### CFGSimplificationPass（控制流图简化）
 
-**作用**：提前计算常量表达式，减少运行时计算，提高代码质量。
-
----
-
-## 6. PhiEliminationPass（Phi 指令消除）
-
-**实现思路**：
-- 将 SSA 形式下的 phi 指令转换为普通 copy 指令，在前驱块插入相应赋值。
-- 若 phi 所有输入值相同或只有一个输入，直接替换为该值。
-- 删除无效 copy（源与目标相同）。
-
-**作用**：将 SSA IR 转回普通 IR，便于后端生成和进一步优化。
-
----
-
-## 7. LiveVariableAnalysisPass（活跃变量分析）
-
-**实现思路**：
-- 对每个基本块做数据流分析，计算每条指令前后的活跃变量集合（liveIn/liveOut）。
-- 采用迭代算法，直到所有集合收敛。
-- 为寄存器分配、死代码消除等优化提供数据支持。
-
-**作用**：分析变量生命周期，辅助寄存器分配和死代码消除。
-
----
-
-## 8. GEPExpansionPass（GEP 展开）
-
-**实现思路**：
-- 将多维数组的 GEP（GetElementPtr）指令递归展开为一维链式 GEP，便于后端处理和优化。
-- 替换原 GEP 的所有使用为展开后的最后一个 GEP。
-
-**作用**：简化地址计算，提升后端优化空间，同时可以为CSE提供更多优化机会。
-
----
-
-## 9. CFGSimplificationPass（控制流图简化）
-
-**实现思路**：
 - 合并空基本块、删除无用跳转、简化条件分支。
-- 移除只有一个前驱和一个后继的中间块，优化控制流结构。
 - 支持 if-else 链转循环等结构化简。
 
-**作用**：简化控制流，减少分支，提高代码局部性和执行效率。
+### BasicBlockMergePass（基本块合并）
+
+- 合并「唯一后继且后继唯一前驱」的基本块对，修正 phi 与 CFG。
+
+### BasicBlockReorderPass（基本块重排）
+
+- 按支配树 DFS 重排基本块，真分支优先，提升代码布局。
+
+### NormalizationPass（归一化）
+
+- 将 `>=`/`>` 转为 `<=`/`<`；常数项归一化到右操作数，便于后续循环/比较优化。
+
+### LoopGccStyleTransformPass（GCC 风格循环变换）
+
+- 将 LLVM 风格（cond 在 header、body 回跳 cond）变为 GCC 风格（入口判断 + body 末尾回边）。
+- 在流水线**末尾**运行，便于后端按 GCC 循环结构生成代码。
 
 ---
 
-## 10. ArrayEliminationPass（数组消除/SRA）
+## 二、死代码消除与清理
 
-**实现思路**：
-- 检查数组的所有 store/load 是否可用标量表达式替换（如 a[i]=A+i，a[i]只被顺序访问）。
-- 若满足条件，将数组访问替换为等价的标量表达式，删除原数组定义和相关 store/load。
-- 检查路径上有无其它 store，保证替换安全。
+### DeadCodeEliminationPass（死代码消除）
 
-**作用**：消除冗余数组，减少内存访问，提升性能。
+- 删除不可达块；标记有副作用或被使用的指令为活跃，递归删除无用指令；可多轮迭代。
 
----
+### RemoveRedundantStorePass（冗余 Store 删除）
 
-## 11. RemoveUselessWhilePass（无用循环删除）
+- 同一基本块内，若 store 的值与最近一次同地址 load 相同且中间无其它 store，则删除该 store。
+- **须在内联前**运行，避免跨函数别名分析。
 
-**实现思路**：
-- 检查循环体是否只包含循环变量自增/自减且无副作用。
-- 若是，则删除该循环，直接跳到循环出口。
+### RemoveUnusedGlobalAndFunctionPass（无用全局量/函数删除）
 
-**作用**：消除无意义循环，减少冗余控制流。
+- 删除无引用的全局变量与函数定义。
 
----
+### RemoveUselessWhilePass（无用循环删除）
 
-## 12. GEPToBitCastPass（GEP转BitCast）
-
-**实现思路**：
-- 检查 GEP 指令所有索引是否为 0，若是则转换为 BitCast 指令。
-- 删除冗余 BitCast（源类型和目标类型相同）。
-
-**作用**：简化类型转换，减少冗余指令。
+- 删除仅含归纳变量自增/自减、无副作用的空循环。（当前主流水线中已注释停用）
 
 ---
 
-## 13. AddChainReductionPass（加法链归约）
+## 三、常量折叠与算术
 
-**实现思路**：
-- 检测连续的加法链（如 a+b+c+d），将其归约为更高效的表达式（如乘法）。
-- 只在所有链上 add 指令只有一个 user 时才归约，保证安全。
+### ConstantFoldingPass（常量折叠）
 
-**作用**：减少指令数，提高算术运算效率。
+- 对算术、比较、类型转换等常量表达式求值；恒等消除（`x+0`、`x*1` 等）；条件跳转常量化。
 
----
+### AddChainReductionPass（加法链归约）
 
-## 14. StrengthReductionPass（强度削弱）
+- 将连续同用户加法链归约为乘法等形式（安全时）。
 
-**实现思路**：
-- 将高开销操作（如乘法、除法、取模）转化为低开销操作（如加法、移位、魔数法）。
-- 乘法/除法/取模的移位优化（2的幂次方），魔数法优化常数除法/取模。
-- 乘0/1、加0、减0等恒等消除。
+### StrengthReductionPass / SRFixedPass（强度削弱）
 
-**作用**：提升算术运算性能，减少 CPU 指令周期。
+- `StrengthReductionPass`：通用强度削弱（流水线中多被 `SRFixedPass` 替代）。
+- **`SRFixedPass`**：修复版强度削弱，含魔数法常数除法/取模、2 的幂移位等。
 
----
+### PowDivLoopReductionPass（幂除循环归约）
 
-## 15. LoopSumReductionPass（循环求和归约）
-
-**实现思路**：
-- 检测形如 `sum = sum + f(i)` 的循环，自动归约为数学公式（如高斯求和），用公式替换整个循环。
-- 分析循环变量和初值，生成等价表达式。
-
-**作用**：消除冗余循环，提升性能。
+- 识别 `x = x / c` 或幂相关循环，用公式或代数替换。
 
 ---
 
-## 16. ModLoopReductionPass（模循环归约）
+## 四、公共子表达式与内存
 
-**实现思路**：
-- 检测形如 `sum = (sum + x) % c` 的循环，自动归约为公式，消除循环。
-- 只处理常量模数和加数，生成等价表达式。
+### CommonSubexpressionEliminationPass（CSE）
 
-**作用**：减少循环次数，提升性能。
+- 基于表达式 key 的支配树 CSE；load 需同块且无 intervening store；支持路径敏感分析。
+- 流水线中多次出现：内联前 `CSE(1)`、GEP 展开后、Phi 消除后各一轮。
 
----
+### RemoveRedundantStorePass
 
-## 17. LoopUnrollingPass（循环展开）
+见第二节。
 
-**实现思路**：
-- 对 trip count 可知的简单循环，若 trip count ≤ 100 则尝试完全展开；否则或无法完全展开时做四路部分展开（循环体指令数 > 40 则跳过四路展开）。
-- 常量循环完全展开在同一函数内最多连续展开 2 层（内层优先），更外层仅保留部分展开或保持循环。
-- 支持 header+body 及 header+body+latch 形式；支持 copy 归纳变量；已部分展开的循环（前驱含 `_unroll_exit`）不再处理。
-- 复制循环体，修正循环变量和控制流。
+### ArrayStoreLoadForwardPass（数组 store-load 转发）
 
-**作用**：提升指令并行度，减少分支预测失误。
+- 同一数组元素先 store 后 load 时，load 直接使用前序 store 的值。
 
 ---
 
-## 18. TailRecursionEliminationPass（尾递归消除）
+## 五、函数与调用
 
-**实现思路**：
-- 检测尾递归函数，将递归调用转为循环，提升性能。
-- 替换递归调用为参数赋值和跳转到入口块。
+### FunctionInliningPass（函数内联）
 
-**作用**：消除递归调用开销，提升执行效率。
+- 按体积、递归、副作用等条件内联；修正参数、返回值与控制流。
+- O17 末尾有**二次内联**（`aggressive=true`），配合尾递归消除。
 
----
+### TailRecursionEliminationPass（尾递归消除）
 
-## 19. RemoveOnlyWriteArrayPass（只写数组消除）
+- 尾调用改循环 + 参数更新，消除递归栈开销。
 
-**实现思路**：
-- 检查数组是否只被写入（无 load/call 使用），若是则删除相关 store、GEP、alloca 指令。
-- 用 worklist 递归查找所有相关指令。
+### HelperReturnAnalysisPass（辅助返回值分析）
 
-**作用**：减少冗余内存操作，减小 IR 体积。
+- 模块级分析 helper 函数返回值模式，供内联与后续优化使用。
 
----
+### MemoizationV2Pass（记忆化 V2）
 
-## 20. BasicBlockMergePass（基本块合并）
+- 对满足条件的递归函数插入统一缓存表（4096 槽），入口校验参数后查表/写表。
 
-**实现思路**：
-- 合并只有一个后继且后继只有一个前驱的基本块，简化控制流。
-- 移动后继块所有指令到当前块，修正 phi 输入和 CFG。
+### GlobalScalarPromotionPass（全局标量提升）
 
-**作用**：减少基本块数量，提升局部性和优化空间。
+- 将仅局部使用的全局标量提升为函数内局部变量。
 
 ---
 
-## 21. BasicBlockReorderPass（基本块重排）
+## 六、循环 — 通用
 
-**实现思路**：
-- 按支配树顺序重排基本块，提升局部性和后端优化效果。
-- 支配树 DFS，真分支优先，补充不可达块。
+### LoopInvariantCodeMotionPass（IR 层 LICM）
 
-**作用**：提升代码布局，优化缓存命中和分支预测。
+- 将循环不变指令外提到 preheader；检查 store 副作用与地址依赖。
+- **在 Phi 消除之后**运行（Phi 会阻碍外提判断）。
+
+### LoopUnrollingPass（循环展开）
+
+- 常量 trip 且 ≤100 时尝试完全展开；否则四路部分展开（体过大则跳过）。
+- 同一函数内完全展开最多连续 2 层；支持 copy 归纳变量与 `_unroll_exit` 标记。
+
+### LoopSumReductionPass（循环求和归约）
+
+- `sum = sum + f(i)` 等高斯公式归约。
+
+### ModLoopReductionPass（模循环归约）
+
+- `(sum + x) % c` 形式循环公式化。
+
+### LoopIfGuardHoistPass（循环 if 守卫外提）
+
+- 将循环内不变条件/守卫外提到更外层或 preheader。
+
+### LoopNestedBoundTighteningPass（嵌套循环界收紧）
+
+- 利用外层界收紧内层循环上界。
+
+### LoopInductionStrengthReductionPass（归纳变量强度削弱）
+
+- 将 `i * stride` 等转为递推指针/增量形式。
+
+### CondGuardedAccumulatePass（条件 guarded 累加）
+
+- 识别带条件的累加模式并化简。
 
 ---
 
-## 22. RemoveRedundantStorePass（冗余store删除）
+## 七、循环 — 迭代折叠与拷贝传播
 
-**实现思路**：
-- 检查 store 指令，如果其存储的值与最近一次 load 的值相同且中间无其它 store，则删除该 store。
-- 只处理同一地址、同一基本块内的冗余 store。
+### LoopLinearIterationFoldPass（外层线性/迭代不变折叠）
 
-**作用**：减少无用内存写入，提升内存访问效率。
+两类互补优化，**不使用** copy-nest 模式匹配：
+
+1. **迭代不变外层循环**  
+   - 条件：外层 trip > 1；归纳变量在循环体中仅用于比较/自增；所有 loop-carried phi 迭代不变；**读写全局数组在首次 store 前不得 load**（防止 `01_mm1` 类跨轮依赖）；每轮按执行顺序的首写 store 不依赖同单元旧值（copy 后再 trsm 等场景用 array-base 跟踪）。  
+   - 动作：将所有 `icmp slt iv, N` 改为 `icmp slt iv, 1`。  
+   - 典型：`h-10-02` 中 `k<5` 压成 `k<1`（每轮先 copy 再 trsm，与 k 无关）。
+
+2. **线性累加器折叠**  
+   - 条件：`acc' = acc + β`（β 不依赖 acc），外层体可线性折叠。  
+   - 动作：trip 压 1，在出口用 `acc * tripBound` 补偿。
+
+- 循环控制可从 **header 或 latch** 读取 `icmp slt`（GCC 风格循环的界在 latch 上）。
+
+### ArrayCopyPropagationPass（数组拷贝传播）
+
+- 识别 **纯拷贝循环**：体内仅 1 load + 1 store，同下标，**且 store 的值就是该 load**（排除 `a2[i]=f(a1[i])` 等误匹配）。
+- 安全条件：无 enclosing 区域约束时直接传播；若 dst 在 copy 外还有 store（如 trsm），需证明区域内按执行顺序的首写 freshness。
+- 动作：函数内 `dst` 基址全局替换为 `src`，删除 copy 循环。
 
 ---
 
-## 23. InstructionCombinePass（指令合并）
+## 八、循环 — 矩阵/多面体
 
-**实现思路**：
-- 检查同一基本块内连续或可合并的 store 指令（如地址连续且值相同的常数 store），合并为一次宽数据 store（如双字 store）。
-- 支持多维数组，判断所有维度除最后一维都相同，最后一维连续。
-- 检查合并区间内无相关 load，保证合并安全。
+### MatrixStructureAnalysisPass（矩阵结构分析）
 
-**作用**：减少指令数，提高内存带宽利用率。
+- 分析嵌套循环的矩阵访问模式，为 interchange / tiling 等提供元数据。
+
+### TransposedBufferLoadForwardPass（转置缓冲 load 转发）
+
+- 针对转置访问模式的 load 转发优化。
+
+### SkewSymmetricLoopRestrictPass（斜对称循环约束）
+
+- 利用斜对称矩阵访问特性收紧循环或简化下标。
+
+### LoopInterchangePass（循环交换）
+
+- 交换嵌套循环顺序以改善局部性（依赖矩阵结构分析）。
+
+### RelativeGepOffsetPass（相对 GEP 偏移）
+
+- 将 GEP 链转为相对基址的偏移形式（O16 启用，O17 默认注释）。
 
 ---
 
-## 24. IfConversionPass（if转换）
+## 九、数组
 
-**实现思路**：
-- 检查 if-else 分支均为 return 或均为无副作用指令时，将条件分支转换为 select 指令或合并到主块。
-- 支持分支合流块的 phi 指令转换为 select。
-- 修正控制流和数据流。
+### ArrayEliminationPass（数组消除 / SRA）
 
-**作用**：减少分支，提高代码线性度和并行度。
+- 顺序访问、可标量化的数组 alloca 替换为标量表达式。
+
+### AllocaCoalescePass（Alloca 合并）
+
+- 合并相邻或等价的栈分配，减小栈帧。
+
+### RemoveOnlyWriteArrayPass（只写数组消除）
+
+- 删除从未 load 的数组 alloca 及相关 store/GEP。
+
+### ArrayCopyPropagationPass / ArrayStoreLoadForwardPass
+
+见第七、四节。
+
+---
+
+## 十、GEP 与地址
+
+### GEPExpansionPass（GEP 展开）
+
+- 多维 GEP 展开为一维链式 GEP。
+
+### GEPChainFoldPass（GEP 链折叠）
+
+- 合并连续 GEP/偏移为单条地址计算（须在 `AddChainReduction` 之后）。
+
+### GEPToBitCastPass（GEP 转 BitCast）
+
+- 全零索引 GEP 转为 BitCast。
+
+### RelativeGepOffsetPass
+
+见第八节。
+
+---
+
+## 十一、SSA 与 lowering 准备
+
+### PhiEliminationPass（Phi 消除）
+
+- SSA phi 转为前驱块 copy；为后端与 IR LICM 准备非 SSA 形式。
+
+### IfConversionPass（If 转换）
+
+- 将简单 if-else 转为 select 或直线化（当前主流水线中未默认启用）。
+
+### LiveVariableAnalysisPass（活跃变量分析）
+
+- 为寄存器相关 midend 分析提供 liveIn/liveOut（独立工具 Pass）。
 
 ---
 
 ## 设计亮点
 
-- **高度模块化**：每个 Pass 独立实现，便于组合、调试和扩展。
-- **优化管道灵活**：PassManager 支持自定义优化流水线，适应不同优化等级和场景。
-- **高效数据流/控制流分析**：采用高效算法（如 Lengauer-Tarjan 支配树）提升分析效率。
-- **调试与可视化友好**：所有 Pass 支持详细调试输出，便于定位问题和教学演示。
-- **工程与教学兼容**：既能满足工程实际需求，也适合教学展示优化原理和效果。
+- **高度模块化**：每个 Pass 独立，便于 `-O16`/`-O17` 分段调试。
+- **GCC 风格协同**：`LoopGccStyleTransform` + 后端 LICM/CSE 针对 latch 上的界与 li/la 模式优化。
+- **迭代不变 + 拷贝传播解耦**：`LoopLinearIterationFold` 负责 trip 折叠；`ArrayCopyPropagation` 负责纯 copy 循环删除，语义分别证明，避免单一模式匹配。
+- **调试友好**：所有 Pass 支持 `-info` 详细输出。
 
 ---
 
-如需详细实现和用法，请查阅各 Pass 的源码
+如需详细实现，请查阅各 Pass 源码及 `OptimizationPasses.cpp`。

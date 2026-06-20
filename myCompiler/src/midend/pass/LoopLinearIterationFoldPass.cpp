@@ -332,11 +332,11 @@ namespace
         return false;
     }
 
-    string getArrayBaseKey(Value *ptr)
+    Value *getArrayBaseValue(Value *ptr)
     {
         if (!ptr)
         {
-            return "";
+            return nullptr;
         }
 
         Value *current = ptr;
@@ -344,7 +344,13 @@ namespace
         {
             current = gep->getPointerOperand();
         }
-        return current ? current->toRef() : "";
+        return current;
+    }
+
+    string getArrayBaseKey(Value *ptr)
+    {
+        Value *base = getArrayBaseValue(ptr);
+        return base ? base->toRef() : "";
     }
 
     string buildMemoryAccessKey(Value *ptr)
@@ -726,6 +732,90 @@ bool LoopLinearIterationFoldPass::provePerElementFirstStoreFresh(const Loop &out
     return true;
 }
 
+bool LoopLinearIterationFoldPass::proveNoReadWriteGlobalLoadBeforeFirstStore(const Loop &outer) const
+{
+    if (!outer.header || !outer.header->Parent)
+    {
+        return false;
+    }
+
+    auto ordered = orderPerIterationBlocks(outer);
+    if (ordered.empty())
+    {
+        return false;
+    }
+
+    unordered_set<string> readWriteGlobalBases;
+    for (BasicBlock *bb : ordered)
+    {
+        if (!bb)
+        {
+            continue;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+            if (!store)
+            {
+                continue;
+            }
+            Value *base = getArrayBaseValue(store->getPointer());
+            if (!base || !base->isGlobal())
+            {
+                continue;
+            }
+            const string baseKey = getArrayBaseKey(store->getPointer());
+            if (!baseKey.empty())
+            {
+                readWriteGlobalBases.insert(baseKey);
+            }
+        }
+    }
+
+    if (readWriteGlobalBases.empty())
+    {
+        return true;
+    }
+
+    unordered_set<string> storedGlobalBases;
+    for (BasicBlock *bb : ordered)
+    {
+        if (!bb)
+        {
+            continue;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto *load = dynamic_cast<LoadInst *>(inst))
+            {
+                const string baseKey = getArrayBaseKey(load->getPointer());
+                if (baseKey.empty() || !readWriteGlobalBases.count(baseKey))
+                {
+                    continue;
+                }
+                if (!storedGlobalBases.count(baseKey))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            auto *store = dynamic_cast<StoreInst *>(inst);
+            if (!store)
+            {
+                continue;
+            }
+            const string baseKey = getArrayBaseKey(store->getPointer());
+            if (!baseKey.empty() && readWriteGlobalBases.count(baseKey))
+            {
+                storedGlobalBases.insert(baseKey);
+            }
+        }
+    }
+    return true;
+}
+
 Instruction *LoopLinearIterationFoldPass::buildLinearCompensation(Value *acc,
                                                                  Value *tripScale,
                                                                  const LinearIterationMap &map) const
@@ -1063,6 +1153,10 @@ bool LoopLinearIterationFoldPass::tryFoldIterationInvariantOuterLoop(Function *f
         return false;
     }
     if (!allLoopCarriedValuesIterationInvariant(outer, iv))
+    {
+        return false;
+    }
+    if (!proveNoReadWriteGlobalLoadBeforeFirstStore(outer))
     {
         return false;
     }

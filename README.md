@@ -45,10 +45,10 @@ make
 # 对 INPUT_DIR 下所有 .sy 文件生成 IR 中间代码，输出到 OUTPUT_DIR
 ./run.sh -ir
 
-# 生成优化后的 IR（可加 -O0/-O1/-O2 指定优化等级）
+# 生成优化后的 IR（可加 -O0/-O1/-O16/-O17 指定优化等级）
 ./run.sh -ir -O1
 
-# 生成 RISC-V 汇编代码（可加 -O0/-O1/-O2 指定优化等级）
+# 生成 RISC-V 汇编代码（可加 -O0/-O1/-O16/-O17 指定优化等级）
 ./run.sh -riscv -O2
 
 # gdb 调试所有 .sy 文件，遇到崩溃自动进入 gdb 并打印回溯
@@ -124,29 +124,26 @@ qemu-system-riscv64 \
 
 ### 六、中间代码优化
 
-1.目前无用循环消除还有问题-->已删除该pass 
+1. 无用循环消除 pass 已从主流水线移除（`RemoveUselessWhilePass` 注释停用）。
+2. **LoopLinearIterationFoldPass**：迭代不变外层 trip 压 1 + 线性累加器补偿（见 [IRPass.md](docs/IRPass.md)）。
+3. **ArrayCopyPropagationPass**：纯 `dst[i]=src[i]` 拷贝循环删除与基址传播；要求 store 值即为 load 值。
+
+优化等级：`-O0`/`-O1` 为完整中端流水线；`-O16` 供后端调试（截断后段）；**`-O17`** 为最激进完整流水线。
 
 
 ## 优化效果分析：
 
 - 效果较好的优化：
-  1. 常量传播
-     在编译时将已知的常量值替换变量，减少运行时计算。
-  2. 函数内联
-     将函数体直接替换函数调用，避免调用开销（如压栈、跳转）。
-  3. LICM (循环不变代码外提)
-     将循环内不依赖迭代变量的计算移到循环外，避免重复计算。
-  4. 寄存器分配 (图着色算法)
-  5. GVN (全局值编号)
-     识别程序中计算结果相同的表达式，复用已有计算结果。
-  6. Mem2Reg (内存到寄存器转换)
-     将内存中的变量转换为寄存器变量，减少内存访问开销。
-  7. DCE (死代码删除)
-     删除程序中永远不会执行的代码，减少不必要的计算。
-  8. CFG 简化
-     简化控制流图，去除不必要的分支和跳转，提高代码可读性和执行效率。
-  9. Loop Unrolling (循环展开)
-     将循环体展开，减少循环控制开销，提高性能。
+  1. 常量传播 / 常量折叠（`ConstantFoldingPass`）
+  2. 函数内联（`FunctionInliningPass`）
+  3. **迭代不变外层折叠 + 数组拷贝传播**（`LoopLinearIterationFold` / `ArrayCopyPropagation`，如 `h-10-02`）
+  4. **后端 LICM + BlockLocalCSE**（`la`/`li` 外提与物化去重）
+  5. 寄存器分配（图着色）
+  6. CSE（IR 层 `CommonSubexpressionEliminationPass` + 后端 `BlockLocalCSE`）
+  7. DCE（死代码删除）
+  8. CFG 简化 / 基本块合并
+  9. 循环展开（`LoopUnrollingPass`）
+  10. 数组消除 / GEP 链折叠（矩阵类 benchmark）
 
 - 效果一般的优化：
   1. instcombine

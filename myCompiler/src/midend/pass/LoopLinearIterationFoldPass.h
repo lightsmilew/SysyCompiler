@@ -30,6 +30,7 @@ namespace optimization
         bool isOuterIvUnusedInBody(const Loop &outer, Value *iv) const;
         bool allLoopCarriedValuesIterationInvariant(const Loop &outer, Value *iv) const;
         bool provePerElementFirstStoreFresh(const Loop &outer) const;
+        bool proveNoReadWriteGlobalLoadBeforeFirstStore(const Loop &outer) const;
         bool findLoopAccumulator(const Loop &outer, Value *iv, Value *&acc) const;
         bool proveLinearIterationMap(const Loop &outer, Value *acc, Value *iv, LinearIterationMap &map);
         bool isLinearFoldableOuterBody(const Loop &outer,
