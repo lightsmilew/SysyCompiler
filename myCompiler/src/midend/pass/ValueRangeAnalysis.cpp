@@ -643,6 +643,60 @@ static RangeInfo positiveModRange(int modHint)
     return r;
 }
 
+// SRFixedPass pms: res = sub(cur, and(sub(0, icmp sge cur, M), M))
+static bool isPositiveCondSubModResult(const BinaryOperator *resSub, int modHint)
+{
+    if (!resSub || resSub->getOpcode() != Opcode::Sub || modHint <= 0)
+        return false;
+
+    Value *orig = stripCopy(resSub->getLHS());
+    auto *adjust = dynamic_cast<BinaryOperator *>(stripCopy(resSub->getRHS()));
+    if (!adjust || adjust->getOpcode() != Opcode::And)
+        return false;
+
+    ConstantInt *modC = nullptr;
+    Value *maskVal = nullptr;
+    if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(adjust->getLHS())))
+    {
+        if (c->Value == modHint)
+        {
+            modC = c;
+            maskVal = adjust->getRHS();
+        }
+    }
+    if (!modC)
+    {
+        if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(adjust->getRHS())))
+        {
+            if (c->Value == modHint)
+            {
+                modC = c;
+                maskVal = adjust->getLHS();
+            }
+        }
+    }
+    if (!modC)
+        return false;
+
+    auto *maskSub = dynamic_cast<BinaryOperator *>(stripCopy(maskVal));
+    if (!maskSub || maskSub->getOpcode() != Opcode::Sub)
+        return false;
+
+    auto *zero = dynamic_cast<ConstantInt *>(stripCopy(maskSub->getLHS()));
+    if (!zero || zero->Value != 0)
+        return false;
+
+    auto *cmp = dynamic_cast<ICmpInst *>(stripCopy(maskSub->getRHS()));
+    if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SGE)
+        return false;
+
+    auto *cmpMod = dynamic_cast<ConstantInt *>(stripCopy(cmp->getRHS()));
+    if (!cmpMod || cmpMod->Value != modHint)
+        return false;
+
+    return stripCopy(cmp->getLHS()) == orig;
+}
+
 static bool isSameModuloResult(Value *v, int modHint)
 {
     if (modHint <= 0)
@@ -663,7 +717,9 @@ static bool isSameModuloResult(Value *v, int modHint)
             mul && mul->getOpcode() == Opcode::Mul
                 ? dynamic_cast<ConstantInt *>(stripCopy(mul->getRHS()))
                 : nullptr;
-        return modC && modC->Value == modHint;
+        if (modC && modC->Value == modHint)
+            return true;
+        return isPositiveCondSubModResult(bin, modHint);
     }
     return false;
 }
