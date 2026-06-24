@@ -12,11 +12,10 @@
 
 | 等级 | 用途 |
 |------|------|
-| **O0 / O1** | 完整中端优化流水线（O0 与 O1 当前配置相同） |
+| **O0 / O1 / O17** | 完整中端优化流水线（三者当前配置基本相同；O17 在内联后等处多一轮 DCE） |
 | **O2** | 仅 DCE + Phi 消除（调试/最小优化） |
 | **O15** | 部分 Pass 实验配置（大量 Pass 被注释，用于阶段性测试） |
-| **O16** | 完整流水线至循环展开，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等（供后端调试） |
-| **O17** | **最激进**完整流水线，含 GEP 链折叠、尾递归、Phi 消除、IR 层 LICM、GCC 风格循环变换等 |
+| **O16** | 完整流水线至循环展开，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等；**额外启用** `RelativeGepOffset`（供后端调试） |
 
 ### O0/O1/O17 流水线阶段概览
 
@@ -30,17 +29,17 @@
 
 **阶段 C — 循环变换与展开**
 
-`LoopIfGuardHoist` → `LoopNestedBoundTightening` → [`DCE`/`BBMerge`] → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `TransposedBufferLoadForward` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → [`RelativeGepOffset`(O16)] → `LoopUnrolling` → `InstructionCombine` → `ArrayStoreLoadForward`
+`LoopIfGuardHoist` → `LoopNestedBoundTightening` → [`DCE`/`BBMerge`] → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `TransposedBufferLoadForward` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → `LoopUnrolling` → `InstructionCombine` → `ArrayStoreLoadForward`
 
-**阶段 D — GEP 与算术归约**（O17）
+**阶段 D — GEP 与算术归约**
 
 `DCE` → `BBMerge` → `ConstantFolding` → `GEPExpansion` → `ArrayStoreLoadForward` → `DCE` → `CSE` → `AddChainReduction` → `GEPChainFold` → `DCE`
 
-**阶段 E — 收尾与后端准备**（O17）
+**阶段 E — 收尾与后端准备**
 
 `TailRecursionElimination` → `FunctionInlining(二次)` → `GEPToBitCast` → `PhiElimination` → `AddChainReduction` → **`LoopInvariantCodeMotion`(IR)** → `ConstantFolding` → `CSE` → `SRFixed` → `ConstantFolding` → `RemoveRedundantStore` → `BasicBlockReorder` → `DCE` → `RemoveUnusedGlobalAndFunction` → **`LoopGccStyleTransform`**
 
-方括号内为 O17 相对 O16 多出的 Pass，或 O16/O17 差异项。
+方括号内为 O17 相对 O16 多出的 DCE/BBMerge 轮次；O16 在 `LoopInterchange` 与 `LoopUnrolling` 之间额外启用 `RelativeGepOffset`。
 
 ---
 
@@ -85,10 +84,6 @@
 
 - 删除无引用的全局变量与函数定义。
 
-### RemoveUselessWhilePass（无用循环删除）
-
-- 删除仅含归纳变量自增/自减、无副作用的空循环。（当前主流水线中已注释停用）
-
 ---
 
 ## 三、常量折叠与算术
@@ -101,10 +96,9 @@
 
 - 将连续同用户加法链归约为乘法等形式（安全时）。
 
-### StrengthReductionPass / SRFixedPass（强度削弱）
+### SRFixedPass（强度削弱）
 
-- `StrengthReductionPass`：通用强度削弱（流水线中多被 `SRFixedPass` 替代）。
-- **`SRFixedPass`**：修复版强度削弱，含魔数法常数除法/取模、2 的幂移位等。
+- 含魔数法常数除法/取模、2 的幂移位、条件减法取模等；替代旧版通用 IR 强度削弱。
 
 ### PowDivLoopReductionPass（幂除循环归约）
 
@@ -240,7 +234,7 @@
 
 ### RelativeGepOffsetPass（相对 GEP 偏移）
 
-- 将 GEP 链转为相对基址的偏移形式（O16 启用，O17 默认注释）。
+- 将 GEP 链转为相对基址的偏移形式；**仅在 `-O16` 流水线中启用**。
 
 ---
 
@@ -278,10 +272,6 @@
 
 - 全零索引 GEP 转为 BitCast。
 
-### RelativeGepOffsetPass
-
-见第八节。
-
 ---
 
 ## 十一、SSA 与 lowering 准备
@@ -289,14 +279,6 @@
 ### PhiEliminationPass（Phi 消除）
 
 - SSA phi 转为前驱块 copy；为后端与 IR LICM 准备非 SSA 形式。
-
-### IfConversionPass（If 转换）
-
-- 将简单 if-else 转为 select 或直线化（当前主流水线中未默认启用）。
-
-### LiveVariableAnalysisPass（活跃变量分析）
-
-- 为寄存器相关 midend 分析提供 liveIn/liveOut（独立工具 Pass）。
 
 ---
 

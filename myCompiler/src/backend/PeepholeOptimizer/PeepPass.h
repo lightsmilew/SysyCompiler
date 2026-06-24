@@ -164,17 +164,3 @@ private:
                       vector<shared_ptr<RISCVInstruction>>::iterator currentIt,
                       vector<shared_ptr<RISCVInstruction>> &instrs);
 };
-
-// 融合连续的 I 型二元计算指令（例如: addi/andi/ori/xori/slli/srai ...）
-// 支持将两条连续的同类 I 指令合并为一条（需保证第一个定义只有单一使用）
-class FoldShiftSequencePass : public PeepPass
-{
-public:
-    FoldShiftSequencePass() : PeepPass("FoldShiftSequence") {}
-
-    PeepOptiState optimize(shared_ptr<RISCVInstruction> instr, shared_ptr<RISCVBasicBlock> bb) override;
-
-private:
-    bool isArithmeticShiftOpcode(RISCVOpcode opc) const;
-    bool isFusibleITypeOpcode(RISCVOpcode opc) const;
-};

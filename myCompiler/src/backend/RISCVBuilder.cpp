@@ -280,8 +280,6 @@ void RISCVBuilder::FirstPeep()
     peep.addPass(make_shared<RemoveRedundantJalPass>());
     peep.addPass(make_shared<StrengthReductionPass>());
     peep.addPass(make_shared<FoldAdjacentMoveAndAddressPass>());
-    // SRAI 融合需在寄存器分配之前进行，放到 FirstPeep
-    //peep.addPass(make_shared<FoldShiftSequencePass>());
     peep.optimizeModule(riscvModule);
 }
 

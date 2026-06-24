@@ -124,11 +124,10 @@ qemu-system-riscv64 \
 
 ### 六、中间代码优化
 
-1. 无用循环消除 pass 已从主流水线移除（`RemoveUselessWhilePass` 注释停用）。
-2. **LoopLinearIterationFoldPass**：迭代不变外层 trip 压 1 + 线性累加器补偿（见 [IRPass.md](docs/IRPass.md)）。
-3. **ArrayCopyPropagationPass**：纯 `dst[i]=src[i]` 拷贝循环删除与基址传播；要求 store 值即为 load 值。
+1. **LoopLinearIterationFoldPass**：迭代不变外层 trip 压 1 + 线性累加器补偿（见 [IRPass.md](docs/IRPass.md)）。
+2. **ArrayCopyPropagationPass**：纯 `dst[i]=src[i]` 拷贝循环删除与基址传播；要求 store 值即为 load 值。
 
-优化等级：`-O0`/`-O1` 为完整中端流水线；`-O16` 供后端调试（截断后段）；**`-O17`** 为最激进完整流水线。
+优化等级：`-O0`/`-O1`/`-O17` 为完整中端流水线；`-O16` 供后端调试（截断后段，并额外启用 `RelativeGepOffset`）。
 
 
 ## 优化效果分析：
