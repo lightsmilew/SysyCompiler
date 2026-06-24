@@ -1,6 +1,7 @@
 #include "ArrayPass.h"
 #include "ControlFlowAnalysis.h"
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <regex>
 #include <unordered_set>
@@ -106,6 +107,67 @@ namespace
         return {rem, val};
     }
 
+    // arr[idx] = idx + addConst  (或 addConst + idx；a[i]=i 时 addConst=0)
+    struct AffineOffsetPattern
+    {
+        int addConst = 0;
+    };
+
+    bool matchIndexAffineOffset(Value *val, Value *idx, AffineOffsetPattern &pat)
+    {
+        val = stripCopy(val);
+        idx = stripCopy(idx);
+        if (val == idx)
+        {
+            pat.addConst = 0;
+            return true;
+        }
+        auto *bin = dynamic_cast<BinaryOperator *>(val);
+        if (!bin || bin->getOpcode() != Opcode::Add)
+            return false;
+        if (stripCopy(bin->getLHS()) == idx)
+        {
+            auto *offConst = dynamic_cast<ConstantInt *>(stripCopy(bin->getRHS()));
+            if (!offConst)
+                return false;
+            pat.addConst = offConst->Value;
+            return true;
+        }
+        if (stripCopy(bin->getRHS()) == idx)
+        {
+            auto *offConst = dynamic_cast<ConstantInt *>(stripCopy(bin->getLHS()));
+            if (!offConst)
+                return false;
+            pat.addConst = offConst->Value;
+            return true;
+        }
+        return false;
+    }
+
+    int evalAffineOffset(int index, const AffineOffsetPattern &pat) { return index + pat.addConst; }
+
+    bool storeMatchesAffinePattern(StoreInst *store, const AffineOffsetPattern &pat)
+    {
+        auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+        if (!gep || gep->getIndices().size() != 1)
+            return false;
+        Value *idx = gep->getIndices()[0];
+        if (auto *idxConst = dynamic_cast<ConstantInt *>(stripCopy(idx)))
+        {
+            if (auto *valConst = dynamic_cast<ConstantInt *>(stripCopy(store->getValueToStore())))
+                return valConst->Value == evalAffineOffset(idxConst->Value, pat);
+            return false;
+        }
+        AffineOffsetPattern got;
+        return matchIndexAffineOffset(store->getValueToStore(), idx, got) && got.addConst == pat.addConst;
+    }
+
+    BinaryOperator *buildAffineOffsetExpr(Value *idx, const AffineOffsetPattern &pat, size_t tag)
+    {
+        auto *addConst = new ConstantInt(IntegerType::getInstance(), pat.addConst);
+        return new BinaryOperator(Opcode::Add, idx, addConst, "arr_affine_val_" + to_string(tag));
+    }
+
     BasicBlock *findContainingLoopExit(const Loop &loop,
                                        const vector<pair<StoreInst *, BasicBlock *>> &stores)
     {
@@ -142,39 +204,6 @@ namespace
         return arr;
     }
 
-    // 同一基本块内 store 必须在 load 之前；跨块时 init 的 store 块不能支配 load 块。
-    bool allStoresBeforeAllLoads(const vector<pair<StoreInst *, BasicBlock *>> &stores,
-                                 const vector<pair<LoadInst *, BasicBlock *>> &loads,
-                                 BasicBlock *completion,
-                                 const unordered_map<BasicBlock *, BasicBlock *> &idom)
-    {
-        for (auto &[load, loadBB] : loads)
-        {
-            for (auto &[store, storeBB] : stores)
-            {
-                if (storeBB == loadBB)
-                {
-                    if (storeBB->getInstructionOrder(store) >= loadBB->getInstructionOrder(load))
-                        return false;
-                }
-                else if (ControlFlowAnalysis::dominates(idom, storeBB, loadBB))
-                {
-                    return false;
-                }
-            }
-        }
-        if (completion)
-        {
-            for (auto &[load, loadBB] : loads)
-            {
-                (void)load;
-                if (!ControlFlowAnalysis::dominates(idom, completion, loadBB))
-                    return false;
-            }
-        }
-        return true;
-    }
-
     BasicBlock *findInitCompletionBB(Function *func, const vector<pair<StoreInst *, BasicBlock *>> &stores)
     {
         auto loops = ControlFlowAnalysis::findLoops(func);
@@ -195,12 +224,13 @@ namespace
         return deepest;
     }
 
-    bool eliminateModuloClosedFormArrays(Function *func, bool verbose, Pass *pass)
+    void collectArrayAccesses(Function *func,
+                              unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> &storesByArr,
+                              unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> &loadsByArr,
+                              vector<Value *> &arrayKeys)
     {
-        unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> storesByArr;
-        unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> loadsByArr;
-        vector<Value *> arrayKeys;
-
+        if (!func || func->isLibraryFunction())
+            return;
         for (auto &bbPtr : func->getBasicBlocks())
         {
             BasicBlock *bb = bbPtr.get();
@@ -224,10 +254,166 @@ namespace
                 }
             }
         }
+    }
+
+    void collectArrayAccessesModule(Module *module,
+                                  unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> &storesByArr,
+                                  unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> &loadsByArr,
+                                  vector<Value *> &arrayKeys)
+    {
+        if (!module)
+            return;
+        for (auto &funcPtr : module->Functions)
+            collectArrayAccesses(funcPtr.get(), storesByArr, loadsByArr, arrayKeys);
+    }
+
+    void eraseInstFromBlock(BasicBlock *bb, Instruction *inst, Pass *pass)
+    {
+        if (!bb || !inst)
+            return;
+        inst->removeThisFromOperands();
+        auto &insts = bb->getInstructions();
+        for (size_t j = 0; j < insts.size(); ++j)
+        {
+            if (insts[j].get() == inst)
+            {
+                pass->needToDelete.push_back(insts[j].release());
+                insts.erase(insts.begin() + static_cast<long>(j));
+                return;
+            }
+        }
+    }
+
+    void eraseDeadGep(GetElementPtrInst *gep, BasicBlock *bb, Pass *pass)
+    {
+        if (!gep || !gep->getUsers().empty())
+            return;
+        eraseInstFromBlock(bb, gep, pass);
+    }
+
+    // 同一基本块内 store 必须在 load 之前；跨块时 init 的 store 块不能支配 load 块。
+    // 内联后原 callee 中残留的 load 视为可安全替换。
+    bool allStoresBeforeAllLoads(const vector<pair<StoreInst *, BasicBlock *>> &stores,
+                                 const vector<pair<LoadInst *, BasicBlock *>> &loads,
+                                 BasicBlock *completion,
+                                 const unordered_map<BasicBlock *, BasicBlock *> &idom)
+    {
+        for (auto &[load, loadBB] : loads)
+        {
+            if (loadBB->Parent && loadBB->Parent->isDeletedFunction())
+                continue;
+
+            for (auto &[store, storeBB] : stores)
+            {
+                if (storeBB == loadBB)
+                {
+                    if (storeBB->getInstructionOrder(store) >= loadBB->getInstructionOrder(load))
+                        return false;
+                }
+                else if (ControlFlowAnalysis::dominates(idom, storeBB, loadBB))
+                {
+                    return false;
+                }
+            }
+        }
+        if (completion)
+        {
+            for (auto &[load, loadBB] : loads)
+            {
+                (void)load;
+                if (loadBB->Parent && loadBB->Parent->isDeletedFunction())
+                    continue;
+                if (!ControlFlowAnalysis::dominates(idom, completion, loadBB))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    bool replaceLoadsAndRemoveStores(Function *func, bool verbose, Pass *pass,
+                                     const vector<pair<LoadInst *, BasicBlock *>> &loads,
+                                     const vector<pair<StoreInst *, BasicBlock *>> &stores,
+                                     function<vector<Instruction *>(Value *idx, size_t tag)> buildExpr,
+                                     const char *kindLabel)
+    {
+        (void)func;
+        bool changed = false;
+        size_t tag = 0;
+        for (auto &[load, loadBB] : loads)
+        {
+            auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
+            Value *idx = gep->getIndices()[0];
+            vector<Instruction *> toInsert = buildExpr(idx, tag++);
+            Value *valInst = toInsert.empty() ? idx : toInsert.back();
+            load->replaceAllUsesWith(valInst);
+            load->removeThisFromOperands();
+
+            auto &insts = loadBB->getInstructions();
+            for (size_t j = 0; j < insts.size(); ++j)
+            {
+                if (insts[j].get() == load)
+                {
+                    pass->needToDelete.push_back(insts[j].release());
+                    insts.erase(insts.begin() + static_cast<long>(j));
+                    for (size_t k = 0; k < toInsert.size(); ++k)
+                        insts.insert(insts.begin() + static_cast<long>(j + k),
+                                     unique_ptr<Instruction>(toInsert[k]));
+                    break;
+                }
+            }
+            eraseDeadGep(gep, loadBB, pass);
+            changed = true;
+            if (verbose)
+            {
+                pass->debugInfo << "Array Elimination (" << kindLabel << "): replaced load "
+                                << load->getName() << " with closed form in " << loadBB->getName() << "\n";
+            }
+        }
+
+        for (auto &[store, storeBB] : stores)
+        {
+            auto *gep = dynamic_cast<GetElementPtrInst *>(store->getPointer());
+            store->removeThisFromOperands();
+            auto &insts = storeBB->getInstructions();
+            for (size_t j = 0; j < insts.size(); ++j)
+            {
+                if (insts[j].get() == store)
+                {
+                    pass->needToDelete.push_back(insts[j].release());
+                    insts.erase(insts.begin() + static_cast<long>(j));
+                    changed = true;
+                    if (verbose)
+                    {
+                        pass->debugInfo << "Array Elimination (" << kindLabel << "): removed store "
+                                        << store->getName() << " in " << storeBB->getName() << "\n";
+                    }
+                    break;
+                }
+            }
+            eraseDeadGep(gep, storeBB, pass);
+        }
+        return changed;
+    }
+
+    Function *findStoreHostFunction(const vector<pair<StoreInst *, BasicBlock *>> &stores)
+    {
+        for (auto &[st, bb] : stores)
+        {
+            (void)st;
+            if (bb && bb->Parent)
+                return bb->Parent;
+        }
+        return nullptr;
+    }
+
+    bool eliminateModuloClosedFormArraysModule(Module *module, bool verbose, Pass *pass)
+    {
+        unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> storesByArr;
+        unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> loadsByArr;
+        vector<Value *> arrayKeys;
+        collectArrayAccessesModule(module, storesByArr, loadsByArr, arrayKeys);
 
         bool changed = false;
-        auto idom = ControlFlowAnalysis::analyze(func);
-        size_t tag = 0;
 
         for (auto &[arr, loads] : loadsByArr)
         {
@@ -256,62 +442,75 @@ namespace
             if (!allMatch)
                 continue;
 
-            BasicBlock *completion = findInitCompletionBB(func, stores);
+            Function *storeFunc = findStoreHostFunction(stores);
+            if (!storeFunc)
+                continue;
+            auto idom = ControlFlowAnalysis::analyze(storeFunc);
+            BasicBlock *completion = findInitCompletionBB(storeFunc, stores);
             if (!allStoresBeforeAllLoads(stores, loads, completion, idom))
                 continue;
 
-            for (auto &[load, loadBB] : loads)
-            {
-                (void)loadBB;
-                auto *gep = dynamic_cast<GetElementPtrInst *>(load->getPointer());
-                Value *idx = gep->getIndices()[0];
-                auto [remInst, valInst] = buildModuloOffsetExpr(idx, pat, tag++);
-                vector<Instruction *> toInsert = {remInst, valInst};
-                load->replaceAllUsesWith(valInst);
-                load->removeThisFromOperands();
+            changed |= replaceLoadsAndRemoveStores(
+                storeFunc, verbose, pass, loads, stores,
+                [&](Value *idx, size_t tag) {
+                    auto [remInst, valInst] = buildModuloOffsetExpr(idx, pat, tag);
+                    return vector<Instruction *>{remInst, valInst};
+                },
+                "modulo");
+        }
+        return changed;
+    }
 
-                auto &insts = loadBB->getInstructions();
-                for (size_t j = 0; j < insts.size(); ++j)
+    bool eliminateAffineClosedFormArraysModule(Module *module, bool verbose, Pass *pass)
+    {
+        unordered_map<Value *, vector<pair<StoreInst *, BasicBlock *>>> storesByArr;
+        unordered_map<Value *, vector<pair<LoadInst *, BasicBlock *>>> loadsByArr;
+        vector<Value *> arrayKeys;
+        collectArrayAccessesModule(module, storesByArr, loadsByArr, arrayKeys);
+
+        bool changed = false;
+
+        for (auto &[arr, loads] : loadsByArr)
+        {
+            auto storeIt = storesByArr.find(arr);
+            if (storeIt == storesByArr.end() || storeIt->second.empty())
+                continue;
+
+            auto &stores = storeIt->second;
+            AffineOffsetPattern pat;
+            if (!matchIndexAffineOffset(stores[0].first->getValueToStore(),
+                                        dynamic_cast<GetElementPtrInst *>(stores[0].first->getPointer())
+                                            ->getIndices()[0],
+                                        pat))
+                continue;
+
+            bool allMatch = true;
+            for (auto &[st, bb] : stores)
+            {
+                (void)bb;
+                if (!storeMatchesAffinePattern(st, pat))
                 {
-                    if (insts[j].get() == load)
-                    {
-                        pass->needToDelete.push_back(insts[j].release());
-                        insts.erase(insts.begin() + static_cast<long>(j));
-                        for (size_t k = 0; k < toInsert.size(); ++k)
-                            insts.insert(insts.begin() + static_cast<long>(j + k),
-                                         unique_ptr<Instruction>(toInsert[k]));
-                        break;
-                    }
-                }
-                changed = true;
-                if (verbose)
-                {
-                    pass->debugInfo << "Array Elimination (modulo): replaced load " << load->getName()
-                                    << " with closed form in " << loadBB->getName() << "\n";
+                    allMatch = false;
+                    break;
                 }
             }
+            if (!allMatch)
+                continue;
 
-            for (auto &[store, storeBB] : stores)
-            {
-                (void)storeBB;
-                store->removeThisFromOperands();
-                auto &insts = storeBB->getInstructions();
-                for (size_t j = 0; j < insts.size(); ++j)
-                {
-                    if (insts[j].get() == store)
-                    {
-                        pass->needToDelete.push_back(insts[j].release());
-                        insts.erase(insts.begin() + static_cast<long>(j));
-                        changed = true;
-                        if (verbose)
-                        {
-                            pass->debugInfo << "Array Elimination (modulo): removed store " << store->getName()
-                                            << " in " << storeBB->getName() << "\n";
-                        }
-                        break;
-                    }
-                }
-            }
+            Function *storeFunc = findStoreHostFunction(stores);
+            if (!storeFunc)
+                continue;
+            auto idom = ControlFlowAnalysis::analyze(storeFunc);
+            BasicBlock *completion = findInitCompletionBB(storeFunc, stores);
+            if (!allStoresBeforeAllLoads(stores, loads, completion, idom))
+                continue;
+
+            changed |= replaceLoadsAndRemoveStores(
+                storeFunc, verbose, pass, loads, stores,
+                [&](Value *idx, size_t tag) {
+                    return vector<Instruction *>{buildAffineOffsetExpr(idx, pat, tag)};
+                },
+                "affine");
         }
         return changed;
     }
@@ -320,7 +519,14 @@ namespace
 // 如果store和load循环范围不一致也不能简单删除
 bool ArrayEliminationPass::runOnFunction(Function *func)
 {
-    bool changed = eliminateModuloClosedFormArrays(func, verbose, this);
+    bool changed = false;
+    Module *module = func ? func->getParent() : nullptr;
+    if (module && !moduleClosedFormProcessed)
+    {
+        moduleClosedFormProcessed = true;
+        changed |= eliminateModuloClosedFormArraysModule(module, verbose, this);
+        changed |= eliminateAffineClosedFormArraysModule(module, verbose, this);
+    }
     for (auto &bbPtr : func->getBasicBlocks())
     {
         BasicBlock *bb = bbPtr.get();
@@ -361,9 +567,21 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
                         needTypeCast = true;
                         isSimple = true;
                     }
+                    else if (stripCopy(bin->getLHS()) == stripCopy(idx_store))
+                    {
+                        // a[j] = j + A
+                        A = bin->getRHS();
+                        isSimple = true;
+                    }
+                    else if (stripCopy(bin->getRHS()) == stripCopy(idx_store))
+                    {
+                        // a[j] = A + j
+                        A = bin->getLHS();
+                        isSimple = true;
+                    }
                 }
             }
-            else if (storeInst->getValueToStore() == idx_store)
+            else if (stripCopy(storeInst->getValueToStore()) == stripCopy(idx_store))
             {
                 A = nullptr;
                 isSimple = true;
@@ -543,6 +761,45 @@ bool ArrayEliminationPass::runOnFunction(Function *func)
 
 namespace
 {
+    Value *stripCopyForArrayRoot(Value *v)
+    {
+        while (auto *cpy = dynamic_cast<CopyInst *>(v))
+            v = cpy->getSource();
+        return v;
+    }
+
+    Value *getArrayRootForCheck(Value *ptr)
+    {
+        ptr = stripCopyForArrayRoot(ptr);
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(ptr))
+            ptr = gep->getPointerOperand();
+        if (auto *bc = dynamic_cast<CastInst *>(ptr))
+        {
+            if (bc->getOpcode() == Opcode::BitCast)
+                ptr = bc->getOperand();
+        }
+        return ptr;
+    }
+
+    unordered_set<User *> collectLiveUsersInModule(Module *module)
+    {
+        unordered_set<User *> live;
+        if (!module)
+            return live;
+        for (auto &funcPtr : module->Functions)
+        {
+            Function *func = funcPtr.get();
+            if (!func || func->isLibraryFunction())
+                continue;
+            for (auto &bbPtr : func->getBasicBlocks())
+            {
+                for (auto &instPtr : bbPtr->getInstructions())
+                    live.insert(instPtr.get());
+            }
+        }
+        return live;
+    }
+
     bool hasLoadOrCallOnArrayRoot(Module *module, Value *root)
     {
         if (!module || !root)
@@ -559,7 +816,7 @@ namespace
                     Instruction *inst = instPtr.get();
                     if (auto *load = dynamic_cast<LoadInst *>(inst))
                     {
-                        if (isSameAddr(load->getOriginalPointer(), root))
+                        if (isSameAddr(getArrayRootForCheck(load->getPointer()), root))
                             return true;
                     }
                     if (auto *call = dynamic_cast<CallInst *>(inst))
@@ -584,7 +841,7 @@ namespace
                 Instruction *inst = instPtr.get();
                 if (auto *load = dynamic_cast<LoadInst *>(inst))
                 {
-                    if (isSameAddr(load->getOriginalPointer(), root))
+                    if (isSameAddr(getArrayRootForCheck(load->getPointer()), root))
                         return true;
                 }
                 if (auto *call = dynamic_cast<CallInst *>(inst))
@@ -597,8 +854,11 @@ namespace
         return false;
     }
 
-    void collectWriteOnlyRelatedInsts(Value *root, std::unordered_set<Instruction *> &related)
+    void collectWriteOnlyRelatedInsts(Module *module, Value *root,
+                                      std::unordered_set<Instruction *> &related)
     {
+        const unordered_set<User *> liveUsers = collectLiveUsersInModule(module);
+
         if (auto *rootInst = dynamic_cast<Instruction *>(root))
             related.insert(rootInst);
 
@@ -613,6 +873,8 @@ namespace
             worklist.pop_back();
             for (User *user : node->getUsers())
             {
+                if (!liveUsers.count(user))
+                    continue;
                 if (auto *store = dynamic_cast<StoreInst *>(user))
                 {
                     related.insert(store);
@@ -659,7 +921,7 @@ bool RemoveOnlyWriteArrayPass::removeWriteOnlyRootInFunction(Value *root, Functi
         return false;
 
     std::unordered_set<Instruction *> relatedInsts;
-    collectWriteOnlyRelatedInsts(root, relatedInsts);
+    collectWriteOnlyRelatedInsts(func->getParent(), root, relatedInsts);
     if (relatedInsts.empty())
         return false;
 
@@ -702,7 +964,7 @@ bool RemoveOnlyWriteArrayPass::removeWriteOnlyGlobals(Module *module)
             continue;
 
         std::unordered_set<Instruction *> relatedInsts;
-        collectWriteOnlyRelatedInsts(gv, relatedInsts);
+        collectWriteOnlyRelatedInsts(module, gv, relatedInsts);
 
         for (auto &funcPtr : module->Functions)
         {

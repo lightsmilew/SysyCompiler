@@ -885,14 +885,17 @@ namespace RISCV
         const vector<shared_ptr<RISCVLoop>> &getLoops() const { return loops; }
         int getDepth(shared_ptr<RISCVBasicBlock> block) const
         {
+            int maxDepth = 0;
             for (const auto &loop : loops)
             {
                 if (loop->containsBlock(block))
                 {
-                    return loop->getDepth();
+                    int depth = loop->getDepth();
+                    if (depth > maxDepth)
+                        maxDepth = depth;
                 }
             }
-            return 0;
+            return maxDepth;
         }
     };
 
