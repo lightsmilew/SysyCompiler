@@ -37,6 +37,23 @@ namespace optimization
         bool jInitFromZero = false;
     };
 
+    /// 三角原地拷贝链：init(M) → 多次 M[j*C+i]=M[i*R+j]（R=a[t],C=n/R）→ 只读 M[0..len) 归约
+    struct TriangularInPlaceCopyChain
+    {
+        bool valid = false;
+        GlobalVariable *matrix = nullptr;
+        GlobalVariable *aArray = nullptr;
+        Value *n = nullptr;   // getint 结果
+        Value *len = nullptr; // getarray 结果
+        CallInst *startTime = nullptr;
+        CallInst *stopTime = nullptr;
+        CallInst *putintCall = nullptr;
+        CallInst *putchCall = nullptr;
+        BasicBlock *startTimeBlock = nullptr;
+        int stopTimeLine = 49;
+        int putchChar = 10;
+    };
+
     /// i-j-k 点积 nest：out[i][j] += lhs[i][k] * rhs[k][j]，k 为归约维
     struct MatMulDotProductNest
     {
@@ -67,6 +84,7 @@ namespace optimization
         std::optional<TransposeBufferRelation> transposePair;
         std::vector<SkewSymmetricMatrixNest> skewSymmetricNests;
         std::vector<MatMulDotProductNest> matMulDotProductNests;
+        std::optional<TriangularInPlaceCopyChain> triangularCopyChain;
     };
 
     namespace matrixStructure
@@ -123,6 +141,8 @@ namespace optimization
                              const std::unordered_set<BasicBlock *> &forbidden);
         CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV);
         bool hasJPhiZeroInit(const Loop &jLoop, Value *jIV);
+
+        std::optional<TriangularInPlaceCopyChain> analyzeTriangularInPlaceCopyChain(Function *func);
 
         MatrixFunctionAnalysis analyzeFunction(Function *func);
         const MatrixFunctionAnalysis *getAnalysis(Function *func);

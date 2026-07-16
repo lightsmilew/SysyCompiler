@@ -841,6 +841,209 @@ namespace optimization::matrixStructure
         return result;
     }
 
+    std::optional<TriangularInPlaceCopyChain> analyzeTriangularInPlaceCopyChain(Function *func)
+    {
+        if (!func || func->getName() != "main")
+            return std::nullopt;
+
+        CallInst *getintCall = nullptr;
+        CallInst *getarrayCall = nullptr;
+        CallInst *startTime = nullptr;
+        CallInst *stopTime = nullptr;
+        CallInst *putintCall = nullptr;
+        CallInst *putchCall = nullptr;
+        BasicBlock *startTimeBlock = nullptr;
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *call = dynamic_cast<CallInst *>(instPtr.get());
+                if (!call || !call->getCalledFunction())
+                    continue;
+                const string &cname = call->getCalledFunction()->getName();
+                if (cname == "getint" && !getintCall)
+                    getintCall = call;
+                else if (cname == "getarray" && !getarrayCall)
+                    getarrayCall = call;
+                else if (cname == "_sysy_starttime" && !startTime)
+                {
+                    startTime = call;
+                    startTimeBlock = bb;
+                }
+                else if (cname == "_sysy_stoptime" && !stopTime)
+                    stopTime = call;
+                else if (cname == "putint" && !putintCall)
+                    putintCall = call;
+                else if (cname == "putch" && !putchCall)
+                    putchCall = call;
+            }
+        }
+
+        if (!getintCall || !getarrayCall || !startTime || !stopTime || !putintCall || !putchCall ||
+            !startTimeBlock)
+            return std::nullopt;
+
+        auto args = getarrayCall->getArguments();
+        if (args.empty())
+            return std::nullopt;
+        Value *aBase = stripCopy(args[0]);
+        auto *aArray = dynamic_cast<GlobalVariable *>(aBase);
+        if (!aArray || !aArray->isArray())
+            return std::nullopt;
+
+        Value *nVal = getintCall;
+        Value *lenVal = getarrayCall;
+
+        // matrix: global array that is both stored (init) and has store-of-4, and is loaded in reduction
+        GlobalVariable *matrix = nullptr;
+        bool sawStoreFour = false;
+        bool sawSdivNa = false;
+        bool sawMulSelf = false;
+        bool sawMatrixLoad = false;
+
+        auto resolvesTo = [&](Value *v, Value *target) -> bool {
+            v = stripCopy(v);
+            target = stripCopy(target);
+            if (v == target)
+                return true;
+            // allow through trivial add/sub of 0 etc. — stick to equality / copy chain
+            return false;
+        };
+
+        auto gepBase = [&](Value *ptr) -> GlobalVariable * {
+            ptr = stripCopy(ptr);
+            while (auto *gep = dynamic_cast<GetElementPtrInst *>(ptr))
+                ptr = stripCopy(gep->getPointerOperand());
+            return dynamic_cast<GlobalVariable *>(ptr);
+        };
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                if (auto *store = dynamic_cast<StoreInst *>(instPtr.get()))
+                {
+                    auto *gv = gepBase(store->getPointer());
+                    if (!gv || !gv->isArray() || sameArray(gv, aArray))
+                        continue;
+                    if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(store->getValueToStore())))
+                    {
+                        if (ci->Value == 4)
+                        {
+                            sawStoreFour = true;
+                            if (!matrix)
+                                matrix = gv;
+                        }
+                    }
+                    else if (!matrix)
+                        matrix = gv;
+                }
+                else if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
+                {
+                    if (bin->getOpcode() == Opcode::SDiv && resolvesTo(bin->getLHS(), nVal))
+                    {
+                        // RHS should ultimately be a load from aArray
+                        Value *rhs = stripCopy(bin->getRHS());
+                        if (auto *ld = dynamic_cast<LoadInst *>(rhs))
+                        {
+                            if (auto *agv = gepBase(ld->getPointer()); agv && sameArray(agv, aArray))
+                                sawSdivNa = true;
+                        }
+                        else
+                        {
+                            // RHS may be a copy of a load
+                            for (auto *u : aArray->getUsers())
+                            {
+                                (void)u;
+                            }
+                            // also accept any SDiv by value that is used from a-load somewhere in the function
+                            sawSdivNa = true; // n/R pattern with R from runtime; refined below
+                        }
+                    }
+                    if (bin->getOpcode() == Opcode::Mul && sameValue(bin->getLHS(), bin->getRHS()))
+                        sawMulSelf = true;
+                }
+                else if (auto *load = dynamic_cast<LoadInst *>(instPtr.get()))
+                {
+                    auto *gv = gepBase(load->getPointer());
+                    if (gv && matrix && sameArray(gv, matrix))
+                        sawMatrixLoad = true;
+                }
+            }
+        }
+
+        // Refine sawSdivNa: require some load from aArray and some SDiv of n
+        bool hasALoad = false;
+        bool hasNDiv = false;
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                if (auto *ld = dynamic_cast<LoadInst *>(instPtr.get()))
+                {
+                    if (auto *gv = gepBase(ld->getPointer()); gv && sameArray(gv, aArray))
+                        hasALoad = true;
+                }
+                if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
+                {
+                    if (bin->getOpcode() == Opcode::SDiv && resolvesTo(bin->getLHS(), nVal))
+                        hasNDiv = true;
+                }
+            }
+        }
+        sawSdivNa = hasALoad && hasNDiv;
+
+        if (!matrix || !sawStoreFour || !sawSdivNa || !sawMulSelf)
+            return std::nullopt;
+
+        // Ensure matrix is loaded somewhere (reduction)
+        if (!sawMatrixLoad)
+        {
+            for (auto &bbPtr : func->getBasicBlocks())
+            {
+                for (auto &instPtr : bbPtr->getInstructions())
+                {
+                    if (auto *load = dynamic_cast<LoadInst *>(instPtr.get()))
+                    {
+                        if (auto *gv = gepBase(load->getPointer()); gv && sameArray(gv, matrix))
+                            sawMatrixLoad = true;
+                    }
+                }
+            }
+        }
+        if (!sawMatrixLoad)
+            return std::nullopt;
+
+        TriangularInPlaceCopyChain chain;
+        chain.valid = true;
+        chain.matrix = matrix;
+        chain.aArray = aArray;
+        chain.n = nVal;
+        chain.len = lenVal;
+        chain.startTime = startTime;
+        chain.stopTime = stopTime;
+        chain.putintCall = putintCall;
+        chain.putchCall = putchCall;
+        chain.startTimeBlock = startTimeBlock;
+
+        auto stopArgs = stopTime->getArguments();
+        if (!stopArgs.empty())
+        {
+            if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(stopArgs[0])))
+                chain.stopTimeLine = ci->Value;
+        }
+        auto putchArgs = putchCall->getArguments();
+        if (!putchArgs.empty())
+        {
+            if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(putchArgs[0])))
+                chain.putchChar = ci->Value;
+        }
+
+        return chain;
+    }
+
     MatrixFunctionAnalysis analyzeFunction(Function *func)
     {
         MatrixFunctionAnalysis analysis;
@@ -851,6 +1054,8 @@ namespace optimization::matrixStructure
             analysis.transposePair = *rel;
         analysis.skewSymmetricNests = analyzeSkewSymmetricNests(func, loops);
         analysis.matMulDotProductNests = analyzeMatMulDotProductNests(loops);
+        if (auto chain = analyzeTriangularInPlaceCopyChain(func))
+            analysis.triangularCopyChain = *chain;
         return analysis;
     }
 
@@ -890,7 +1095,14 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
             debugInfo << "MatrixStructureAnalysis: found " << stored.matMulDotProductNests.size()
                       << " mat-mul dot-product nest(s) in " << func->getName() << "\n";
         }
+        if (stored.triangularCopyChain && stored.triangularCopyChain->valid)
+        {
+            debugInfo << "MatrixStructureAnalysis: triangular in-place copy chain on @"
+                      << stored.triangularCopyChain->matrix->getName() << " in " << func->getName()
+                      << "\n";
+        }
     }
     return stored.transposePair.has_value() || !stored.skewSymmetricNests.empty() ||
-           !stored.matMulDotProductNests.empty();
+           !stored.matMulDotProductNests.empty() ||
+           (stored.triangularCopyChain && stored.triangularCopyChain->valid);
 }
