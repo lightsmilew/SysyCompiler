@@ -153,7 +153,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
-        pm->addPass(std::make_unique<RadixSortStartRoundLowerPass>(verbose));
+        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -217,7 +217,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<NormalizationPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
-        pm->addPass(std::make_unique<RadixSortStartRoundLowerPass>(verbose));
+        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -342,7 +342,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
-        pm->addPass(std::make_unique<RadixSortStartRoundLowerPass>(verbose));
+        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -434,7 +434,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
-        pm->addPass(std::make_unique<RadixSortStartRoundLowerPass>(verbose));
+        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));

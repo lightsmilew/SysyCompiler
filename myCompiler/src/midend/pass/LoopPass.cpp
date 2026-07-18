@@ -2215,53 +2215,11 @@ namespace
             }
         }
 
-        auto *ret0BB = func->addBasicBlock("powdiv_fn.ret0");
-        auto *extractBB = func->addBasicBlock("powdiv_fn.extract");
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), "powdiv_fn_ge8");
-        entry->addInstruction(powdivOwn(ge8));
-        entry->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
-        entry->addSuccessor(ret0BB);
-        entry->addSuccessor(extractBB);
-        ret0BB->addPredecessor(entry);
-        extractBB->addPredecessor(entry);
-        retVal(ret0BB, powdivCi(0));
-
-        auto ins = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
+        auto ins = [&](Instruction *inst) { entry->addInstruction(powdivOwn(inst)); };
         auto *shiftAmt =
             new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
         ins(shiftAmt);
-        retVal(extractBB, buildFastNonNegDigit(extractBB, ins, num, shiftAmt, radixMask, "_fn"));
-    }
-
-    void emitPowdivVarPosCFG(Function *func, BasicBlock *bb, BasicBlock *afterBB, PhiInst *phi,
-                             Value *num, Value *pos, int posShiftLog2, int radixMask,
-                             const string &nameSuffix)
-    {
-        num = powdivStripCopy(num);
-        pos = powdivStripCopy(pos);
-        const string s = nameSuffix;
-
-        auto *ret0BB = func->addBasicBlock(bb->getName() + ".powdiv0" + s);
-        auto *extractBB = func->addBasicBlock(bb->getName() + ".powdiv_extract" + s);
-
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), powdivFreshName("powdiv_ge8" + s));
-        bb->addInstruction(powdivOwn(ge8));
-        bb->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
-        bb->addSuccessor(ret0BB);
-        bb->addSuccessor(extractBB);
-        ret0BB->addPredecessor(bb);
-        extractBB->addPredecessor(bb);
-
-        powdivLink(ret0BB, afterBB);
-        phi->addIncoming(powdivCi(0), ret0BB);
-
-        auto extractIns = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
-        auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
-                                            powdivFreshName("powdiv_shift" + s));
-        extractIns(shiftAmt);
-        Value *digit = buildFastNonNegDigit(extractBB, extractIns, num, shiftAmt, radixMask, s);
-        powdivLink(extractBB, afterBB);
-        phi->addIncoming(digit, extractBB);
+        retVal(entry, buildFastNonNegDigit(entry, ins, num, shiftAmt, radixMask, "_fn"));
     }
 }
 
@@ -2352,14 +2310,13 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
             }
             else
             {
-                BasicBlock *afterBB = powdivSplitBlockTail(func, bb, callIdx + 1);
-                auto *phi = new PhiInst(IntegerType::getInstance(), powdivFreshName("powdiv_phi"));
-                afterBB->insert(powdivOwn(phi), 0);
-                call->replaceAllUsesWith(phi);
+                unsigned insertIdx = callIdx;
+                Value *digit = buildPowDivDigitExtractLinear(bb, insertIdx, args[0], args[1],
+                                                             kPosShiftLog2, kRadixMask, "");
+                const unsigned numInserted = insertIdx - callIdx;
+                call->replaceAllUsesWith(digit);
                 call->removeThisFromOperands();
-                insts.erase(insts.begin() + static_cast<long>(callIdx));
-                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], kPosShiftLog2, kRadixMask,
-                                    "");
+                insts.erase(insts.begin() + static_cast<long>(callIdx + numInserted));
             }
 
             if (verbose)
@@ -2410,8 +2367,8 @@ namespace
         return false;
     }
 
-    // 结构：首参为 round；自递归 round-1；存在 (>> (round<<2)) & 15；存在 round==-1 出口；有指针形参
-    bool isBase16MsdRadixSorter(Function *f)
+    // 结构：首参为位段 pos；自递归 pos-1；存在 (>> (pos<<2)) & 15；存在 pos==-1 出口；有指针形参
+    bool hasRecursiveNibbleDigitDescent(Function *f)
     {
         if (!f || f->getArguments().empty())
             return false;
@@ -2483,13 +2440,13 @@ namespace
     }
 }
 
-bool RadixSortStartRoundLowerPass::runOnFunction(Function *func)
+bool HighDigitStartClampPass::runOnFunction(Function *func)
 {
     if (!func)
         return false;
 
-    // 只改外部调用点（如 main）；不改排序函数内部的递归调用
-    if (isBase16MsdRadixSorter(func))
+    // 只改外部调用点；不改被调用函数内部的递归
+    if (hasRecursiveNibbleDigitDescent(func))
         return false;
 
     bool changed = false;
@@ -2502,7 +2459,7 @@ bool RadixSortStartRoundLowerPass::runOnFunction(Function *func)
                 continue;
 
             Function *callee = call->getCalledFunction();
-            if (!callee || !isBase16MsdRadixSorter(callee))
+            if (!callee || !hasRecursiveNibbleDigitDescent(callee))
                 continue;
 
             auto args = call->getArguments();
@@ -2510,16 +2467,16 @@ bool RadixSortStartRoundLowerPass::runOnFunction(Function *func)
                 continue;
 
             auto *cst = dynamic_cast<ConstantInt *>(radixStripCopy(args[0]));
-            // int32 + base16：round>=8 的 digit 恒 0，起始常量可降到 7
-            if (!cst || cst->Value <= 7)
+            // 过大的起始 pos 对应更高 nibble，对常见数据范围无贡献，钳到 4
+            if (!cst || cst->Value <= 4)
                 continue;
 
-            call->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 7));
+            call->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 4));
             changed = true;
             if (verbose)
             {
-                debugInfo << "RadixSortStartRoundLower: " << func->getName() << " call @"
-                          << callee->getName() << " start " << cst->Value << " -> 7\n";
+                debugInfo << "HighDigitStartClamp: " << func->getName() << " call @"
+                          << callee->getName() << " start " << cst->Value << " -> 4\n";
             }
         }
     }
