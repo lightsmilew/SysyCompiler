@@ -37,21 +37,47 @@ namespace optimization
         bool jInitFromZero = false;
     };
 
-    /// 三角原地拷贝链：init(M) → 多次 M[j*C+i]=M[i*R+j]（R=a[t],C=n/R）→ 只读 M[0..len) 归约
-    struct TriangularInPlaceCopyChain
+    /// 数组纯初始化形态（由 init 循环上的 store 推断）
+    enum class ArrayPureInitKind
+    {
+        Identity,             // M[i] = i
+        IdentityUnlessMasked  // M[i] = ((i & mask) == 0) ? repl : i
+    };
+
+    /// 通用：纯 init + 仅原地拷贝更新 + 对前缀的纯归约 ⇒ 可用起源追踪消去拷贝链。
+    /// 三角仿射写 M[j*C+i]=M[i*R+j]（C=n/R）是该类拷贝的一种。
+    struct InPlaceCopyOriginChain
     {
         bool valid = false;
-        GlobalVariable *matrix = nullptr;
-        GlobalVariable *aArray = nullptr;
-        Value *n = nullptr;   // getint 结果
-        Value *len = nullptr; // getarray 结果
-        CallInst *startTime = nullptr;
-        CallInst *stopTime = nullptr;
-        CallInst *putintCall = nullptr;
-        CallInst *putchCall = nullptr;
-        BasicBlock *startTimeBlock = nullptr;
-        int stopTimeLine = 49;
-        int putchChar = 10;
+        Value *matrix = nullptr;
+        Value *shapeVec = nullptr;
+        Value *extentN = nullptr;
+        Value *reduceBound = nullptr;
+
+        const Loop *shapeLoop = nullptr;
+        const Loop *rowLoop = nullptr;
+        const Loop *colLoop = nullptr;
+        Value *rowIV = nullptr;
+        Value *colIV = nullptr;
+        Value *shapeIV = nullptr;
+        Value *rowSize = nullptr;
+        Value *colSize = nullptr;
+
+        StoreInst *copyWitness = nullptr;
+        BasicBlock *computeEntry = nullptr;
+
+        /// 原 shape 循环是否用 shapeVec[bound-1-t]（逆序）；起源追踪应对原序取逆。
+        bool shapeLoadReversed = false;
+        ArrayPureInitKind initKind = ArrayPureInitKind::Identity;
+        int initMask = 0;
+        int initReplace = 0;
+        /// 归约为 sum_k k*k*M[k] 后是否再做 abs
+        bool reductionAbs = false;
+
+        /// CFG 拼接锚点
+        BasicBlock *replaceEntry = nullptr; // 原计算区域入口（init/拷贝起点）
+        BasicBlock *continueBB = nullptr;   // 区域之后的延续块
+        Value *oldResult = nullptr;        // 原归约结果，供 RAUW
     };
 
     /// i-j-k 点积 nest：out[i][j] += lhs[i][k] * rhs[k][j]，k 为归约维
@@ -84,7 +110,7 @@ namespace optimization
         std::optional<TransposeBufferRelation> transposePair;
         std::vector<SkewSymmetricMatrixNest> skewSymmetricNests;
         std::vector<MatMulDotProductNest> matMulDotProductNests;
-        std::optional<TriangularInPlaceCopyChain> triangularCopyChain;
+        std::optional<InPlaceCopyOriginChain> inPlaceCopyOriginChain;
     };
 
     namespace matrixStructure
@@ -142,7 +168,12 @@ namespace optimization
         CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV);
         bool hasJPhiZeroInit(const Loop &jLoop, Value *jIV);
 
-        std::optional<TriangularInPlaceCopyChain> analyzeTriangularInPlaceCopyChain(Function *func);
+        bool valueDependsOn(Value *expr, Value *target, unsigned depth = 0);
+        bool parseFlatAffine2(Value *idx, Value *&termA, Value *&termB);
+        bool isTriangularCopyWitnessStore(StoreInst *store, Value *rowIV, Value *colIV, Value *rowSize,
+                                          Value *colSize, Value *&matrixOut);
+        bool refineCopyOriginSemantics(Function *func, InPlaceCopyOriginChain &chain);
+        std::optional<InPlaceCopyOriginChain> analyzeInPlaceCopyOriginChain(Function *func);
 
         MatrixFunctionAnalysis analyzeFunction(Function *func);
         const MatrixFunctionAnalysis *getAnalysis(Function *func);

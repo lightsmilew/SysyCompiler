@@ -1,4 +1,4 @@
-#include "TriangularCopyOriginPass.h"
+#include "InPlaceCopyOriginReductionPass.h"
 #include "ControlFlowAnalysis.h"
 #include <algorithm>
 #include <unordered_set>
@@ -29,48 +29,39 @@ namespace
         }
     }
 
-    /// 将 startTime 之后的指令挪到不可达块，并让 startTimeBlock 跳转到 newEntry。
-    bool redirectAfterStartTime(BasicBlock *startBB, Instruction *startTime, BasicBlock *newEntry,
-                                Function *func)
+    /// 将指向 replaceEntry 的边改挂到 newEntry。
+    bool redirectRegionEntry(BasicBlock *replaceEntry, BasicBlock *newEntry,
+                             vector<BasicBlock *> &predsOut)
     {
-        auto &insts = startBB->getInstructions();
-        size_t idx = insts.size();
-        for (size_t i = 0; i < insts.size(); ++i)
-        {
-            if (insts[i].get() == startTime)
-            {
-                idx = i;
-                break;
-            }
-        }
-        if (idx >= insts.size())
+        if (!replaceEntry || !newEntry)
             return false;
-
-        BasicBlock *deadCont = func->addBasicBlock("tco_dead_cont");
-        vector<unique_ptr<Instruction>> moved;
-        while (insts.size() > idx + 1)
+        predsOut = replaceEntry->getPredecessors();
+        if (predsOut.empty())
+            return false;
+        for (BasicBlock *pred : predsOut)
         {
-            moved.push_back(std::move(insts[idx + 1]));
-            insts.erase(insts.begin() + idx + 1);
+            auto *br = dynamic_cast<BranchInst *>(pred->getTerminator());
+            if (!br)
+                return false;
+            if (!br->isConditional())
+            {
+                if (br->getTrueBlock() != replaceEntry)
+                    return false;
+                br->setTrueBlock(newEntry);
+            }
+            else
+            {
+                if (br->getTrueBlock() == replaceEntry)
+                    br->setTrueBlock(newEntry);
+                else if (br->getFalseBlock() == replaceEntry)
+                    br->setFalseBlock(newEntry);
+                else
+                    return false;
+            }
+            pred->removeSuccessor(replaceEntry);
+            replaceEntry->removePredecessor(pred);
+            wireEdge(pred, newEntry);
         }
-
-        // 原后继改挂到 deadCont（稍后整图按可达性删除）
-        auto oldSuccs = startBB->getSuccessors();
-        clearSuccessors(startBB);
-        for (BasicBlock *s : oldSuccs)
-        {
-            deadCont->addSuccessor(s);
-            s->addPredecessor(deadCont);
-        }
-
-        for (auto &m : moved)
-            deadCont->addInstruction(std::move(m));
-
-        if (!deadCont->getTerminator())
-            deadCont->addInstruction(own(new BranchInst(deadCont)));
-
-        startBB->addInstruction(own(new BranchInst(newEntry)));
-        wireEdge(startBB, newEntry);
         return true;
     }
 
@@ -161,19 +152,15 @@ namespace
     }
 } // namespace
 
-bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPlaceCopyChain &chain)
+bool InPlaceCopyOriginReductionPass::applyRewrite(Function *func, const InPlaceCopyOriginChain &chain)
 {
-    BasicBlock *startBB = chain.startTimeBlock;
-    Instruction *startTime = chain.startTime;
-    GlobalVariable *matrix = chain.matrix;
-    GlobalVariable *aArray = chain.aArray;
-    Value *n = chain.n;
-    Value *len = chain.len;
-
-    Function *stopFn = chain.stopTime->getCalledFunction();
-    Function *putintFn = chain.putintCall->getCalledFunction();
-    Function *putchFn = chain.putchCall->getCalledFunction();
-    if (!stopFn || !putintFn || !putchFn)
+    auto *matrix = dynamic_cast<GlobalVariable *>(stripCopy(chain.matrix));
+    auto *aArray = dynamic_cast<GlobalVariable *>(stripCopy(chain.shapeVec));
+    Value *n = chain.extentN;
+    Value *len = chain.reduceBound;
+    if (!matrix || !aArray || !n || !len)
+        return false;
+    if (!chain.replaceEntry || !chain.continueBB || !chain.oldResult)
         return false;
 
     // --- 新建 CFG ---
@@ -183,12 +170,12 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
 
     BasicBlock *revHdr = func->addBasicBlock("tco_rev_hdr");
     BasicBlock *revBody = func->addBasicBlock("tco_rev_body");
-    BasicBlock *revSkip = func->addBasicBlock("tco_rev_skip"); // C==0
+    BasicBlock *revSkip = func->addBasicBlock("tco_rev_skip");
     BasicBlock *kHdr = func->addBasicBlock("tco_k_hdr");
     BasicBlock *kBody = func->addBasicBlock("tco_k_body");
     BasicBlock *chLoop = func->addBasicBlock("tco_ch_loop");
-    BasicBlock *chKey = func->addBasicBlock("tco_ch_key");   // written 成立后再算 key
-    BasicBlock *chBack = func->addBasicBlock("tco_ch_back"); // 回边块：PhiElim 只在此插入 copy
+    BasicBlock *chKey = func->addBasicBlock("tco_ch_key");
+    BasicBlock *chBack = func->addBasicBlock("tco_ch_back");
     BasicBlock *chExit = func->addBasicBlock("tco_ch_exit");
     BasicBlock *kLatch = func->addBasicBlock("tco_k_latch");
     BasicBlock *revLatch = func->addBasicBlock("tco_rev_latch");
@@ -196,21 +183,26 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     BasicBlock *redHdr = func->addBasicBlock("tco_red_hdr");
     BasicBlock *redBody = func->addBasicBlock("tco_red_body");
     BasicBlock *redExit = func->addBasicBlock("tco_red_exit");
-    BasicBlock *absThen = func->addBasicBlock("tco_abs_then");
-    BasicBlock *absMerge = func->addBasicBlock("tco_abs_merge");
-    BasicBlock *epilogue = func->addBasicBlock("tco_epilogue");
+    BasicBlock *absThen = nullptr;
+    BasicBlock *absMerge = nullptr;
+    if (chain.reductionAbs)
+    {
+        absThen = func->addBasicBlock("tco_abs_then");
+        absMerge = func->addBasicBlock("tco_abs_merge");
+    }
+    BasicBlock *joinBB = func->addBasicBlock("tco_join");
 
-    if (!redirectAfterStartTime(startBB, startTime, oriHdr, func))
+    vector<BasicBlock *> entryPreds;
+    if (!redirectRegionEntry(chain.replaceEntry, oriHdr, entryPreds))
         return false;
 
     auto *zero = ci(0);
     auto *one = ci(1);
-    auto *three = ci(3);
-    auto *four = ci(4);
 
     // origin[k] = k  for k in [0, len)
     auto *kOriPhi = new PhiInst(IntegerType::getInstance(), "tco_k_ori");
-    kOriPhi->addIncoming(zero, startBB);
+    for (BasicBlock *pred : entryPreds)
+        kOriPhi->addIncoming(zero, pred);
     oriHdr->addInstruction(own(kOriPhi));
     auto *oriCmp = new ICmpInst(ICmpInst::ICMP_SLT, kOriPhi, len, "tco_ori_cmp");
     oriHdr->addInstruction(own(oriCmp));
@@ -230,7 +222,7 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     oriExit->addInstruction(own(new BranchInst(revHdr)));
     wireEdge(oriExit, revHdr);
 
-    // for t in [0, len): R = a[len-1-t], C = n/R
+    // 对原 shape 遍历取逆：原序正向 ⇒ 逆序读 shape；原序已逆 ⇒ 正向读
     auto *tPhi = new PhiInst(IntegerType::getInstance(), "tco_t");
     tPhi->addIncoming(zero, oriExit);
     revHdr->addInstruction(own(tPhi));
@@ -240,11 +232,16 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     wireEdge(revHdr, revBody);
     wireEdge(revHdr, redHdr);
 
-    auto *lenMinus1 = new BinaryOperator(Opcode::Sub, len, one, "tco_len_m1");
-    revBody->addInstruction(own(lenMinus1));
-    auto *tIdx = new BinaryOperator(Opcode::Sub, lenMinus1, tPhi, "tco_t_idx");
-    revBody->addInstruction(own(tIdx));
-    auto *aGep = new GetElementPtrInst(aArray, {tIdx}, "tco_a_gep");
+    Value *shapeIndex = tPhi;
+    if (!chain.shapeLoadReversed)
+    {
+        auto *lenMinus1 = new BinaryOperator(Opcode::Sub, len, one, "tco_len_m1");
+        revBody->addInstruction(own(lenMinus1));
+        auto *tIdx = new BinaryOperator(Opcode::Sub, lenMinus1, tPhi, "tco_t_idx");
+        revBody->addInstruction(own(tIdx));
+        shapeIndex = tIdx;
+    }
+    auto *aGep = new GetElementPtrInst(aArray, {shapeIndex}, "tco_a_gep");
     revBody->addInstruction(own(aGep));
     auto *R = new LoadInst(aGep, "tco_R");
     revBody->addInstruction(own(R));
@@ -259,7 +256,6 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     revSkip->addInstruction(own(new BranchInst(revLatch)));
     wireEdge(revSkip, revLatch);
 
-    // for k in [0, len): update origin
     auto *kPhi = new PhiInst(IntegerType::getInstance(), "tco_k");
     kPhi->addIncoming(zero, revBody);
     kHdr->addInstruction(own(kPhi));
@@ -273,13 +269,11 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     kBody->addInstruction(own(locGep));
     auto *loc0 = new LoadInst(locGep, "tco_loc0");
     kBody->addInstruction(own(loc0));
-    // max_key 初值 C*R：首跳时 key<max_key 对合法 written 恒真
     auto *maxKey0 = new BinaryOperator(Opcode::Mul, C, R, "tco_max_key0");
     kBody->addInstruction(own(maxKey0));
     kBody->addInstruction(own(new BranchInst(chLoop)));
     wireEdge(kBody, chLoop);
 
-    // 拆回边：written → keyLt → chBack→chLoop；失败路径不写 loc，避免 PhiElim 误更新
     auto *locPhi = new PhiInst(IntegerType::getInstance(), "tco_loc");
     auto *maxKey = new PhiInst(IntegerType::getInstance(), "tco_max_key");
     locPhi->addIncoming(loc0, kBody);
@@ -336,7 +330,7 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     revLatch->addInstruction(own(new BranchInst(revHdr)));
     wireEdge(revLatch, revHdr);
 
-    // ans = sum k*k*init(origin[k])
+    // ans = sum k*k*Init(origin[k])，Init 由分析推断
     auto *ansPhi = new PhiInst(IntegerType::getInstance(), "tco_ans");
     auto *kRedPhi = new PhiInst(IntegerType::getInstance(), "tco_k_red");
     ansPhi->addIncoming(zero, revHdr);
@@ -353,12 +347,21 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     redBody->addInstruction(own(redGep));
     auto *origin = new LoadInst(redGep, "tco_origin");
     redBody->addInstruction(own(origin));
-    auto *and3 = new BinaryOperator(Opcode::And, origin, three, "tco_and3");
-    redBody->addInstruction(own(and3));
-    auto *isMul4 = new ICmpInst(ICmpInst::ICMP_EQ, and3, zero, "tco_is4");
-    redBody->addInstruction(own(isMul4));
-    auto *initVal = new SelectInst(isMul4, four, origin, "tco_init");
-    redBody->addInstruction(own(initVal));
+
+    Value *initVal = origin;
+    if (chain.initKind == ArrayPureInitKind::IdentityUnlessMasked)
+    {
+        auto *maskCi = ci(chain.initMask);
+        auto *replCi = ci(chain.initReplace);
+        auto *andMask = new BinaryOperator(Opcode::And, origin, maskCi, "tco_and_mask");
+        redBody->addInstruction(own(andMask));
+        auto *isHit = new ICmpInst(ICmpInst::ICMP_EQ, andMask, zero, "tco_mask_hit");
+        redBody->addInstruction(own(isHit));
+        auto *sel = new SelectInst(isHit, replCi, origin, "tco_init");
+        redBody->addInstruction(own(sel));
+        initVal = sel;
+    }
+
     auto *kk = new BinaryOperator(Opcode::Mul, kRedPhi, kRedPhi, "tco_kk");
     redBody->addInstruction(own(kk));
     auto *term = new BinaryOperator(Opcode::Mul, kk, initVal, "tco_term");
@@ -372,29 +375,38 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
     redBody->addInstruction(own(new BranchInst(redHdr)));
     wireEdge(redBody, redHdr);
 
-    auto *ansNeg = new ICmpInst(ICmpInst::ICMP_SLT, ansPhi, zero, "tco_ans_neg");
-    redExit->addInstruction(own(ansNeg));
-    redExit->addInstruction(own(new BranchInst(ansNeg, absThen, absMerge)));
-    wireEdge(redExit, absThen);
-    wireEdge(redExit, absMerge);
+    Value *finalAns = ansPhi;
+    if (chain.reductionAbs)
+    {
+        auto *ansNeg = new ICmpInst(ICmpInst::ICMP_SLT, ansPhi, zero, "tco_ans_neg");
+        redExit->addInstruction(own(ansNeg));
+        redExit->addInstruction(own(new BranchInst(ansNeg, absThen, absMerge)));
+        wireEdge(redExit, absThen);
+        wireEdge(redExit, absMerge);
 
-    auto *negated = new BinaryOperator(Opcode::Sub, zero, ansPhi, "tco_neg");
-    absThen->addInstruction(own(negated));
-    absThen->addInstruction(own(new BranchInst(absMerge)));
-    wireEdge(absThen, absMerge);
+        auto *negated = new BinaryOperator(Opcode::Sub, zero, ansPhi, "tco_neg");
+        absThen->addInstruction(own(negated));
+        absThen->addInstruction(own(new BranchInst(absMerge)));
+        wireEdge(absThen, absMerge);
 
-    auto *finalAns = new PhiInst(IntegerType::getInstance(), "tco_final");
-    finalAns->addIncoming(ansPhi, redExit);
-    finalAns->addIncoming(negated, absThen);
-    absMerge->addInstruction(own(finalAns));
-    absMerge->addInstruction(own(new BranchInst(epilogue)));
-    wireEdge(absMerge, epilogue);
+        auto *absPhi = new PhiInst(IntegerType::getInstance(), "tco_final");
+        absPhi->addIncoming(ansPhi, redExit);
+        absPhi->addIncoming(negated, absThen);
+        absMerge->addInstruction(own(absPhi));
+        absMerge->addInstruction(own(new BranchInst(joinBB)));
+        wireEdge(absMerge, joinBB);
+        finalAns = absPhi;
+    }
+    else
+    {
+        redExit->addInstruction(own(new BranchInst(joinBB)));
+        wireEdge(redExit, joinBB);
+    }
 
-    epilogue->addInstruction(
-        own(new CallInst(stopFn, {ci(chain.stopTimeLine)})));
-    epilogue->addInstruction(own(new CallInst(putintFn, {finalAns})));
-    epilogue->addInstruction(own(new CallInst(putchFn, {ci(chain.putchChar)})));
-    epilogue->addInstruction(own(new ReturnInst(ci(0))));
+    // 接回原延续块；RAUW 原归约结果，保留原 stoptime/putint 等
+    chain.oldResult->replaceAllUsesWith(finalAns);
+    joinBB->addInstruction(own(new BranchInst(chain.continueBB)));
+    wireEdge(joinBB, chain.continueBB);
 
     eraseUnreachableBlocks(func, this);
     func->setLoops(ControlFlowAnalysis::findLoops(func));
@@ -402,16 +414,16 @@ bool TriangularCopyOriginPass::applyRewrite(Function *func, const TriangularInPl
 
     if (verbose)
     {
-        debugInfo << "TriangularCopyOrigin: rewrote @" << matrix->getName()
-                  << " origin-tracking in " << func->getName() << "\n";
+        debugInfo << "InPlaceCopyOriginReduction: rewrote @" << matrix->getName()
+                  << " in " << func->getName() << "\n";
     }
     return true;
 }
 
-bool TriangularCopyOriginPass::runOnFunction(Function *func)
+bool InPlaceCopyOriginReductionPass::runOnFunction(Function *func)
 {
     const MatrixFunctionAnalysis *analysis = getAnalysis(func);
-    if (!analysis || !analysis->triangularCopyChain || !analysis->triangularCopyChain->valid)
+    if (!analysis || !analysis->inPlaceCopyOriginChain || !analysis->inPlaceCopyOriginChain->valid)
         return false;
-    return applyRewrite(func, *analysis->triangularCopyChain);
+    return applyRewrite(func, *analysis->inPlaceCopyOriginChain);
 }

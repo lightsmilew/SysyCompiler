@@ -14,7 +14,7 @@
 #include "MatrixStructureAnalysis.h"
 #include "SkewSymmetricLoopRestrictPass.h"
 #include "TransposedBufferLoadForwardPass.h"
-#include "TriangularCopyOriginPass.h"
+#include "InPlaceCopyOriginReductionPass.h"
 #include "CondGuardedAccumulatePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"

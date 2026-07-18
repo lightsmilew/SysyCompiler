@@ -177,7 +177,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        pm->addPass(std::make_unique<TriangularCopyOriginPass>(verbose));
+        pm->addPass(std::make_unique<InPlaceCopyOriginReductionPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -241,7 +241,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        pm->addPass(std::make_unique<TriangularCopyOriginPass>(verbose));
+        pm->addPass(std::make_unique<InPlaceCopyOriginReductionPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -376,7 +376,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        pm->addPass(std::make_unique<TriangularCopyOriginPass>(verbose));
+        pm->addPass(std::make_unique<InPlaceCopyOriginReductionPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         // 这里基本块和死代码消除多次迭代保证完全消除和合并
@@ -470,7 +470,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
 
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
-        pm->addPass(std::make_unique<TriangularCopyOriginPass>(verbose));
+        pm->addPass(std::make_unique<InPlaceCopyOriginReductionPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         // 这里基本块和死代码消除多次迭代保证完全消除和合并

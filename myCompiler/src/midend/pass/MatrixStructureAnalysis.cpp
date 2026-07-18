@@ -841,207 +841,677 @@ namespace optimization::matrixStructure
         return result;
     }
 
-    std::optional<TriangularInPlaceCopyChain> analyzeTriangularInPlaceCopyChain(Function *func)
+    static Value *arrayRoot(Value *ptr)
     {
-        if (!func || func->getName() != "main")
-            return std::nullopt;
+        ptr = stripCopy(ptr);
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(ptr))
+            ptr = stripCopy(gep->getPointerOperand());
+        return ptr;
+    }
 
-        CallInst *getintCall = nullptr;
-        CallInst *getarrayCall = nullptr;
-        CallInst *startTime = nullptr;
-        CallInst *stopTime = nullptr;
-        CallInst *putintCall = nullptr;
-        CallInst *putchCall = nullptr;
-        BasicBlock *startTimeBlock = nullptr;
+    bool valueDependsOn(Value *expr, Value *target, unsigned depth)
+    {
+        if (!expr || !target || depth > 10)
+            return false;
+        expr = stripCopy(expr);
+        target = stripCopy(target);
+        if (expr == target)
+            return true;
+        if (auto *bin = dynamic_cast<BinaryOperator *>(expr))
+            return valueDependsOn(bin->getLHS(), target, depth + 1) ||
+                   valueDependsOn(bin->getRHS(), target, depth + 1);
+        if (auto *sel = dynamic_cast<SelectInst *>(expr))
+            return valueDependsOn(sel->getTrueValue(), target, depth + 1) ||
+                   valueDependsOn(sel->getFalseValue(), target, depth + 1);
+        if (auto *phi = dynamic_cast<PhiInst *>(expr))
+        {
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                if (valueDependsOn(phi->getIncomingValue(i), target, depth + 1))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    bool parseFlatAffine2(Value *idx, Value *&termA, Value *&termB)
+    {
+        termA = termB = nullptr;
+        idx = stripCopy(idx);
+        auto *add = dynamic_cast<BinaryOperator *>(idx);
+        if (!add || add->getOpcode() != Opcode::Add)
+            return false;
+        Value *lhs = stripCopy(add->getLHS());
+        Value *rhs = stripCopy(add->getRHS());
+        auto takeMul = [&](Value *v, Value *&x, Value *&c) -> bool {
+            auto *mul = dynamic_cast<BinaryOperator *>(v);
+            if (!mul || mul->getOpcode() != Opcode::Mul)
+                return false;
+            x = stripCopy(mul->getLHS());
+            c = stripCopy(mul->getRHS());
+            return true;
+        };
+        Value *x = nullptr, *c = nullptr;
+        if (takeMul(lhs, x, c))
+        {
+            termA = x;
+            termB = rhs;
+            return true;
+        }
+        if (takeMul(rhs, x, c))
+        {
+            termA = x;
+            termB = lhs;
+            return true;
+        }
+        // Strength-reduced: add(stridePhi, iv) — treat both addends as terms
+        termA = lhs;
+        termB = rhs;
+        return true;
+    }
+
+    bool isTriangularCopyWitnessStore(StoreInst *store, Value *rowIV, Value *colIV, Value *rowSize,
+                                      Value *colSize, Value *&matrixOut)
+    {
+        matrixOut = nullptr;
+        if (!store)
+            return false;
+        auto *loaded = dynamic_cast<LoadInst *>(stripCopy(store->getValueToStore()));
+        if (!loaded)
+            return false;
+
+        Value *srcBase = arrayRoot(loaded->getPointer());
+        Value *dstBase = arrayRoot(store->getPointer());
+        if (!srcBase || !dstBase || !sameArray(srcBase, dstBase))
+            return false;
+        auto *gv = dynamic_cast<GlobalVariable *>(srcBase);
+        if (!gv || !gv->isArray())
+            return false;
+
+        auto *srcGep = dynamic_cast<GetElementPtrInst *>(stripCopy(loaded->getPointer()));
+        auto *dstGep = dynamic_cast<GetElementPtrInst *>(stripCopy(store->getPointer()));
+        if (!srcGep || !dstGep)
+            return false;
+        auto srcIdxs = srcGep->getIndices();
+        auto dstIdxs = dstGep->getIndices();
+        if (srcIdxs.size() != 1 || dstIdxs.size() != 1)
+            return false;
+
+        Value *srcIdx = stripCopy(srcIdxs[0]);
+        Value *dstIdx = stripCopy(dstIdxs[0]);
+
+        // Prefer classic M[i*R+j] -> M[j*C+i]
+        Value *sA = nullptr, *sB = nullptr, *dA = nullptr, *dB = nullptr;
+        bool srcAffine = parseFlatAffine2(srcIdx, sA, sB);
+        bool dstAffine = parseFlatAffine2(dstIdx, dA, dB);
+        if (srcAffine && dstAffine)
+        {
+            bool srcUsesIJ =
+                (matchesLoopIV(sA, rowIV) || matchesLoopIV(sB, rowIV)) &&
+                (matchesLoopIV(sA, colIV) || matchesLoopIV(sB, colIV) || valueDependsOn(srcIdx, colIV));
+            bool dstUsesIJ =
+                (matchesLoopIV(dA, rowIV) || matchesLoopIV(dB, rowIV) || valueDependsOn(dstIdx, rowIV)) &&
+                (matchesLoopIV(dA, colIV) || matchesLoopIV(dB, colIV));
+            bool sizesOk = valueDependsOn(srcIdx, rowSize) && valueDependsOn(dstIdx, colSize);
+            if (srcUsesIJ && dstUsesIJ && sizesOk)
+            {
+                matrixOut = gv;
+                return true;
+            }
+        }
+
+        // After strength reduction / folding: same-array load→store whose addresses
+        // still mention both IVs and both sizes.
+        if (valueDependsOn(srcIdx, rowIV) && valueDependsOn(srcIdx, colIV) &&
+            valueDependsOn(dstIdx, rowIV) && valueDependsOn(dstIdx, colIV) &&
+            valueDependsOn(srcIdx, rowSize) && valueDependsOn(dstIdx, colSize))
+        {
+            matrixOut = gv;
+            return true;
+        }
+        return false;
+    }
+
+    static bool boundMentions(Value *bound, Value *v)
+    {
+        return valueDependsOn(bound, v);
+    }
+
+    static LoadInst *matchShapeLoad(Value *rowSize, Value *&shapeVecOut, Value *&indexOut)
+    {
+        shapeVecOut = nullptr;
+        indexOut = nullptr;
+        auto *ld = dynamic_cast<LoadInst *>(stripCopy(rowSize));
+        if (!ld)
+            return nullptr;
+        auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(ld->getPointer()));
+        if (!gep || gep->getIndices().size() != 1)
+            return nullptr;
+        Value *base = arrayRoot(gep);
+        auto *gv = dynamic_cast<GlobalVariable *>(base);
+        if (!gv || !gv->isArray())
+            return nullptr;
+        shapeVecOut = gv;
+        indexOut = stripCopy(gep->getIndices()[0]);
+        return ld;
+    }
+
+    static bool hasPrefixReductionOn(Function *func, Value *matrix, Value *boundHint,
+                                     Value *&reduceBoundOut)
+    {
+        reduceBoundOut = nullptr;
+        const auto &loops = func->getLoops();
+        for (const auto &loop : loops)
+        {
+            Value *iv = nullptr, *bound = nullptr;
+            ICmpInst *cmp = nullptr;
+            if (!getHeaderBoundCmp(loop.header, iv, bound, cmp))
+                continue;
+            if (boundHint && !sameValue(bound, boundHint) && !sameBound(bound, boundHint))
+                continue;
+
+            bool loadsMatrix = false;
+            bool mulSelfIV = false;
+            for (auto *bb : loop.blocks)
+            {
+                if (bb == loop.header)
+                    continue;
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    if (auto *ld = dynamic_cast<LoadInst *>(instPtr.get()))
+                    {
+                        if (sameArray(arrayRoot(ld->getPointer()), matrix))
+                            loadsMatrix = true;
+                    }
+                    if (auto *mul = dynamic_cast<BinaryOperator *>(instPtr.get()))
+                    {
+                        if (mul->getOpcode() == Opcode::Mul &&
+                            sameValue(mul->getLHS(), mul->getRHS()) &&
+                            (matchesLoopIV(mul->getLHS(), iv) || valueDependsOn(mul->getLHS(), iv)))
+                            mulSelfIV = true;
+                    }
+                }
+            }
+            if (loadsMatrix && mulSelfIV)
+            {
+                reduceBoundOut = bound;
+                return true;
+            }
+        }
+        // Fallback: any loop bound that loads matrix (weaker)
+        for (const auto &loop : loops)
+        {
+            Value *iv = nullptr, *bound = nullptr;
+            ICmpInst *cmp = nullptr;
+            if (!getHeaderBoundCmp(loop.header, iv, bound, cmp))
+                continue;
+            for (auto *bb : loop.blocks)
+            {
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    auto *ld = dynamic_cast<LoadInst *>(instPtr.get());
+                    if (!ld)
+                        continue;
+                    if (sameArray(arrayRoot(ld->getPointer()), matrix))
+                    {
+                        reduceBoundOut = boundHint ? boundHint : bound;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    bool refineCopyOriginSemantics(Function *func, InPlaceCopyOriginChain &chain)
+    {
+        // --- shape 下标方向 ---
+        Value *shapeIdx = nullptr;
+        if (auto *ld = dynamic_cast<LoadInst *>(stripCopy(chain.rowSize)))
+        {
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(ld->getPointer())))
+            {
+                if (gep->getIndices().size() == 1)
+                    shapeIdx = stripCopy(gep->getIndices()[0]);
+            }
+        }
+        chain.shapeLoadReversed = false;
+        if (shapeIdx && chain.shapeIV && chain.reduceBound)
+        {
+            if (auto *sub = dynamic_cast<BinaryOperator *>(shapeIdx))
+            {
+                if (sub->getOpcode() == Opcode::Sub)
+                {
+                    Value *lhs = stripCopy(sub->getLHS());
+                    Value *rhs = stripCopy(sub->getRHS());
+                    // (bound-1)-iv 或 bound-(iv+1) 等
+                    if (matchesLoopIV(rhs, chain.shapeIV) || valueDependsOn(rhs, chain.shapeIV))
+                        chain.shapeLoadReversed = true;
+                    if (auto *inner = dynamic_cast<BinaryOperator *>(lhs))
+                    {
+                        if (inner->getOpcode() == Opcode::Sub &&
+                            (sameValue(inner->getLHS(), chain.reduceBound) ||
+                             valueDependsOn(inner->getLHS(), chain.reduceBound)))
+                            chain.shapeLoadReversed = true;
+                    }
+                }
+            }
+            else if (matchesLoopIV(shapeIdx, chain.shapeIV))
+            {
+                chain.shapeLoadReversed = false;
+            }
+        }
+
+        // --- 纯 init：M[i]=i，以及可选的 mask 替换写 ---
+        chain.initKind = ArrayPureInitKind::Identity;
+        chain.initMask = 0;
+        chain.initReplace = 0;
+        bool sawIdentityStore = false;
+        int maskedRepl = 0;
+        int maskedBits = 0;
+        bool sawMaskedStore = false;
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            if (chain.shapeLoop && chain.shapeLoop->containsBlock(bbPtr.get()))
+                continue;
+            if (chain.rowLoop && chain.rowLoop->containsBlock(bbPtr.get()))
+                continue;
+            if (chain.colLoop && chain.colLoop->containsBlock(bbPtr.get()))
+                continue;
+
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                auto *st = dynamic_cast<StoreInst *>(instPtr.get());
+                if (!st)
+                    continue;
+                Value *base = arrayRoot(st->getPointer());
+                if (!sameArray(base, chain.matrix))
+                    continue;
+                auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(st->getPointer()));
+                if (!gep || gep->getIndices().size() != 1)
+                    continue;
+                Value *idx = stripCopy(gep->getIndices()[0]);
+                Value *val = stripCopy(st->getValueToStore());
+
+                if (sameValue(val, idx))
+                {
+                    sawIdentityStore = true;
+                    continue;
+                }
+                if (auto *ci = dynamic_cast<ConstantInt *>(val))
+                {
+                    // 条件写：由 and(idx, mask)==0 或类似支配
+                    BasicBlock *bb = bbPtr.get();
+                    for (BasicBlock *pred : bb->getPredecessors())
+                    {
+                        auto *br = dynamic_cast<BranchInst *>(pred->getTerminator());
+                        if (!br || !br->isConditional())
+                            continue;
+                        auto *cond = dynamic_cast<ICmpInst *>(stripCopy(br->getCondition()));
+                        if (!cond)
+                            continue;
+                        Value *lhs = stripCopy(cond->getLHS());
+                        Value *rhs = stripCopy(cond->getRHS());
+                        auto *andOp = dynamic_cast<BinaryOperator *>(lhs);
+                        if (andOp && andOp->getOpcode() == Opcode::And)
+                        {
+                            Value *a = stripCopy(andOp->getLHS());
+                            Value *b = stripCopy(andOp->getRHS());
+                            ConstantInt *maskCi = dynamic_cast<ConstantInt *>(b);
+                            if (!maskCi)
+                                maskCi = dynamic_cast<ConstantInt *>(a);
+                            Value *idxOp = maskCi == dynamic_cast<ConstantInt *>(b) ? a : b;
+                            if (maskCi && (sameValue(idxOp, idx) || valueDependsOn(idxOp, idx)))
+                            {
+                                auto *zero = dynamic_cast<ConstantInt *>(rhs);
+                                if (zero && zero->Value == 0 &&
+                                    (cond->getPredicate() == ICmpInst::ICMP_EQ ||
+                                     cond->getPredicate() == ICmpInst::ICMP_NE))
+                                {
+                                    sawMaskedStore = true;
+                                    maskedBits = maskCi->Value;
+                                    maskedRepl = ci->Value;
+                                }
+                            }
+                        }
+                        // i % c == 0  → rem/and
+                        if (auto *rem = dynamic_cast<BinaryOperator *>(lhs))
+                        {
+                            if (rem->getOpcode() == Opcode::SRem || rem->getOpcode() == Opcode::And)
+                            {
+                                if (auto *modCi = dynamic_cast<ConstantInt *>(stripCopy(rem->getRHS())))
+                                {
+                                    if (valueDependsOn(rem->getLHS(), idx) || sameValue(rem->getLHS(), idx))
+                                    {
+                                        auto *zero = dynamic_cast<ConstantInt *>(rhs);
+                                        if (zero && zero->Value == 0)
+                                        {
+                                            sawMaskedStore = true;
+                                            maskedBits = (rem->getOpcode() == Opcode::And)
+                                                             ? modCi->Value
+                                                             : (modCi->Value - 1);
+                                            maskedRepl = ci->Value;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (sawMaskedStore && sawIdentityStore)
+        {
+            chain.initKind = ArrayPureInitKind::IdentityUnlessMasked;
+            chain.initMask = maskedBits;
+            chain.initReplace = maskedRepl;
+        }
+        else if (sawIdentityStore)
+        {
+            chain.initKind = ArrayPureInitKind::Identity;
+        }
+        else
+        {
+            return false; // 无法证明纯 init
+        }
+
+        auto inCopyNests = [&](BasicBlock *bb) -> bool {
+            if (!bb)
+                return false;
+            if (chain.shapeLoop && chain.shapeLoop->containsBlock(bb))
+                return true;
+            if (chain.rowLoop && chain.rowLoop->containsBlock(bb))
+                return true;
+            if (chain.colLoop && chain.colLoop->containsBlock(bb))
+                return true;
+            return false;
+        };
+
+        // --- replaceEntry：最早对 matrix 做 identity init 的循环头（或该 store 所在块）---
+        chain.replaceEntry = nullptr;
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            if (inCopyNests(bb))
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *st = dynamic_cast<StoreInst *>(instPtr.get());
+                if (!st)
+                    continue;
+                if (!sameArray(arrayRoot(st->getPointer()), chain.matrix))
+                    continue;
+                auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(st->getPointer()));
+                if (!gep || gep->getIndices().size() != 1)
+                    continue;
+                if (!sameValue(stripCopy(st->getValueToStore()), stripCopy(gep->getIndices()[0])))
+                    continue;
+                const Loop *initLoop = findInnermostLoopContaining(bb, func->getLoops());
+                chain.replaceEntry = initLoop && initLoop->header ? initLoop->header : bb;
+                break;
+            }
+            if (chain.replaceEntry)
+                break;
+        }
+        if (!chain.replaceEntry)
+            chain.replaceEntry = chain.computeEntry ? chain.computeEntry : chain.shapeLoop->header;
+        if (!chain.replaceEntry)
+            return false;
+
+        // --- 归约结果 oldResult + 延续块 continueBB（数据流锚定 Call）---
+        chain.oldResult = nullptr;
+        chain.continueBB = nullptr;
+        chain.reductionAbs = false;
+
+        PhiInst *reduceAns = nullptr;
+        for (const auto &loop : func->getLoops())
+        {
+            Value *iv = nullptr, *bound = nullptr;
+            ICmpInst *cmp = nullptr;
+            if (!getHeaderBoundCmp(loop.header, iv, bound, cmp))
+                continue;
+            if (!sameValue(bound, chain.reduceBound) && !sameBound(bound, chain.reduceBound))
+                continue;
+            bool loadsM = false, mulSelf = false;
+            PhiInst *sumPhi = nullptr;
+            for (auto &instPtr : loop.header->getInstructions())
+            {
+                auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+                if (!phi || sameValue(phi, iv))
+                    continue;
+                sumPhi = phi;
+            }
+            for (auto *bb : loop.blocks)
+            {
+                if (bb == loop.header)
+                    continue;
+                for (auto &instPtr : bb->getInstructions())
+                {
+                    if (auto *ld = dynamic_cast<LoadInst *>(instPtr.get()))
+                    {
+                        if (sameArray(arrayRoot(ld->getPointer()), chain.matrix))
+                            loadsM = true;
+                    }
+                    if (auto *mul = dynamic_cast<BinaryOperator *>(instPtr.get()))
+                    {
+                        if (mul->getOpcode() == Opcode::Mul && sameValue(mul->getLHS(), mul->getRHS()) &&
+                            (matchesLoopIV(mul->getLHS(), iv) || valueDependsOn(mul->getLHS(), iv)))
+                            mulSelf = true;
+                    }
+                }
+            }
+            if (loadsM && mulSelf && sumPhi)
+            {
+                reduceAns = sumPhi;
+                break;
+            }
+        }
+        if (!reduceAns)
+            return false;
 
         for (auto &bbPtr : func->getBasicBlocks())
         {
             BasicBlock *bb = bbPtr.get();
+            if (inCopyNests(bb) || bb == chain.replaceEntry)
+                continue;
             for (auto &instPtr : bb->getInstructions())
             {
                 auto *call = dynamic_cast<CallInst *>(instPtr.get());
-                if (!call || !call->getCalledFunction())
+                if (!call)
                     continue;
-                const string &cname = call->getCalledFunction()->getName();
-                if (cname == "getint" && !getintCall)
-                    getintCall = call;
-                else if (cname == "getarray" && !getarrayCall)
-                    getarrayCall = call;
-                else if (cname == "_sysy_starttime" && !startTime)
+                for (Value *arg : call->getArguments())
                 {
-                    startTime = call;
-                    startTimeBlock = bb;
-                }
-                else if (cname == "_sysy_stoptime" && !stopTime)
-                    stopTime = call;
-                else if (cname == "putint" && !putintCall)
-                    putintCall = call;
-                else if (cname == "putch" && !putchCall)
-                    putchCall = call;
-            }
-        }
-
-        if (!getintCall || !getarrayCall || !startTime || !stopTime || !putintCall || !putchCall ||
-            !startTimeBlock)
-            return std::nullopt;
-
-        auto args = getarrayCall->getArguments();
-        if (args.empty())
-            return std::nullopt;
-        Value *aBase = stripCopy(args[0]);
-        auto *aArray = dynamic_cast<GlobalVariable *>(aBase);
-        if (!aArray || !aArray->isArray())
-            return std::nullopt;
-
-        Value *nVal = getintCall;
-        Value *lenVal = getarrayCall;
-
-        // matrix: global array that is both stored (init) and has store-of-4, and is loaded in reduction
-        GlobalVariable *matrix = nullptr;
-        bool sawStoreFour = false;
-        bool sawSdivNa = false;
-        bool sawMulSelf = false;
-        bool sawMatrixLoad = false;
-
-        auto resolvesTo = [&](Value *v, Value *target) -> bool {
-            v = stripCopy(v);
-            target = stripCopy(target);
-            if (v == target)
-                return true;
-            // allow through trivial add/sub of 0 etc. — stick to equality / copy chain
-            return false;
-        };
-
-        auto gepBase = [&](Value *ptr) -> GlobalVariable * {
-            ptr = stripCopy(ptr);
-            while (auto *gep = dynamic_cast<GetElementPtrInst *>(ptr))
-                ptr = stripCopy(gep->getPointerOperand());
-            return dynamic_cast<GlobalVariable *>(ptr);
-        };
-
-        for (auto &bbPtr : func->getBasicBlocks())
-        {
-            for (auto &instPtr : bbPtr->getInstructions())
-            {
-                if (auto *store = dynamic_cast<StoreInst *>(instPtr.get()))
-                {
-                    auto *gv = gepBase(store->getPointer());
-                    if (!gv || !gv->isArray() || sameArray(gv, aArray))
+                    Value *a = stripCopy(arg);
+                    if (!sameValue(a, reduceAns) && !valueDependsOn(a, reduceAns))
                         continue;
-                    if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(store->getValueToStore())))
-                    {
-                        if (ci->Value == 4)
-                        {
-                            sawStoreFour = true;
-                            if (!matrix)
-                                matrix = gv;
-                        }
-                    }
-                    else if (!matrix)
-                        matrix = gv;
+                    chain.oldResult = a;
+                    chain.continueBB = bb;
+                    chain.reductionAbs = !sameValue(a, reduceAns);
+                    break;
                 }
-                else if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (bin->getOpcode() == Opcode::SDiv && resolvesTo(bin->getLHS(), nVal))
-                    {
-                        // RHS should ultimately be a load from aArray
-                        Value *rhs = stripCopy(bin->getRHS());
-                        if (auto *ld = dynamic_cast<LoadInst *>(rhs))
-                        {
-                            if (auto *agv = gepBase(ld->getPointer()); agv && sameArray(agv, aArray))
-                                sawSdivNa = true;
-                        }
-                        else
-                        {
-                            // RHS may be a copy of a load
-                            for (auto *u : aArray->getUsers())
-                            {
-                                (void)u;
-                            }
-                            // also accept any SDiv by value that is used from a-load somewhere in the function
-                            sawSdivNa = true; // n/R pattern with R from runtime; refined below
-                        }
-                    }
-                    if (bin->getOpcode() == Opcode::Mul && sameValue(bin->getLHS(), bin->getRHS()))
-                        sawMulSelf = true;
-                }
-                else if (auto *load = dynamic_cast<LoadInst *>(instPtr.get()))
-                {
-                    auto *gv = gepBase(load->getPointer());
-                    if (gv && matrix && sameArray(gv, matrix))
-                        sawMatrixLoad = true;
-                }
+                if (chain.continueBB)
+                    break;
             }
+            if (chain.continueBB)
+                break;
         }
 
-        // Refine sawSdivNa: require some load from aArray and some SDiv of n
-        bool hasALoad = false;
-        bool hasNDiv = false;
-        for (auto &bbPtr : func->getBasicBlocks())
-        {
-            for (auto &instPtr : bbPtr->getInstructions())
-            {
-                if (auto *ld = dynamic_cast<LoadInst *>(instPtr.get()))
-                {
-                    if (auto *gv = gepBase(ld->getPointer()); gv && sameArray(gv, aArray))
-                        hasALoad = true;
-                }
-                if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (bin->getOpcode() == Opcode::SDiv && resolvesTo(bin->getLHS(), nVal))
-                        hasNDiv = true;
-                }
-            }
-        }
-        sawSdivNa = hasALoad && hasNDiv;
-
-        if (!matrix || !sawStoreFour || !sawSdivNa || !sawMulSelf)
-            return std::nullopt;
-
-        // Ensure matrix is loaded somewhere (reduction)
-        if (!sawMatrixLoad)
+        if (!chain.continueBB)
         {
             for (auto &bbPtr : func->getBasicBlocks())
             {
                 for (auto &instPtr : bbPtr->getInstructions())
                 {
-                    if (auto *load = dynamic_cast<LoadInst *>(instPtr.get()))
+                    if (dynamic_cast<ReturnInst *>(instPtr.get()))
                     {
-                        if (auto *gv = gepBase(load->getPointer()); gv && sameArray(gv, matrix))
-                            sawMatrixLoad = true;
+                        chain.continueBB = bbPtr.get();
+                        chain.oldResult = reduceAns;
+                        break;
+                    }
+                }
+                if (chain.continueBB)
+                    break;
+            }
+        }
+        return chain.continueBB != nullptr && chain.oldResult != nullptr;
+    }
+
+    std::optional<InPlaceCopyOriginChain> analyzeInPlaceCopyOriginChain(Function *func)
+    {
+        if (!func || func->getBasicBlocks().empty())
+            return std::nullopt;
+
+        func->setLoops(ControlFlowAnalysis::findLoops(func));
+        const auto &loops = func->getLoops();
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            for (auto &instPtr : bbPtr->getInstructions())
+            {
+                auto *div = dynamic_cast<BinaryOperator *>(instPtr.get());
+                if (!div || div->getOpcode() != Opcode::SDiv)
+                    continue;
+
+                Value *extentN = stripCopy(div->getLHS());
+                Value *rowSize = stripCopy(div->getRHS());
+                Value *shapeVec = nullptr, *shapeIdx = nullptr;
+                if (!matchShapeLoad(rowSize, shapeVec, shapeIdx))
+                    continue;
+                Value *colSize = div;
+
+                for (const auto &candRow : loops)
+                {
+                    Value *rowIV = nullptr, *rowBound = nullptr;
+                    ICmpInst *rowCmp = nullptr;
+                    if (!getHeaderBoundCmp(candRow.header, rowIV, rowBound, rowCmp))
+                        continue;
+                    if (!boundMentions(rowBound, colSize))
+                        continue;
+
+                    for (const auto &candCol : loops)
+                    {
+                        if (!candRow.containsBlock(candCol.header) || &candCol == &candRow)
+                            continue;
+                        Value *colIV = nullptr, *colBound = nullptr;
+                        ICmpInst *colCmp = nullptr;
+                        if (!getHeaderBoundCmp(candCol.header, colIV, colBound, colCmp))
+                            continue;
+                        if (!boundMentions(colBound, rowSize))
+                            continue;
+
+                        StoreInst *witness = nullptr;
+                        Value *matrix = nullptr;
+                        for (auto *bb : candCol.blocks)
+                        {
+                            for (auto &ii : bb->getInstructions())
+                            {
+                                auto *st = dynamic_cast<StoreInst *>(ii.get());
+                                if (!st)
+                                    continue;
+                                Value *m = nullptr;
+                                if (isTriangularCopyWitnessStore(st, rowIV, colIV, rowSize, colSize, m))
+                                {
+                                    if (sameArray(m, shapeVec))
+                                        continue;
+                                    witness = st;
+                                    matrix = m;
+                                    break;
+                                }
+                                auto *ld = dynamic_cast<LoadInst *>(stripCopy(st->getValueToStore()));
+                                if (!ld)
+                                    continue;
+                                Value *src = arrayRoot(ld->getPointer());
+                                Value *dst = arrayRoot(st->getPointer());
+                                if (!src || !dst || !sameArray(src, dst) || sameArray(src, shapeVec))
+                                    continue;
+                                auto *gv = dynamic_cast<GlobalVariable *>(src);
+                                if (!gv || !gv->isArray())
+                                    continue;
+                                witness = st;
+                                matrix = gv;
+                                break;
+                            }
+                            if (witness)
+                                break;
+                        }
+                        if (!witness || !matrix)
+                            continue;
+
+                        const Loop *shapeLoop = nullptr;
+                        Value *shapeIV = nullptr;
+                        {
+                            const Loop *p = findParentLoop(candRow, loops);
+                            while (p)
+                            {
+                                Value *iv = nullptr, *bound = nullptr;
+                                ICmpInst *cmp = nullptr;
+                                if (getHeaderBoundCmp(p->header, iv, bound, cmp))
+                                {
+                                    if (valueDependsOn(shapeIdx, iv) || matchesLoopIV(shapeIdx, iv) ||
+                                        p->containsBlock(bbPtr.get()))
+                                    {
+                                        shapeLoop = p;
+                                        shapeIV = iv;
+                                        break;
+                                    }
+                                }
+                                p = findParentLoop(*p, loops);
+                            }
+                            if (!shapeLoop)
+                            {
+                                shapeLoop = findInnermostLoopContaining(bbPtr.get(), loops);
+                                if (shapeLoop && shapeLoop->header)
+                                {
+                                    Value *b = nullptr;
+                                    ICmpInst *c = nullptr;
+                                    getHeaderBoundCmp(shapeLoop->header, shapeIV, b, c);
+                                }
+                            }
+                        }
+                        if (!shapeLoop || !shapeIV)
+                            continue;
+
+                        Value *shapeBound = nullptr;
+                        {
+                            Value *iv = nullptr;
+                            ICmpInst *cmp = nullptr;
+                            getHeaderBoundCmp(shapeLoop->header, iv, shapeBound, cmp);
+                        }
+
+                        Value *reduceBound = nullptr;
+                        if (!hasPrefixReductionOn(func, matrix, shapeBound, reduceBound))
+                            continue;
+                        if (!reduceBound)
+                            reduceBound = shapeBound;
+                        if (!reduceBound)
+                            continue;
+
+                        InPlaceCopyOriginChain chain;
+                        chain.valid = true;
+                        chain.matrix = matrix;
+                        chain.shapeVec = shapeVec;
+                        chain.extentN = extentN;
+                        chain.reduceBound = reduceBound;
+                        chain.shapeLoop = shapeLoop;
+                        chain.rowLoop = &candRow;
+                        chain.colLoop = &candCol;
+                        chain.rowIV = rowIV;
+                        chain.colIV = colIV;
+                        chain.shapeIV = shapeIV;
+                        chain.rowSize = rowSize;
+                        chain.colSize = colSize;
+                        chain.copyWitness = witness;
+                        chain.computeEntry = shapeLoop->header;
+                        if (!refineCopyOriginSemantics(func, chain))
+                            continue;
+                        return chain;
                     }
                 }
             }
         }
-        if (!sawMatrixLoad)
-            return std::nullopt;
-
-        TriangularInPlaceCopyChain chain;
-        chain.valid = true;
-        chain.matrix = matrix;
-        chain.aArray = aArray;
-        chain.n = nVal;
-        chain.len = lenVal;
-        chain.startTime = startTime;
-        chain.stopTime = stopTime;
-        chain.putintCall = putintCall;
-        chain.putchCall = putchCall;
-        chain.startTimeBlock = startTimeBlock;
-
-        auto stopArgs = stopTime->getArguments();
-        if (!stopArgs.empty())
-        {
-            if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(stopArgs[0])))
-                chain.stopTimeLine = ci->Value;
-        }
-        auto putchArgs = putchCall->getArguments();
-        if (!putchArgs.empty())
-        {
-            if (auto *ci = dynamic_cast<ConstantInt *>(stripCopy(putchArgs[0])))
-                chain.putchChar = ci->Value;
-        }
-
-        return chain;
+        return std::nullopt;
     }
 
     MatrixFunctionAnalysis analyzeFunction(Function *func)
@@ -1054,8 +1524,8 @@ namespace optimization::matrixStructure
             analysis.transposePair = *rel;
         analysis.skewSymmetricNests = analyzeSkewSymmetricNests(func, loops);
         analysis.matMulDotProductNests = analyzeMatMulDotProductNests(loops);
-        if (auto chain = analyzeTriangularInPlaceCopyChain(func))
-            analysis.triangularCopyChain = *chain;
+        if (auto chain = analyzeInPlaceCopyOriginChain(func))
+            analysis.inPlaceCopyOriginChain = *chain;
         return analysis;
     }
 
@@ -1095,14 +1565,14 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
             debugInfo << "MatrixStructureAnalysis: found " << stored.matMulDotProductNests.size()
                       << " mat-mul dot-product nest(s) in " << func->getName() << "\n";
         }
-        if (stored.triangularCopyChain && stored.triangularCopyChain->valid)
+        if (stored.inPlaceCopyOriginChain && stored.inPlaceCopyOriginChain->valid)
         {
-            debugInfo << "MatrixStructureAnalysis: triangular in-place copy chain on @"
-                      << stored.triangularCopyChain->matrix->getName() << " in " << func->getName()
+            debugInfo << "MatrixStructureAnalysis: in-place copy origin chain on @"
+                      << stored.inPlaceCopyOriginChain->matrix->getName() << " in " << func->getName()
                       << "\n";
         }
     }
     return stored.transposePair.has_value() || !stored.skewSymmetricNests.empty() ||
            !stored.matMulDotProductNests.empty() ||
-           (stored.triangularCopyChain && stored.triangularCopyChain->valid);
+           (stored.inPlaceCopyOriginChain && stored.inPlaceCopyOriginChain->valid);
 }
