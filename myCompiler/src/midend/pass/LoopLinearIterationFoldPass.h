@@ -22,15 +22,25 @@ namespace optimization
             Value *addend = nullptr;
         };
 
-        bool getCountableOuterLoopInfo(const Loop &loop,
-                                       ICmpInst *&cmp,
-                                       Value *&iv,
-                                       Value *&bound,
-                                       int &constTripCount) const;
+        // countUp: i=0; i<N; i++   / countDown: n=N; n>0; n--
+        struct CountableLoopInfo
+        {
+            ICmpInst *cmp = nullptr;
+            Value *iv = nullptr;
+            Value *bound = nullptr;
+            int constTripCount = -1;
+            bool countDown = false;
+            Instruction *initInst = nullptr; // countDown: copy/const that sets iv to N outside loop
+        };
+
+        bool getCountableOuterLoopInfo(const Loop &loop, CountableLoopInfo &info) const;
         bool isOuterIvUnusedInBody(const Loop &outer, Value *iv) const;
         bool allLoopCarriedValuesIterationInvariant(const Loop &outer, Value *iv) const;
+        bool allLoopCarriedValuesOverwrittenOrInvariant(const Loop &outer, Value *iv) const;
         bool provePerElementFirstStoreFresh(const Loop &outer) const;
         bool proveNoReadWriteGlobalLoadBeforeFirstStore(const Loop &outer) const;
+        // 允许标量 RW 全局在首次 store 前 load（如 huffman 的 buf），数组仍须 store-before-load
+        bool proveEarlyLoadsOnlyScalarRWGlobals(const Loop &outer) const;
         bool findLoopAccumulator(const Loop &outer, Value *iv, Value *&acc) const;
         bool proveLinearIterationMap(const Loop &outer, Value *acc, Value *iv, LinearIterationMap &map);
         bool isLinearFoldableOuterBody(const Loop &outer,
@@ -45,9 +55,7 @@ namespace optimization
                                     const std::set<Instruction *> &skipInsts = {}) const;
         bool tryFoldIterationInvariantOuterLoop(Function *func,
                                                 const Loop &outer,
-                                                ICmpInst *cmp,
-                                                Value *iv,
-                                                int constTripCount);
+                                                const CountableLoopInfo &info);
         bool tryFoldLinearAccumulator(Function *func,
                                       const Loop &outer,
                                       ICmpInst *cmp,

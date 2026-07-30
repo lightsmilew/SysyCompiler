@@ -1,5 +1,6 @@
 #include "LoopLinearIterationFoldPass.h"
 #include <algorithm>
+#include <unordered_map>
 #include <unordered_set>
 using namespace std;
 using namespace optimization;
@@ -159,6 +160,114 @@ namespace
         return false;
     }
 
+    bool hasUnitDecrementAtLatch(Value *iv, const Loop &loop)
+    {
+        BasicBlock *latch = findLoopLatchBlock(loop);
+        if (!latch)
+        {
+            return false;
+        }
+
+        for (auto &instPtr : latch->getInstructions())
+        {
+            auto *subInst = dynamic_cast<BinaryOperator *>(instPtr.get());
+            if (!subInst || subInst->getOpcode() != Opcode::Sub)
+            {
+                continue;
+            }
+            auto *one = dynamic_cast<ConstantInt *>(stripCopy(subInst->getRHS()));
+            if (!one || one->Value != 1)
+            {
+                continue;
+            }
+            if (sameLoopValue(subInst->getLHS(), iv))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 在循环外找到将 iv 初始化为常量的 copy（倒计数 n=N）
+    Instruction *findConstInitOutsideLoop(Value *iv, const Loop &loop, int &initVal)
+    {
+        initVal = 0;
+        if (!iv || !loop.header)
+        {
+            return nullptr;
+        }
+
+        if (auto *trackedPhi = dynamic_cast<PhiInst *>(stripCopy(iv)))
+        {
+            for (size_t i = 0; i < trackedPhi->getNumIncomingValues(); ++i)
+            {
+                if (loop.containsBlock(trackedPhi->getIncomingBlock(i)))
+                {
+                    continue;
+                }
+                auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(trackedPhi->getIncomingValue(i)));
+                if (initConst && initConst->Value > 1)
+                {
+                    initVal = initConst->Value;
+                    return trackedPhi;
+                }
+            }
+            return nullptr;
+        }
+
+        for (auto *pred : loop.header->getPredecessors())
+        {
+            if (loop.containsBlock(pred))
+            {
+                continue;
+            }
+            for (auto &instPtr : pred->getInstructions())
+            {
+                auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+                if (!cpy || !sameLoopValue(cpy, iv))
+                {
+                    continue;
+                }
+                auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(cpy->getSource()));
+                if (initConst && initConst->Value > 1)
+                {
+                    initVal = initConst->Value;
+                    return cpy;
+                }
+            }
+        }
+
+        // while 形态：入口块直接落到 body，初始化可能在更外层 entry
+        Function *func = loop.header->Parent;
+        if (!func)
+        {
+            return nullptr;
+        }
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            if (!bb || loop.containsBlock(bb))
+            {
+                continue;
+            }
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+                if (!cpy || !sameLoopValue(cpy, iv))
+                {
+                    continue;
+                }
+                auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(cpy->getSource()));
+                if (initConst && initConst->Value > 1)
+                {
+                    initVal = initConst->Value;
+                    return cpy;
+                }
+            }
+        }
+        return nullptr;
+    }
+
     bool hasNestedLoopInside(const Loop &outer, const vector<Loop> &allLoops)
     {
         for (const auto &inner : allLoops)
@@ -194,8 +303,21 @@ namespace
                 body = br->getFalseBlock();
             }
         }
+        else if (br && !br->isConditional())
+        {
+            // latch 处判断的 while：header 即 body 入口
+            body = outer.header;
+        }
         if (!body || !outer.containsBlock(body))
         {
+            // 回退：整圈循环块都算每轮执行
+            for (auto *bb : outer.blocks)
+            {
+                if (bb)
+                {
+                    perIter.insert(bb);
+                }
+            }
             return perIter;
         }
 
@@ -211,8 +333,20 @@ namespace
                 {
                     continue;
                 }
+                // header 自身作为 body 起点时，允许沿后继扩展到 header 以外的环内块
                 perIter.insert(succ);
                 worklist.push_back(succ);
+            }
+        }
+        // header==body 时，上面 succ==header 被跳过是对的；但 header 已在 perIter
+        if (body == outer.header)
+        {
+            for (auto *bb : outer.blocks)
+            {
+                if (bb)
+                {
+                    perIter.insert(bb);
+                }
             }
         }
         return perIter;
@@ -221,7 +355,8 @@ namespace
     vector<BasicBlock *> orderPerIterationBlocks(const Loop &outer)
     {
         vector<BasicBlock *> order;
-        if (!outer.header)
+        auto perIter = collectPerIterationBlocks(outer);
+        if (perIter.empty() || !outer.header)
         {
             return order;
         }
@@ -237,8 +372,19 @@ namespace
                 body = br->getFalseBlock();
             }
         }
-        if (!body || !outer.containsBlock(body))
+        else
         {
+            body = outer.header;
+        }
+        if (!body || !perIter.count(body))
+        {
+            for (auto *bb : outer.blocks)
+            {
+                if (bb && perIter.count(bb))
+                {
+                    order.push_back(bb);
+                }
+            }
             return order;
         }
 
@@ -252,12 +398,28 @@ namespace
             order.push_back(bb);
             for (auto *succ : bb->getSuccessors())
             {
-                if (succ == outer.header || !outer.containsBlock(succ) || visited.count(succ))
+                if (!perIter.count(succ) || visited.count(succ))
+                {
+                    continue;
+                }
+                // 避免仅因回边立刻再次进入 header 造成重复；header 已作为起点时跳过回边
+                if (succ == outer.header && body == outer.header)
+                {
+                    continue;
+                }
+                if (succ == outer.header && body != outer.header)
                 {
                     continue;
                 }
                 visited.insert(succ);
                 worklist.push_back(succ);
+            }
+        }
+        for (auto *bb : perIter)
+        {
+            if (!visited.count(bb))
+            {
+                order.push_back(bb);
             }
         }
         return order;
@@ -460,17 +622,30 @@ namespace
         }
         if (auto *icmp = dynamic_cast<ICmpInst *>(inst))
         {
-            if (icmp->getPredicate() == ICmpInst::ICMP_SLT && sameLoopValue(icmp->getLHS(), iv))
+            if (icmp->getPredicate() == ICmpInst::ICMP_SLT)
             {
-                return true;
+                // count-up: iv < bound
+                if (sameLoopValue(icmp->getLHS(), iv))
+                {
+                    return true;
+                }
+                // count-down: 0 < iv
+                if (sameLoopValue(icmp->getRHS(), iv))
+                {
+                    auto *zero = dynamic_cast<ConstantInt *>(stripCopy(icmp->getLHS()));
+                    if (zero && zero->Value == 0)
+                    {
+                        return true;
+                    }
+                }
             }
         }
-        if (auto *addInst = dynamic_cast<BinaryOperator *>(inst))
+        if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
         {
-            if (addInst->getOpcode() == Opcode::Add)
+            auto *one = dynamic_cast<ConstantInt *>(stripCopy(bin->getRHS()));
+            if (one && one->Value == 1 && sameLoopValue(bin->getLHS(), iv))
             {
-                auto *one = dynamic_cast<ConstantInt *>(stripCopy(addInst->getRHS()));
-                if (one && one->Value == 1 && sameLoopValue(addInst->getLHS(), iv))
+                if (bin->getOpcode() == Opcode::Add || bin->getOpcode() == Opcode::Sub)
                 {
                     return true;
                 }
@@ -479,11 +654,12 @@ namespace
         return false;
     }
 
-    bool tryReadLoopControlFromBlock(BasicBlock *bb,
-                                     ICmpInst *&cmp,
-                                     Value *&iv,
-                                     Value *&bound,
-                                     int &constTripCount)
+    // count-up: icmp slt iv, bound
+    bool tryReadCountUpControl(BasicBlock *bb,
+                               ICmpInst *&cmp,
+                               Value *&iv,
+                               Value *&bound,
+                               int &constTripCount)
     {
         cmp = nullptr;
         iv = nullptr;
@@ -513,6 +689,11 @@ namespace
         {
             return false;
         }
+        // 排除 countdown 形态 0 < n
+        if (dynamic_cast<ConstantInt *>(stripCopy(iv)))
+        {
+            return false;
+        }
 
         if (auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(bound)))
         {
@@ -520,49 +701,145 @@ namespace
         }
         return true;
     }
+
+    // count-down: icmp slt 0, iv 或 icmp sgt iv, 0  （while (n > 0)）
+    bool tryReadCountDownControl(BasicBlock *bb, ICmpInst *&cmp, Value *&iv)
+    {
+        cmp = nullptr;
+        iv = nullptr;
+        if (!bb || bb->getInstructions().empty())
+        {
+            return false;
+        }
+
+        auto &insts = bb->getInstructions();
+        auto *br = dynamic_cast<BranchInst *>(insts.back().get());
+        if (!br || !br->isConditional())
+        {
+            return false;
+        }
+
+        // 优先看 br 前一条，再扫描整块（中间可能夹杂 copy）
+        vector<ICmpInst *> icmps;
+        if (insts.size() >= 2)
+        {
+            if (auto *c = dynamic_cast<ICmpInst *>(insts[insts.size() - 2].get()))
+            {
+                icmps.push_back(c);
+            }
+        }
+        for (auto &instPtr : insts)
+        {
+            if (auto *c = dynamic_cast<ICmpInst *>(instPtr.get()))
+            {
+                if (icmps.empty() || icmps.front() != c)
+                {
+                    icmps.push_back(c);
+                }
+            }
+        }
+
+        for (auto *cand : icmps)
+        {
+            if (cand->getPredicate() == ICmpInst::ICMP_SLT)
+            {
+                auto *zero = dynamic_cast<ConstantInt *>(stripCopy(cand->getLHS()));
+                if (zero && zero->Value == 0 && cand->getRHS() &&
+                    !dynamic_cast<ConstantInt *>(stripCopy(cand->getRHS())))
+                {
+                    cmp = cand;
+                    iv = cand->getRHS();
+                    return true;
+                }
+            }
+            if (cand->getPredicate() == ICmpInst::ICMP_SGT)
+            {
+                auto *zero = dynamic_cast<ConstantInt *>(stripCopy(cand->getRHS()));
+                if (zero && zero->Value == 0 && cand->getLHS() &&
+                    !dynamic_cast<ConstantInt *>(stripCopy(cand->getLHS())))
+                {
+                    cmp = cand;
+                    iv = cand->getLHS();
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }
 
 bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
-                                                            ICmpInst *&cmp,
-                                                            Value *&iv,
-                                                            Value *&bound,
-                                                            int &constTripCount) const
+                                                            CountableLoopInfo &info) const
 {
-    cmp = nullptr;
-    iv = nullptr;
-    bound = nullptr;
-    constTripCount = -1;
+    info = CountableLoopInfo{};
 
     struct LoopControlCandidate
     {
-        ICmpInst *cmp = nullptr;
-        Value *iv = nullptr;
-        Value *bound = nullptr;
-        int trip = -1;
+        CountableLoopInfo info;
         bool ivUnusedInBody = false;
     };
 
     vector<LoopControlCandidate> candidates;
-    auto tryCollect = [&](BasicBlock *bb) {
+    auto tryCollectCountUp = [&](BasicBlock *bb) {
         if (!bb)
         {
             return;
         }
         LoopControlCandidate cand;
-        if (!tryReadLoopControlFromBlock(bb, cand.cmp, cand.iv, cand.bound, cand.trip))
+        if (!tryReadCountUpControl(bb, cand.info.cmp, cand.info.iv, cand.info.bound, cand.info.constTripCount))
         {
             return;
         }
-        if (!hasZeroInitOutsideLoop(cand.iv, loop) || !hasUnitIncrementAtLatch(cand.iv, loop))
+        if (!hasZeroInitOutsideLoop(cand.info.iv, loop) || !hasUnitIncrementAtLatch(cand.info.iv, loop))
         {
             return;
         }
-        cand.ivUnusedInBody = isOuterIvUnusedInBody(loop, cand.iv);
+        cand.info.countDown = false;
+        cand.ivUnusedInBody = isOuterIvUnusedInBody(loop, cand.info.iv);
+        candidates.push_back(cand);
+    };
+    auto tryCollectCountDown = [&](BasicBlock *bb) {
+        if (!bb)
+        {
+            return;
+        }
+        LoopControlCandidate cand;
+        if (!tryReadCountDownControl(bb, cand.info.cmp, cand.info.iv))
+        {
+            return;
+        }
+        if (!hasUnitDecrementAtLatch(cand.info.iv, loop))
+        {
+            return;
+        }
+        int initVal = 0;
+        Instruction *initInst = findConstInitOutsideLoop(cand.info.iv, loop, initVal);
+        if (!initInst || initVal <= 1)
+        {
+            return;
+        }
+        cand.info.countDown = true;
+        cand.info.constTripCount = initVal;
+        cand.info.bound = new ConstantInt(IntegerType::getInstance(), initVal);
+        cand.info.initInst = initInst;
+        cand.ivUnusedInBody = isOuterIvUnusedInBody(loop, cand.info.iv);
         candidates.push_back(cand);
     };
 
-    tryCollect(loop.header);
-    tryCollect(findLoopLatchBlock(loop));
+    tryCollectCountUp(loop.header);
+    tryCollectCountUp(findLoopLatchBlock(loop));
+    tryCollectCountDown(loop.header);
+    tryCollectCountDown(findLoopLatchBlock(loop));
+
+    // countdown 的 icmp 可能在 latch 末尾，而 header 是 body（无 cmp）
+    if (candidates.empty())
+    {
+        for (auto *bb : loop.blocks)
+        {
+            tryCollectCountDown(bb);
+            tryCollectCountUp(bb);
+        }
+    }
 
     if (candidates.empty())
     {
@@ -576,8 +853,9 @@ bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
         {
             continue;
         }
-        if (!best || (best->trip <= 1 && cand.trip > 1) ||
-            (cand.trip > 1 && best->trip > 1 && cand.trip < best->trip))
+        if (!best || (best->info.constTripCount <= 1 && cand.info.constTripCount > 1) ||
+            (cand.info.constTripCount > 1 && best->info.constTripCount > 1 &&
+             cand.info.constTripCount < best->info.constTripCount))
         {
             best = &cand;
         }
@@ -586,7 +864,7 @@ bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
     {
         for (const auto &cand : candidates)
         {
-            if (!best || cand.trip > best->trip)
+            if (!best || cand.info.constTripCount > best->info.constTripCount)
             {
                 best = &cand;
             }
@@ -597,10 +875,7 @@ bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
         return false;
     }
 
-    cmp = best->cmp;
-    iv = best->iv;
-    bound = best->bound;
-    constTripCount = best->trip;
+    info = best->info;
     return true;
 }
 
@@ -677,6 +952,54 @@ bool LoopLinearIterationFoldPass::allLoopCarriedValuesIterationInvariant(const L
     return true;
 }
 
+// 每轮覆盖写：回边带来的新值不依赖旧 phi（最后一轮决定 live-out），或保持不变
+bool LoopLinearIterationFoldPass::allLoopCarriedValuesOverwrittenOrInvariant(const Loop &outer,
+                                                                             Value *iv) const
+{
+    if (!outer.header)
+    {
+        return false;
+    }
+
+    BasicBlock *latch = findLoopLatchBlock(outer);
+    if (!latch)
+    {
+        return false;
+    }
+
+    for (auto &instPtr : outer.header->getInstructions())
+    {
+        auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+        if (!phi || sameLoopValue(phi, iv))
+        {
+            continue;
+        }
+
+        Value *nextVal = nullptr;
+        for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+        {
+            if (phi->getIncomingBlock(i) == latch)
+            {
+                nextVal = phi->getIncomingValue(i);
+                break;
+            }
+        }
+        if (!nextVal)
+        {
+            return false;
+        }
+        if (sameLoopValue(stripCopy(nextVal), stripCopy(phi)))
+        {
+            continue; // invariant
+        }
+        if (valueDependsOn(nextVal, phi))
+        {
+            return false; // 累加/依赖旧值，非纯覆盖
+        }
+    }
+    return true;
+}
+
 bool LoopLinearIterationFoldPass::provePerElementFirstStoreFresh(const Loop &outer) const
 {
     if (!outer.header || !outer.header->Parent)
@@ -703,6 +1026,14 @@ bool LoopLinearIterationFoldPass::provePerElementFirstStoreFresh(const Loop &out
         {
             auto *store = dynamic_cast<StoreInst *>(instPtr.get());
             if (!store)
+            {
+                continue;
+            }
+
+            Value *base = getArrayBaseValue(store->getPointer());
+            auto *gv = dynamic_cast<GlobalVariable *>(base);
+            // 标量 RMW（如 buf = buf | x）不要求“首存不读旧值”；只约束数组元素
+            if (gv && !gv->isArray())
             {
                 continue;
             }
@@ -808,6 +1139,97 @@ bool LoopLinearIterationFoldPass::proveNoReadWriteGlobalLoadBeforeFirstStore(con
             }
             const string baseKey = getArrayBaseKey(store->getPointer());
             if (!baseKey.empty() && readWriteGlobalBases.count(baseKey))
+            {
+                storedGlobalBases.insert(baseKey);
+            }
+        }
+    }
+    return true;
+}
+
+bool LoopLinearIterationFoldPass::proveEarlyLoadsOnlyScalarRWGlobals(const Loop &outer) const
+{
+    if (!outer.header || !outer.header->Parent)
+    {
+        return false;
+    }
+
+    auto ordered = orderPerIterationBlocks(outer);
+    if (ordered.empty())
+    {
+        return false;
+    }
+
+    unordered_map<string, Value *> rwGlobalBase;
+    for (BasicBlock *bb : ordered)
+    {
+        if (!bb)
+        {
+            continue;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *store = dynamic_cast<StoreInst *>(instPtr.get());
+            if (!store)
+            {
+                continue;
+            }
+            Value *base = getArrayBaseValue(store->getPointer());
+            if (!base || !base->isGlobal())
+            {
+                continue;
+            }
+            const string baseKey = getArrayBaseKey(store->getPointer());
+            if (!baseKey.empty())
+            {
+                rwGlobalBase[baseKey] = base;
+            }
+        }
+    }
+
+    if (rwGlobalBase.empty())
+    {
+        return true;
+    }
+
+    unordered_set<string> storedGlobalBases;
+    for (BasicBlock *bb : ordered)
+    {
+        if (!bb)
+        {
+            continue;
+        }
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (auto *load = dynamic_cast<LoadInst *>(inst))
+            {
+                const string baseKey = getArrayBaseKey(load->getPointer());
+                if (baseKey.empty() || !rwGlobalBase.count(baseKey))
+                {
+                    continue;
+                }
+                if (storedGlobalBases.count(baseKey))
+                {
+                    continue;
+                }
+                // 首次 load 早于 store：仅允许标量全局（如 buf），禁止数组
+                Value *base = rwGlobalBase[baseKey];
+                auto *gv = dynamic_cast<GlobalVariable *>(base);
+                if (!gv || gv->isArray())
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            auto *store = dynamic_cast<StoreInst *>(inst);
+            if (!store)
+            {
+                continue;
+            }
+            const string baseKey = getArrayBaseKey(store->getPointer());
+            if (!baseKey.empty() && rwGlobalBase.count(baseKey))
             {
                 storedGlobalBases.insert(baseKey);
             }
@@ -1139,60 +1561,127 @@ bool LoopLinearIterationFoldPass::isLinearFoldableOuterBody(const Loop &outer,
 
 bool LoopLinearIterationFoldPass::tryFoldIterationInvariantOuterLoop(Function *func,
                                                                      const Loop &outer,
-                                                                     ICmpInst *cmp,
-                                                                     Value *iv,
-                                                                     int constTripCount)
+                                                                     const CountableLoopInfo &info)
 {
-    if (!func || !cmp || !iv || constTripCount <= 1)
+    if (!func || !info.cmp || !info.iv || info.constTripCount <= 1)
     {
         return false;
     }
 
-    if (!isOuterIvUnusedInBody(outer, iv))
+    if (!isOuterIvUnusedInBody(outer, info.iv))
     {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                      << " (iv used in body)\n";
+        }
         return false;
     }
-    if (!allLoopCarriedValuesIterationInvariant(outer, iv))
+    // 严格不变，或每轮覆盖写（最后一轮决定出口值）
+    if (!allLoopCarriedValuesIterationInvariant(outer, info.iv) &&
+        !allLoopCarriedValuesOverwrittenOrInvariant(outer, info.iv))
     {
-        return false;
-    }
-    if (!proveNoReadWriteGlobalLoadBeforeFirstStore(outer))
-    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                      << " (carried not overwrite/invariant)\n";
+        }
         return false;
     }
     if (!provePerElementFirstStoreFresh(outer))
     {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                      << " (array first-store not fresh)\n";
+        }
+        return false;
+    }
+    // 完全自包含，或仅有标量全局的跨轮残留读（如 huffman buf）
+    if (!proveNoReadWriteGlobalLoadBeforeFirstStore(outer) &&
+        !proveEarlyLoadsOnlyScalarRWGlobals(outer))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                      << " (early RW load)\n";
+        }
         return false;
     }
 
-    auto *newBound = new ConstantInt(IntegerType::getInstance(), 1);
-    for (auto &bbPtr : func->getBasicBlocks())
+    if (info.countDown)
     {
-        BasicBlock *bb = bbPtr.get();
-        for (auto &instPtr : bb->getInstructions())
+        // while (n > 0) { ...; n--; } 且 n 初值为 N → 把初值改为 1
+        if (!info.initInst)
         {
-            auto *icmp = dynamic_cast<ICmpInst *>(instPtr.get());
-            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+            if (verbose)
             {
-                continue;
+                debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                          << " (countdown missing init)\n";
             }
-            if (!sameLoopValue(icmp->getLHS(), iv))
+            return false;
+        }
+        if (auto *cpy = dynamic_cast<CopyInst *>(info.initInst))
+        {
+            cpy->setOperandByIndex(0, new ConstantInt(IntegerType::getInstance(), 1));
+        }
+        else if (auto *phi = dynamic_cast<PhiInst *>(info.initInst))
+        {
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
             {
-                continue;
+                if (outer.containsBlock(phi->getIncomingBlock(i)))
+                {
+                    continue;
+                }
+                auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(phi->getIncomingValue(i)));
+                if (initConst && initConst->Value == info.constTripCount)
+                {
+                    phi->setIncomingValue(i, new ConstantInt(IntegerType::getInstance(), 1));
+                }
             }
-            auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(icmp->getRHS()));
-            if (!boundConst || boundConst->Value != constTripCount)
+        }
+        else
+        {
+            if (verbose)
             {
-                continue;
+                debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                          << " (countdown init not copy/phi)\n";
             }
-            icmp->setOperandByIndex(1, newBound);
+            return false;
+        }
+    }
+    else
+    {
+        auto *newBound = new ConstantInt(IntegerType::getInstance(), 1);
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *icmp = dynamic_cast<ICmpInst *>(instPtr.get());
+                if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+                {
+                    continue;
+                }
+                if (!sameLoopValue(icmp->getLHS(), info.iv))
+                {
+                    continue;
+                }
+                auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(icmp->getRHS()));
+                if (!boundConst || boundConst->Value != info.constTripCount)
+                {
+                    continue;
+                }
+                icmp->setOperandByIndex(1, newBound);
+            }
         }
     }
 
     if (verbose)
     {
-        debugInfo << "LoopLinearIterationFold: folded iteration-invariant outer loop "
-                  << outer.header->getName() << " (trip " << constTripCount << " -> 1)\n";
+        debugInfo << "LoopLinearIterationFold: folded iteration-invariant/overwrite outer loop "
+                  << outer.header->getName() << " (trip " << info.constTripCount << " -> 1"
+                  << (info.countDown ? ", countdown" : "") << ")\n";
     }
     return true;
 }
@@ -1293,41 +1782,45 @@ bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
 
     for (const auto &outerLoop : loops)
     {
-        ICmpInst *cmp = nullptr;
-        Value *iv = nullptr;
-        Value *bound = nullptr;
-        int constTripCount = -1;
-        if (!getCountableOuterLoopInfo(outerLoop, cmp, iv, bound, constTripCount) ||
-            !isFoldableTripBound(bound, constTripCount))
+        CountableLoopInfo info;
+        if (!getCountableOuterLoopInfo(outerLoop, info) ||
+            !isFoldableTripBound(info.bound, info.constTripCount))
         {
             continue;
         }
 
-        if (constTripCount > 1 &&
-            isOuterIvUnusedInBody(outerLoop, iv) &&
-            tryFoldIterationInvariantOuterLoop(func, outerLoop, cmp, iv, constTripCount))
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: candidate " << outerLoop.header->getName()
+                      << " trip=" << info.constTripCount
+                      << (info.countDown ? " countdown" : " countup") << "\n";
+        }
+
+        if (info.constTripCount > 1 &&
+            isOuterIvUnusedInBody(outerLoop, info.iv) &&
+            tryFoldIterationInvariantOuterLoop(func, outerLoop, info))
         {
             func->setLoops(ControlFlowAnalysis::findLoops(func));
             return true;
         }
 
         Value *acc = nullptr;
-        if (!findLoopAccumulator(outerLoop, iv, acc))
+        if (!findLoopAccumulator(outerLoop, info.iv, acc))
         {
             continue;
         }
 
         LinearIterationMap map;
-        if (!proveLinearIterationMap(outerLoop, acc, iv, map))
+        if (!proveLinearIterationMap(outerLoop, acc, info.iv, map))
         {
             continue;
         }
-        if (!isLinearFoldableOuterBody(outerLoop, iv, acc, loops))
+        if (!isLinearFoldableOuterBody(outerLoop, info.iv, acc, loops))
         {
             continue;
         }
 
-        if (tryFoldLinearAccumulator(func, outerLoop, cmp, iv, bound, acc, bound, map))
+        if (tryFoldLinearAccumulator(func, outerLoop, info.cmp, info.iv, info.bound, acc, info.bound, map))
         {
             func->setLoops(ControlFlowAnalysis::findLoops(func));
             return true;
