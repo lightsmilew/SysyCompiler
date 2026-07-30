@@ -17,6 +17,7 @@
 #include "InPlaceCopyOriginReductionPass.h"
 #include "CondGuardedAccumulatePass.h"
 #include "BitwiseLoopFusionPass.h"
+#include "LoopAPModSumFoldPass.h"
 #include "IfLadderShiftPass.h"
 #include "LoopNestInteriorSplitPass.h"
 #include "MultiplyPass.h"

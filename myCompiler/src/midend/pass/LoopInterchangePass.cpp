@@ -105,10 +105,21 @@ bool LoopInterchangePass::applyInterchange(Function *func, MatMulDotProductNest 
     wireEdge(kHeader, kBody);
     wireEdge(kHeader, kExit);
 
-    auto *cElemGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, kPhi}, "licc_c_gep");
-    kBody->addInstruction(own(cElemGep));
-    auto *cVal = new LoadInst(cElemGep, "licc_c_val");
-    kBody->addInstruction(own(cVal));
+    auto *lhsGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, kPhi}, "licc_lhs_gep");
+    kBody->addInstruction(own(lhsGep));
+    auto *lhsVal = new LoadInst(lhsGep, "licc_lhs_val");
+    kBody->addInstruction(own(lhsVal));
+
+    Value *parityIkVal = nullptr;
+    if (pat.hasParityGuard)
+    {
+        auto *pikGep = new GetElementPtrInst(pat.parityIkArray, {pat.iIV, kPhi}, "licc_pik_gep");
+        kBody->addInstruction(own(pikGep));
+        auto *pikLoad = new LoadInst(pikGep, "licc_pik_val");
+        kBody->addInstruction(own(pikLoad));
+        parityIkVal = pikLoad;
+    }
+
     kBody->addInstruction(own(new BranchInst(jHeader)));
     wireEdge(kBody, jHeader);
 
@@ -127,14 +138,35 @@ bool LoopInterchangePass::applyInterchange(Function *func, MatMulDotProductNest 
     auto *accLoad = new LoadInst(accGep, "licc_acc_load");
     jBody->addInstruction(own(accLoad));
 
-    auto *aElemGep = new GetElementPtrInst(pat.rhsArray, {kPhi, jPhi}, "licc_a_gep");
-    jBody->addInstruction(own(aElemGep));
-    auto *aVal = new LoadInst(aElemGep, "licc_a_val");
-    jBody->addInstruction(own(aVal));
+    auto *rhsGep = new GetElementPtrInst(pat.rhsArray, {kPhi, jPhi}, "licc_rhs_gep");
+    jBody->addInstruction(own(rhsGep));
+    auto *rhsVal = new LoadInst(rhsGep, "licc_rhs_val");
+    jBody->addInstruction(own(rhsVal));
 
-    auto *prod = new BinaryOperator(Opcode::Mul, cVal, aVal, "licc_prod");
+    auto *prod = new BinaryOperator(Opcode::Mul, lhsVal, rhsVal, "licc_prod");
     jBody->addInstruction(own(prod));
-    auto *accAdd = new BinaryOperator(Opcode::Add, accLoad, prod, "licc_acc_add");
+
+    Value *addend = prod;
+    if (pat.hasParityGuard)
+    {
+        auto *pkjGep = new GetElementPtrInst(pat.parityKjArray, {kPhi, jPhi}, "licc_pkj_gep");
+        jBody->addInstruction(own(pkjGep));
+        auto *pkjLoad = new LoadInst(pkjGep, "licc_pkj_val");
+        jBody->addInstruction(own(pkjLoad));
+        auto *pa = new BinaryOperator(Opcode::And, parityIkVal, one, "licc_parity_a");
+        jBody->addInstruction(own(pa));
+        auto *pb = new BinaryOperator(Opcode::And, pkjLoad, one, "licc_parity_b");
+        jBody->addInstruction(own(pb));
+        auto *pand = new BinaryOperator(Opcode::And, pa, pb, "licc_parity_and");
+        jBody->addInstruction(own(pand));
+        auto *ok = new ICmpInst(ICmpInst::ICMP_EQ, pand, zero, "licc_parity_ok");
+        jBody->addInstruction(own(ok));
+        auto *scaled = new BinaryOperator(Opcode::Mul, ok, prod, "licc_scaled");
+        jBody->addInstruction(own(scaled));
+        addend = scaled;
+    }
+
+    auto *accAdd = new BinaryOperator(Opcode::Add, accLoad, addend, "licc_acc_add");
     jBody->addInstruction(own(accAdd));
     jBody->addInstruction(own(new StoreInst(accAdd, accGep)));
 
@@ -165,9 +197,10 @@ bool LoopInterchangePass::applyInterchange(Function *func, MatMulDotProductNest 
     storeBody->addInstruction(own(accReadGep));
     auto *accRead = new LoadInst(accReadGep, "licc_acc_read");
     storeBody->addInstruction(own(accRead));
-    auto *aOutGep = new GetElementPtrInst(pat.rhsArray, {pat.iIV, jStorePhi}, "licc_a_out_gep");
-    storeBody->addInstruction(own(aOutGep));
-    storeBody->addInstruction(own(new StoreInst(accRead, aOutGep)));
+    Value *outBase = pat.outArray ? pat.outArray : pat.rhsArray;
+    auto *outGep = new GetElementPtrInst(outBase, {pat.iIV, jStorePhi}, "licc_out_gep");
+    storeBody->addInstruction(own(outGep));
+    storeBody->addInstruction(own(new StoreInst(accRead, outGep)));
     auto *jStoreInc = new BinaryOperator(Opcode::Add, jStorePhi, one, "licc_j_store_inc");
     storeBody->addInstruction(own(jStoreInc));
     jStorePhi->addIncoming(jStoreInc, storeBody);

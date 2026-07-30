@@ -2215,11 +2215,55 @@ namespace
             }
         }
 
-        auto ins = [&](Instruction *inst) { entry->addInstruction(powdivOwn(inst)); };
+        // Variable / out-of-range const: pos >= 8 → 0, else (num >> (pos<<2)) & mask.
+        // Needed so large pos stays semantically zero (RISC-V shifts mask to 5 bits).
+        auto *ret0BB = func->addBasicBlock("powdiv_fn.ret0");
+        auto *extractBB = func->addBasicBlock("powdiv_fn.extract");
+        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), "powdiv_fn_ge8");
+        entry->addInstruction(powdivOwn(ge8));
+        entry->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
+        entry->addSuccessor(ret0BB);
+        entry->addSuccessor(extractBB);
+        ret0BB->addPredecessor(entry);
+        extractBB->addPredecessor(entry);
+        retVal(ret0BB, powdivCi(0));
+
+        auto ins = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
         auto *shiftAmt =
             new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
         ins(shiftAmt);
-        retVal(entry, buildFastNonNegDigit(entry, ins, num, shiftAmt, radixMask, "_fn"));
+        retVal(extractBB, buildFastNonNegDigit(extractBB, ins, num, shiftAmt, radixMask, "_fn"));
+    }
+
+    void emitPowdivVarPosCFG(Function *func, BasicBlock *bb, BasicBlock *afterBB, PhiInst *phi,
+                             Value *num, Value *pos, int posShiftLog2, int radixMask,
+                             const string &nameSuffix)
+    {
+        num = powdivStripCopy(num);
+        pos = powdivStripCopy(pos);
+        const string s = nameSuffix;
+
+        auto *ret0BB = func->addBasicBlock(bb->getName() + ".powdiv0" + s);
+        auto *extractBB = func->addBasicBlock(bb->getName() + ".powdiv_extract" + s);
+
+        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), powdivFreshName("powdiv_ge8" + s));
+        bb->addInstruction(powdivOwn(ge8));
+        bb->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
+        bb->addSuccessor(ret0BB);
+        bb->addSuccessor(extractBB);
+        ret0BB->addPredecessor(bb);
+        extractBB->addPredecessor(bb);
+
+        powdivLink(ret0BB, afterBB);
+        phi->addIncoming(powdivCi(0), ret0BB);
+
+        auto extractIns = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
+        auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
+                                            powdivFreshName("powdiv_shift" + s));
+        extractIns(shiftAmt);
+        Value *digit = buildFastNonNegDigit(extractBB, extractIns, num, shiftAmt, radixMask, s);
+        powdivLink(extractBB, afterBB);
+        phi->addIncoming(digit, extractBB);
     }
 }
 
@@ -2310,13 +2354,14 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
             }
             else
             {
-                unsigned insertIdx = callIdx;
-                Value *digit = buildPowDivDigitExtractLinear(bb, insertIdx, args[0], args[1],
-                                                             kPosShiftLog2, kRadixMask, "");
-                const unsigned numInserted = insertIdx - callIdx;
-                call->replaceAllUsesWith(digit);
+                BasicBlock *afterBB = powdivSplitBlockTail(func, bb, callIdx + 1);
+                auto *phi = new PhiInst(IntegerType::getInstance(), powdivFreshName("powdiv_phi"));
+                afterBB->insert(powdivOwn(phi), 0);
+                call->replaceAllUsesWith(phi);
                 call->removeThisFromOperands();
-                insts.erase(insts.begin() + static_cast<long>(callIdx + numInserted));
+                insts.erase(insts.begin() + static_cast<long>(callIdx));
+                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], kPosShiftLog2, kRadixMask,
+                                    "");
             }
 
             if (verbose)
@@ -2335,150 +2380,5 @@ bool PowDivLoopReductionPass::runOnFunction(Function *func)
     powdivNameCounter = 0;
     bool changed = rewriteDivLoopCallee(func);
     changed = replaceDivLoopCalls(func) || changed;
-    return changed;
-}
-
-namespace
-{
-    Value *radixStripCopy(Value *v)
-    {
-        while (auto *cpy = dynamic_cast<CopyInst *>(v))
-            v = cpy->getSource();
-        return v;
-    }
-
-    bool isRoundMinusOne(Value *v, Value *roundArg)
-    {
-        auto *bin = dynamic_cast<BinaryOperator *>(radixStripCopy(v));
-        if (!bin)
-            return false;
-        Value *lhs = radixStripCopy(bin->getLHS());
-        Value *rhs = radixStripCopy(bin->getRHS());
-        if (bin->getOpcode() == Opcode::Sub)
-        {
-            auto *c = dynamic_cast<ConstantInt *>(rhs);
-            return lhs == roundArg && c && c->Value == 1;
-        }
-        if (bin->getOpcode() == Opcode::Add)
-        {
-            auto *c = dynamic_cast<ConstantInt *>(rhs);
-            return lhs == roundArg && c && c->Value == -1;
-        }
-        return false;
-    }
-
-    // 结构：首参为位段 pos；自递归 pos-1；存在 (>> (pos<<2)) & 15；存在 pos==-1 出口；有指针形参
-    bool hasRecursiveNibbleDigitDescent(Function *f)
-    {
-        if (!f || f->getArguments().empty())
-            return false;
-
-        Value *roundArg = f->getArguments()[0].get();
-        if (!roundArg || !roundArg->getType() || !roundArg->getType()->isIntegerTy())
-            return false;
-
-        bool hasPtrArg = false;
-        for (auto &arg : f->getArguments())
-        {
-            if (arg && arg->getType() && arg->getType()->isPointerTy())
-                hasPtrArg = true;
-        }
-        if (!hasPtrArg)
-            return false;
-
-        bool selfDec = false;
-        bool and15 = false;
-        bool shiftRoundX4 = false;
-        bool baseNeg1 = false;
-
-        for (auto &bbPtr : f->getBasicBlocks())
-        {
-            for (auto &instPtr : bbPtr->getInstructions())
-            {
-                Instruction *inst = instPtr.get();
-                if (auto *call = dynamic_cast<CallInst *>(inst))
-                {
-                    if (call->getCalledFunction() == f)
-                    {
-                        auto args = call->getArguments();
-                        if (!args.empty() && isRoundMinusOne(args[0], roundArg))
-                            selfDec = true;
-                    }
-                }
-                else if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
-                {
-                    if (bin->getOpcode() == Opcode::And)
-                    {
-                        auto *c = dynamic_cast<ConstantInt *>(radixStripCopy(bin->getRHS()));
-                        if (c && c->Value == 15)
-                            and15 = true;
-                    }
-                    else if (bin->getOpcode() == Opcode::Sll)
-                    {
-                        auto *c = dynamic_cast<ConstantInt *>(radixStripCopy(bin->getRHS()));
-                        if (c && c->Value == 2 && radixStripCopy(bin->getLHS()) == roundArg)
-                            shiftRoundX4 = true;
-                    }
-                }
-                else if (auto *icmp = dynamic_cast<ICmpInst *>(inst))
-                {
-                    if (icmp->getPredicate() == ICmpInst::ICMP_EQ ||
-                        icmp->getPredicate() == ICmpInst::ICMP_NE)
-                    {
-                        Value *lhs = radixStripCopy(icmp->getLHS());
-                        Value *rhs = radixStripCopy(icmp->getRHS());
-                        auto *cR = dynamic_cast<ConstantInt *>(rhs);
-                        auto *cL = dynamic_cast<ConstantInt *>(lhs);
-                        if ((lhs == roundArg && cR && cR->Value == -1) ||
-                            (rhs == roundArg && cL && cL->Value == -1))
-                            baseNeg1 = true;
-                    }
-                }
-            }
-        }
-        return selfDec && and15 && shiftRoundX4 && baseNeg1;
-    }
-}
-
-bool HighDigitStartClampPass::runOnFunction(Function *func)
-{
-    if (!func)
-        return false;
-
-    // 只改外部调用点；不改被调用函数内部的递归
-    if (hasRecursiveNibbleDigitDescent(func))
-        return false;
-
-    bool changed = false;
-    for (auto &bbPtr : func->getBasicBlocks())
-    {
-        for (auto &instPtr : bbPtr->getInstructions())
-        {
-            auto *call = dynamic_cast<CallInst *>(instPtr.get());
-            if (!call)
-                continue;
-
-            Function *callee = call->getCalledFunction();
-            if (!callee || !hasRecursiveNibbleDigitDescent(callee))
-                continue;
-
-            auto args = call->getArguments();
-            if (args.empty())
-                continue;
-
-            auto *cst = dynamic_cast<ConstantInt *>(radixStripCopy(args[0]));
-            // 过大的起始 pos 对应更高 nibble，对常见数据范围无贡献，钳到 4
-            if (!cst || cst->Value <= 4)
-                continue;
-
-            call->setOperandByIndex(1, new ConstantInt(IntegerType::getInstance(), 4));
-            changed = true;
-            if (verbose)
-            {
-                debugInfo << "HighDigitStartClamp: " << func->getName() << " call @"
-                          << callee->getName() << " start " << cst->Value << " -> 4\n";
-            }
-        }
-    }
     return changed;
 }

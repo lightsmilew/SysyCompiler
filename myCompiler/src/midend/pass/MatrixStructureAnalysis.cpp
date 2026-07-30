@@ -371,37 +371,30 @@ namespace optimization::matrixStructure
 
     bool isMatMulAccumWitness(BasicBlock *kBody, PhiInst *kPhi, PhiInst *sumPhi, Value *iIV,
                               Value *jIV, LoadInst *&lhsLoad, LoadInst *&rhsLoad,
-                              Value *&lhsArray, Value *&rhsArray)
+                              Value *&lhsArray, Value *&rhsArray, bool &hasParityGuard,
+                              Value *&parityIkArray, Value *&parityKjArray)
     {
         lhsLoad = rhsLoad = nullptr;
         lhsArray = rhsArray = nullptr;
+        hasParityGuard = false;
+        parityIkArray = parityKjArray = nullptr;
         if (!kBody || !kPhi || !sumPhi || !iIV || !jIV)
             return false;
 
-        for (auto &instPtr : kBody->getInstructions())
-        {
-            auto *add = dynamic_cast<BinaryOperator *>(instPtr.get());
-            if (!add || add->getOpcode() != Opcode::Add)
-                continue;
-            if (!sameValue(add->getLHS(), sumPhi) && !sameValue(add->getRHS(), sumPhi))
-                continue;
-
-            Value *other = sameValue(add->getLHS(), sumPhi) ? add->getRHS() : add->getLHS();
-            auto *mul = dynamic_cast<BinaryOperator *>(other);
-            if (!mul || mul->getOpcode() != Opcode::Mul)
-                continue;
-
-            LoadInst *l1 = dynamic_cast<LoadInst *>(stripCopy(mul->getLHS()));
-            LoadInst *l2 = dynamic_cast<LoadInst *>(stripCopy(mul->getRHS()));
+        auto tryAcceptProduct = [&](BinaryOperator *prodMul) -> bool {
+            if (!prodMul || prodMul->getOpcode() != Opcode::Mul)
+                return false;
+            LoadInst *l1 = dynamic_cast<LoadInst *>(stripCopy(prodMul->getLHS()));
+            LoadInst *l2 = dynamic_cast<LoadInst *>(stripCopy(prodMul->getRHS()));
             if (!l1 || !l2)
-                continue;
+                return false;
 
             Value *r1 = nullptr, *c1 = nullptr, *b1 = nullptr;
             Value *r2 = nullptr, *c2 = nullptr, *b2 = nullptr;
             if (!parse2DAccess(l1->getPointer(), r1, c1, b1))
-                continue;
+                return false;
             if (!parse2DAccess(l2->getPointer(), r2, c2, b2))
-                continue;
+                return false;
 
             if (isIKMatrixAccess(r1, c1, iIV, kPhi) && isKJMatrixAccess(r2, c2, iIV, jIV, kPhi))
             {
@@ -419,13 +412,90 @@ namespace optimization::matrixStructure
                 rhsArray = b1;
                 return true;
             }
+            return false;
+        };
+
+        auto tryFindParityArrays = [&](Value *cond) {
+            // 收集 cond 依赖的 load，识别 P[i][k] 与 Q[k][j]
+            vector<LoadInst *> loads;
+            vector<Value *> work{stripCopy(cond)};
+            unordered_set<Value *> seen;
+            for (size_t wi = 0; wi < work.size() && wi < 32; ++wi)
+            {
+                Value *v = stripCopy(work[wi]);
+                if (!v || !seen.insert(v).second)
+                    continue;
+                if (auto *ld = dynamic_cast<LoadInst *>(v))
+                {
+                    loads.push_back(ld);
+                    continue;
+                }
+                if (auto *inst = dynamic_cast<Instruction *>(v))
+                {
+                    for (unsigned oi = 0; oi < inst->getNumOperands(); ++oi)
+                        work.push_back(inst->getOperandByIndex(oi));
+                }
+            }
+            Value *ikArr = nullptr, *kjArr = nullptr;
+            for (LoadInst *ld : loads)
+            {
+                Value *r = nullptr, *c = nullptr, *b = nullptr;
+                if (!parse2DAccess(ld->getPointer(), r, c, b))
+                    continue;
+                if (isIKMatrixAccess(r, c, iIV, kPhi))
+                    ikArr = b;
+                else if (isKJMatrixAccess(r, c, iIV, jIV, kPhi))
+                    kjArr = b;
+            }
+            if (ikArr && kjArr)
+            {
+                parityIkArray = ikArr;
+                parityKjArray = kjArr;
+                hasParityGuard = true;
+            }
+        };
+
+        for (auto &instPtr : kBody->getInstructions())
+        {
+            auto *add = dynamic_cast<BinaryOperator *>(instPtr.get());
+            if (!add || add->getOpcode() != Opcode::Add)
+                continue;
+            if (!sameValue(add->getLHS(), sumPhi) && !sameValue(add->getRHS(), sumPhi))
+                continue;
+
+            Value *other = sameValue(add->getLHS(), sumPhi) ? add->getRHS() : add->getLHS();
+            auto *mul = dynamic_cast<BinaryOperator *>(stripCopy(other));
+            if (!mul || mul->getOpcode() != Opcode::Mul)
+                continue;
+
+            // 经典：sum += load * load
+            if (tryAcceptProduct(mul))
+                return true;
+
+            // CondGuarded：sum += cond * (load * load)
+            Value *a = stripCopy(mul->getLHS());
+            Value *b = stripCopy(mul->getRHS());
+            BinaryOperator *prod = dynamic_cast<BinaryOperator *>(a);
+            Value *cond = b;
+            if (!prod || prod->getOpcode() != Opcode::Mul)
+            {
+                prod = dynamic_cast<BinaryOperator *>(b);
+                cond = a;
+            }
+            if (!prod || prod->getOpcode() != Opcode::Mul)
+                continue;
+            if (!tryAcceptProduct(prod))
+                continue;
+            tryFindParityArrays(cond);
+            return true;
         }
         return false;
     }
 
     bool isMatMulOutputStore(StoreInst *store, PhiInst *sumPhi, BasicBlock *kHeader, Value *iIV,
-                             Value *jIV, Value *rhsArray)
+                             Value *jIV, Value *&outArray)
     {
+        outArray = nullptr;
         if (!store || !storeUsesSum(store, sumPhi, kHeader))
             return false;
 
@@ -434,7 +504,8 @@ namespace optimization::matrixStructure
             return false;
         if (!matchesLoopIV(row, iIV) || !matchesLoopIV(col, jIV))
             return false;
-        return sameArray(base, rhsArray);
+        outArray = base;
+        return true;
     }
 
     bool findMatMulDotProductNest(const Loop &kLoop, const vector<Loop> &loops,
@@ -508,8 +579,11 @@ namespace optimization::matrixStructure
         LoadInst *rhsLoad = nullptr;
         Value *lhsArray = nullptr;
         Value *rhsArray = nullptr;
+        bool hasParityGuard = false;
+        Value *parityIkArray = nullptr;
+        Value *parityKjArray = nullptr;
         if (!isMatMulAccumWitness(kBody, kPhi, sumPhi, iIV, jIV, lhsLoad, rhsLoad, lhsArray,
-                                  rhsArray))
+                                  rhsArray, hasParityGuard, parityIkArray, parityKjArray))
             return false;
 
         StoreInst *outputStore = nullptr;
@@ -521,7 +595,8 @@ namespace optimization::matrixStructure
                 break;
             }
         }
-        if (!isMatMulOutputStore(outputStore, sumPhi, kHeader, iIV, jIV, rhsArray))
+        Value *outArray = nullptr;
+        if (!isMatMulOutputStore(outputStore, sumPhi, kHeader, iIV, jIV, outArray))
             return false;
 
         bool hasKInc = false;
@@ -558,6 +633,10 @@ namespace optimization::matrixStructure
         if (!iBody || !iLoop->containsBlock(iBody))
             return false;
 
+        // 有奇偶守卫时必须识别到 P[i][k]、Q[k][j]
+        if (hasParityGuard && (!parityIkArray || !parityKjArray))
+            return false;
+
         out.valid = true;
         out.iLoop = iLoop;
         out.jLoop = jLoop;
@@ -569,6 +648,10 @@ namespace optimization::matrixStructure
         out.bound = bound;
         out.lhsArray = lhsArray;
         out.rhsArray = rhsArray;
+        out.outArray = outArray;
+        out.hasParityGuard = hasParityGuard;
+        out.parityIkArray = parityIkArray;
+        out.parityKjArray = parityKjArray;
         out.jHeader = jLoop->header;
         out.kHeader = kHeader;
         out.kBody = kBody;

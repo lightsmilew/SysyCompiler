@@ -57,6 +57,11 @@ bool PassManager::runOnModule(Module *module)
             changed |= helperRet->runOnModule(module);
             continue;
         }
+        if (auto *apms = dynamic_cast<LoopAPModSumFoldPass *>(pass.get()))
+        {
+            changed |= apms->runOnModule(module);
+            continue;
+        }
         for (auto &func : module->Functions)
         {
             if (!func->isLibraryFunction())
@@ -154,10 +159,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
-        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -223,10 +228,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
-        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -352,8 +357,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         //pm->addPass(std::make_unique<InstructionReorderPass>(verbose));
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
-        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
@@ -446,11 +451,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         // 位运算模拟循环 → 原生位运算（宜在内联前）
         pm->addPass(std::make_unique<BitwiseLoopFusionPass>(verbose));
-        pm->addPass(std::make_unique<HighDigitStartClampPass>(verbose));
         // 递归乘法 / if 链移位：在内联前改写 callee
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
+        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // conv2d interior/border：须在 ArrayElimination 消掉 K 之前，且在展开前

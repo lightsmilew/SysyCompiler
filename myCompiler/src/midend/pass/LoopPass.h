@@ -52,14 +52,6 @@ namespace optimization
         bool rewriteDivLoopCallee(Function *func);
         bool replaceDivLoopCalls(Function *func);
     };
-    // 19c.对「递归降位 + (x>>(pos<<2))&15」结构，将外部调用过大的起始 pos 常量钳到 4
-    class HighDigitStartClampPass : public Pass
-    {
-    public:
-        HighDigitStartClampPass(bool verbose = false) : Pass(verbose) {}
-        bool runOnFunction(Function *func) override;
-        std::string getName() const override { return "HighDigitStartClamp"; }
-    };
     // 21.循环展开
     class LoopUnrollingPass : public Pass
     {

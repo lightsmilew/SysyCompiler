@@ -80,7 +80,7 @@ namespace optimization
         Value *oldResult = nullptr;        // 原归约结果，供 RAUW
     };
 
-    /// i-j-k 点积 nest：out[i][j] += lhs[i][k] * rhs[k][j]，k 为归约维
+    /// i-j-k 点积 nest：out[i][j] += (可选奇偶条件) * lhs[i][k] * rhs[k][j]
     struct MatMulDotProductNest
     {
         bool valid = false;
@@ -92,8 +92,13 @@ namespace optimization
         PhiInst *kPhi = nullptr;
         PhiInst *sumPhi = nullptr;
         Value *bound = nullptr;
-        Value *lhsArray = nullptr;
-        Value *rhsArray = nullptr;
+        Value *lhsArray = nullptr; // lhs[i][k]
+        Value *rhsArray = nullptr; // rhs[k][j]
+        Value *outArray = nullptr; // out[i][j]
+        /// CondGuarded 后的形式：再乘以「两操作数不同时为奇」的 0/1 条件
+        bool hasParityGuard = false;
+        Value *parityIkArray = nullptr; // P[i][k]
+        Value *parityKjArray = nullptr; // Q[k][j]
         BasicBlock *jHeader = nullptr;
         BasicBlock *kHeader = nullptr;
         BasicBlock *kBody = nullptr;
@@ -148,9 +153,10 @@ namespace optimization
 
         bool isMatMulAccumWitness(BasicBlock *kBody, PhiInst *kPhi, PhiInst *sumPhi, Value *iIV,
                                   Value *jIV, LoadInst *&lhsLoad, LoadInst *&rhsLoad,
-                                  Value *&lhsArray, Value *&rhsArray);
-        bool isMatMulOutputStore(StoreInst *store, PhiInst *sumPhi, BasicBlock *kHeader,
-                                 Value *iIV, Value *jIV, Value *rhsArray);
+                                  Value *&lhsArray, Value *&rhsArray, bool &hasParityGuard,
+                                  Value *&parityIkArray, Value *&parityKjArray);
+        bool isMatMulOutputStore(StoreInst *store, PhiInst *sumPhi, BasicBlock *kHeader, Value *iIV,
+                                 Value *jIV, Value *&outArray);
         bool findMatMulDotProductNest(const Loop &kLoop, const vector<Loop> &loops,
                                       MatMulDotProductNest &out);
 
