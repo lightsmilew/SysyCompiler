@@ -6,6 +6,8 @@ namespace optimization
     // 外层循环线性迭代折叠：
     // 1) 迭代不变：每轮效果相同、结果不随 trip 变化 → 外层 trip 压成 1
     // 2) 线性累加器：acc' = acc + beta（beta 不依赖 acc）→ 单轮 + 出口乘以 tripCount
+    // 3) 末轮覆盖写倒计数：carried 值每轮覆盖写，仅最后一轮决定 live-out；
+    //    即使 body 使用 IV（如 f(n)），也可把初值压成 0/1（运行时 n 用 icmp ne）
     // acc += acc 等 acc 依赖自身的更新属于指数增长，不在此 pass 处理。
     class LoopLinearIterationFoldPass : public Pass
     {
@@ -64,5 +66,7 @@ namespace optimization
                                       Value *acc,
                                       Value *tripScale,
                                       const LinearIterationMap &map);
+        // 独立路径：不改动 getCountableOuterLoopInfo / tryFoldIterationInvariantOuterLoop 的识别
+        bool tryFoldLastOverwriteCountdown(Function *func, const Loop &outer);
     };
 }

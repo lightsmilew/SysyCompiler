@@ -766,6 +766,268 @@ namespace
         }
         return false;
     }
+
+    // while (n) / br i32 %n：条件直接是 IV（非 icmp）
+    bool tryReadCountDownByTruthy(BasicBlock *bb, Value *&iv)
+    {
+        iv = nullptr;
+        if (!bb || bb->getInstructions().empty())
+        {
+            return false;
+        }
+
+        auto *br = dynamic_cast<BranchInst *>(bb->getInstructions().back().get());
+        if (!br || !br->isConditional())
+        {
+            return false;
+        }
+
+        Value *cond = stripCopy(br->getCondition());
+        if (!cond || dynamic_cast<ConstantInt *>(cond) || dynamic_cast<ICmpInst *>(cond) ||
+            dynamic_cast<FCmpInst *>(cond))
+        {
+            return false;
+        }
+        if (!cond->getType() || !cond->getType()->isIntegerTy())
+        {
+            return false;
+        }
+
+        iv = cond;
+        return true;
+    }
+
+    // 循环外任意初值（常量或运行时），用于末轮覆盖写折叠
+    bool findAnyInitOutsideLoop(Value *iv, const Loop &loop, Value *&initVal, Instruction *&initSite)
+    {
+        initVal = nullptr;
+        initSite = nullptr;
+        if (!iv || !loop.header)
+        {
+            return false;
+        }
+
+        if (auto *trackedPhi = dynamic_cast<PhiInst *>(stripCopy(iv)))
+        {
+            for (size_t i = 0; i < trackedPhi->getNumIncomingValues(); ++i)
+            {
+                if (loop.containsBlock(trackedPhi->getIncomingBlock(i)))
+                {
+                    continue;
+                }
+                initVal = trackedPhi->getIncomingValue(i);
+                initSite = trackedPhi;
+                return initVal != nullptr;
+            }
+            return false;
+        }
+
+        auto tryCopyInBlock = [&](BasicBlock *bb) -> bool {
+            if (!bb || loop.containsBlock(bb))
+            {
+                return false;
+            }
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *cpy = dynamic_cast<CopyInst *>(instPtr.get());
+                if (!cpy || !sameLoopValue(cpy, iv))
+                {
+                    continue;
+                }
+                initVal = cpy->getSource();
+                initSite = cpy;
+                return initVal != nullptr;
+            }
+            return false;
+        };
+
+        for (auto *pred : loop.header->getPredecessors())
+        {
+            if (tryCopyInBlock(pred))
+            {
+                return true;
+            }
+        }
+
+        Function *func = loop.header->Parent;
+        if (!func)
+        {
+            return false;
+        }
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            if (tryCopyInBlock(bbPtr.get()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void insertInstBefore(BasicBlock *bb, Instruction *before, Instruction *inst)
+    {
+        if (!bb || !before || !inst)
+        {
+            return;
+        }
+        auto &insts = bb->getInstructions();
+        unsigned idx = 0;
+        for (auto &instPtr : insts)
+        {
+            if (instPtr.get() == before)
+            {
+                bb->insert(std::unique_ptr<Instruction>(inst), idx);
+                return;
+            }
+            ++idx;
+        }
+        bb->insertBeforeTerminator(std::unique_ptr<Instruction>(inst));
+    }
+
+    // 将倒计数初值改为至多 1：常量 N>1 → 1；运行时 → (v != 0)
+    bool rewriteInitToUnitTrip(const Loop &outer, Instruction *initSite, Value *initVal)
+    {
+        if (!initSite || !initVal)
+        {
+            return false;
+        }
+
+        auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(initVal));
+        Value *newInit = nullptr;
+        if (initConst)
+        {
+            if (initConst->Value <= 1)
+            {
+                return false;
+            }
+            newInit = new ConstantInt(IntegerType::getInstance(), 1);
+        }
+        else
+        {
+            auto *zero = new ConstantInt(IntegerType::getInstance(), 0);
+            auto *ne = new ICmpInst(ICmpInst::ICMP_NE, initVal, zero, "loop_linear_fold_nz");
+            if (auto *phi = dynamic_cast<PhiInst *>(initSite))
+            {
+                BasicBlock *pred = nullptr;
+                for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+                {
+                    if (outer.containsBlock(phi->getIncomingBlock(i)))
+                    {
+                        continue;
+                    }
+                    if (phi->getIncomingValue(i) == initVal)
+                    {
+                        pred = phi->getIncomingBlock(i);
+                        break;
+                    }
+                }
+                if (!pred)
+                {
+                    delete ne;
+                    delete zero;
+                    return false;
+                }
+                pred->insertBeforeTerminator(std::unique_ptr<Instruction>(ne));
+                newInit = ne;
+            }
+            else if (auto *cpy = dynamic_cast<CopyInst *>(initSite))
+            {
+                BasicBlock *bb = nullptr;
+                if (auto *func = outer.header->Parent)
+                {
+                    for (auto &bbPtr : func->getBasicBlocks())
+                    {
+                        for (auto &instPtr : bbPtr->getInstructions())
+                        {
+                            if (instPtr.get() == cpy)
+                            {
+                                bb = bbPtr.get();
+                                break;
+                            }
+                        }
+                        if (bb)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if (!bb)
+                {
+                    delete ne;
+                    delete zero;
+                    return false;
+                }
+                insertInstBefore(bb, cpy, ne);
+                newInit = ne;
+            }
+            else
+            {
+                delete ne;
+                delete zero;
+                return false;
+            }
+        }
+
+        if (auto *cpy = dynamic_cast<CopyInst *>(initSite))
+        {
+            cpy->setOperandByIndex(0, newInit);
+            return true;
+        }
+        if (auto *phi = dynamic_cast<PhiInst *>(initSite))
+        {
+            for (size_t i = 0; i < phi->getNumIncomingValues(); ++i)
+            {
+                if (outer.containsBlock(phi->getIncomingBlock(i)))
+                {
+                    continue;
+                }
+                if (phi->getIncomingValue(i) == initVal)
+                {
+                    phi->setIncomingValue(i, newInit);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // IV 不能影响 store 地址或 call 实参，否则压成末轮会丢中间副作用/写
+    bool hasIvDependentStoreOrCall(const Loop &loop, Value *iv)
+    {
+        if (!iv)
+        {
+            return true;
+        }
+        for (auto *bb : loop.blocks)
+        {
+            if (!bb)
+            {
+                continue;
+            }
+            for (auto &instPtr : bb->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                if (auto *store = dynamic_cast<StoreInst *>(inst))
+                {
+                    if (valueDependsOn(store->getPointer(), iv))
+                    {
+                        return true;
+                    }
+                }
+                else if (auto *call = dynamic_cast<CallInst *>(inst))
+                {
+                    for (auto *arg : call->getArguments())
+                    {
+                        if (valueDependsOn(arg, iv))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
 }
 
 bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
@@ -1769,6 +2031,130 @@ bool LoopLinearIterationFoldPass::tryFoldLinearAccumulator(Function *func,
     return true;
 }
 
+bool LoopLinearIterationFoldPass::tryFoldLastOverwriteCountdown(Function *func, const Loop &outer)
+{
+    if (!func || !outer.header)
+    {
+        return false;
+    }
+
+    Value *iv = nullptr;
+    auto tryMatchIv = [&](BasicBlock *bb) {
+        if (!bb || iv)
+        {
+            return;
+        }
+        Value *cand = nullptr;
+        ICmpInst *cmp = nullptr;
+        if (tryReadCountDownControl(bb, cmp, cand) || tryReadCountDownByTruthy(bb, cand))
+        {
+            if (cand && hasUnitDecrementAtLatch(cand, outer))
+            {
+                iv = cand;
+            }
+        }
+    };
+
+    tryMatchIv(outer.header);
+    tryMatchIv(findLoopLatchBlock(outer));
+    if (!iv)
+    {
+        for (auto *bb : outer.blocks)
+        {
+            tryMatchIv(bb);
+            if (iv)
+            {
+                break;
+            }
+        }
+    }
+    if (!iv)
+    {
+        return false;
+    }
+
+    Value *initVal = nullptr;
+    Instruction *initSite = nullptr;
+    if (!findAnyInitOutsideLoop(iv, outer, initVal, initSite))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (no init)\n";
+        }
+        return false;
+    }
+
+    if (auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(initVal)))
+    {
+        if (initConst->Value <= 1)
+        {
+            return false;
+        }
+    }
+    else if (dynamic_cast<ICmpInst *>(stripCopy(initVal)))
+    {
+        // 已是 (v != 0) 形式的 unit-trip 初值，避免重复折叠
+        return false;
+    }
+
+    // 与既有不变折叠共用内存安全条件；允许 IV 出现在 body（末轮决定覆盖写结果）
+    if (!allLoopCarriedValuesOverwrittenOrInvariant(outer, iv))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (carried not overwrite/invariant)\n";
+        }
+        return false;
+    }
+    if (hasIvDependentStoreOrCall(outer, iv))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (iv-dependent store/call)\n";
+        }
+        return false;
+    }
+    if (!provePerElementFirstStoreFresh(outer))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (array first-store not fresh)\n";
+        }
+        return false;
+    }
+    if (!proveNoReadWriteGlobalLoadBeforeFirstStore(outer) &&
+        !proveEarlyLoadsOnlyScalarRWGlobals(outer))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (early RW load)\n";
+        }
+        return false;
+    }
+
+    if (!rewriteInitToUnitTrip(outer, initSite, initVal))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (rewrite init failed)\n";
+        }
+        return false;
+    }
+
+    if (verbose)
+    {
+        debugInfo << "LoopLinearIterationFold: folded last-overwrite countdown "
+                  << outer.header->getName() << " (init -> unit trip)\n";
+    }
+    return true;
+}
+
 bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
 {
     bool changed = false;
@@ -1777,53 +2163,55 @@ bool LoopLinearIterationFoldPass::runOnFunction(Function *func)
         return false;
     }
 
-    func->setLoops(ControlFlowAnalysis::findLoops(func));
-    auto loops = func->getLoops();
-
-    for (const auto &outerLoop : loops)
+    bool progress = true;
+    while (progress)
     {
-        CountableLoopInfo info;
-        if (!getCountableOuterLoopInfo(outerLoop, info) ||
-            !isFoldableTripBound(info.bound, info.constTripCount))
-        {
-            continue;
-        }
+        progress = false;
+        func->setLoops(ControlFlowAnalysis::findLoops(func));
+        auto loops = func->getLoops();
 
-        if (verbose)
+        for (const auto &outerLoop : loops)
         {
-            debugInfo << "LoopLinearIterationFold: candidate " << outerLoop.header->getName()
-                      << " trip=" << info.constTripCount
-                      << (info.countDown ? " countdown" : " countup") << "\n";
-        }
+            CountableLoopInfo info;
+            if (getCountableOuterLoopInfo(outerLoop, info) &&
+                isFoldableTripBound(info.bound, info.constTripCount))
+            {
+                if (verbose)
+                {
+                    debugInfo << "LoopLinearIterationFold: candidate " << outerLoop.header->getName()
+                              << " trip=" << info.constTripCount
+                              << (info.countDown ? " countdown" : " countup") << "\n";
+                }
 
-        if (info.constTripCount > 1 &&
-            isOuterIvUnusedInBody(outerLoop, info.iv) &&
-            tryFoldIterationInvariantOuterLoop(func, outerLoop, info))
-        {
-            func->setLoops(ControlFlowAnalysis::findLoops(func));
-            return true;
-        }
+                if (info.constTripCount > 1 &&
+                    isOuterIvUnusedInBody(outerLoop, info.iv) &&
+                    tryFoldIterationInvariantOuterLoop(func, outerLoop, info))
+                {
+                    changed = progress = true;
+                    break;
+                }
 
-        Value *acc = nullptr;
-        if (!findLoopAccumulator(outerLoop, info.iv, acc))
-        {
-            continue;
-        }
+                Value *acc = nullptr;
+                if (findLoopAccumulator(outerLoop, info.iv, acc))
+                {
+                    LinearIterationMap map;
+                    if (proveLinearIterationMap(outerLoop, acc, info.iv, map) &&
+                        isLinearFoldableOuterBody(outerLoop, info.iv, acc, loops) &&
+                        tryFoldLinearAccumulator(func, outerLoop, info.cmp, info.iv, info.bound, acc,
+                                                 info.bound, map))
+                    {
+                        changed = progress = true;
+                        break;
+                    }
+                }
+            }
 
-        LinearIterationMap map;
-        if (!proveLinearIterationMap(outerLoop, acc, info.iv, map))
-        {
-            continue;
-        }
-        if (!isLinearFoldableOuterBody(outerLoop, info.iv, acc, loops))
-        {
-            continue;
-        }
-
-        if (tryFoldLinearAccumulator(func, outerLoop, info.cmp, info.iv, info.bound, acc, info.bound, map))
-        {
-            func->setLoops(ControlFlowAnalysis::findLoops(func));
-            return true;
+            // 独立路径：末轮覆盖写倒计数（允许 body 用 IV / 运行时初值）
+            if (tryFoldLastOverwriteCountdown(func, outerLoop))
+            {
+                changed = progress = true;
+                break;
+            }
         }
     }
 
