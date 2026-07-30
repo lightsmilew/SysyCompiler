@@ -18,6 +18,7 @@
 #include "CondGuardedAccumulatePass.h"
 #include "BasicBlockPass.h"
 #include "GepPass.h"
+#include "RuntimePitchCompactPass.h"
 #include "DCEPass.h"
 #include "CSEPass.h"
 #include "ConstantFoldingPass.h"
