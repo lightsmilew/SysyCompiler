@@ -1028,6 +1028,27 @@ namespace
         }
         return false;
     }
+
+    // 循环内副作用调用（I/O、改全局/指针等）每轮都有效应，不能压成末轮
+    bool hasSideEffectingCall(const Loop &loop)
+    {
+        for (auto *bb : loop.blocks)
+        {
+            if (!bb)
+            {
+                continue;
+            }
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *call = dynamic_cast<CallInst *>(instPtr.get());
+                if (call && call->ifHasSideEffects())
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }
 
 bool LoopLinearIterationFoldPass::getCountableOuterLoopInfo(const Loop &loop,
@@ -1850,6 +1871,15 @@ bool LoopLinearIterationFoldPass::tryFoldIterationInvariantOuterLoop(Function *f
         }
         return false;
     }
+    if (hasSideEffectingCall(outer))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: reject " << outer.header->getName()
+                      << " (side-effecting call)\n";
+        }
+        return false;
+    }
     if (!provePerElementFirstStoreFresh(outer))
     {
         if (verbose)
@@ -2105,6 +2135,16 @@ bool LoopLinearIterationFoldPass::tryFoldLastOverwriteCountdown(Function *func, 
         {
             debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
                       << " (carried not overwrite/invariant)\n";
+        }
+        return false;
+    }
+    //每轮副作用都要保留
+    if (hasSideEffectingCall(outer))
+    {
+        if (verbose)
+        {
+            debugInfo << "LoopLinearIterationFold: last-overwrite reject " << outer.header->getName()
+                      << " (side-effecting call)\n";
         }
         return false;
     }
