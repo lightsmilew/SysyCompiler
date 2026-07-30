@@ -61,9 +61,26 @@ namespace
         return term && !term->isConditional() && term->getTrueBlock() == to;
     }
 
-    bool isNeZeroOnEqOne(Value *value)
+    bool isEqOne(Value *value)
     {
-        auto *ne = dynamic_cast<ICmpInst *>(stripTrivialWrappers(value));
+        auto *eq = dynamic_cast<ICmpInst *>(stripTrivialWrappers(value));
+        if (!eq || eq->getPredicate() != ICmpInst::ICMP_EQ)
+        {
+            return false;
+        }
+        return isConstInt(eq->getLHS(), 1) || isConstInt(eq->getRHS(), 1);
+    }
+
+    // Short-circuit &&/|| on (x == 1): either bare icmp eq, or legacy icmp ne (eq, 0).
+    bool isEqOneBranchCond(Value *value)
+    {
+        value = stripTrivialWrappers(value);
+        if (isEqOne(value))
+        {
+            return true;
+        }
+
+        auto *ne = dynamic_cast<ICmpInst *>(value);
         if (!ne || ne->getPredicate() != ICmpInst::ICMP_NE)
         {
             return false;
@@ -71,21 +88,15 @@ namespace
 
         auto *lhs = stripTrivialWrappers(ne->getLHS());
         auto *rhs = stripTrivialWrappers(ne->getRHS());
-        ICmpInst *eq = nullptr;
         if (isConstInt(lhs, 0))
         {
-            eq = dynamic_cast<ICmpInst *>(rhs);
+            return isEqOne(rhs);
         }
-        else if (isConstInt(rhs, 0))
+        if (isConstInt(rhs, 0))
         {
-            eq = dynamic_cast<ICmpInst *>(lhs);
+            return isEqOne(lhs);
         }
-        if (!eq || eq->getPredicate() != ICmpInst::ICMP_EQ)
-        {
-            return false;
-        }
-
-        return isConstInt(eq->getLHS(), 1) || isConstInt(eq->getRHS(), 1);
+        return false;
     }
 
     void detectLogicalAndOr(const Loop &loop, bool &hasAndPattern, bool &hasOrPattern)
@@ -102,7 +113,7 @@ namespace
             {
                 continue;
             }
-            if (!isNeZeroOnEqOne(term->getCondition()))
+            if (!isEqOneBranchCond(term->getCondition()))
             {
                 continue;
             }
