@@ -57,11 +57,6 @@ bool PassManager::runOnModule(Module *module)
             changed |= helperRet->runOnModule(module);
             continue;
         }
-        if (auto *apms = dynamic_cast<LoopAPModSumFoldPass *>(pass.get()))
-        {
-            changed |= apms->runOnModule(module);
-            continue;
-        }
         for (auto &func : module->Functions)
         {
             if (!func->isLibraryFunction())
@@ -162,7 +157,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
-        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -193,7 +187,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<RuntimePitchCompactPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -230,7 +223,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
-        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<LoopNestInteriorSplitPass>(verbose));
         pm->addPass(std::make_unique<ModLoopReductionPass>(verbose));
@@ -261,7 +253,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-        pm->addPass(std::make_unique<RuntimePitchCompactPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -356,7 +347,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<GlobalScalarPromotionPass>(verbose));
         pm->addPass(std::make_unique<PowDivLoopReductionPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
-        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // 须在 ArrayElimination 之前：modulo 消除会去掉 K 的 load，导致 kernel 嵌套结构分析失败
@@ -452,7 +442,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<MultiplyPass>(verbose));
         pm->addPass(std::make_unique<IfLadderShiftPass>(verbose));
         pm->addPass(std::make_unique<HelperReturnAnalysisPass>(verbose));
-        pm->addPass(std::make_unique<LoopAPModSumFoldPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         // interior/border：须在 ArrayElimination 消掉 K 之前，且在展开前
@@ -500,7 +489,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
         // 须在 GEP 展开前：把 D³ 声明、N-extent 使用的数组改成 N-pitch 扁平 GEP
-        pm->addPass(std::make_unique<RuntimePitchCompactPass>(verbose));
         pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
