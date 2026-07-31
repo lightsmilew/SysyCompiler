@@ -298,36 +298,6 @@ namespace optimization::matrixStructure
         return false;
     }
 
-    bool isTransposeWitnessStore(StoreInst *store, Value *iIV, Value *jIV, Value *&srcBuffer,
-                                 Value *&dstBuffer)
-    {
-        if (!store || !iIV || !jIV)
-            return false;
-
-        auto *val = stripCopy(store->getValueToStore());
-        auto *load = dynamic_cast<LoadInst *>(val);
-        if (!load)
-            return false;
-
-        Value *storeRow = nullptr, *storeCol = nullptr, *storeBase = nullptr;
-        Value *loadRow = nullptr, *loadCol = nullptr, *loadBase = nullptr;
-        if (!parse2DAccess(store->getPointer(), storeRow, storeCol, storeBase))
-            return false;
-        if (!parse2DAccess(load->getPointer(), loadRow, loadCol, loadBase))
-            return false;
-
-        if (!matchesLoopIV(storeRow, iIV) || !matchesLoopIV(storeCol, jIV))
-            return false;
-        if (!matchesLoopIV(loadRow, jIV) || !matchesLoopIV(loadCol, iIV))
-            return false;
-        if (sameArray(storeBase, loadBase))
-            return false;
-
-        srcBuffer = loadBase;
-        dstBuffer = storeBase;
-        return true;
-    }
-
     bool isSkewSymmetricWitnessStore(StoreInst *store, Value *iIV, Value *jIV, Value *matrix)
     {
         if (!store || !iIV || !jIV)
@@ -664,65 +634,6 @@ namespace optimization::matrixStructure
         return true;
     }
 
-    KJLoadUseKind classifyKJLoadUser(Instruction *user, LoadInst *kjLoad, Value *iIV, Value *kIV,
-                                     const TransposeBufferRelation &rel)
-    {
-        auto *mul = dynamic_cast<BinaryOperator *>(user);
-        if (!mul || mul->getOpcode() != Opcode::Mul)
-            return KJLoadUseKind::Other;
-
-        auto pickOther = [&](Value *lhs, Value *rhs) -> Value * {
-            if (lhs == kjLoad || sameValue(lhs, kjLoad))
-                return rhs;
-            if (rhs == kjLoad || sameValue(rhs, kjLoad))
-                return lhs;
-            return nullptr;
-        };
-        Value *other = pickOther(stripCopy(mul->getLHS()), stripCopy(mul->getRHS()));
-        if (!other)
-            return KJLoadUseKind::Other;
-
-        auto *partner = dynamic_cast<LoadInst *>(stripCopy(other));
-        if (!partner)
-            return KJLoadUseKind::Other;
-
-        Value *pRow = nullptr, *pCol = nullptr, *pBase = nullptr;
-        if (!parse2DAccess(partner->getPointer(), pRow, pCol, pBase))
-            return KJLoadUseKind::Other;
-        if (!isIKMatrixAccess(pRow, pCol, iIV, kIV))
-            return KJLoadUseKind::Other;
-
-        if (sameArray(pBase, rel.srcBuffer))
-            return KJLoadUseKind::ParityWithAIK;
-        if (sameArray(pBase, rel.dstBuffer))
-            return KJLoadUseKind::AccumWithBIK;
-        return KJLoadUseKind::Other;
-    }
-
-    bool isReachableFrom(BasicBlock *from, BasicBlock *to,
-                         const unordered_set<BasicBlock *> &forbidden)
-    {
-        if (!from || !to)
-            return false;
-        if (forbidden.count(to))
-            return false;
-
-        unordered_set<BasicBlock *> visited;
-        vector<BasicBlock *> stack = {from};
-        while (!stack.empty())
-        {
-            BasicBlock *cur = stack.back();
-            stack.pop_back();
-            if (cur == to)
-                return true;
-            if (!visited.insert(cur).second)
-                continue;
-            for (auto *succ : cur->getSuccessors())
-                stack.push_back(succ);
-        }
-        return false;
-    }
-
     CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV)
     {
         BasicBlock *jPreheader = nullptr;
@@ -784,72 +695,6 @@ namespace optimization::matrixStructure
             }
         }
         return false;
-    }
-
-    static optional<TransposeBufferRelation> analyzeTransposePair(Function *func,
-                                                                  const vector<Loop> &loops)
-    {
-        for (auto &bbPtr : func->getBasicBlocks())
-        {
-            BasicBlock *bb = bbPtr.get();
-            for (auto &instPtr : bb->getInstructions())
-            {
-                auto *store = dynamic_cast<StoreInst *>(instPtr.get());
-                if (!store)
-                    continue;
-
-                const Loop *jLoop = nullptr;
-                size_t bestBlocks = SIZE_MAX;
-                for (const auto &loop : loops)
-                {
-                    if (!loop.header || !loop.containsBlock(bb) || loop.blocks.size() != 2)
-                        continue;
-                    if (loop.blocks.size() <= bestBlocks)
-                    {
-                        jLoop = &loop;
-                        bestBlocks = loop.blocks.size();
-                    }
-                }
-                if (!jLoop)
-                    continue;
-
-                SquareIJLoopNest nest;
-                if (!findSquareIJNest(*jLoop, loops, nest))
-                    continue;
-
-                Value *srcBuffer = nullptr;
-                Value *dstBuffer = nullptr;
-                if (!isTransposeWitnessStore(store, nest.iIV, nest.jIV, srcBuffer, dstBuffer))
-                    continue;
-
-                BasicBlock *regionEntry = nullptr;
-                auto *br = dynamic_cast<BranchInst *>(nest.iLoop->header->getTerminator());
-                if (br && br->isConditional())
-                {
-                    for (BasicBlock *succ : {br->getTrueBlock(), br->getFalseBlock()})
-                    {
-                        if (succ && !nest.iLoop->containsBlock(succ))
-                        {
-                            regionEntry = succ;
-                            break;
-                        }
-                    }
-                }
-                if (!regionEntry)
-                    continue;
-
-                TransposeBufferRelation rel;
-                rel.valid = true;
-                rel.srcBuffer = srcBuffer;
-                rel.dstBuffer = dstBuffer;
-                rel.regionEntry = regionEntry;
-                rel.witnessStore = store;
-                for (auto *b : nest.iLoop->blocks)
-                    rel.transposeLoopBlocks.insert(b);
-                return rel;
-            }
-        }
-        return nullopt;
     }
 
     static vector<SkewSymmetricMatrixNest> analyzeSkewSymmetricNests(Function * /*func*/,
@@ -1603,8 +1448,6 @@ namespace optimization::matrixStructure
         func->setLoops(ControlFlowAnalysis::findLoops(func));
         const auto &loops = func->getLoops();
 
-        if (auto rel = analyzeTransposePair(func, loops))
-            analysis.transposePair = *rel;
         analysis.skewSymmetricNests = analyzeSkewSymmetricNests(func, loops);
         analysis.matMulDotProductNests = analyzeMatMulDotProductNests(loops);
         if (auto chain = analyzeInPlaceCopyOriginChain(func))
@@ -1631,13 +1474,6 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
     const auto &stored = gMatrixAnalysis[func];
     if (verbose)
     {
-        if (stored.transposePair && stored.transposePair->valid)
-        {
-            debugInfo << "MatrixStructureAnalysis: transpose buffers "
-                      << stored.transposePair->srcBuffer->getName() << " -> "
-                      << stored.transposePair->dstBuffer->getName() << " in " << func->getName()
-                      << "\n";
-        }
         if (!stored.skewSymmetricNests.empty())
         {
             debugInfo << "MatrixStructureAnalysis: found " << stored.skewSymmetricNests.size()
@@ -1655,7 +1491,6 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
                       << "\n";
         }
     }
-    return stored.transposePair.has_value() || !stored.skewSymmetricNests.empty() ||
-           !stored.matMulDotProductNests.empty() ||
+    return !stored.skewSymmetricNests.empty() || !stored.matMulDotProductNests.empty() ||
            (stored.inPlaceCopyOriginChain && stored.inPlaceCopyOriginChain->valid);
 }

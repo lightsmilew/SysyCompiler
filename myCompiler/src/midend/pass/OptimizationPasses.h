@@ -13,7 +13,6 @@
 #include "LoopInterchangePass.h"
 #include "MatrixStructureAnalysis.h"
 #include "SkewSymmetricLoopRestrictPass.h"
-#include "TransposedBufferLoadForwardPass.h"
 #include "InPlaceCopyOriginReductionPass.h"
 #include "CondGuardedAccumulatePass.h"
 #include "BitwiseLoopFusionPass.h"

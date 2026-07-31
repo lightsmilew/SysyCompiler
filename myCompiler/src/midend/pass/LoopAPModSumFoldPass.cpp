@@ -243,6 +243,10 @@ namespace
         Value *mul(Value *a, Value *b) { return ins(new BinaryOperator(Opcode::Muld, a, b, fresh("mu"))); }
         Value *sdiv(Value *a, Value *b) { return ins(new BinaryOperator(Opcode::SDiv, a, b, fresh("dv"))); }
         Value *srem(Value *a, Value *b) { return ins(new BinaryOperator(Opcode::SRem, a, b, fresh("rm"))); }
+        Value *srad(Value *a, int sh)
+        {
+            return ins(new BinaryOperator(Opcode::Srad, a, c64(sh), fresh("asr")));
+        }
         Value *sub(Value *a, Value *b) { return add(a, mul(b, c64(-1))); }
         Value *call(Function *f, const vector<Value *> &args)
         {
@@ -459,32 +463,21 @@ namespace
         b.ret(out);
     }
 
-    // __apms_floor_sum_full(n,m,a,b) any a,b; n>=0,m>0
-    void buildFloorSumFull(Function *f, Function *floorSum)
+    // Inline floor_sum_full: any a,b; n>=0,m>0. Only calls leaf floor_sum.
+    Value *emitFloorSumFull(IrB &b, Function *floorSum, Value *n, Value *m, Value *a, Value *bv)
     {
-        IrB b(f);
-        Value *n = f->getArgumentByIndex(0);
-        Value *m = f->getArgumentByIndex(1);
-        Value *a = f->getArgumentByIndex(2);
-        Value *bv = f->getArgumentByIndex(3);
         Value *qa = b.floorDiv(a, m);
         Value *qb = b.floorDiv(bv, m);
         Value *lead = b.add(b.mul(b.sdiv(b.mul(n, b.sub(n, b.c64(1))), b.c64(2)), qa), b.mul(n, qb));
         Value *aRem = b.sub(a, b.mul(qa, m));
         Value *bRem = b.sub(bv, b.mul(qb, m));
         Value *tail = b.call(floorSum, {n, m, aRem, bRem});
-        b.ret(b.add(lead, tail));
+        return b.add(lead, tail);
     }
 
-    // __apms_sum_trunc(alpha,beta,nn,m)
-    void buildSumTrunc(Function *f, Function *floorFull)
+    // Emit Σ floor((α+βi)/m); leaves b.cur at join. Does not return from the function.
+    Value *emitSumTrunc(IrB &b, Function *floorSum, Value *alpha, Value *beta, Value *nn, Value *m)
     {
-        IrB b(f);
-        Value *alpha = f->getArgumentByIndex(0);
-        Value *beta = f->getArgumentByIndex(1);
-        Value *nn = f->getArgumentByIndex(2);
-        Value *m = f->getArgumentByIndex(3);
-
         BasicBlock *empty = b.mk("st.e");
         BasicBlock *work = b.mk("st.w");
         BasicBlock *join = b.mk("st.j");
@@ -505,7 +498,6 @@ namespace
         b.br(b.icmp(ICmpInst::ICMP_EQ, beta, b.c64(0)), bZ, sgn);
 
         b.set(sgn);
-        // bothPos / bothNeg via branches
         BasicBlock *t0 = b.mk("st.t0");
         BasicBlock *f0 = b.mk("st.f0");
         BasicBlock *j0 = b.mk("st.j0");
@@ -543,14 +535,19 @@ namespace
 
         b.set(bZ);
         Value *zSum = b.mul(nn, b.sdiv(alpha, m));
+        BasicBlock *fromZ = b.cur;
         b.br(wJ);
 
         b.set(bAP);
-        Value *apSum = b.call(floorFull, {nn, m, beta, alpha});
+        Value *apSum = emitFloorSumFull(b, floorSum, nn, m, beta, alpha);
+        BasicBlock *fromAP = b.cur;
         b.br(wJ);
 
         b.set(bAN);
-        Value *anSum = b.sub(b.c64(0), b.call(floorFull, {nn, m, b.sub(b.c64(0), beta), b.sub(b.c64(0), alpha)}));
+        Value *anSum =
+            b.sub(b.c64(0), emitFloorSumFull(b, floorSum, nn, m, b.sub(b.c64(0), beta),
+                                             b.sub(b.c64(0), alpha)));
+        BasicBlock *fromAN = b.cur;
         b.br(wJ);
 
         b.set(bMix);
@@ -561,17 +558,21 @@ namespace
 
         b.set(mixP);
         Value *j0p = b.min64(b.max64(b.ceilDivPos(b.sub(b.c64(0), alpha), beta), b.c64(0)), nn);
-        Value *negSp = b.call(floorFull, {j0p, m, b.sub(b.c64(0), beta), b.sub(b.c64(0), alpha)});
-        Value *posSp = b.call(floorFull, {b.sub(nn, j0p), m, beta, b.add(alpha, b.mul(beta, j0p))});
+        Value *negSp =
+            emitFloorSumFull(b, floorSum, j0p, m, b.sub(b.c64(0), beta), b.sub(b.c64(0), alpha));
+        Value *posSp =
+            emitFloorSumFull(b, floorSum, b.sub(nn, j0p), m, beta, b.add(alpha, b.mul(beta, j0p)));
         Value *mixPSum = b.sub(posSp, negSp);
         BasicBlock *fromMixP = b.cur;
         b.br(mixJ);
 
         b.set(mixN);
-        Value *j0n = b.min64(b.max64(b.add(b.floorDiv(alpha, b.sub(b.c64(0), beta)), b.c64(1)), b.c64(0)), nn);
-        Value *posSn = b.call(floorFull, {j0n, m, beta, alpha});
+        Value *j0n =
+            b.min64(b.max64(b.add(b.floorDiv(alpha, b.sub(b.c64(0), beta)), b.c64(1)), b.c64(0)), nn);
+        Value *posSn = emitFloorSumFull(b, floorSum, j0n, m, beta, alpha);
         Value *aNeg = b.add(alpha, b.mul(beta, j0n));
-        Value *negSn = b.call(floorFull, {b.sub(nn, j0n), m, b.sub(b.c64(0), beta), b.sub(b.c64(0), aNeg)});
+        Value *negSn = emitFloorSumFull(b, floorSum, b.sub(nn, j0n), m, b.sub(b.c64(0), beta),
+                                        b.sub(b.c64(0), aNeg));
         Value *mixNSum = b.sub(posSn, negSn);
         BasicBlock *fromMixN = b.cur;
         b.br(mixJ);
@@ -585,9 +586,9 @@ namespace
 
         b.set(wJ);
         auto *wOut = new PhiInst(b.i64Ty, fresh("stw"));
-        wOut->addIncoming(zSum, bZ);
-        wOut->addIncoming(apSum, bAP);
-        wOut->addIncoming(anSum, bAN);
+        wOut->addIncoming(zSum, fromZ);
+        wOut->addIncoming(apSum, fromAP);
+        wOut->addIncoming(anSum, fromAN);
         wOut->addIncoming(mixSum, mixJ);
         b.ins(wOut);
         b.br(join);
@@ -596,19 +597,21 @@ namespace
         auto *out = new PhiInst(b.i64Ty, fresh("st"));
         out->addIncoming(b.c64(0), empty);
         out->addIncoming(wOut, wJ);
-        b.ins(out);
-        b.ret(out);
+        return b.ins(out);
     }
 
-    void buildSumCrem(Function *f, Function *sumTrunc)
+    // Merged sum_crem: trunc + crem in one function; only calls leaf floor_sum.
+    // Signature: (alpha, beta, nn) with fixed mod kM.
+    void buildSumCrem(Function *f, Function *floorSum)
     {
         IrB b(f);
         Value *alpha = f->getArgumentByIndex(0);
         Value *beta = f->getArgumentByIndex(1);
         Value *nn = f->getArgumentByIndex(2);
-        Value *modV = f->getArgumentByIndex(3);
-        Value *raw = b.add(b.mul(nn, alpha), b.mul(beta, b.sdiv(b.mul(nn, b.sub(nn, b.c64(1))), b.c64(2))));
-        Value *divS = b.call(sumTrunc, {alpha, beta, nn, modV});
+        Value *modV = b.c64(kM);
+        Value *divS = emitSumTrunc(b, floorSum, alpha, beta, nn, modV);
+        Value *raw =
+            b.add(b.mul(nn, alpha), b.mul(beta, b.sdiv(b.mul(nn, b.sub(nn, b.c64(1))), b.c64(2))));
         b.ret(b.sub(raw, b.mul(modV, divS)));
     }
 
@@ -637,7 +640,8 @@ namespace
         BasicBlock *fromPLo = b.cur;
         b.br(pJ);
         b.set(pHi);
-        Value *q = b.floorDiv(raw, b.c64(kTwo32));
+        // floor(raw / 2^32) == arithmetic right shift by 32
+        Value *q = b.srad(raw, 32);
         Value *nextB = b.mul(b.add(q, b.c64(1)), b.c64(kTwo32));
         Value *segHi = b.min64(remain, b.max64(b.c64(1), b.ceilDivPos(b.sub(nextB, raw), beta)));
         BasicBlock *fromPHi = b.cur;
@@ -660,7 +664,7 @@ namespace
         BasicBlock *fromNHi = b.cur;
         b.br(nJ);
         b.set(nLo);
-        Value *qN = b.floorDiv(raw, b.c64(kTwo32));
+        Value *qN = b.srad(raw, 32);
         Value *prevB = b.mul(qN, b.c64(kTwo32));
         Value *gap = b.sub(raw, prevB);
         BasicBlock *nLo0 = b.mk(fresh("sl.nl0"));
@@ -730,7 +734,7 @@ namespace
 
         b.set(bZero);
         Value *aa0 = b.i32wrap(raw);
-        Value *term0 = b.call(sumCrem, {aa0, b.c64(0), remain, b.c64(kM)});
+        Value *term0 = b.call(sumCrem, {aa0, b.c64(0), remain});
         Value *tot0 = b.add(totP, term0);
         b.br(hdr);
         jP->addIncoming(count, bZero);
@@ -739,7 +743,7 @@ namespace
         b.set(bSeg);
         Value *seg = emitSegLen(b, alpha, beta, jP, remain);
         Value *aa = b.i32wrap(raw);
-        Value *term = b.call(sumCrem, {aa, beta, seg, b.c64(kM)});
+        Value *term = b.call(sumCrem, {aa, beta, seg});
         Value *totN = b.add(totP, term);
         Value *jN = b.add(jP, seg);
         BasicBlock *fromSeg = b.cur;
@@ -773,7 +777,7 @@ namespace
         Value *A0 = b.sub(b.mul(U0, b.c64(3)), b.c64(kTwo32));
         Value *BmodAbs = b.abs64(b.srem(B, b.c64(1000)));
 
-        // gcd(BmodAbs, 1000)
+        // gcd(BmodAbs, 1000) — BmodAbs ∈ [0,999], short Euclid
         BasicBlock *gPre = b.mk("gcd.pre");
         BasicBlock *gHdr = b.mk("gcd.hdr");
         BasicBlock *gBody = b.mk("gcd.body");
@@ -791,6 +795,7 @@ namespace
         b.set(gHdr);
         b.br(b.icmp(ICmpInst::ICMP_EQ, gb, b.c64(0)), gExit, gBody);
         b.set(gBody);
+        // rem = ga % gb via ga - (ga/gb)*gb; ga < 1000 so cheap
         Value *gr = b.sub(ga, b.mul(b.sdiv(ga, gb), gb));
         b.br(gHdr);
         ga->addIncoming(gb, gBody);
@@ -800,20 +805,12 @@ namespace
         g->addIncoming(ga, gHdr);
         b.ins(g);
 
-        BasicBlock *p1 = b.mk("mp.p1");
-        BasicBlock *pC = b.mk("mp.pc");
-        BasicBlock *pJ = b.mk("mp.pj");
-        b.br(b.icmp(ICmpInst::ICMP_EQ, g, b.c64(0)), p1, pC);
-        b.set(p1);
-        b.br(pJ);
-        b.set(pC);
-        Value *pCalc = b.sdiv(b.c64(1000), g);
-        b.br(pJ);
-        b.set(pJ);
-        auto *P = new PhiInst(b.i64Ty, fresh("P"));
-        P->addIncoming(b.c64(1), p1);
-        P->addIncoming(pCalc, pC);
-        b.ins(P);
+        // g = gcd(|B%1000|, 1000) ∈ {1..1000}; P = 1000/g
+        Value *P = b.sdiv(b.c64(1000), g);
+        // Hoist loop-invariant β pieces: du = DU*P, dq = B/g (= B*P/1000), beta constant in r
+        Value *du = b.mul(DU, P);
+        Value *dq = b.sdiv(B, g);
+        Value *beta = b.add(du, b.mul(b.c64(1001), dq));
 
         BasicBlock *pre = b.mk("mp.pre");
         BasicBlock *hdr = b.mk("mp.hdr");
@@ -835,12 +832,9 @@ namespace
         b.set(body);
         Value *jn = b.add(b.sdiv(b.sub(b.sub(n64, b.c64(1)), r), P), b.c64(1));
         Value *u0 = b.add(U0, b.mul(r, DU));
-        Value *du = b.mul(DU, P);
         Value *Br = b.add(A0, b.mul(B, r));
         Value *q0 = b.sdiv(Br, b.c64(1000));
-        Value *dq = b.sdiv(b.mul(B, P), b.c64(1000));
         Value *alpha = b.add(u0, b.mul(b.c64(1001), q0));
-        Value *beta = b.add(du, b.mul(b.c64(1001), dq));
         Value *part = b.call(sumCremI32, {alpha, beta, jn});
         Value *rN = b.add(r, b.c64(1));
         Value *totN = b.add(tot, part);
@@ -1090,8 +1084,6 @@ namespace
     struct ApmsHelpers
     {
         Function *floorSum = nullptr;
-        Function *floorFull = nullptr;
-        Function *sumTrunc = nullptr;
         Function *sumCrem = nullptr;
         Function *sumCremI32 = nullptr;
         Function *mono = nullptr;
@@ -1112,9 +1104,7 @@ namespace
         bool built = module->getFunction("__apms_floor_sum") != nullptr;
 
         h.floorSum = makeHelper(module, i64, four64, "__apms_floor_sum");
-        h.floorFull = makeHelper(module, i64, four64, "__apms_floor_sum_full");
-        h.sumTrunc = makeHelper(module, i64, four64, "__apms_sum_trunc");
-        h.sumCrem = makeHelper(module, i64, four64, "__apms_sum_crem");
+        h.sumCrem = makeHelper(module, i64, three64, "__apms_sum_crem");
         h.sumCremI32 = makeHelper(module, i64, three64, "__apms_sum_crem_i32");
         h.mono = makeHelper(module, i64, three64, "__apms_mono");
         h.splitU = makeHelper(module, i64, three64, "__apms_split_u");
@@ -1126,11 +1116,7 @@ namespace
             nameCounter = 0;
             buildFloorSum(h.floorSum);
             nameCounter = 0;
-            buildFloorSumFull(h.floorFull, h.floorSum);
-            nameCounter = 0;
-            buildSumTrunc(h.sumTrunc, h.floorFull);
-            nameCounter = 0;
-            buildSumCrem(h.sumCrem, h.sumTrunc);
+            buildSumCrem(h.sumCrem, h.floorSum);
             nameCounter = 0;
             buildSumCremI32(h.sumCremI32, h.sumCrem);
             nameCounter = 0;

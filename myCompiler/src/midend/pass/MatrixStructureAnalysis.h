@@ -1,7 +1,6 @@
 #pragma once
 #include "Pass.h"
 #include <optional>
-#include <unordered_set>
 #include <vector>
 
 namespace optimization
@@ -14,17 +13,6 @@ namespace optimization
         Value *iIV = nullptr;
         Value *jIV = nullptr;
         Value *bound = nullptr;
-    };
-
-    /// 转置写建立的双缓冲关系：dst[i][j] = src[j][i]
-    struct TransposeBufferRelation
-    {
-        bool valid = false;
-        Value *srcBuffer = nullptr;
-        Value *dstBuffer = nullptr;
-        BasicBlock *regionEntry = nullptr;
-        std::unordered_set<BasicBlock *> transposeLoopBlocks;
-        StoreInst *witnessStore = nullptr;
     };
 
     /// 斜对称（反对称）矩阵 nest：c[i][j] = -c[j][i]，j 初值为 0
@@ -112,7 +100,6 @@ namespace optimization
 
     struct MatrixFunctionAnalysis
     {
-        std::optional<TransposeBufferRelation> transposePair;
         std::vector<SkewSymmetricMatrixNest> skewSymmetricNests;
         std::vector<MatMulDotProductNest> matMulDotProductNests;
         std::optional<InPlaceCopyOriginChain> inPlaceCopyOriginChain;
@@ -144,8 +131,6 @@ namespace optimization
 
         bool isZeroInit(Value *v);
         bool isNegatedLoad(Value *val, LoadInst *&loadOut);
-        bool isTransposeWitnessStore(StoreInst *store, Value *iIV, Value *jIV, Value *&srcBuffer,
-                                     Value *&dstBuffer);
         bool isSkewSymmetricWitnessStore(StoreInst *store, Value *iIV, Value *jIV, Value *matrix);
 
         bool isKJMatrixAccess(Value *row, Value *col, Value *iIV, Value *jIV, Value *kIV);
@@ -160,17 +145,6 @@ namespace optimization
         bool findMatMulDotProductNest(const Loop &kLoop, const vector<Loop> &loops,
                                       MatMulDotProductNest &out);
 
-        enum class KJLoadUseKind
-        {
-            ParityWithAIK,
-            AccumWithBIK,
-            Other
-        };
-        KJLoadUseKind classifyKJLoadUser(Instruction *user, LoadInst *kjLoad, Value *iIV, Value *kIV,
-                                         const TransposeBufferRelation &rel);
-
-        bool isReachableFrom(BasicBlock *from, BasicBlock *to,
-                             const std::unordered_set<BasicBlock *> &forbidden);
         CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV);
         bool hasJPhiZeroInit(const Loop &jLoop, Value *jIV);
 
@@ -186,7 +160,7 @@ namespace optimization
         void clearAnalysis(Function *func);
     } // namespace matrixStructure
 
-    /// 识别函数内矩阵循环 nest、转置双缓冲与斜对称结构，供后续结构型变换读取。
+    /// 识别函数内矩阵循环 nest 与斜对称结构，供后续结构型变换读取。
     class MatrixStructureAnalysisPass : public Pass
     {
     public:
