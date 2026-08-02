@@ -56,6 +56,13 @@ format_time() {
     printf "%.2f" $(echo "scale=2; $ms / 1000" | bc 2>/dev/null)
 }
 
+# 归一化输出再对比：折叠所有空白（含换行）为单个空格。
+# 避免 qemu/管道在 ~4096 字节边界插入换行导致超长单行误判 WA。
+normalize_out() {
+    tr -d '\r' < "$1" | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    echo
+}
+
 # 测试功能（带耗时对比）
 test_programs() {
     [ -d "$OUTPUT_DIR" ] || {
@@ -102,8 +109,12 @@ test_programs() {
             s/MARKER_EMPTY//g;
             ' "$TMP_OUTPUT" > "$TMP_FILTERED"
 
-            diff -u -B -Z "$expected_file" "$TMP_FILTERED" > /dev/null
-            if [ $? -eq 0 ]; then
+            TMP_EXP_N=$(mktemp)
+            TMP_ACT_N=$(mktemp)
+            normalize_out "$expected_file" > "$TMP_EXP_N"
+            normalize_out "$TMP_FILTERED" > "$TMP_ACT_N"
+
+            if diff -q "$TMP_EXP_N" "$TMP_ACT_N" > /dev/null; then
                 echo "  测试通过"
 
                 printf "  耗时: %s" "$(format_time $cost_ms)s"
@@ -122,19 +133,17 @@ test_programs() {
                     echo " (首次运行，已记录时间)"
                 fi
 
-                # 成功：删除临时文件
-                rm -f "$TMP_OUTPUT" "$TMP_FILTERED"
+                rm -f "$TMP_OUTPUT" "$TMP_FILTERED" "$TMP_EXP_N" "$TMP_ACT_N"
             else
                 echo "  测试失败 → 差异已写入 failure_case.log"
                 echo "  原始输出文件: $TMP_OUTPUT"
                 echo "  过滤对比文件: $TMP_FILTERED"
                 echo "  预期输出文件: $expected_file"
                 
-                # 只写入日志，控制台不输出diff
                 echo -e "\n--- $filename 测试失败 ---" >> failure_case.log
-                diff -u -B -Z "$expected_file" "$TMP_FILTERED" >> failure_case.log
+                diff -u "$TMP_EXP_N" "$TMP_ACT_N" >> failure_case.log
                 failed_cases+=("$filename")
-                # 失败：保留临时文件，不删除
+                rm -f "$TMP_EXP_N" "$TMP_ACT_N"
             fi
         else
             ec=$?
