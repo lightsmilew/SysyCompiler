@@ -1,6 +1,6 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`15d931b` / 线上约 **72.40s AC**（parity-a + **ALU-only 指令调度**）。  
+当前稳定基线：`4070826` / 线上约 **72.40s AC**（ALU-only 调度门槛 2；与 `15d931b` 同分）。  
 历史：`3f36aec` ≈79.23s；`3f0185a` last-k ≈81.34s；licc_tail ≈81.64s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
@@ -372,3 +372,14 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 整块跳过（`15d931b`）已保留。  
 12. **不要**在含访存 BB 内做 mem-barrier 分段调度（`35_math`/`sl1` 已挂）。
 13. **不要**对 radix 高位轮做递归跳过或 pos 钳位（sort 已变慢）。
+
+### I. ALU 调度门槛 3→2 — 中性保留
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `4070826` |
+| 目标 | 短纯算术块 |
+| 做法 | 含访存/调用仍整块跳过；`size < 3` → `size < 2` |
+| 本地 | scheduling/crypto/many_mat qemu AC |
+| 线上 | **72.40s AC（SAME）**；总时间与 sort/crypto 未见明显变化 |
+| 决策 | `SAME` 保留 |
