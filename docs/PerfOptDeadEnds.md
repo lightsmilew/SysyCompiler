@@ -1,10 +1,10 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`3f36aec` / 线上约 **79.23s AC**（last-k + parity-a）。  
-历史：`3f0185a` last-k ≈81.34s；`7e67ba4` licc_tail ≈81.64s；DepthPair ≈90.48s。  
+当前稳定基线：`15d931b` / 线上约 **72.40s AC**（parity-a + **ALU-only 指令调度**）。  
+历史：`3f36aec` ≈79.23s；`3f0185a` last-k ≈81.34s；licc_tail ≈81.64s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
-注意：`76_n_queens` 偶发 O0 TLE（PE）；干净树重提可 AC。最近回退：`8b660a0` post-i；`975d61c` 全局指令调度（PE）。
+注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度。
 
 ## 评分原则（决定优先级）
 
@@ -15,16 +15,15 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`3f36aec` / 79.22s）：
+当前最大 gap（`15d931b` / 72.40s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
-| 01_mm2/3/1 | 4.77 / 3.00 / 1.36 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
-| many_mat* | ≈7.9 | ≈0.43–0.48 | ≈16–18 | ≈0.05–0.06 |
-| sl* | 7.25 / 3.75 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
-| 03_sort* | 0.52 | 0.09 | ≈5.8 | ≈0.17 |
-| matmul2 | 4.04 | 2.37 | ≈1.7 | ≈0.59 |
-| h-1-03/01 | 0.67 / 0.12 | 0.37 / 0.07 | ≈1.8 / 1.7 | ≈0.55 |
+| 01_mm2/3/1 | 4.77 / 3.00 / 1.35 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
+| many_mat* | ≈7.9 | ≈0.29–0.36 | ≈22–27 | ≈0.04–0.05 |
+| sl* | 7.25 / 3.75 / 0.46 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
+| 03_sort* | ≈0.52 | 0.09 | ≈5.8 | ≈0.17 |
+| crypto* | 略差于调度前 | — | ≈1.7 | — |
 
 输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）；`many_mat` T≈412。
 
@@ -267,19 +266,32 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 **为何无效**：省 scratch 流量的收益被 phase/flush 额外分支与双路径 j 循环的代码膨胀抵消；开发板更敏感。  
 **黑名单**：勿在 many_mat scratch 路径上再做 mid-row phase 切换 / flush→direct；保持单一 scratch+last-k 形态。
 
-### 12. 启用后端 InstructionScheduler — 无效（正确性）
+### 12. 启用后端 InstructionScheduler（全局）— 无效（正确性）
 
 | 项 | 内容 |
 |----|------|
 | 提交 | `975d61c`（已回退） |
 | 目标 | `optimization_scheduling*`（绝对 ~7.7s；源码即为依赖/独立链对照） |
-| 做法 | 取消注释 `RISCVBuilder::instructionSheduler()`（RA 前） |
+| 做法 | 取消注释 `RISCVBuilder::instructionSheduler()`（RA 前），**所有** BB 可调度 |
 | 本地 | 目标性能样例 qemu AC |
 | 线上 | **PE**：`74_kmp` WA；隐藏 `35_math` TLE；性能未计 |
 | 决策 | `ERROR_SOFT` / 硬回退 |
 
-**为何无效**：现有调度器别名分析过粗且重排与 O0 功能路径交互不安全。  
-**黑名单**：勿直接打开全局 `instructionSheduler()`；若再试须修 mayAlias + 仅限无 mem/call 的纯算术块，并回归 `74_kmp`/`35_math`。
+**为何无效**：含访存块重排不安全。  
+**黑名单**：勿再开**无门控**全局调度。
+
+### G. ALU-only InstructionScheduler（无访存/调用 BB）— 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `15d931b` |
+| 目标 | `optimization_scheduling*`（绝对时间大） |
+| 做法 | 开启 `instructionSheduler()`，但 `scheduleBasicBlock` 若含 load/store/call/ecall 则整块跳过 |
+| 本地 | `74_kmp`/`35_math`/scheduling/many_mat qemu AC |
+| 线上 | **79.23s → 72.40s AC**（Δ≈−6.83s）；sched1/2 ≈5.70/2.02→≈0；crypto 略升 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：独立加减链可双发射/填延迟槽；门控避开 kmp 类访存敏感路径。
 
 ---
 
@@ -316,4 +328,4 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 8. **不要**再把 partial unroll 加到 16（已变慢）。  
 9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。  
 10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。  
-11. **不要**直接打开全局后端 `instructionSheduler()`（`74_kmp` WA / `35_math` TLE）。
+11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 门控（`15d931b`）已保留。
