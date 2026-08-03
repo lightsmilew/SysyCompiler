@@ -307,6 +307,35 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 ---
 
+
+### 14. 高位 digit 递归跳过（call pos-1）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `efa7b0e`（已回退） |
+| 目标 | `03_sort*` |
+| 做法 | entry 若 `pos>=8` 则 `call self(pos-1,…); ret` |
+| 本地 | qemu AC，壁钟似降 |
+| 线上 | **变慢**（72.40→72.67s）；sort 0.52→0.61 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：额外递归开销 > 省下的恒等轮。勿用多层 call 跳轮。
+
+### 15. 高位 digit 钳位到 7— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `fd79bde`（已回退） |
+| 目标 | `03_sort*` |
+| 做法 | `pos = select(pos>=8, 7, pos)` 后替换体内 uses |
+| 本地 | qemu AC |
+| 线上 | **变慢**（72.40→72.71s）；sort 0.52→0.63 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：板上 sort 明显变差（select/use 改写或打乱后续优化）；恒等轮本身在板上可能已很便宜。  
+**黑名单**：勿再改 radix 高位轮控制流（递归跳过/钳位）除非能证明不伤其它轮。
+
+
 ## 仍有效的背景事实
 
 | 样例 | 事实 |
@@ -342,3 +371,4 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。  
 11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 整块跳过（`15d931b`）已保留。  
 12. **不要**在含访存 BB 内做 mem-barrier 分段调度（`35_math`/`sl1` 已挂）。
+13. **不要**对 radix 高位轮做递归跳过或 pos 钳位（sort 已变慢）。
