@@ -293,6 +293,18 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **为何有效**：独立加减链可双发射/填延迟槽；门控避开 kmp 类访存敏感路径。
 
+### 13. Mem-barrier 分段调度（访存块内切段）— 无效（正确性）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | 未提交 |
+| 目标 | `sl*` 等含访存 BB 内的 ALU 段 |
+| 做法 | 去掉整块跳过；在 load/store/call 处切开，仅调度无 mem 段 |
+| 本地 | **qemu 失败**：`35_math` segfault；`sl1` 输出错误；`74_kmp` 仍过 |
+| 决策 | 丢弃，保持整块跳过 |
+
+**黑名单**：勿在含访存 BB 内做段调度（即便不跨 mem 重排仍不安全）；保持 `15d931b` 整块跳过策略。
+
 ---
 
 ## 仍有效的背景事实
@@ -328,4 +340,5 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 8. **不要**再把 partial unroll 加到 16（已变慢）。  
 9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。  
 10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。  
-11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 门控（`15d931b`）已保留。
+11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 整块跳过（`15d931b`）已保留。  
+12. **不要**在含访存 BB 内做 mem-barrier 分段调度（`35_math`/`sl1` 已挂）。
