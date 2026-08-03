@@ -238,6 +238,20 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **黑名单**：勿再盲目加大 partial unroll（8 已足够）。
 
+### 10. 展开前 row-GEP → 指针 phi（`tryReduceRowGEP`）— 无效（PE）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `76a897a`（已回退） |
+| 目标 | 通用内层行地址 |
+| 做法 | 仅 `iv.step==1` 时，将 `gep(base,row,iv)` / `gep(ptr,iv)` 改为指针 phi + `addd 4`（挂在原 LSRI，展开前） |
+| 本地 | 目标性能样例 qemu AC |
+| 线上 | **PE**（`76_n_queens` O0 TLE；性能未计） |
+| 决策 | `ERROR_SOFT` / 硬回退 |
+
+**为何无效**：指针 phi 接边在部分 nest 不安全；O0 也跑 LSRI，拖垮功能测。  
+**黑名单**：勿再上通用 row-GEP 指针 ISRA（须含 `76_n_queens` 验证）。
+
 ---
 
 ## 仍有效的背景事实
