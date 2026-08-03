@@ -173,11 +173,27 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 **为何无效**：相对 GEP 变换干扰后续展开/后端；O1 已有 `GEPChainFold`/`addd`。  
 **黑名单**：**不要**在竞赛 O1 流水线启用 `RelativeGepOffset`（仅 O16 调试用）。
 
+### 6. Scratch 路径 k 四路累加（`licc_k4`）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `6f0359a`（已回退） |
+| 目标 | `many_mat*` |
+| 做法 | 无 parity 时，在 last-k 前若 `k+4<=kLast`，一次加载 4 个 lhs，j 内融合 4 次乘加（仍 k 外 j 内） |
+| 本地 | qemu AC，但壁钟略慢 |
+| 线上 | **变慢**（81.34→82.06s）；many_mat ≈7.9→≈8.2 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：每 j 多加载 4 行 `A[k..k+3][j]`（跨 4KB pitch）放大缓存压力，收益被内存带宽吃掉。  
+**黑名单**：不要在 scratch ikj 上做跨行 k 捆绑累加；保持单 k 流式访问 rhs 行。
+
 ---
+
+## 仍有效的背景事实
 
 | 样例 | 事实 |
 |------|------|
-| `many_mat*` | MatMulDotProduct + interchange + licc_tail 已触发；勿 j-panel-outer |
+| `many_mat*` | MatMulDotProduct + interchange + licc_tail + last-k 已触发；勿 j-panel-outer；勿 k4 跨行捆绑 |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
 | `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；可考虑行指针 ISRA |
 | `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
@@ -200,4 +216,5 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 1. **不要**把 `01_mm*` 改成 i-outer。  
 2. **不要**对 many_mat scratch 做 j-panel-outer 寄存器分块。  
 3. **不要**在最内层对每个 sdiv 做 d==3 分支；整 nest 一次版本化且勿挂 O0。  
-5. **不要**在竞赛 O1 启用 `RelativeGepOffset`（已实测变慢）。
+5. **不要**在竞赛 O1 启用 `RelativeGepOffset`（已实测变慢）。  
+6. **不要**在 many_mat scratch 上做跨行 k 捆绑累加（k4）。
