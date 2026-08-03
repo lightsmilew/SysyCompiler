@@ -22,6 +22,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | many_mat* | ≈7.9 | ≈0.43–0.48 | ≈16–18 | ≈0.05–0.06 |
 | sl* | 7.25 / 3.75 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
 | 03_sort* | 0.52 | 0.09 | ≈5.8 | ≈0.17 |
+| matmul2 | 4.04 | 2.37 | ≈1.7 | ≈0.59 |
 | h-1-03/01 | 0.67 / 0.12 | 0.37 / 0.07 | ≈1.8 / 1.7 | ≈0.55 |
 
 输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）；`many_mat` T≈412。
@@ -211,6 +212,32 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 现状 | 匹配/CFG 未稳，`-S` **segfault**；勿挂 O1 |
 | 决策 | **未提交** |
 
+### 8. GEP 单位步长 → 指针 phi（LSRI 扩展）— 无效（正确性）
+
+| 项 | 内容 |
+|----|------|
+| 目标 | `01_mm*` / matmul / many_mat 内层地址 |
+| 做法 | `tryReduceUnitStrideGEP`：`gep i32*, %p, %iv` → 指针 phi + `addd` 步长 `4*iv.step`；GEP 展开后再跑一轮 LSRI |
+| 本地 | IR 可命中；**qemu 全挂**（01_mm / many_mat / matmul 输出错误） |
+| 线上 | 未提交 |
+| 决策 | 丢弃 |
+
+**为何无效**：与部分展开 / gcc-unroll / foldadd 链交互后步长与复用易错。  
+**黑名单**：勿在展开后的 j 循环上做粗糙指针 ISRA。
+
+### 9. Partial unroll 8→16 — 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `4490692`（已回退） |
+| 目标 | 稠密内层 |
+| 做法 | `kPartialUnrollFactor` 8→16 |
+| 本地 | qemu AC |
+| 线上 | **变慢**（79.22→79.46s）；many_mat 略升 |
+| 决策 | `SLOWER_HARD` |
+
+**黑名单**：勿再盲目加大 partial unroll（8 已足够）。
+
 ---
 
 ## 仍有效的背景事实
@@ -219,7 +246,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 |------|------|
 | `many_mat*` | MatMulDotProduct + interchange + licc_tail + last-k 已触发；勿 j-panel-outer；勿 k4 跨行捆绑 |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
-| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；可考虑行指针 ISRA |
+| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；指针 ISRA 已证伪 |
 | `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
 | `03_sort*` | PowDivLoopReduction 已吃掉 base=16 的 getNumPos；残余多为基数排序结构本身 |
 | 流水线 | 功能测 **O0**；性能测 **`-O1`** |
@@ -241,4 +268,6 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 2. **不要**对 many_mat scratch 做 j-panel-outer 寄存器分块。  
 3. **不要**在最内层对每个 sdiv 做 d==3 分支；整 nest 一次版本化且勿挂 O0。  
 5. **不要**在竞赛 O1 启用 `RelativeGepOffset`（已实测变慢）。  
-6. **不要**在 many_mat scratch 上做跨行 k 捆绑累加（k4）。
+6. **不要**在 many_mat scratch 上做跨行 k 捆绑累加（k4）。  
+7. **不要**做粗糙 GEP→指针 phi ISRA（正确性已挂）。  
+8. **不要**再把 partial unroll 加到 16（已变慢）。
