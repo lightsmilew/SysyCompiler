@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`3f0185a`（licc_tail + **last-k write-through**），线上约 **81.34s AC**。  
-历史：`7e67ba4` licc_tail ≈81.64s；`34db6a3` DepthPair ≈90.48s；unroll×8 ≈94.12s；NestVersion ≈94.47s。  
+当前稳定基线：`3f36aec`（last-k + **parity-a 版本化**），线上约 **79.22s AC**。  
+历史：`3f0185a` last-k ≈81.34s；`7e67ba4` licc_tail ≈81.64s；DepthPair ≈90.48s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。
 
@@ -14,7 +14,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`3f0185a` / 81.34s）：
+当前最大 gap（`3f36aec` / 79.22s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
@@ -187,16 +187,29 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 **为何无效**：每 j 多加载 4 行 `A[k..k+3][j]`（跨 4KB pitch）放大缓存压力，收益被内存带宽吃掉。  
 **黑名单**：不要在 scratch ikj 上做跨行 k 捆绑累加；保持单 k 流式访问 rhs 行。
 
+### F. Parity-a 版本化 j 循环（跳过 pkj load）— 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `3f36aec` |
+| 目标 | `matmul*`（奇偶门控点积；按 `avg(best/my)` 半程收益最高档之一） |
+| 做法 | `applyDirectAccumulate`：k 体算 `pa=pik&1`；`pa==0` 走无 pkj 的 fast j；`pa==1` 仅查 `pb`；`licc_j_{fast,slow}_pre` 独立入口，避免 gcc-unroll 接错边 |
+| 本地 | `matmul1/2` qemu AC |
+| 线上 | **81.34s → 79.22s AC**（Δ≈−2.12s）；`matmul2` 5.29→4.04 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：约一半 k 迭代可去掉整行 `b[k][j]` parity 加载与缩放乘。  
+
+---
+
 ### 7. ScaledRowBCache（k 外层缓存 B 行）— 放弃未提交
 
 | 项 | 内容 |
 |----|------|
 | 目标 | `01_mm*`（保持 k 外层，每 k 拷 B[k][*]→紧凑缓冲） |
 | 做法 | 晚期 inline 后匹配 `C=C*A+B` nest；插入 copy 循环并改写 B load |
-| 现状 | 匹配/CFG 未稳，`-S` **segfault**；草稿已删，未提交 |
+| 现状 | 匹配/CFG 未稳，`-S` **segfault**；勿挂 O1 |
 | 决策 | **未提交** |
-
-**后续**：若重做须先修 CFG/GEP，并在 qemu 全过后再提。
 
 ---
 
