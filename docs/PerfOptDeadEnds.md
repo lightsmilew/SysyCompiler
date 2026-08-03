@@ -346,6 +346,31 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 分析 | `A==1` 仅约 0–0.5%，分支易预测；谓词化强迫每次跑满 j 循环，预期变慢 |
 | 决策 | **未提交** |
 
+### 17. ConstantArrayFill（最内层常量行填充指针化）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `4f894f1`（已回退）；首版 `6cffcc1` 标签冲突 PE 后 soft 回退 |
+| 目标 | `sl*` 初始化、`01_mm*` 清零等稠密常量写 |
+| 做法 | 检测纯常量 store 到连续最内维；改写为 `ptr`/`addd 4` 行填充；O1、NestVersion 后 |
+| 本地 | `sl3`/`01_mm1` qemu AC（注意：整 nest `N^d` 线性化在 `extent≠N` 时语义错误，已改为仅最内维） |
+| 线上 | **AC 变慢**（72.40→73.06s，Δ≈+0.66s）；首版因重复 `caf_fill_*` 标签致 `01_mm*` 汇编 RE/PE |
+| 决策 | `SLOWER_HARD` / 硬回退 |
+
+**为何无效**：填充相对 stencil/GEMM 占比有限；指针化打乱后续 GEP/unroll，板上净损失。  
+**黑名单**：勿再为稠密常量 init 做行指针填充（除非能证明不伤 `01_mm*`/`sl*` 主循环）。
+
+### 18. many_mat 跳过零 scratch 初始化 + k=0 select — 放弃未提交
+
+| 项 | 内容 |
+|----|------|
+| 目标 | `many_mat*`（scratch 路径） |
+| 做法 | `initAccVal==0 && kBound>0` 时跳过 `licc_acc_init`；k=0 用 `select` 代替 scratch load |
+| 本地 | qemu AC，但 `many_mat_cal-1` 壁钟 0.42→0.49（更慢） |
+| 决策 | **未提交** |
+
+**为何放弃**：省 stores 被 per-j `select` 抵消；板上预期无正收益。
+
 ## 仍有效的背景事实
 
 | 样例 | 事实 |
