@@ -154,7 +154,7 @@ namespace
         return defined;
     }
 
-    // 部分展开循环条件为 iv < bound-4；icmp 的归纳变量操作数（非 _unroll_bound）。
+    // 部分展开循环条件为 iv < bound-factor；icmp 的归纳变量操作数（非 _unroll_bound）。
     Value *findUnrollIvOperand(const vector<Instruction *> &headerPrefix)
     {
         for (auto *inst : headerPrefix)
@@ -239,7 +239,7 @@ namespace
         return headerDefined.count(src) || (stepValue && src == stepValue);
     }
 
-    // 部分展开 latch：在 iv+=factor 之前插入 icmp(iv, bound-4)，bound-4 可能已被 LICM 外提。
+    // 部分展开 latch：在 iv+=factor 之前插入 icmp(iv, bound-factor)，bound-factor 可能已被 LICM 外提。
     size_t findUnrollLatchCmpInsertIndex(const vector<unique_ptr<Instruction>> &latchInsts, Value *ivOperand)
     {
         for (size_t i = 0; i < latchInsts.size(); ++i)
@@ -265,7 +265,7 @@ namespace
     }
 
     // 普通循环：header 非 icmp 部分插在 phi copy 之前；仅 icmp 时追加到末尾。
-    // 部分展开：icmp 插在 latch 中 iv 自增 add 之前（与 header 入口语义 iv < bound-4 一致）。
+    // 部分展开：icmp 插在 latch 中 iv 自增 add 之前（与 header 入口语义 iv < bound-factor 一致）。
     size_t findLatchHeaderInsertIndex(const vector<unique_ptr<Instruction>> &latchInsts,
                                       const vector<Instruction *> &headerPrefix, bool unrollLoop)
     {

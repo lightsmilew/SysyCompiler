@@ -290,9 +290,9 @@ std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
 
 static constexpr int kFullUnrollMaxTripCount = 20;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
-static constexpr int kPartialUnrollFactor = 4;
+static constexpr int kPartialUnrollFactor = 8;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
-/// 纯计算循环体指令数超过此值时不做 4 路展开（展开后 I-cache 压力大、收益小）
+/// 纯计算循环体指令数超过此值时不做部分展开（展开后 I-cache 压力大、收益小）
 static constexpr int kPureComputePartialUnrollMaxBodyInsts = 4;
 
 void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
