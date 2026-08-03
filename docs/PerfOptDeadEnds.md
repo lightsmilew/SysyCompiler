@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`46811bc`（partial unroll×8），线上约 **94.12s AC**。  
-历史：`72c47b2`/`664fedd` NestVersion ≈94.47s；`abe591d` APMod ≈103.37s。  
+当前稳定基线：`34db6a3`（DepthPairToSteps + dense memo），线上约 **90.48s AC**。  
+历史：`46811bc` unroll×8 ≈94.12s；NestVersion ≈94.47s；APMod ≈103.37s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。
 
@@ -14,14 +14,14 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`46811bc`）：
+当前最大 gap（`34db6a3`）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
 | 01_mm2/3/1 | 4.77 / 3.00 / 1.36 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
 | many_mat* | ≈11 | ≈0.30–0.37 | ≈30–36 | ≈0.03 |
-| h-1-03/01 | 3.75 / 0.64 | 0.39 / 0.08 | ≈9.6 / 8 | ≈0.11 |
-| sl* | 7.22 / 3.71 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5 | ≈0.13 |
+| sl* | 7.25 / 3.75 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
+| h-1-03/01 | 0.67 / 0.12 | 0.37 / 0.07 | ≈1.8 / 1.7 | ≈0.55 |
 
 输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）。
 
@@ -56,6 +56,20 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **为何有效**：降低内层分支密度；对已是内存瓶颈的 nest 收益有限。  
 **评分**：`avg(best/my)` 略升（≈0.5425→0.5438）；`many_mat` best 已到 ~0.3s，ratio≈30× 仍是主战场。
+
+### C. DepthPairToSteps + dense memo 扩容 — 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `34db6a3` |
+| 目标 | 深度累加式 2 参尾递归（原被 TRE 吃掉，MemoizationV2 跳过） |
+| 做法 | `DepthPairToSteps`：改写成 1 参 `__steps`（基返回 0 / 失败 −1 / 非尾 `steps(n')+δ`）+ 薄包装；挂在 Memo 前（O0/O1）；`DENSE1_SIZE` 65536→524288 |
+| 本地 | `h-1-*` qemu AC（顺带修 `scripts/test.sh`：`putint` 无换行时勿把 `echo $?` 粘到答案上） |
+| 线上 | **94.12s → 90.48s AC**（Δ≈−3.64s）；`h-1-01` 0.64→0.12；`h-1-02` 0.05→0.01；`h-1-03` 3.75→0.67 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：非尾 `__steps` 可走 dense memo；原先全尾递归路径只有 TRE/内联、无缓存。  
+**残余**：`h-1` 仍约 1.7–1.8× best（缓存/溢出路径）；主战场转回 `many_mat*` / `01_mm*` / `sl*`。
 
 ---
 
@@ -120,7 +134,8 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 |------|------|
 | `many_mat*` | MatMulDotProduct + interchange 已触发；j 已被 gcc unroll；下一步勿 j-panel-outer |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
-| `01_mm*` | 原生 k-i-j + unroll4；LSRI / 权重 GEMM 同构路已证伪或放弃 |
+| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃 |
+| `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
 | 流水线 | 功能测 **O0**；性能测 **`-O1`** |
 | 脚本 | `tools/opt_submit_loop.sh`、`tools/qemu_verify.sh`、`tools/educg_submit.py` |
 
