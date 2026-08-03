@@ -804,7 +804,7 @@ namespace RISCV
         auto &instructions = bb->getInstructions();
 
         // 只对有足够指令的基本块进行调度（调度开销 vs 收益考虑）
-        if (instructions.size() < 3)
+        if (instructions.size() < 2)
         {
             return;
         }
