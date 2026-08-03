@@ -29,6 +29,8 @@
 #include "InstructionCombinePass.h"
 #include "HelperReturnAnalysisPass.h"
 #include "MemoizationV2Pass.h"
+#include "LoopAPModSumFoldPass.h"
+#include "InvariantDivisorNestVersionPass.h"
 #include "SRFixedPass.h"
 #include "GlobalScalarPromotionPass.h"
 #include "NormalizationPass.h"
