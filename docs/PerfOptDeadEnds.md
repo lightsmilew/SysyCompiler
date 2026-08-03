@@ -4,7 +4,7 @@
 历史：`3f0185a` last-k ≈81.34s；`7e67ba4` licc_tail ≈81.64s；DepthPair ≈90.48s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
-注意：`76_n_queens` 偶发 O0 TLE（PE）；干净树重提可 AC。最近回退：`8b660a0` post-i direct-out（79.23→80.22）。
+注意：`76_n_queens` 偶发 O0 TLE（PE）；干净树重提可 AC。最近回退：`8b660a0` post-i；`975d61c` 全局指令调度（PE）。
 
 ## 评分原则（决定优先级）
 
@@ -267,6 +267,20 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 **为何无效**：省 scratch 流量的收益被 phase/flush 额外分支与双路径 j 循环的代码膨胀抵消；开发板更敏感。  
 **黑名单**：勿在 many_mat scratch 路径上再做 mid-row phase 切换 / flush→direct；保持单一 scratch+last-k 形态。
 
+### 12. 启用后端 InstructionScheduler — 无效（正确性）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `975d61c`（已回退） |
+| 目标 | `optimization_scheduling*`（绝对 ~7.7s；源码即为依赖/独立链对照） |
+| 做法 | 取消注释 `RISCVBuilder::instructionSheduler()`（RA 前） |
+| 本地 | 目标性能样例 qemu AC |
+| 线上 | **PE**：`74_kmp` WA；隐藏 `35_math` TLE；性能未计 |
+| 决策 | `ERROR_SOFT` / 硬回退 |
+
+**为何无效**：现有调度器别名分析过粗且重排与 O0 功能路径交互不安全。  
+**黑名单**：勿直接打开全局 `instructionSheduler()`；若再试须修 mayAlias + 仅限无 mem/call 的纯算术块，并回归 `74_kmp`/`35_math`。
+
 ---
 
 ## 仍有效的背景事实
@@ -301,4 +315,5 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 7. **不要**做粗糙 GEP→指针 phi ISRA（正确性已挂）。  
 8. **不要**再把 partial unroll 加到 16（已变慢）。  
 9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。  
-10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。
+10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。  
+11. **不要**直接打开全局后端 `instructionSheduler()`（`74_kmp` WA / `35_math` TLE）。
