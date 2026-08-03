@@ -809,6 +809,17 @@ namespace RISCV
             return;
         }
 
+        // 含访存/调用的块整块跳过（全局调度曾导致 74_kmp WA）
+        for (const auto &instr : instructions)
+        {
+            auto op = instr->getOpcode();
+            if (isMemoryLoadInstruction(op) || isMemoryStoreInstruction(op) ||
+                op == RISCVOpcode::CALL || op == RISCVOpcode::ECALL)
+            {
+                return;
+            }
+        }
+
         // 将基本块按照call指令分割成多个调度段
         auto schedulingSegments = splitByCallInstructions(instructions);
 
