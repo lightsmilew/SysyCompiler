@@ -152,6 +152,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     if (level == OptimizationLevel::O0)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<DepthPairToStepsPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));
@@ -219,6 +220,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
     else if (level == OptimizationLevel::O1)
     {
         pm->addPass(std::make_unique<CFGSimplificationPass>(verbose));
+        pm->addPass(std::make_unique<DepthPairToStepsPass>(verbose));
         pm->addPass(std::make_unique<MemoizationV2Pass>(verbose));
         pm->addPass(std::make_unique<CommonSubexpressionEliminationPass>(1, verbose));
         pm->addPass(std::make_unique<RemoveRedundantStorePass>(verbose));

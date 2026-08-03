@@ -94,7 +94,9 @@ test_programs() {
 
         # 计时运行
         start=$(date +%s%3N)
-        if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo \$? >> $TMP_OUTPUT"; then
+        # Ensure a newline before appending exit code: putint does not emit '\n',
+        # so bare `echo $? >>` would glue digits onto the answer (e.g. 39219810).
+        if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo >> $TMP_OUTPUT; echo \$? >> $TMP_OUTPUT"; then
             end=$(date +%s%3N)
             cost_ms=$((end - start))
             last_ms=$(get_last_time "$filename")

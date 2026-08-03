@@ -28,6 +28,7 @@
 #include "IfConversionPass.h"
 #include "InstructionCombinePass.h"
 #include "HelperReturnAnalysisPass.h"
+#include "DepthPairToStepsPass.h"
 #include "MemoizationV2Pass.h"
 #include "LoopAPModSumFoldPass.h"
 #include "InvariantDivisorNestVersionPass.h"

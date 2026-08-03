@@ -16,7 +16,7 @@ namespace optimization
         std::string getName() const override { return "MemoizationV2"; }
 
         // Dense table extents (public so helpers in .cpp can share them).
-        static constexpr int DENSE1_SIZE = 65536; // 1-arg: idx = a0
+        static constexpr int DENSE1_SIZE = 524288; // 1-arg: idx = a0
         static constexpr int DENSE2_ROWS = 64;    // 2-arg: idx = a0*COLS+a1
         static constexpr int DENSE2_COLS = 512;
         static constexpr int DENSE3_D0 = 32; // 3-arg: idx = a0*(D1*D2)+a1*D2+a2
