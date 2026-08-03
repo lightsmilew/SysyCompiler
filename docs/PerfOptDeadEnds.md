@@ -284,4 +284,5 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 5. **不要**在竞赛 O1 启用 `RelativeGepOffset`（已实测变慢）。  
 6. **不要**在 many_mat scratch 上做跨行 k 捆绑累加（k4）。  
 7. **不要**做粗糙 GEP→指针 phi ISRA（正确性已挂）。  
-8. **不要**再把 partial unroll 加到 16（已变慢）。
+8. **不要**再把 partial unroll 加到 16（已变慢）。  
+9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。
