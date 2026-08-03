@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`7e67ba4`（DepthPair + unroll×8 + NestVersion + **licc_tail**），线上约 **81.64s AC**。  
-历史：`34db6a3` DepthPair ≈90.48s；`46811bc` unroll×8 ≈94.12s；NestVersion ≈94.47s；APMod ≈103.37s。  
+当前稳定基线：`3f0185a`（licc_tail + **last-k write-through**），线上约 **81.34s AC**。  
+历史：`7e67ba4` licc_tail ≈81.64s；`34db6a3` DepthPair ≈90.48s；unroll×8 ≈94.12s；NestVersion ≈94.47s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。
 
@@ -14,12 +14,12 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`7e67ba4` / 81.64s）：
+当前最大 gap（`3f0185a` / 81.34s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
 | 01_mm2/3/1 | 4.77 / 3.00 / 1.36 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
-| many_mat* | ≈8.0 | ≈0.43–0.48 | ≈17–18 | ≈0.05–0.06 |
+| many_mat* | ≈7.9 | ≈0.43–0.48 | ≈16–18 | ≈0.05–0.06 |
 | sl* | 7.25 / 3.75 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
 | 03_sort* | 0.52 | 0.09 | ≈5.8 | ≈0.17 |
 | h-1-03/01 | 0.67 / 0.12 | 0.37 / 0.07 | ≈1.8 / 1.7 | ≈0.55 |
@@ -143,17 +143,19 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 ---
 
-## 进行中 / 待验证
-
-### E. Last-k write-through（去掉独立 `licc_store_*` flush）— 待线上
+### E. Last-k write-through（去掉独立 `licc_store_*` flush）— 有效（小幅）
 
 | 项 | 内容 |
 |----|------|
+| 提交 | `3f0185a` |
 | 目标 | `many_mat*` scratch 路径 |
 | 做法 | `k < kBound-1` 仍写 scratch；最后一轮 k 从 scratch 累加后**直写 out**；`kBound==0` 仍走 store flush；`rowDone` 统一汇合 |
-| 本地 | `many_mat_cal-1` qemu AC，qemu 耗时约 −57%（仅供参考） |
-| 线上 | （提交中） |
-| 决策 | 待定 |
+| 本地 | `many_mat_cal-1/2`、`matmul1` qemu AC |
+| 线上 | **81.64s → 81.34s AC**（Δ≈−0.30s）；many_mat ≈8.0→≈7.9 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：去掉每行一次的独立 flush（约 n² 次 scratch→out 拷贝）。  
+**残余**：相对 best 仍 ≈17×；勿改回 j-panel-outer。
 
 ---
 
