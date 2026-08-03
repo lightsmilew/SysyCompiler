@@ -140,11 +140,114 @@ AllocaInst *LoopInterchangePass::getOrCreateAccBuffer(Function *func)
     return acc;
 }
 
+namespace
+{
+    /// mid == bound/2：sdiv(bound,2)、sra(bound,1) 或有符号除法 lowering
+    static bool isHalfOfBound(Value *mid, Value *bound)
+    {
+        auto *bin = dynamic_cast<BinaryOperator *>(stripCopy(mid));
+        if (!bin)
+            return false;
+        Value *lhs = stripCopy(bin->getLHS());
+        Value *rhs = stripCopy(bin->getRHS());
+        auto *rhsc = dynamic_cast<ConstantInt *>(rhs);
+
+        auto isSignedHalfLhs = [&](Value *v) -> bool {
+            if (sameBound(v, bound))
+                return true;
+            auto *add = dynamic_cast<BinaryOperator *>(v);
+            if (!add || add->getOpcode() != Opcode::Add)
+                return false;
+            Value *a = stripCopy(add->getLHS());
+            Value *b = stripCopy(add->getRHS());
+            auto isSltZero = [&](Value *x) -> bool {
+                auto *icmp = dynamic_cast<ICmpInst *>(x);
+                if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+                    return false;
+                auto *zero = dynamic_cast<ConstantInt *>(stripCopy(icmp->getRHS()));
+                return zero && zero->Value == 0 && sameBound(stripCopy(icmp->getLHS()), bound);
+            };
+            return (sameBound(a, bound) && isSltZero(b)) || (sameBound(b, bound) && isSltZero(a));
+        };
+
+        // Interchange 早于 SRFixed：常见仍是 sdiv bound, 2
+        if (bin->getOpcode() == Opcode::SDiv && rhsc && rhsc->Value == 2)
+            return isSignedHalfLhs(lhs);
+        // 之后可能已是 sra(adj, 1)
+        if (bin->getOpcode() == Opcode::Sra && rhsc && rhsc->Value == 1)
+            return isSignedHalfLhs(lhs);
+        return false;
+    }
+}
+
+bool LoopInterchangePass::findConstRowTail(Function *func, Value *rhsArray, Value *bound,
+                                           ConstRowTail &out)
+{
+    out = ConstRowTail{};
+    if (!func || !rhsArray || !bound)
+        return false;
+
+    // 查找：for row = mid..bound; for col; store C to rhs[row][col]
+    // mid 为 bound/2（sdiv 或 sra lowering）。
+    for (auto &bbPtr : func->getBasicBlocks())
+    {
+        BasicBlock *bb = bbPtr.get();
+        for (auto &instPtr : bb->getInstructions())
+        {
+            auto *st = dynamic_cast<StoreInst *>(instPtr.get());
+            if (!st)
+                continue;
+            auto *cInt = dynamic_cast<ConstantInt *>(stripCopy(st->getValueToStore()));
+            if (!cInt)
+                continue;
+            Value *row = nullptr, *col = nullptr, *base = nullptr;
+            if (!parse2DAccess(st->getPointer(), row, col, base))
+                continue;
+            if (!sameArray(base, rhsArray))
+                continue;
+
+            auto *rowPhi = dynamic_cast<PhiInst *>(stripCopy(row));
+            if (!rowPhi)
+                continue;
+            Value *midCand = nullptr;
+            bool hasBoundBackedge = false;
+            for (unsigned i = 0; i < rowPhi->getNumIncomingValues(); ++i)
+            {
+                Value *inc = stripCopy(rowPhi->getIncomingValue(i));
+                if (auto *add = dynamic_cast<BinaryOperator *>(inc))
+                {
+                    if (add->getOpcode() == Opcode::Add)
+                    {
+                        hasBoundBackedge = true;
+                        continue;
+                    }
+                }
+                if (isHalfOfBound(inc, bound))
+                    midCand = stripCopy(inc);
+            }
+            if (!midCand || !hasBoundBackedge)
+                continue;
+
+            out.mid = midCand;
+            out.constVal = cInt->Value;
+            out.valid = true;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest &pat, Value *outBase)
 {
     AllocaInst *acc = getOrCreateAccBuffer(func);
     auto *zero = ci(0);
     auto *one = ci(1);
+
+    ConstRowTail tail;
+    const bool foundTail =
+        !pat.hasParityGuard && findConstRowTail(func, pat.rhsArray, pat.bound, tail);
+    // out 与 rhs 别名（in-place）时，仅 i<=mid 仍保持 rhs[mid..) 为原常量，可安全折叠
+    const bool aliasesRhs = sameArray(outBase, pat.rhsArray);
 
     BasicBlock *accInitHeader = func->addBasicBlock("licc_acc_init");
     BasicBlock *accInitBody = func->addBasicBlock("licc_acc_init_body");
@@ -159,11 +262,95 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     BasicBlock *storeBody = func->addBasicBlock("licc_store_body");
     BasicBlock *storeExit = func->addBasicBlock("licc_store_exit");
 
-    replaceTerminator(pat.iBody, own(new BranchInst(accInitHeader)));
-    wireEdge(pat.iBody, accInitHeader);
+    BasicBlock *mergeBB = nullptr;
+    Value *initAccVal = zero;
+    Value *kBound = pat.bound;
+    BasicBlock *accInitPred = pat.iBody;
+
+    if (foundTail)
+    {
+        auto *dispatch = func->addBasicBlock("licc_tail_dispatch");
+        auto *tailHeader = func->addBasicBlock("licc_tail_header");
+        auto *tailBody = func->addBasicBlock("licc_tail_body");
+        auto *tailExit = func->addBasicBlock("licc_tail_exit");
+        mergeBB = func->addBasicBlock("licc_tail_merge");
+        BasicBlock *nofold = aliasesRhs ? func->addBasicBlock("licc_nofold") : nullptr;
+
+        replaceTerminator(pat.iBody, own(new BranchInst(dispatch)));
+        wireEdge(pat.iBody, dispatch);
+
+        if (aliasesRhs)
+        {
+            auto *safe = new ICmpInst(ICmpInst::ICMP_SLE, pat.iIV, tail.mid, "licc_tail_safe");
+            dispatch->addInstruction(own(safe));
+            dispatch->addInstruction(own(new BranchInst(safe, tailHeader, nofold)));
+            wireEdge(dispatch, tailHeader);
+            wireEdge(dispatch, nofold);
+        }
+        else
+        {
+            dispatch->addInstruction(own(new BranchInst(tailHeader)));
+            wireEdge(dispatch, tailHeader);
+        }
+
+        auto *tkPhi = new PhiInst(IntegerType::getInstance(), "licc_tail_k");
+        tkPhi->addIncoming(tail.mid, dispatch);
+        tailHeader->addInstruction(own(tkPhi));
+        auto *tailSumPhi = new PhiInst(IntegerType::getInstance(), "licc_tail_sum");
+        tailSumPhi->addIncoming(zero, dispatch);
+        tailHeader->addInstruction(own(tailSumPhi));
+        auto *tCmp = new ICmpInst(ICmpInst::ICMP_SLT, tkPhi, pat.bound, "licc_tail_cmp");
+        tailHeader->addInstruction(own(tCmp));
+        tailHeader->addInstruction(own(new BranchInst(tCmp, tailBody, tailExit)));
+        wireEdge(tailHeader, tailBody);
+        wireEdge(tailHeader, tailExit);
+
+        auto *tGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, tkPhi}, "licc_tail_gep");
+        tailBody->addInstruction(own(tGep));
+        auto *tLoad = new LoadInst(tGep, "licc_tail_val");
+        tailBody->addInstruction(own(tLoad));
+        auto *tAdd = new BinaryOperator(Opcode::Add, tailSumPhi, tLoad, "licc_tail_add");
+        tailBody->addInstruction(own(tAdd));
+        auto *tInc = new BinaryOperator(Opcode::Add, tkPhi, one, "licc_tail_inc");
+        tailBody->addInstruction(own(tInc));
+        tkPhi->addIncoming(tInc, tailBody);
+        tailSumPhi->addIncoming(tAdd, tailBody);
+        tailBody->addInstruction(own(new BranchInst(tailHeader)));
+        wireEdge(tailBody, tailHeader);
+
+        auto *cMul = new BinaryOperator(Opcode::Mul, tailSumPhi, ci(tail.constVal), "licc_tail_prod");
+        tailExit->addInstruction(own(cMul));
+        tailExit->addInstruction(own(new BranchInst(mergeBB)));
+        wireEdge(tailExit, mergeBB);
+
+        auto *initPhi = new PhiInst(IntegerType::getInstance(), "licc_acc_init_val");
+        auto *kBoundPhi = new PhiInst(IntegerType::getInstance(), "licc_k_bound");
+        initPhi->addIncoming(cMul, tailExit);
+        kBoundPhi->addIncoming(tail.mid, tailExit);
+        if (nofold)
+        {
+            nofold->addInstruction(own(new BranchInst(mergeBB)));
+            wireEdge(nofold, mergeBB);
+            initPhi->addIncoming(zero, nofold);
+            kBoundPhi->addIncoming(pat.bound, nofold);
+        }
+        mergeBB->addInstruction(own(initPhi));
+        mergeBB->addInstruction(own(kBoundPhi));
+        mergeBB->addInstruction(own(new BranchInst(accInitHeader)));
+        wireEdge(mergeBB, accInitHeader);
+
+        initAccVal = initPhi;
+        kBound = kBoundPhi;
+        accInitPred = mergeBB;
+    }
+    else
+    {
+        replaceTerminator(pat.iBody, own(new BranchInst(accInitHeader)));
+        wireEdge(pat.iBody, accInitHeader);
+    }
 
     auto *jInitPhi = new PhiInst(IntegerType::getInstance(), "licc_j_init");
-    jInitPhi->addIncoming(zero, pat.iBody);
+    jInitPhi->addIncoming(zero, accInitPred);
     accInitHeader->addInstruction(own(jInitPhi));
     auto *accInitCmp = new ICmpInst(ICmpInst::ICMP_SLT, jInitPhi, pat.bound, "licc_acc_init_cmp");
     accInitHeader->addInstruction(own(accInitCmp));
@@ -171,7 +358,7 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
 
     auto *accElemGep = new GetElementPtrInst(acc, {zero, jInitPhi}, "licc_acc_gep_init");
     accInitBody->addInstruction(own(accElemGep));
-    accInitBody->addInstruction(own(new StoreInst(zero, accElemGep)));
+    accInitBody->addInstruction(own(new StoreInst(initAccVal, accElemGep)));
     auto *jInitInc = new BinaryOperator(Opcode::Add, jInitPhi, one, "licc_j_init_inc");
     accInitBody->addInstruction(own(jInitInc));
     jInitPhi->addIncoming(jInitInc, accInitBody);
@@ -183,7 +370,7 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     auto *kPhi = new PhiInst(IntegerType::getInstance(), "licc_k");
     kPhi->addIncoming(zero, accInitExit);
     kHeader->addInstruction(own(kPhi));
-    auto *kCmp = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, pat.bound, "licc_k_cmp");
+    auto *kCmp = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, kBound, "licc_k_cmp");
     kHeader->addInstruction(own(kCmp));
     kHeader->addInstruction(own(new BranchInst(kCmp, kBody, kExit)));
     wireEdge(accInitExit, kHeader);
@@ -259,6 +446,9 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     storeExit->addInstruction(own(new BranchInst(pat.jExit)));
     wireEdge(storeExit, pat.jExit);
     removeOldNest(func, pat, storeExit);
+    if (foundTail && verbose)
+        debugInfo << "LoopInterchange: const-row tail fold c=" << tail.constVal
+                  << (aliasesRhs ? " (in-place i<=mid)\n" : "\n");
     return true;
 }
 
