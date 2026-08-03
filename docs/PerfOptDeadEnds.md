@@ -1,9 +1,10 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`3f36aec`（last-k + **parity-a 版本化**），线上约 **79.22s AC**。  
+当前稳定基线：`3f36aec` / 线上约 **79.23s AC**（last-k + parity-a）。  
 历史：`3f0185a` last-k ≈81.34s；`7e67ba4` licc_tail ≈81.64s；DepthPair ≈90.48s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
-Session：`educg_session` 以浏览器最新 cookie 为准。
+Session：`educg_session` 以浏览器最新 cookie 为准。  
+注意：`76_n_queens` 偶发 O0 TLE（PE）；干净树重提可 AC。最近回退：`8b660a0` post-i direct-out（79.23→80.22）。
 
 ## 评分原则（决定优先级）
 
@@ -252,13 +253,27 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 **为何无效**：指针 phi 接边在部分 nest 不安全；O0 也跑 LSRI，拖垮功能测。  
 **黑名单**：勿再上通用 row-GEP 指针 ISRA（须含 `76_n_queens` 验证）。
 
+### 11. Post-i direct-out（scratch 在 k==i 后刷出）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `8b660a0`（已回退） |
+| 目标 | `many_mat*`（减 `k>i` 段 scratch 读写） |
+| 做法 | `applyWithScratch`：`i>=kBound` 先 seed out；`k<=i` 仍走 scratch，`k==i` 后 flush；`k>i` 直写 `out[i][*]`；last-k 用 `select(i==kLast, scratch, out)` |
+| 本地 | qemu AC，壁钟看似大降（qemu 计时不可靠） |
+| 线上 | **变慢**（79.23→80.22s）；many_mat ≈7.9→≈8.2 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：省 scratch 流量的收益被 phase/flush 额外分支与双路径 j 循环的代码膨胀抵消；开发板更敏感。  
+**黑名单**：勿在 many_mat scratch 路径上再做 mid-row phase 切换 / flush→direct；保持单一 scratch+last-k 形态。
+
 ---
 
 ## 仍有效的背景事实
 
 | 样例 | 事实 |
 |------|------|
-| `many_mat*` | MatMulDotProduct + interchange + licc_tail + last-k 已触发；勿 j-panel-outer；勿 k4 跨行捆绑 |
+| `many_mat*` | MatMulDotProduct + interchange + licc_tail + last-k 已触发；勿 j-panel-outer；勿 k4 跨行捆绑；勿 post-i flush/direct |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
 | `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；指针 ISRA 已证伪 |
 | `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
@@ -285,4 +300,5 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 6. **不要**在 many_mat scratch 上做跨行 k 捆绑累加（k4）。  
 7. **不要**做粗糙 GEP→指针 phi ISRA（正确性已挂）。  
 8. **不要**再把 partial unroll 加到 16（已变慢）。  
-9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。
+9. **不要**上通用 row-GEP 指针 ISRA（`76_n_queens` O0 TLE）。  
+10. **不要**在 many_mat scratch 上做 post-i flush→direct（已变慢）。
