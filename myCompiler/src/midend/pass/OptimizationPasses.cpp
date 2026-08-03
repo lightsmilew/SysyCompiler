@@ -254,6 +254,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         // 整 nest 一次版本化（d==3），须在展开/SRFixed 前；勿挂 O0
         pm->addPass(std::make_unique<InvariantDivisorNestVersionPass>(verbose));
+        pm->addPass(std::make_unique<ScaledRowBCachePass>(verbose));
         //pm->addPass(std::make_unique<RelativeGepOffsetPass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<InPlaceCopyOriginReductionPass>(verbose));
