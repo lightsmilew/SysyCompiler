@@ -552,12 +552,18 @@ bool LoopInterchangePass::applyDirectAccumulate(Function *func, MatMulDotProduct
 
     BasicBlock *kHeader = func->addBasicBlock("licc_k_header");
     BasicBlock *kBody = func->addBasicBlock("licc_k_body");
-    BasicBlock *jHeader = func->addBasicBlock("licc_j_header");
-    BasicBlock *jBody = func->addBasicBlock("licc_j_body");
+    BasicBlock *jFastHeader = func->addBasicBlock("licc_j_fast_header");
+    BasicBlock *jFastBody = func->addBasicBlock("licc_j_fast_body");
+    BasicBlock *jSlowHeader = nullptr;
+    BasicBlock *jSlowBody = nullptr;
+    if (pat.hasParityGuard)
+    {
+        jSlowHeader = func->addBasicBlock("licc_j_slow_header");
+        jSlowBody = func->addBasicBlock("licc_j_slow_body");
+    }
     BasicBlock *kLatch = func->addBasicBlock("licc_k_latch");
     BasicBlock *kExit = func->addBasicBlock("licc_k_exit");
 
-    // out 已是 0，无需清零；直接进入 k 循环
     replaceTerminator(pat.iBody, own(new BranchInst(kHeader)));
     wireEdge(pat.iBody, kHeader);
 
@@ -575,37 +581,110 @@ bool LoopInterchangePass::applyDirectAccumulate(Function *func, MatMulDotProduct
     auto *lhsVal = new LoadInst(lhsGep, "licc_lhs_val");
     kBody->addInstruction(own(lhsVal));
 
-    Value *parityIkVal = nullptr;
     if (pat.hasParityGuard)
     {
         auto *pikGep = new GetElementPtrInst(pat.parityIkArray, {pat.iIV, kPhi}, "licc_pik_gep");
         kBody->addInstruction(own(pikGep));
         auto *pikLoad = new LoadInst(pikGep, "licc_pik_val");
         kBody->addInstruction(own(pikLoad));
-        parityIkVal = pikLoad;
+        auto *pa = new BinaryOperator(Opcode::And, pikLoad, one, "licc_parity_a");
+        kBody->addInstruction(own(pa));
+        // pa==0：乘积恒偶，整行无条件累加；pa==1：仅当 pkj 偶时累加
+        auto *paOdd = new ICmpInst(ICmpInst::ICMP_NE, pa, zero, "licc_pa_odd");
+        kBody->addInstruction(own(paOdd));
+        // 独立 preheader，避免后续 gcc-unroll 把入口边接到 unroll_exit
+        BasicBlock *fastPre = func->addBasicBlock("licc_j_fast_pre");
+        BasicBlock *slowPre = func->addBasicBlock("licc_j_slow_pre");
+        kBody->addInstruction(own(new BranchInst(paOdd, slowPre, fastPre)));
+        wireEdge(kBody, slowPre);
+        wireEdge(kBody, fastPre);
+        fastPre->addInstruction(own(new BranchInst(jFastHeader)));
+        wireEdge(fastPre, jFastHeader);
+        slowPre->addInstruction(own(new BranchInst(jSlowHeader)));
+        wireEdge(slowPre, jSlowHeader);
+
+        auto emitJLoop = [&](BasicBlock *jHeader, BasicBlock *jBody, BasicBlock *entryFrom,
+                             bool needPkj) {
+            auto *jPhi = new PhiInst(IntegerType::getInstance(),
+                                     needPkj ? "licc_j_slow" : "licc_j_fast");
+            jPhi->addIncoming(zero, entryFrom);
+            jHeader->addInstruction(own(jPhi));
+            auto *jCmp = new ICmpInst(ICmpInst::ICMP_SLT, jPhi, pat.bound,
+                                      needPkj ? "licc_j_slow_cmp" : "licc_j_fast_cmp");
+            jHeader->addInstruction(own(jCmp));
+            jHeader->addInstruction(own(new BranchInst(jCmp, jBody, kLatch)));
+            wireEdge(jHeader, jBody);
+            wireEdge(jHeader, kLatch);
+
+            auto *outGep = new GetElementPtrInst(outBase, {pat.iIV, jPhi},
+                                                 needPkj ? "licc_out_slow" : "licc_out_fast");
+            jBody->addInstruction(own(outGep));
+            auto *accLoad = new LoadInst(outGep, needPkj ? "licc_acc_slow" : "licc_acc_fast");
+            jBody->addInstruction(own(accLoad));
+            auto *rhsGep = new GetElementPtrInst(pat.rhsArray, {kPhi, jPhi},
+                                                 needPkj ? "licc_rhs_slow" : "licc_rhs_fast");
+            jBody->addInstruction(own(rhsGep));
+            auto *rhsVal = new LoadInst(rhsGep, needPkj ? "licc_rhs_slow_v" : "licc_rhs_fast_v");
+            jBody->addInstruction(own(rhsVal));
+            auto *prod = new BinaryOperator(Opcode::Mul, lhsVal, rhsVal,
+                                            needPkj ? "licc_prod_slow" : "licc_prod_fast");
+            jBody->addInstruction(own(prod));
+            Value *addend = prod;
+            if (needPkj)
+            {
+                auto *pkjGep =
+                    new GetElementPtrInst(pat.parityKjArray, {kPhi, jPhi}, "licc_pkj_gep");
+                jBody->addInstruction(own(pkjGep));
+                auto *pkjLoad = new LoadInst(pkjGep, "licc_pkj_val");
+                jBody->addInstruction(own(pkjLoad));
+                auto *pb = new BinaryOperator(Opcode::And, pkjLoad, one, "licc_parity_b");
+                jBody->addInstruction(own(pb));
+                auto *ok = new ICmpInst(ICmpInst::ICMP_EQ, pb, zero, "licc_parity_ok");
+                jBody->addInstruction(own(ok));
+                auto *scaled = new BinaryOperator(Opcode::Mul, ok, prod, "licc_scaled");
+                jBody->addInstruction(own(scaled));
+                addend = scaled;
+            }
+            auto *accAdd = new BinaryOperator(Opcode::Add, accLoad, addend,
+                                              needPkj ? "licc_add_slow" : "licc_add_fast");
+            jBody->addInstruction(own(accAdd));
+            jBody->addInstruction(own(new StoreInst(accAdd, outGep)));
+            auto *jInc = new BinaryOperator(Opcode::Add, jPhi, one,
+                                            needPkj ? "licc_j_slow_inc" : "licc_j_fast_inc");
+            jBody->addInstruction(own(jInc));
+            jPhi->addIncoming(jInc, jBody);
+            jBody->addInstruction(own(new BranchInst(jHeader)));
+            wireEdge(jBody, jHeader);
+        };
+
+        emitJLoop(jFastHeader, jFastBody, fastPre, false);
+        emitJLoop(jSlowHeader, jSlowBody, slowPre, true);
     }
-    kBody->addInstruction(own(new BranchInst(jHeader)));
-    wireEdge(kBody, jHeader);
+    else
+    {
+        kBody->addInstruction(own(new BranchInst(jFastHeader)));
+        wireEdge(kBody, jFastHeader);
 
-    auto *jPhi = new PhiInst(IntegerType::getInstance(), "licc_j");
-    jPhi->addIncoming(zero, kBody);
-    jHeader->addInstruction(own(jPhi));
-    auto *jCmp = new ICmpInst(ICmpInst::ICMP_SLT, jPhi, pat.bound, "licc_j_cmp");
-    jHeader->addInstruction(own(jCmp));
-    jHeader->addInstruction(own(new BranchInst(jCmp, jBody, kLatch)));
-    wireEdge(jHeader, jBody);
-    wireEdge(jHeader, kLatch);
+        auto *jPhi = new PhiInst(IntegerType::getInstance(), "licc_j");
+        jPhi->addIncoming(zero, kBody);
+        jFastHeader->addInstruction(own(jPhi));
+        auto *jCmp = new ICmpInst(ICmpInst::ICMP_SLT, jPhi, pat.bound, "licc_j_cmp");
+        jFastHeader->addInstruction(own(jCmp));
+        jFastHeader->addInstruction(own(new BranchInst(jCmp, jFastBody, kLatch)));
+        wireEdge(jFastHeader, jFastBody);
+        wireEdge(jFastHeader, kLatch);
 
-    auto *outGep = new GetElementPtrInst(outBase, {pat.iIV, jPhi}, "licc_out_gep");
-    jBody->addInstruction(own(outGep));
-    emitInnerJBody(jBody, outGep, lhsVal, pat.rhsArray, kPhi, jPhi, pat.hasParityGuard,
-                   parityIkVal, pat.parityKjArray, zero, one);
+        auto *outGep = new GetElementPtrInst(outBase, {pat.iIV, jPhi}, "licc_out_gep");
+        jFastBody->addInstruction(own(outGep));
+        emitInnerJBody(jFastBody, outGep, lhsVal, pat.rhsArray, kPhi, jPhi, false, nullptr, nullptr,
+                       zero, one);
 
-    auto *jInc = new BinaryOperator(Opcode::Add, jPhi, one, "licc_j_inc");
-    jBody->addInstruction(own(jInc));
-    jPhi->addIncoming(jInc, jBody);
-    jBody->addInstruction(own(new BranchInst(jHeader)));
-    wireEdge(jBody, jHeader);
+        auto *jInc = new BinaryOperator(Opcode::Add, jPhi, one, "licc_j_inc");
+        jFastBody->addInstruction(own(jInc));
+        jPhi->addIncoming(jInc, jFastBody);
+        jFastBody->addInstruction(own(new BranchInst(jFastHeader)));
+        wireEdge(jFastBody, jFastHeader);
+    }
 
     auto *kInc = new BinaryOperator(Opcode::Add, kPhi, one, "licc_k_inc");
     kLatch->addInstruction(own(kInc));
@@ -616,6 +695,8 @@ bool LoopInterchangePass::applyDirectAccumulate(Function *func, MatMulDotProduct
     kExit->addInstruction(own(new BranchInst(pat.jExit)));
     wireEdge(kExit, pat.jExit);
     removeOldNest(func, pat, kExit);
+    if (pat.hasParityGuard && verbose)
+        debugInfo << "LoopInterchange: parity-a versioned j loops in " << func->getName() << "\n";
     return true;
 }
 
