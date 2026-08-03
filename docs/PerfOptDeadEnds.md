@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`34db6a3`（DepthPairToSteps + dense memo），线上约 **90.48s AC**。  
-历史：`46811bc` unroll×8 ≈94.12s；NestVersion ≈94.47s；APMod ≈103.37s。  
+当前稳定基线：`7e67ba4`（DepthPair + unroll×8 + NestVersion + **licc_tail**），线上约 **81.64s AC**。  
+历史：`34db6a3` DepthPair ≈90.48s；`46811bc` unroll×8 ≈94.12s；NestVersion ≈94.47s；APMod ≈103.37s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。
 
@@ -14,16 +14,17 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`34db6a3`）：
+当前最大 gap（`7e67ba4` / 81.64s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
 | 01_mm2/3/1 | 4.77 / 3.00 / 1.36 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
-| many_mat* | ≈11 | ≈0.30–0.37 | ≈30–36 | ≈0.03 |
+| many_mat* | ≈8.0 | ≈0.43–0.48 | ≈17–18 | ≈0.05–0.06 |
 | sl* | 7.25 / 3.75 / 0.45 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
+| 03_sort* | 0.52 | 0.09 | ≈5.8 | ≈0.17 |
 | h-1-03/01 | 0.67 / 0.12 | 0.37 / 0.07 | ≈1.8 / 1.7 | ≈0.55 |
 
-输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）。
+输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）；`many_mat` T≈412。
 
 ---
 
@@ -55,7 +56,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 决策 | `IMPROVED` 保留 |
 
 **为何有效**：降低内层分支密度；对已是内存瓶颈的 nest 收益有限。  
-**评分**：`avg(best/my)` 略升（≈0.5425→0.5438）；`many_mat` best 已到 ~0.3s，ratio≈30× 仍是主战场。
+**评分**：`avg(best/my)` 略升；`many_mat` 仍是主战场之一。
 
 ### C. DepthPairToSteps + dense memo 扩容 — 有效
 
@@ -69,7 +70,21 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 决策 | `IMPROVED` 保留 |
 
 **为何有效**：非尾 `__steps` 可走 dense memo；原先全尾递归路径只有 TRE/内联、无缓存。  
-**残余**：`h-1` 仍约 1.7–1.8× best（缓存/溢出路径）；主战场转回 `many_mat*` / `01_mm*` / `sl*`。
+**残余**：`h-1` 仍约 1.7–1.8× best；主战场转回 `many_mat*` / `01_mm*` / `sl*`。
+
+### D. Const rhs row-tail fold（`licc_tail`）— 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `7e67ba4` |
+| 目标 | `many_mat*`（rhs 下半行被填成常量） |
+| 做法 | `LoopInterchangePass::findConstRowTail`：发现 `rhs[mid..bound)` 常量填充后，收窄 k 到 `mid`，并用 `c*sum(lhs[i][mid..))` 种子化行缓冲；`out==rhs` 时仅 `i<=mid` 安全折叠 |
+| 本地 | `many_mat_cal-*` qemu AC |
+| 线上 | **90.48s → 81.64s AC**（Δ≈−8.84s）；many_mat ≈11s→≈8s |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：砍掉约一半 k 迭代的乘加，并一次计入尾贡献。  
+**残余**：many_mat 仍 ≈17× best；下一步去掉独立 scratch flush（last-k write-through）等。
 
 ---
 
@@ -124,7 +139,21 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 现状 | IR 已有 gcc 式 j-unroll=4；再写一遍无预期提速 |
 | 决策 | **未提交**；草稿已删 |
 
-**后续**：`01_mm*` 需更强手段（更大 unroll / 指针归纳 / 后端），勿再做同构重写。
+**后续**：`01_mm*` 需更强手段（指针归纳 / 后端），勿再做同构重写。
+
+---
+
+## 进行中 / 待验证
+
+### E. Last-k write-through（去掉独立 `licc_store_*` flush）— 待线上
+
+| 项 | 内容 |
+|----|------|
+| 目标 | `many_mat*` scratch 路径 |
+| 做法 | `k < kBound-1` 仍写 scratch；最后一轮 k 从 scratch 累加后**直写 out**；`kBound==0` 仍走 store flush；`rowDone` 统一汇合 |
+| 本地 | `many_mat_cal-1` qemu AC，qemu 耗时约 −57%（仅供参考） |
+| 线上 | （提交中） |
+| 决策 | 待定 |
 
 ---
 
@@ -132,10 +161,11 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 | 样例 | 事实 |
 |------|------|
-| `many_mat*` | MatMulDotProduct + interchange 已触发；j 已被 gcc unroll；下一步勿 j-panel-outer |
+| `many_mat*` | MatMulDotProduct + interchange + licc_tail 已触发；勿 j-panel-outer |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
-| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃 |
+| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；可考虑行指针 ISRA |
 | `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
+| `03_sort*` | PowDivLoopReduction 已吃掉 base=16 的 getNumPos；残余多为基数排序结构本身 |
 | 流水线 | 功能测 **O0**；性能测 **`-O1`** |
 | 脚本 | `tools/opt_submit_loop.sh`、`tools/qemu_verify.sh`、`tools/educg_submit.py` |
 

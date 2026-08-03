@@ -256,11 +256,17 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     BasicBlock *kBody = func->addBasicBlock("licc_k_body");
     BasicBlock *jHeader = func->addBasicBlock("licc_j_header");
     BasicBlock *jBody = func->addBasicBlock("licc_j_body");
+    BasicBlock *lastKBody = func->addBasicBlock("licc_last_k_body");
+    BasicBlock *lastJHeader = func->addBasicBlock("licc_last_j_header");
+    BasicBlock *lastJBody = func->addBasicBlock("licc_last_j_body");
     BasicBlock *kLatch = func->addBasicBlock("licc_k_latch");
     BasicBlock *kExit = func->addBasicBlock("licc_k_exit");
+    // kBound==0 时无 k 迭代，仍需把初值刷到 out
     BasicBlock *storeHeader = func->addBasicBlock("licc_store_header");
     BasicBlock *storeBody = func->addBasicBlock("licc_store_body");
     BasicBlock *storeExit = func->addBasicBlock("licc_store_exit");
+    // store / last-k 共用，作为 removeOldNest 的 continue
+    BasicBlock *rowDone = func->addBasicBlock("licc_row_done");
 
     BasicBlock *mergeBB = nullptr;
     Value *initAccVal = zero;
@@ -367,32 +373,62 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     wireEdge(accInitBody, accInitHeader);
     wireEdge(accInitHeader, accInitExit);
 
+    // kBound==0：无乘加，直接刷初值；否则最后一轮 k 写 out，省掉独立 flush
+    auto *kEmpty = new ICmpInst(ICmpInst::ICMP_EQ, kBound, zero, "licc_k_empty");
+    accInitExit->addInstruction(own(kEmpty));
+    accInitExit->addInstruction(own(new BranchInst(kEmpty, storeHeader, kHeader)));
+    wireEdge(accInitExit, storeHeader);
+    wireEdge(accInitExit, kHeader);
+
+    auto *kLast = new BinaryOperator(Opcode::Sub, kBound, one, "licc_k_last");
+    // 放在 kHeader 前驱可见处：随 kHeader 入口计算
     auto *kPhi = new PhiInst(IntegerType::getInstance(), "licc_k");
     kPhi->addIncoming(zero, accInitExit);
     kHeader->addInstruction(own(kPhi));
+    kHeader->addInstruction(own(kLast));
     auto *kCmp = new ICmpInst(ICmpInst::ICMP_SLT, kPhi, kBound, "licc_k_cmp");
     kHeader->addInstruction(own(kCmp));
-    kHeader->addInstruction(own(new BranchInst(kCmp, kBody, kExit)));
-    wireEdge(accInitExit, kHeader);
-    wireEdge(kHeader, kBody);
+    auto *isLastK = new ICmpInst(ICmpInst::ICMP_EQ, kPhi, kLast, "licc_k_is_last");
+    kHeader->addInstruction(own(isLastK));
+    // k < kBound ? (last ? lastKBody : kBody) : kExit
+    BasicBlock *kDispatch = func->addBasicBlock("licc_k_dispatch");
+    kHeader->addInstruction(own(new BranchInst(kCmp, kDispatch, kExit)));
+    wireEdge(kHeader, kDispatch);
     wireEdge(kHeader, kExit);
+    kDispatch->addInstruction(own(new BranchInst(isLastK, lastKBody, kBody)));
+    wireEdge(kDispatch, lastKBody);
+    wireEdge(kDispatch, kBody);
 
-    auto *lhsGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, kPhi}, "licc_lhs_gep");
-    kBody->addInstruction(own(lhsGep));
-    auto *lhsVal = new LoadInst(lhsGep, "licc_lhs_val");
-    kBody->addInstruction(own(lhsVal));
+    auto emitKBodyPrefix = [&](BasicBlock *kb, const char *lhsName, const char *pikName,
+                               Value *&outLhs, Value *&outParity) {
+        auto *lhsGep = new GetElementPtrInst(pat.lhsArray, {pat.iIV, kPhi}, lhsName);
+        kb->addInstruction(own(lhsGep));
+        auto *lhsVal = new LoadInst(lhsGep, string(lhsName) + "_val");
+        kb->addInstruction(own(lhsVal));
+        outLhs = lhsVal;
+        outParity = nullptr;
+        if (pat.hasParityGuard)
+        {
+            auto *pikGep = new GetElementPtrInst(pat.parityIkArray, {pat.iIV, kPhi}, pikName);
+            kb->addInstruction(own(pikGep));
+            auto *pikLoad = new LoadInst(pikGep, string(pikName) + "_val");
+            kb->addInstruction(own(pikLoad));
+            outParity = pikLoad;
+        }
+    };
 
+    Value *lhsVal = nullptr;
     Value *parityIkVal = nullptr;
-    if (pat.hasParityGuard)
-    {
-        auto *pikGep = new GetElementPtrInst(pat.parityIkArray, {pat.iIV, kPhi}, "licc_pik_gep");
-        kBody->addInstruction(own(pikGep));
-        auto *pikLoad = new LoadInst(pikGep, "licc_pik_val");
-        kBody->addInstruction(own(pikLoad));
-        parityIkVal = pikLoad;
-    }
+    emitKBodyPrefix(kBody, "licc_lhs_gep", "licc_pik_gep", lhsVal, parityIkVal);
     kBody->addInstruction(own(new BranchInst(jHeader)));
     wireEdge(kBody, jHeader);
+
+    Value *lastLhsVal = nullptr;
+    Value *lastParityIkVal = nullptr;
+    emitKBodyPrefix(lastKBody, "licc_last_lhs_gep", "licc_last_pik_gep", lastLhsVal,
+                    lastParityIkVal);
+    lastKBody->addInstruction(own(new BranchInst(lastJHeader)));
+    wireEdge(lastKBody, lastJHeader);
 
     auto *jPhi = new PhiInst(IntegerType::getInstance(), "licc_j");
     jPhi->addIncoming(zero, kBody);
@@ -414,19 +450,72 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     jBody->addInstruction(own(new BranchInst(jHeader)));
     wireEdge(jBody, jHeader);
 
+    // 最后一轮：从 scratch 累加后直写 out，不再回写 scratch
+    auto *ljPhi = new PhiInst(IntegerType::getInstance(), "licc_last_j");
+    ljPhi->addIncoming(zero, lastKBody);
+    lastJHeader->addInstruction(own(ljPhi));
+    auto *ljCmp = new ICmpInst(ICmpInst::ICMP_SLT, ljPhi, pat.bound, "licc_last_j_cmp");
+    lastJHeader->addInstruction(own(ljCmp));
+    lastJHeader->addInstruction(own(new BranchInst(ljCmp, lastJBody, kExit)));
+    wireEdge(lastJHeader, lastJBody);
+    wireEdge(lastJHeader, kExit); // last-k 完成后经 kExit → rowDone
+
+    auto *lastAccGep = new GetElementPtrInst(acc, {zero, ljPhi}, "licc_last_acc_gep");
+    lastJBody->addInstruction(own(lastAccGep));
+    auto *lastOutGep = new GetElementPtrInst(outBase, {pat.iIV, ljPhi}, "licc_last_out_gep");
+    lastJBody->addInstruction(own(lastOutGep));
+    {
+        auto *accLoad = new LoadInst(lastAccGep, "licc_last_acc_load");
+        lastJBody->addInstruction(own(accLoad));
+        auto *rhsGep = new GetElementPtrInst(pat.rhsArray, {kPhi, ljPhi}, "licc_last_rhs_gep");
+        lastJBody->addInstruction(own(rhsGep));
+        auto *rhsVal = new LoadInst(rhsGep, "licc_last_rhs_val");
+        lastJBody->addInstruction(own(rhsVal));
+        auto *prod = new BinaryOperator(Opcode::Mul, lastLhsVal, rhsVal, "licc_last_prod");
+        lastJBody->addInstruction(own(prod));
+        Value *addend = prod;
+        if (pat.hasParityGuard)
+        {
+            auto *pkjGep =
+                new GetElementPtrInst(pat.parityKjArray, {kPhi, ljPhi}, "licc_last_pkj_gep");
+            lastJBody->addInstruction(own(pkjGep));
+            auto *pkjLoad = new LoadInst(pkjGep, "licc_last_pkj_val");
+            lastJBody->addInstruction(own(pkjLoad));
+            auto *pa = new BinaryOperator(Opcode::And, lastParityIkVal, one, "licc_last_parity_a");
+            lastJBody->addInstruction(own(pa));
+            auto *pb = new BinaryOperator(Opcode::And, pkjLoad, one, "licc_last_parity_b");
+            lastJBody->addInstruction(own(pb));
+            auto *pand = new BinaryOperator(Opcode::And, pa, pb, "licc_last_parity_and");
+            lastJBody->addInstruction(own(pand));
+            auto *ok = new ICmpInst(ICmpInst::ICMP_EQ, pand, zero, "licc_last_parity_ok");
+            lastJBody->addInstruction(own(ok));
+            auto *scaled = new BinaryOperator(Opcode::Mul, ok, prod, "licc_last_scaled");
+            lastJBody->addInstruction(own(scaled));
+            addend = scaled;
+        }
+        auto *accAdd = new BinaryOperator(Opcode::Add, accLoad, addend, "licc_last_acc_add");
+        lastJBody->addInstruction(own(accAdd));
+        lastJBody->addInstruction(own(new StoreInst(accAdd, lastOutGep)));
+    }
+    auto *ljInc = new BinaryOperator(Opcode::Add, ljPhi, one, "licc_last_j_inc");
+    lastJBody->addInstruction(own(ljInc));
+    ljPhi->addIncoming(ljInc, lastJBody);
+    lastJBody->addInstruction(own(new BranchInst(lastJHeader)));
+    wireEdge(lastJBody, lastJHeader);
+
     auto *kInc = new BinaryOperator(Opcode::Add, kPhi, one, "licc_k_inc");
     kLatch->addInstruction(own(kInc));
     kPhi->addIncoming(kInc, kLatch);
     kLatch->addInstruction(own(new BranchInst(kHeader)));
     wireEdge(kLatch, kHeader);
 
+    // 仅 kBound==0：刷 scratch 初值到 out
     auto *jStorePhi = new PhiInst(IntegerType::getInstance(), "licc_j_store");
-    jStorePhi->addIncoming(zero, kExit);
+    jStorePhi->addIncoming(zero, accInitExit);
     storeHeader->addInstruction(own(jStorePhi));
     auto *storeCmp = new ICmpInst(ICmpInst::ICMP_SLT, jStorePhi, pat.bound, "licc_store_cmp");
     storeHeader->addInstruction(own(storeCmp));
     storeHeader->addInstruction(own(new BranchInst(storeCmp, storeBody, storeExit)));
-    wireEdge(kExit, storeHeader);
     wireEdge(storeHeader, storeBody);
     wireEdge(storeHeader, storeExit);
 
@@ -443,9 +532,12 @@ bool LoopInterchangePass::applyWithScratch(Function *func, MatMulDotProductNest 
     storeBody->addInstruction(own(new BranchInst(storeHeader)));
     wireEdge(storeBody, storeHeader);
 
-    storeExit->addInstruction(own(new BranchInst(pat.jExit)));
-    wireEdge(storeExit, pat.jExit);
-    removeOldNest(func, pat, storeExit);
+    storeExit->addInstruction(own(new BranchInst(rowDone)));
+    wireEdge(storeExit, rowDone);
+    kExit->addInstruction(own(new BranchInst(rowDone)));
+    wireEdge(kExit, rowDone);
+    rowDone->addInstruction(own(new BranchInst(pat.jExit)));
+    removeOldNest(func, pat, rowDone);
     if (foundTail && verbose)
         debugInfo << "LoopInterchange: const-row tail fold c=" << tail.constVal
                   << (aliasesRhs ? " (in-place i<=mid)\n" : "\n");
