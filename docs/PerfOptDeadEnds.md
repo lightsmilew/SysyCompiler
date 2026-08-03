@@ -159,7 +159,21 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 ---
 
-## 仍有效的背景事实
+### 5. RelativeGepOffset 挂到 O1 — 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `10131ba`（已回退） |
+| 目标 | 通用地址计算 / `01_mm*` / matmul |
+| 做法 | 取消注释，在 O1 的 `LoopInterchange`/`NestVersion` 之后、`LoopUnrolling` 之前启用（与 O16 同位置） |
+| 本地 | `01_mm1`、`many_mat_cal-1` qemu AC |
+| 线上 | **变慢**（81.34→82.16s）；`sl*` 也变差 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：相对 GEP 变换干扰后续展开/后端；O1 已有 `GEPChainFold`/`addd`。  
+**黑名单**：**不要**在竞赛 O1 流水线启用 `RelativeGepOffset`（仅 O16 调试用）。
+
+---
 
 | 样例 | 事实 |
 |------|------|
@@ -186,4 +200,4 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 1. **不要**把 `01_mm*` 改成 i-outer。  
 2. **不要**对 many_mat scratch 做 j-panel-outer 寄存器分块。  
 3. **不要**在最内层对每个 sdiv 做 d==3 分支；整 nest 一次版本化且勿挂 O0。  
-4. **不要**再做与原 k-i-j 同构的 `01_mm` 权重/GEMM 重写（无提速）。
+5. **不要**在竞赛 O1 启用 `RelativeGepOffset`（已实测变慢）。
