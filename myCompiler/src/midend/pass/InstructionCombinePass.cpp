@@ -217,27 +217,145 @@ namespace
         return constIdx && constIdx->Value == 1;
     }
 
-    // 第二处地址为 addd(gep1, 4) 时也视为与 gep(..., idx+1) 等价
+    // 第二处地址为 addd(addr1, 4)，或同基址 addd 偏移差 4，或 gep(..., idx+1)
     static bool isConsecutiveStoreAddr(Value *addr1, Value *addr2,
                                        const vector<Value *> &indices1)
     {
+        addr1 = stripCopy(addr1);
+        addr2 = stripCopy(addr2);
         auto *gep2 = dynamic_cast<GetElementPtrInst *>(addr2);
-        if (gep2)
+        if (gep2 && !indices1.empty())
             return indicesAreConsecutive(indices1, gep2->getIndices());
-        auto *addd = dynamic_cast<BinaryOperator *>(addr2);
-        if (!addd || addd->getOpcode() != Opcode::Addd || addd->getLHS() != addr1)
-            return false;
-        auto *off = dynamic_cast<ConstantInt *>(addd->getRHS());
-        return off && off->Value == 4;
+        auto *addd2 = dynamic_cast<BinaryOperator *>(addr2);
+        if (addd2 && addd2->getOpcode() == Opcode::Addd && stripCopy(addd2->getLHS()) == addr1)
+        {
+            auto *off = dynamic_cast<ConstantInt *>(addd2->getRHS());
+            return off && off->Value == 4;
+        }
+        auto *addd1 = dynamic_cast<BinaryOperator *>(addr1);
+        if (addd1 && addd2 && addd1->getOpcode() == Opcode::Addd && addd2->getOpcode() == Opcode::Addd &&
+            stripCopy(addd1->getLHS()) == stripCopy(addd2->getLHS()))
+        {
+            auto *o1 = dynamic_cast<ConstantInt *>(addd1->getRHS());
+            auto *o2 = dynamic_cast<ConstantInt *>(addd2->getRHS());
+            return o1 && o2 && o2->Value == o1->Value + 4;
+        }
+        return false;
     }
 
-    static bool hasInterveningLoad(const vector<unique_ptr<Instruction>> &insts, size_t from, size_t to)
+    static GetElementPtrInst *rootGep(Value *addr)
     {
-        // 两条 store 之间只要有 load 就不合并：避免延后写入而中间 load 仍读到旧值。
+        addr = stripCopy(addr);
+        while (addr)
+        {
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(addr))
+                return gep;
+            auto *addd = dynamic_cast<BinaryOperator *>(addr);
+            if (!addd || addd->getOpcode() != Opcode::Addd)
+                return nullptr;
+            addr = stripCopy(addd->getLHS());
+        }
+        return nullptr;
+    }
+
+    // 证明 loadPtr 与 storeAddr 指向不同的 i32 单元（保守：无法证明则视为可能别名）
+    static bool clearlyDistinctI32Addrs(Value *loadPtr, Value *storeAddr)
+    {
+        loadPtr = stripCopy(loadPtr);
+        storeAddr = stripCopy(storeAddr);
+        if (!loadPtr || !storeAddr || loadPtr == storeAddr)
+            return false;
+
+        // load = addd(store, imm≠0) 或 store = addd(load, imm≠0)
+        auto distinctAddd = [](Value *a, Value *b) -> bool {
+            auto *addd = dynamic_cast<BinaryOperator *>(a);
+            if (!addd || addd->getOpcode() != Opcode::Addd || stripCopy(addd->getLHS()) != b)
+                return false;
+            auto *off = dynamic_cast<ConstantInt *>(addd->getRHS());
+            return off && off->Value != 0;
+        };
+        if (distinctAddd(loadPtr, storeAddr) || distinctAddd(storeAddr, loadPtr))
+            return true;
+
+        // 同基址 addd，常量偏移不同
+        auto *a1 = dynamic_cast<BinaryOperator *>(storeAddr);
+        auto *a2 = dynamic_cast<BinaryOperator *>(loadPtr);
+        if (a1 && a2 && a1->getOpcode() == Opcode::Addd && a2->getOpcode() == Opcode::Addd &&
+            stripCopy(a1->getLHS()) == stripCopy(a2->getLHS()))
+        {
+            auto *o1 = dynamic_cast<ConstantInt *>(a1->getRHS());
+            auto *o2 = dynamic_cast<ConstantInt *>(a2->getRHS());
+            if (o1 && o2 && o1->Value != o2->Value)
+                return true;
+        }
+
+        auto *g1 = rootGep(storeAddr);
+        auto *g2 = rootGep(loadPtr);
+        if (!g1 || !g2)
+            return false;
+        // 不同底层数组/指针
+        if (stripCopy(g1->getPointerOperand()) != stripCopy(g2->getPointerOperand()))
+            return true;
+        // 同数组：末维为 storeIdx 与 storeIdx+k（k≠0）
+        auto i1 = g1->getIndices();
+        auto i2 = g2->getIndices();
+        if (i1.size() != i2.size() || i1.empty())
+            return false;
+        for (size_t d = 0; d + 1 < i1.size(); ++d)
+        {
+            if (stripCopy(i1[d]) != stripCopy(i2[d]))
+                return true; // 其它维不同 → 不同元素
+        }
+        Value *last1 = stripCopy(i1.back());
+        Value *last2 = stripCopy(i2.back());
+        if (last1 == last2)
+            return false;
+        if (auto *add = dynamic_cast<BinaryOperator *>(last2))
+        {
+            if (add->getOpcode() == Opcode::Add && stripCopy(add->getLHS()) == last1)
+            {
+                auto *c = dynamic_cast<ConstantInt *>(add->getRHS());
+                if (c && c->Value != 0)
+                    return true;
+            }
+        }
+        if (auto *add = dynamic_cast<BinaryOperator *>(last1))
+        {
+            if (add->getOpcode() == Opcode::Add && stripCopy(add->getLHS()) == last2)
+            {
+                auto *c = dynamic_cast<ConstantInt *>(add->getRHS());
+                if (c && c->Value != 0)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // 仅当中间访存可证明不碰首 store 地址时才允许合并
+    static bool hasInterveningConflictWithAddr(const vector<unique_ptr<Instruction>> &insts,
+                                               size_t from, size_t to, Value *storeAddr)
+    {
         for (size_t k = from + 1; k < to; ++k)
         {
             Instruction *midInst = insts[k].get();
-            if (midInst && midInst->getOpcode() == Opcode::Load)
+            if (!midInst)
+                continue;
+            if (midInst->getOpcode() == Opcode::Call)
+                return true;
+            Value *midPtr = nullptr;
+            if (midInst->getOpcode() == Opcode::Load)
+            {
+                if (auto *ld = dynamic_cast<LoadInst *>(midInst))
+                    midPtr = ld->getPointer();
+            }
+            else if (midInst->getOpcode() == Opcode::Store || midInst->getOpcode() == Opcode::Stored)
+            {
+                if (auto *st = dynamic_cast<StoreInst *>(midInst))
+                    midPtr = st->getPointer();
+            }
+            else
+                continue;
+            if (!clearlyDistinctI32Addrs(midPtr, storeAddr))
                 return true;
         }
         return false;
@@ -245,19 +363,38 @@ namespace
 
     static bool storeAddrsSameBase(Value *addr1, GetElementPtrInst *gep1, Value *addr2)
     {
+        addr1 = stripCopy(addr1);
+        addr2 = stripCopy(addr2);
         if (auto *gep2 = dynamic_cast<GetElementPtrInst *>(addr2))
             return gep1->getPointerOperand() == gep2->getPointerOperand();
         auto *addd = dynamic_cast<BinaryOperator *>(addr2);
-        return addd && addd->getOpcode() == Opcode::Addd && addd->getLHS() == addr1;
+        if (addd && addd->getOpcode() == Opcode::Addd && stripCopy(addd->getLHS()) == addr1)
+            return true;
+        auto *root2 = rootGep(addr2);
+        return root2 && root2->getPointerOperand() == gep1->getPointerOperand();
     }
 
-    // i32 双字 store(sd) 要求首地址 8 字节对齐：末维下标为偶数（含归纳变量偶数初值）
+    // i32 双字 store(sd) 要求首地址 8 字节对齐：末维下标为偶数，或 addd 偏移为 8 的倍数
     static bool lastIndexAlignedForI64Store(GetElementPtrInst *gep, BasicBlock *bb)
     {
         auto indices = gep->getIndices();
         if (indices.empty())
             return false;
         return isEvenIndexValue(indices.back(), bb);
+    }
+
+    static bool addrAlignedForI64Store(Value *addr, BasicBlock *bb)
+    {
+        addr = stripCopy(addr);
+        if (auto *gep = dynamic_cast<GetElementPtrInst *>(addr))
+            return lastIndexAlignedForI64Store(gep, bb);
+        auto *addd = dynamic_cast<BinaryOperator *>(addr);
+        if (!addd || addd->getOpcode() != Opcode::Addd)
+            return false;
+        auto *off = dynamic_cast<ConstantInt *>(addd->getRHS());
+        if (!off || (off->Value & 7) != 0)
+            return false;
+        return addrAlignedForI64Store(addd->getLHS(), bb);
     }
 
     static BinaryOperator *asBinary(Value *v, Opcode op)
@@ -438,12 +575,14 @@ bool InstructionCombinePass::runOnFunction(Function *func)
                 continue;
             auto *const1 = dynamic_cast<ConstantInt *>(val1);
             Value *addr1 = inst1->getOperands()[1];
-            auto *gep1 = dynamic_cast<GetElementPtrInst *>(addr1);
+            auto *gep1 = rootGep(addr1);
             if (!gep1)
                 continue;
             if (!gepPassesArrayChecks(gep1, bb.get()))
                 continue;
-            auto indices1 = gep1->getIndices();
+            auto indices1 = dynamic_cast<GetElementPtrInst *>(stripCopy(addr1))
+                                ? gep1->getIndices()
+                                : vector<Value *>{};
 
             for (size_t j = i + 1; j < insts.size(); ++j)
             {
@@ -459,9 +598,9 @@ bool InstructionCombinePass::runOnFunction(Function *func)
                     continue;
                 if (!storeAddrsSameBase(addr1, gep1, addr2))
                     continue;
-                if (!lastIndexAlignedForI64Store(gep1, bb.get()))
+                if (!addrAlignedForI64Store(addr1, bb.get()))
                     continue;
-                if (hasInterveningLoad(insts, i, j))
+                if (hasInterveningConflictWithAddr(insts, i, j, addr1))
                     continue;
 
                 auto *const2 = dynamic_cast<ConstantInt *>(val2);
