@@ -68,6 +68,30 @@ namespace optimization
         Value *oldResult = nullptr;        // 原归约结果，供 RAUW
     };
 
+    /// k-i-j scaled-row 更新：C[i][j] = C[i][j] * A[i][k] + B[k][j]（可选 A[i][k]==1 跳过）
+    struct ScaledRowUpdateNest
+    {
+        bool valid = false;
+        const Loop *kLoop = nullptr;
+        const Loop *iLoop = nullptr;
+        const Loop *jLoop = nullptr;
+        Value *kIV = nullptr;
+        Value *iIV = nullptr;
+        Value *jIV = nullptr;
+        Value *bound = nullptr;
+        Value *aArray = nullptr;
+        Value *bArray = nullptr;
+        Value *cArray = nullptr;
+        BasicBlock *kHeader = nullptr;
+        BasicBlock *iHeader = nullptr;
+        BasicBlock *jHeader = nullptr;
+        BasicBlock *kBodyOrIEntry = nullptr;
+        LoadInst *aLoad = nullptr;
+        StoreInst *cStore = nullptr;
+        ICmpInst *skipCmp = nullptr;
+        bool hasSkipGuard = false;
+    };
+
     /// i-j-k 点积 nest：out[i][j] += (可选奇偶条件) * lhs[i][k] * rhs[k][j]
     struct MatMulDotProductNest
     {
@@ -102,6 +126,7 @@ namespace optimization
     {
         std::vector<SkewSymmetricMatrixNest> skewSymmetricNests;
         std::vector<MatMulDotProductNest> matMulDotProductNests;
+        std::vector<ScaledRowUpdateNest> scaledRowUpdateNests;
         std::optional<InPlaceCopyOriginChain> inPlaceCopyOriginChain;
     };
 
@@ -144,6 +169,8 @@ namespace optimization
                                  Value *jIV, Value *&outArray);
         bool findMatMulDotProductNest(const Loop &kLoop, const vector<Loop> &loops,
                                       MatMulDotProductNest &out);
+        bool findScaledRowUpdateNest(const Loop &jLoop, const vector<Loop> &loops,
+                                     ScaledRowUpdateNest &out);
 
         CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV);
         bool hasJPhiZeroInit(const Loop &jLoop, Value *jIV);

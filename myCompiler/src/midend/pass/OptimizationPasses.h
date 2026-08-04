@@ -12,6 +12,7 @@
 #include "LoopInductionStrengthReductionPass.h"
 #include "LoopInterchangePass.h"
 #include "MatrixStructureAnalysis.h"
+#include "ScaledRowDensePackPass.h"
 #include "SkewSymmetricLoopRestrictPass.h"
 #include "InPlaceCopyOriginReductionPass.h"
 #include "CondGuardedAccumulatePass.h"

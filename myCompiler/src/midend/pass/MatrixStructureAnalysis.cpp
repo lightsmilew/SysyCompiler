@@ -634,6 +634,245 @@ namespace optimization::matrixStructure
         return true;
     }
 
+    static bool isLargeMatrixArray(Value *arrayBase, unsigned minInner = 256)
+    {
+        if (!arrayBase)
+            return false;
+        auto *ptrTy = dynamic_cast<PointerType *>(stripCopy(arrayBase)->getType());
+        if (!ptrTy)
+            return false;
+        auto *arrTy = dynamic_cast<ArrayType *>(ptrTy->ElementType);
+        if (!arrTy)
+            return false;
+        return arrTy->getNumElements() >= minInner;
+    }
+
+    static LoadInst *resolveLoad(Value *v)
+    {
+        v = stripCopy(v);
+        return dynamic_cast<LoadInst *>(v);
+    }
+
+    static bool isScaledRowUpdateStore(StoreInst *store, Value *iIV, Value *jIV, Value *kIV,
+                                       LoadInst *&cLoad, LoadInst *&bLoad, LoadInst *&aLoad,
+                                       Value *&cArray, Value *&bArray, Value *&aArray)
+    {
+        cLoad = bLoad = aLoad = nullptr;
+        cArray = bArray = aArray = nullptr;
+        if (!store || !iIV || !jIV || !kIV)
+            return false;
+
+        Value *storeRow = nullptr, *storeCol = nullptr, *storeBase = nullptr;
+        if (!parse2DAccess(store->getPointer(), storeRow, storeCol, storeBase))
+            return false;
+        if (!matchesLoopIV(storeRow, iIV) || !matchesLoopIV(storeCol, jIV))
+            return false;
+
+        auto *add = dynamic_cast<BinaryOperator *>(stripCopy(store->getValueToStore()));
+        if (!add || add->getOpcode() != Opcode::Add)
+            return false;
+
+        auto *mul = dynamic_cast<BinaryOperator *>(stripCopy(add->getLHS()));
+        LoadInst *bLd = resolveLoad(add->getRHS());
+        if (!mul || mul->getOpcode() != Opcode::Mul || !bLd)
+        {
+            mul = dynamic_cast<BinaryOperator *>(stripCopy(add->getRHS()));
+            bLd = resolveLoad(add->getLHS());
+            if (!mul || mul->getOpcode() != Opcode::Mul || !bLd)
+                return false;
+        }
+
+        LoadInst *cLd = resolveLoad(mul->getLHS());
+        LoadInst *aLd = resolveLoad(mul->getRHS());
+        if (!cLd)
+        {
+            cLd = resolveLoad(mul->getRHS());
+            aLd = resolveLoad(mul->getLHS());
+        }
+        if (!cLd || !aLd)
+            return false;
+
+        Value *cRow = nullptr, *cCol = nullptr, *cBase = nullptr;
+        Value *bRow = nullptr, *bCol = nullptr, *bBase = nullptr;
+        Value *aRow = nullptr, *aCol = nullptr, *aBase = nullptr;
+        if (!parse2DAccess(cLd->getPointer(), cRow, cCol, cBase))
+            return false;
+        if (!parse2DAccess(bLd->getPointer(), bRow, bCol, bBase))
+            return false;
+        if (!parse2DAccess(aLd->getPointer(), aRow, aCol, aBase))
+            return false;
+
+        if (!matchesLoopIV(cRow, iIV) || !matchesLoopIV(cCol, jIV))
+            return false;
+        if (!matchesLoopIV(bRow, kIV) || !matchesLoopIV(bCol, jIV))
+            return false;
+        if (!matchesLoopIV(aRow, iIV) || !matchesLoopIV(aCol, kIV))
+            return false;
+
+        cLoad = cLd;
+        bLoad = bLd;
+        aLoad = aLd;
+        cArray = cBase;
+        bArray = bBase;
+        aArray = aBase;
+        return true;
+    }
+
+    static bool findScaledRowSkipGuard(const Loop &iLoop, Value *iIV, Value *kIV, Value *aArray,
+                                       ICmpInst *&skipCmp, LoadInst *&aGuardLoad)
+    {
+        skipCmp = nullptr;
+        aGuardLoad = nullptr;
+        if (!iLoop.header || !iIV || !kIV || !aArray)
+            return false;
+
+        for (BasicBlock *bb : iLoop.blocks)
+        {
+            if (!bb || bb == iLoop.header)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *br = dynamic_cast<BranchInst *>(instPtr.get());
+                if (!br || !br->isConditional())
+                    continue;
+                auto *icmp = dynamic_cast<ICmpInst *>(stripCopy(br->getCondition()));
+                if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_EQ)
+                    continue;
+                LoadInst *ld = resolveLoad(icmp->getLHS());
+                auto *one = dynamic_cast<ConstantInt *>(stripCopy(icmp->getRHS()));
+                if (!ld || !one || one->Value != 1)
+                    continue;
+
+                Value *row = nullptr, *col = nullptr, *base = nullptr;
+                if (!parse2DAccess(ld->getPointer(), row, col, base))
+                    continue;
+                if (!sameArray(base, aArray))
+                    continue;
+                if (!matchesLoopIV(row, iIV) || !matchesLoopIV(col, kIV))
+                    continue;
+
+                skipCmp = icmp;
+                aGuardLoad = ld;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool findScaledRowUpdateNest(const Loop &jLoop, const vector<Loop> &loops,
+                                 ScaledRowUpdateNest &out)
+    {
+        if (!isSimpleTwoBlockLoop(jLoop))
+            return false;
+
+        const Loop *iLoop = findParentLoop(jLoop, loops);
+        if (!iLoop)
+            return false;
+        const Loop *kLoop = findParentLoop(*iLoop, loops);
+        if (!kLoop)
+            return false;
+
+        BasicBlock *jHeader = jLoop.header;
+        BasicBlock *jBody = getLoopLatch(jLoop);
+        BasicBlock *jExit = getLoopExit(jLoop);
+        if (!jHeader || !jBody || !jExit || jBody == jHeader)
+            return false;
+
+        Value *jIV = nullptr;
+        Value *bound = nullptr;
+        ICmpInst *jCmp = nullptr;
+        if (!getHeaderBoundCmp(jHeader, jIV, bound, jCmp))
+            return false;
+
+        Value *iIV = nullptr;
+        Value *iBound = nullptr;
+        ICmpInst *iCmp = nullptr;
+        if (!getHeaderBoundCmp(iLoop->header, iIV, iBound, iCmp))
+            return false;
+        if (!sameBound(iBound, bound))
+            return false;
+
+        Value *kIV = nullptr;
+        Value *kBound = nullptr;
+        ICmpInst *kCmp = nullptr;
+        if (!getHeaderBoundCmp(kLoop->header, kIV, kBound, kCmp))
+            return false;
+        if (!sameBound(kBound, bound))
+            return false;
+
+        StoreInst *witness = nullptr;
+        LoadInst *cLoad = nullptr;
+        LoadInst *bLoad = nullptr;
+        LoadInst *aLoad = nullptr;
+        Value *cArray = nullptr;
+        Value *bArray = nullptr;
+        Value *aArray = nullptr;
+        for (auto &instPtr : jBody->getInstructions())
+        {
+            auto *st = dynamic_cast<StoreInst *>(instPtr.get());
+            if (!st)
+                continue;
+            if (!isScaledRowUpdateStore(st, iIV, jIV, kIV, cLoad, bLoad, aLoad, cArray, bArray,
+                                        aArray))
+                continue;
+            if (witness)
+            {
+                witness = nullptr;
+                break;
+            }
+            witness = st;
+        }
+        if (!witness || !cArray || !bArray || !aArray)
+            return false;
+
+        if (!isLargeMatrixArray(aArray) || !isLargeMatrixArray(bArray) ||
+            !isLargeMatrixArray(cArray))
+            return false;
+
+        ICmpInst *skipCmp = nullptr;
+        LoadInst *aGuardLoad = nullptr;
+        bool hasSkipGuard =
+            findScaledRowSkipGuard(*iLoop, iIV, kIV, aArray, skipCmp, aGuardLoad);
+
+        BasicBlock *kBodyOrIEntry = nullptr;
+        for (BasicBlock *bb : kLoop->blocks)
+        {
+            if (bb == kLoop->header || bb == iLoop->header || iLoop->containsBlock(bb))
+                continue;
+            for (BasicBlock *succ : bb->getSuccessors())
+            {
+                if (succ == iLoop->header)
+                {
+                    kBodyOrIEntry = bb;
+                    break;
+                }
+            }
+            if (kBodyOrIEntry)
+                break;
+        }
+
+        out.valid = true;
+        out.kLoop = kLoop;
+        out.iLoop = iLoop;
+        out.jLoop = &jLoop;
+        out.kIV = kIV;
+        out.iIV = iIV;
+        out.jIV = jIV;
+        out.bound = bound;
+        out.aArray = aArray;
+        out.bArray = bArray;
+        out.cArray = cArray;
+        out.kHeader = kLoop->header;
+        out.iHeader = iLoop->header;
+        out.jHeader = jHeader;
+        out.kBodyOrIEntry = kBodyOrIEntry;
+        out.aLoad = hasSkipGuard ? aGuardLoad : aLoad;
+        out.cStore = witness;
+        out.skipCmp = skipCmp;
+        out.hasSkipGuard = hasSkipGuard;
+        return true;
+    }
+
     CopyInst *findJZeroInitCopy(const SquareIJLoopNest &nest, Value *jIV)
     {
         BasicBlock *jPreheader = nullptr;
@@ -763,6 +1002,19 @@ namespace optimization::matrixStructure
         {
             MatMulDotProductNest nest;
             if (!findMatMulDotProductNest(kLoop, loops, nest))
+                continue;
+            result.push_back(nest);
+        }
+        return result;
+    }
+
+    static vector<ScaledRowUpdateNest> analyzeScaledRowUpdateNests(const vector<Loop> &loops)
+    {
+        vector<ScaledRowUpdateNest> result;
+        for (const auto &jLoop : loops)
+        {
+            ScaledRowUpdateNest nest;
+            if (!findScaledRowUpdateNest(jLoop, loops, nest))
                 continue;
             result.push_back(nest);
         }
@@ -1450,6 +1702,7 @@ namespace optimization::matrixStructure
 
         analysis.skewSymmetricNests = analyzeSkewSymmetricNests(func, loops);
         analysis.matMulDotProductNests = analyzeMatMulDotProductNests(loops);
+        analysis.scaledRowUpdateNests = analyzeScaledRowUpdateNests(loops);
         if (auto chain = analyzeInPlaceCopyOriginChain(func))
             analysis.inPlaceCopyOriginChain = *chain;
         return analysis;
@@ -1484,6 +1737,11 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
             debugInfo << "MatrixStructureAnalysis: found " << stored.matMulDotProductNests.size()
                       << " mat-mul dot-product nest(s) in " << func->getName() << "\n";
         }
+        if (!stored.scaledRowUpdateNests.empty())
+        {
+            debugInfo << "MatrixStructureAnalysis: found " << stored.scaledRowUpdateNests.size()
+                      << " scaled-row update nest(s) in " << func->getName() << "\n";
+        }
         if (stored.inPlaceCopyOriginChain && stored.inPlaceCopyOriginChain->valid)
         {
             debugInfo << "MatrixStructureAnalysis: in-place copy origin chain on @"
@@ -1492,5 +1750,6 @@ bool MatrixStructureAnalysisPass::runOnFunction(Function *func)
         }
     }
     return !stored.skewSymmetricNests.empty() || !stored.matMulDotProductNests.empty() ||
+           !stored.scaledRowUpdateNests.empty() ||
            (stored.inPlaceCopyOriginChain && stored.inPlaceCopyOriginChain->valid);
 }
