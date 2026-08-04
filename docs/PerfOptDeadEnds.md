@@ -533,6 +533,19 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **残余**：pack/unpack 每轮仍执行；相对 best 仍 ≈65–110×。下一步抬到循环外。
 
+### L. ScaledRowDensePack v3（pack/unpack 抬出外层循环）— 中性保留
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `ea8ac12` |
+| 目标 | `01_mm*` 去掉每轮 pack/unpack |
+| 做法 | 若两 nest 同处外层循环：`Lpre→packA→packB→L`；体内仅 zero+指针内核乒乓；`L` 出口→unpack |
+| 本地 | `01_mm*` qemu AC；IR 确认 pack 在 `icmp …,5` 之前、unpack 在循环出口 |
+| 线上 | **70.52s AC（SAME）**；mm 时间与 v2 相同 |
+| 决策 | `SAME` 保留 |
+
+**说明**：相对 v2 无额外收益；板上 pack 占比已不大，或循环内残留的 pitch-1024 清零仍占时间。勿回退。下步可删/跳过 mm 内残留的 pitch-1024 zero-init。
+
 ### L. ScaledRowDensePack v3（pack/unpack 抬到外层 i 循环外）— 待测
 
 | 项 | 内容 |
