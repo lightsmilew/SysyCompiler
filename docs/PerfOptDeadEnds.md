@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`b19f8b5` / 线上约 **71.20s AC**（alias-safe i32 双 store→sd）。  
-历史：`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s；`3f0185a` last-k ≈81.34s；licc_tail ≈81.64s。  
+当前稳定基线：`ecf9944` / 线上约 **70.64s AC**（纯计算 partial-unroll 因子 4 + i64 store 配对）。  
+历史：`b19f8b5` ≈71.20s；`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
 注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度、`loadd` 配对。
@@ -15,7 +15,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`b19f8b5` / 71.20s）：
+当前最大 gap（`ecf9944` / 70.64s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
@@ -23,7 +23,8 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | many_mat* | ≈7.5–7.6 | ≈0.29–0.36 | ≈21–26 | ≈0.04–0.05 |
 | sl* | 7.25 / 3.75 / 0.46 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
 | 03_sort* | ≈0.52 | 0.09 | ≈5.8 | ≈0.17 |
-| matmul2 / crypto* | 4.15 / ≈1.7× | — | ≈1.75 | — |
+| crypto* | ≈1.6× | — | — | ≈0.62 |
+| matmul2 | 4.15 | 2.37 | ≈1.75 | ≈0.57 |
 
 输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）；`many_mat` T≈412。
 
@@ -474,3 +475,17 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **为何无效**：L1 命中时二次 `lw` 已很便宜，`srad`/`trunc` 与寄存器压力抵消 `ld` 收益。  
 **黑名单**：勿再上中端 `loadd`+提取配对（除非能量化证明提取链可被后端消掉且不伤 mm）。
+
+### J. 纯计算循环 partial-unroll 因子 8→4 — 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `ecf9944` |
+| 目标 | `crypto*`（`rotl1` 循环 trip≈3–6，因子 8 时主段几乎不进） |
+| 做法 | `LoopUnrollingPass`：`isPureComputation` 时 `unrollFactor=4`；访存稠密循环仍用 8 |
+| 本地 | crypto/mm/many_mat/matmul qemu AC |
+| 线上 | **71.20s → 70.64s AC**（Δ≈−0.56s）；crypto-1 3.57→3.29；crypto-2 2.49→2.31；crypto-3 1.42→1.32；mm/many_mat 持平 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：小 trip 的纯算术循环能吃到 4 路展开；不影响已用因子 8 的 matmul/mm。  
+**残余**：`rotl1` 仍是逐次 `sll+mod2n`；若能整段收成可变位移会更大（须匹配 SysY `%` 语义，勿盲改 bit-rotate）。
