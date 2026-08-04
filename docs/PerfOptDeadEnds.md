@@ -371,6 +371,32 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **为何放弃**：省 stores 被 per-j `select` 抵消；板上预期无正收益。
 
+### 19. 静态常量数组 init→select LUT（ArrayElimination）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | （已回退） |
+| 目标 | `crypto*` 中 `k[]`/`s[]` 等可模拟的常量 init 循环 |
+| 做法 | 模拟 0..N 常量 store 循环；删 init；热路径 load 改 inline select 树 |
+| 本地 | crypto qemu AC，壁钟似降（噪声大） |
+| 线上 | **AC 大回退**（72.41→**139.34s**） |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：select 树在哈希热循环内爆炸，远超省掉的一次 init。  
+**黑名单**：勿把常量表 load 改成热路径 select 树；若再试须用 **rodata/全局常量数组 + load**（且需实测），勿 inline select。
+
+### 20. crypto rotl/`%256`→and 折叠 — 无效（正确性）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | 未提交 |
+| 目标 | `crypto*` `rotl*` / `get_random()%256` |
+| 做法 | `add(sll,mod2n)`→`or`/`and`；LCG `%256`→`and 255` |
+| 本地 | **输出错误**（有符号 rem / 已 lowering 的 mod2n 链 ≠ and） |
+| 决策 | 丢弃 |
+
+**黑名单**：勿对 crypto 的 signed rem 链做无范围证明的 and/or 折叠。
+
 ## 仍有效的背景事实
 
 | 样例 | 事实 |
