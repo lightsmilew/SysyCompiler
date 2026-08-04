@@ -879,6 +879,11 @@ UnrollResult tryUnrollOneLoop(Function *func,
     }
 
     int unrollFactor = kPartialUnrollFactor;
+    // 纯计算小循环（如逐次 rotl1）常见 trip≪8；因子 8 使主段永不进入。
+    // 因子 4 仍保留稠密访存循环用 8 的收益路径。
+    if (partialCost.isPureComputation)
+        unrollFactor = 4;
+
     auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
     auto *unrollBody = new BasicBlock(body->getName() + "_unroll_body", func);
     auto *unrollExit = new BasicBlock(header->getName() + "_unroll_exit", func);
