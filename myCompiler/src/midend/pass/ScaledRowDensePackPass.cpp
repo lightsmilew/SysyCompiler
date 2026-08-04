@@ -94,6 +94,44 @@ namespace
         return nullptr;
     }
 
+    static const Loop *findOutermostLoopContainingBoth(Function *func, BasicBlock *a, BasicBlock *b)
+    {
+        const Loop *best = nullptr;
+        size_t bestSize = 0;
+        for (const Loop &loop : func->getLoops())
+        {
+            if (!loop.header || !loop.containsBlock(a) || !loop.containsBlock(b))
+                continue;
+            if (!best || loop.blocks.size() > bestSize)
+            {
+                best = &loop;
+                bestSize = loop.blocks.size();
+            }
+        }
+        return best;
+    }
+
+    static void redirectHeaderExit(const Loop &loop, BasicBlock *newExitTarget)
+    {
+        BasicBlock *header = loop.header;
+        BasicBlock *oldExit = getLoopExit(loop);
+        if (!header || !oldExit || !newExitTarget || oldExit == newExitTarget)
+            return;
+        auto *br = dynamic_cast<BranchInst *>(header->getTerminator());
+        if (!br || !br->isConditional())
+            return;
+
+        header->removeSuccessor(oldExit);
+        oldExit->removePredecessor(header);
+        header->addSuccessor(newExitTarget);
+        newExitTarget->addPredecessor(header);
+
+        if (br->getTrueBlock() == oldExit)
+            br->setTrueBlock(newExitTarget);
+        else if (br->getFalseBlock() == oldExit)
+            br->setFalseBlock(newExitTarget);
+    }
+
     static unsigned basicBlockIndex(Function *func, BasicBlock *bb)
     {
         unsigned idx = 0;
@@ -609,6 +647,19 @@ bool ScaledRowDensePackPass::applyFunctionGroup(Function *func, vector<ScaledRow
     if (!firstPreheader || !lastExit)
         return false;
 
+    const Loop *outerLoop = findOutermostLoopContainingBoth(func, first.kHeader, last.kHeader);
+    BasicBlock *outerPreheader = nullptr;
+    BasicBlock *outerHeader = nullptr;
+    BasicBlock *outerExit = nullptr;
+    bool hoistPackUnpack = false;
+    if (outerLoop && outerLoop->blocks.size() > first.kLoop->blocks.size())
+    {
+        outerPreheader = findLoopPreheader(*outerLoop);
+        outerHeader = outerLoop->header;
+        outerExit = getLoopExit(*outerLoop);
+        hoistPackUnpack = outerPreheader && outerHeader && outerExit;
+    }
+
     const unsigned id = ++gNestSerial;
     auto *zero = ci(0);
     auto *one = ci(1);
@@ -638,12 +689,29 @@ bool ScaledRowDensePackPass::applyFunctionGroup(Function *func, vector<ScaledRow
     BasicBlock *unpackEntry = func->addBasicBlock(srdpTag(id, "srdp_unpack_entry"));
     BasicBlock *done = func->addBasicBlock(srdpTag(id, "srdp_done"));
 
-    replaceTerminator(firstPreheader, own(new BranchInst(packAEntry)));
-    wireEdge(firstPreheader, packAEntry);
+    BasicBlock *packBExit = hoistPackUnpack ? outerHeader : zeroEntries.front();
+    BasicBlock *nestEntry = hoistPackUnpack ? zeroEntries.front() : packAEntry;
+    BasicBlock *continueBB = hoistPackUnpack ? lastExit : done;
+
+    if (hoistPackUnpack)
+    {
+        replaceTerminator(outerPreheader, own(new BranchInst(packAEntry)));
+        wireEdge(outerPreheader, packAEntry);
+    }
+    else
+    {
+        replaceTerminator(firstPreheader, own(new BranchInst(packAEntry)));
+        wireEdge(firstPreheader, packAEntry);
+    }
 
     emitPackAColMajor(packAEntry, packBEntry, first.bound, n, zero, one, ap, first.aArray, id);
-    emitPackBRowMajor(packBEntry, zeroEntries.front(), first.bound, n, zero, one, xp, first.bArray,
-                      id);
+    emitPackBRowMajor(packBEntry, packBExit, first.bound, n, zero, one, xp, first.bArray, id);
+
+    if (hoistPackUnpack)
+    {
+        replaceTerminator(firstPreheader, own(new BranchInst(nestEntry)));
+        wireEdge(firstPreheader, nestEntry);
+    }
 
     bool useXAsIn = true;
     Value *lastOutBuf = yp;
@@ -664,20 +732,28 @@ bool ScaledRowDensePackPass::applyFunctionGroup(Function *func, vector<ScaledRow
         emitPointerWalkKernel(kernEntries[i], stageExits[i], pat, n, nBytes, zero, one, fourBytes, ap,
                               inBuf, outBuf, stageId);
 
-        BasicBlock *next = (i + 1 < nests.size()) ? zeroEntries[i + 1] : unpackEntry;
+        BasicBlock *next =
+            (i + 1 < nests.size()) ? zeroEntries[i + 1] : (hoistPackUnpack ? lastExit : unpackEntry);
         stageExits[i]->addInstruction(own(new BranchInst(next)));
         wireEdge(stageExits[i], next);
 
         useXAsIn = !useXAsIn;
     }
 
+    BasicBlock *unpackDoneTarget = hoistPackUnpack ? outerExit : lastExit;
     emitUnpackDense(unpackEntry, done, last.bound, n, zero, one, lastOutBuf, last.cArray, id);
 
-    done->addInstruction(own(new BranchInst(lastExit)));
-    wireEdge(done, lastExit);
+    done->addInstruction(own(new BranchInst(unpackDoneTarget)));
+    wireEdge(done, unpackDoneTarget);
+
+    if (hoistPackUnpack)
+    {
+        redirectHeaderExit(*outerLoop, unpackEntry);
+        fixPhisForRemovedBlock(outerExit, outerHeader, done);
+    }
 
     for (ScaledRowUpdateNest &pat : nests)
-        removeScaledRowNest(pat, done);
+        removeScaledRowNest(pat, continueBB);
 
     eraseUnreachableBlocks(func, this);
     return true;

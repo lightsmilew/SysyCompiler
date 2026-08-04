@@ -1,10 +1,10 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`ecf9944` / 线上约 **70.64s AC**（纯计算 partial-unroll 因子 4 + i64 store 配对）。  
-历史：`b19f8b5` ≈71.20s；`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s。  
+当前稳定基线：`ac4aaa3` / 线上约 **70.52s AC**（scaled-row dense-pack v2 指针步进）。  
+历史：`ecf9944` ≈70.64s；`b19f8b5` ≈71.20s；`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
-注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度、`loadd` 配对。
+注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度、`loadd` 配对、dense-pack v1。
 
 ## 评分原则（决定优先级）
 
@@ -404,7 +404,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 |------|------|
 | `many_mat*` | MatMulDotProduct + interchange + licc_tail + last-k 已触发；勿 j-panel-outer；勿 k4 跨行捆绑；勿 post-i flush/direct |
 | `sl*` | `@y` 已删；`InvariantDivisorNestVersion` 已吃掉大部分 sdiv；仍约为 best 的 7–8× |
-| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；指针 ISRA 已证伪 |
+| `01_mm*` | 原生 k-i-j + unroll8；LSRI / 权重 GEMM 同构路已证伪或放弃；指针 ISRA 已证伪；**每 nest dense-pack 已证伪**（须一次 pack + 指针步进） |
 | `h-1*` | DepthPair+memo 已接近 best（≈1.7×）；继续抠收益有限 |
 | `03_sort*` | PowDivLoopReduction 已吃掉 base=16 的 getNumPos；残余多为基数排序结构本身 |
 | 流水线 | 功能测 **O0**；性能测 **`-O1`** |
@@ -435,6 +435,8 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 12. **不要**在含访存 BB 内做 mem-barrier 分段调度（`35_math`/`sl1` 已挂）。
 13. **不要**对 radix 高位轮做递归跳过或 pos 钳位（sort 已变慢）。
 14. **不要**做中端相邻 load→`loadd`+trunc/srad 配对（已变慢）。
+15. **不要**把 packi64 低半字 zext 从 mask+and 改成 slli/srli（已变慢）。
+16. **不要**对 scaled-row 做每 nest 全量 pack/unpack + 逐元素 `mul n` 寻址（`64d0a1a` 已变慢）。
 
 ### I. ALU 调度门槛 3→2 — 中性保留
 
@@ -489,3 +491,55 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 
 **为何有效**：小 trip 的纯算术循环能吃到 4 路展开；不影响已用因子 8 的 matmul/mm。  
 **残余**：`rotl1` 仍是逐次 `sll+mod2n`；若能整段收成可变位移会更大（须匹配 SysY `%` 语义，勿盲改 bit-rotate）。
+
+### 22. packi64 零扩展改 slli/srli — 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `9877391`（已回退） |
+| 目标 | 降低 `packi64`→`sd` 的打包开销（mm/many_mat/matmul） |
+| 做法 | `packI64FromHalves`：`and`+`li 0xffffffff` → `slli 32`+`srli 32` |
+| 本地 | 目标样例 qemu AC |
+| 线上 | **变慢**（70.64→71.73s）；mm/many_mat/matmul 均升 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：原 `and` 掩码可被后端 CSE 跨多次 pack 复用；`slli/srli` 每次 pack 多 2 条 ALU，净亏。  
+**黑名单**：勿再把 pack 低半字 zext 改成双移位；保持 mask+and。
+
+### 23. ScaledRowDensePack v1（每 nest 全量 pack/unpack + 逐元素 mul 寻址）— 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `64d0a1a`（已回退） |
+| 目标 | `01_mm*`（pitch-1024，n≈100–150；ratio≈65–114） |
+| 做法 | 识别 k-i-j scaled-row；全局缓冲；**每个** nest：pack A/B、zero、稠密内核、unpack；nest id 防标签冲突 |
+| 本地 | `01_mm*` qemu AC |
+| 线上 | **变慢**（70.65→73.44s）；mm2 4.57→5.90 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：每 nest 全量 pack/unpack；热循环 `mul n` 替代 `slli 12`。  
+**黑名单**：勿再做「每 nest 全量 pack+unpack + 逐元素 mul 寻址」。
+
+### K. ScaledRowDensePack v2（指针步进 + x/y 乒乓）— 有效（小幅）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `ac4aaa3` |
+| 目标 | `01_mm*` |
+| 做法 | 全局 `srdp_{ap,x,y}`；nest0 `x→y`、nest1 `y→x`；内核行基址+`addi 4`；pack/unpack 仍在外层 `i<5` 内 |
+| 本地 | `01_mm*` qemu AC |
+| 线上 | **70.65→70.52s AC**（Δ≈−0.13s）；mm2 4.57→4.41 |
+| 决策 | `IMPROVED` 保留 |
+
+**残余**：pack/unpack 每轮仍执行；相对 best 仍 ≈65–110×。下一步抬到循环外。
+
+### L. ScaledRowDensePack v3（pack/unpack 抬到外层 i 循环外）— 待测
+
+| 项 | 内容 |
+|----|------|
+| 提交 | （待提交） |
+| 目标 | `01_mm*` |
+| 做法 | 识别同时包含两 nest 的最外层循环 L；`Lpre→packA→packB→L.header`；循环内 nest0 从 zero 起、末 stage→`lastExit`；`L.header` 出口经 unpack→done→原 `Lexit` |
+| 本地 | `01_mm*` qemu AC（待跑） |
+| 线上 | （待测） |
+| 决策 | 待定 |
