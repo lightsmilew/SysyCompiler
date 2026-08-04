@@ -616,6 +616,228 @@ namespace
         iLatch->addInstruction(own(new BranchInst(iHeader)));
         wireEdge(iLatch, iHeader);
     }
+
+    static bool reachesBlock(BasicBlock *from, BasicBlock *to, unsigned maxDepth = 8)
+    {
+        if (!from || !to)
+            return false;
+        if (from == to)
+            return true;
+        unordered_set<BasicBlock *> seen;
+        vector<pair<BasicBlock *, unsigned>> work{{from, 0}};
+        while (!work.empty())
+        {
+            BasicBlock *bb = work.back().first;
+            unsigned depth = work.back().second;
+            work.pop_back();
+            if (bb == to)
+                return true;
+            if (depth >= maxDepth || !seen.insert(bb).second)
+                continue;
+            for (BasicBlock *s : bb->getSuccessors())
+                work.push_back({s, depth + 1});
+        }
+        return false;
+    }
+
+    static BasicBlock *followUncondChain(BasicBlock *bb, unsigned maxSteps = 4)
+    {
+        for (unsigned step = 0; step < maxSteps && bb; ++step)
+        {
+            auto *br = dynamic_cast<BranchInst *>(bb->getTerminator());
+            if (!br || br->isConditional())
+                break;
+            BasicBlock *next = br->getTrueBlock();
+            if (!next || next == bb)
+                break;
+            bb = next;
+        }
+        return bb;
+    }
+
+    static bool isZeroStoreToArray(StoreInst *st, Value *iIV, Value *jIV, Value *array)
+    {
+        if (!st)
+            return false;
+        if (!isZeroInit(st->getValueToStore()))
+        {
+            if (st->Op != Opcode::Stored)
+                return false;
+            auto *stored = dynamic_cast<ConstantInt *>(stripCopy(st->getValueToStore()));
+            if (!stored || stored->Value != 0)
+                return false;
+        }
+        Value *row = nullptr, *col = nullptr, *base = nullptr;
+        if (!parse2DAccess(st->getPointer(), row, col, base))
+            return false;
+        return sameArray(base, array) && matchesLoopIV(row, iIV) && matchesLoopIV(col, jIV);
+    }
+
+    static bool blockOnlyZeroStoresToArray(BasicBlock *bb, Value *iIV, Value *jIV, Value *array)
+    {
+        if (!bb)
+            return false;
+        bool sawZeroStore = false;
+        for (auto &instPtr : bb->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (inst->Op == Opcode::Br)
+                continue;
+            if (auto *st = dynamic_cast<StoreInst *>(inst))
+            {
+                if (!isZeroStoreToArray(st, iIV, jIV, array))
+                    return false;
+                sawZeroStore = true;
+                continue;
+            }
+            if (inst->Op == Opcode::Copy || inst->Op == Opcode::Add || inst->Op == Opcode::GetElementPtr ||
+                inst->Op == Opcode::Addd || inst->Op == Opcode::ICmp || inst->Op == Opcode::Sll ||
+                inst->Op == Opcode::Mul || inst->Op == Opcode::PackI64)
+                continue;
+            return false;
+        }
+        return sawZeroStore;
+    }
+
+    static bool tryMatchPitchZeroLoop(BasicBlock *fromBB, BasicBlock *targetBB, Value *expectedBound,
+                                      Value *expectedArray, BasicBlock *&iExitOut,
+                                      vector<BasicBlock *> &loopBlocksOut)
+    {
+        iExitOut = nullptr;
+        loopBlocksOut.clear();
+        if (!fromBB || !targetBB || !expectedBound || !expectedArray)
+            return false;
+
+        auto *entryBr = dynamic_cast<BranchInst *>(fromBB->getTerminator());
+        if (!entryBr)
+            return false;
+        BasicBlock *iHeader = entryBr->isConditional() ? nullptr : entryBr->getTrueBlock();
+        if (!iHeader)
+            return false;
+
+        Value *iIV = nullptr, *bound = nullptr;
+        ICmpInst *iCmp = nullptr;
+        if (!getHeaderBoundCmp(iHeader, iIV, bound, iCmp) || !sameBound(bound, expectedBound))
+            return false;
+
+        auto *iBr = dynamic_cast<BranchInst *>(iHeader->getTerminator());
+        if (!iBr || !iBr->isConditional())
+            return false;
+
+        BasicBlock *iBody = iBr->getTrueBlock();
+        BasicBlock *iExit = iBr->getFalseBlock();
+        if (!reachesBlock(iExit, targetBB, 8))
+        {
+            iBody = iBr->getFalseBlock();
+            iExit = iBr->getTrueBlock();
+            if (!reachesBlock(iExit, targetBB, 8))
+                return false;
+        }
+
+        BasicBlock *jHeader = followUncondChain(iBody);
+        Value *jIV = nullptr, *jBound = nullptr;
+        ICmpInst *jCmp = nullptr;
+        if (!getHeaderBoundCmp(jHeader, jIV, jBound, jCmp) || !sameBound(jBound, expectedBound))
+            return false;
+
+        auto *jBr = dynamic_cast<BranchInst *>(jHeader->getTerminator());
+        if (!jBr || !jBr->isConditional())
+            return false;
+
+        BasicBlock *jBody = jBr->getTrueBlock();
+        BasicBlock *jExit = jBr->getFalseBlock();
+        if (!blockOnlyZeroStoresToArray(jBody, iIV, jIV, expectedArray))
+        {
+            jBody = jBr->getFalseBlock();
+            jExit = jBr->getTrueBlock();
+            if (!blockOnlyZeroStoresToArray(jBody, iIV, jIV, expectedArray))
+                return false;
+        }
+
+        if (!reachesBlock(jExit, iHeader, 6) && !reachesBlock(jExit, iBody, 6))
+            return false;
+
+        unordered_set<BasicBlock *> loopSet;
+        vector<BasicBlock *> work{iHeader};
+        while (!work.empty())
+        {
+            BasicBlock *bb = work.back();
+            work.pop_back();
+            if (!bb || bb == iExit || !loopSet.insert(bb).second)
+                continue;
+            for (BasicBlock *s : bb->getSuccessors())
+            {
+                if (s != iExit)
+                    work.push_back(s);
+            }
+        }
+        if (loopSet.empty())
+            return false;
+
+        loopBlocksOut.assign(loopSet.begin(), loopSet.end());
+        iExitOut = iExit;
+        return true;
+    }
+
+    static bool bypassPitchZeroLoop(BasicBlock *fromBB, BasicBlock *targetBB, Value *expectedBound,
+                                    Value *expectedArray, Pass *pass)
+    {
+        BasicBlock *iExit = nullptr;
+        vector<BasicBlock *> loopBlocks;
+        if (!tryMatchPitchZeroLoop(fromBB, targetBB, expectedBound, expectedArray, iExit, loopBlocks))
+            return false;
+
+        BasicBlock *dest = reachesBlock(iExit, targetBB, 1) ? targetBB : iExit;
+        replaceTerminator(fromBB, own(new BranchInst(dest)));
+        wireEdge(fromBB, dest);
+
+        unordered_set<BasicBlock *> removeSet(loopBlocks.begin(), loopBlocks.end());
+        for (BasicBlock *bb : loopBlocks)
+        {
+            if (!bb || bb == fromBB || bb == dest)
+                continue;
+            for (auto &bbPtr : fromBB->Parent->getBasicBlocks())
+            {
+                BasicBlock *other = bbPtr.get();
+                if (other && other != bb)
+                    fixPhisForRemovedBlock(other, bb, fromBB);
+            }
+            fixPhisForRemovedBlock(dest, bb, fromBB);
+            bb->removeSelfBasicBlock();
+        }
+
+        if (pass && pass->verbose)
+        {
+            pass->debugInfo << "ScaledRowDensePack: skipped pitch zero-init before "
+                            << dest->getName() << "\n";
+        }
+        return true;
+    }
+
+    static void skipRedundantPitchZeroInits(Function *func, vector<ScaledRowUpdateNest> &nests,
+                                            vector<BasicBlock *> &zeroEntries,
+                                            vector<BasicBlock *> &stageExits, Value *bound,
+                                            bool hoistPackUnpack, BasicBlock *outerHeader,
+                                            BasicBlock *outerExit, Pass *pass)
+    {
+        if (nests.empty() || zeroEntries.empty())
+            return;
+
+        if (hoistPackUnpack && outerHeader && outerExit)
+        {
+            for (BasicBlock *body : outerHeader->getSuccessors())
+            {
+                if (body && body != outerExit)
+                    bypassPitchZeroLoop(body, zeroEntries.front(), bound, nests.front().cArray, pass);
+            }
+        }
+
+        for (unsigned i = 1; i < nests.size() && i < zeroEntries.size(); ++i)
+        {
+            if (i - 1 < stageExits.size())
+                bypassPitchZeroLoop(stageExits[i - 1], zeroEntries[i], bound, nests[i].cArray, pass);
+        }
+    }
 } // namespace
 
 GlobalVariable *ScaledRowDensePackPass::getOrCreateDenseBuffer(Function *func, const string &name)
@@ -754,6 +976,9 @@ bool ScaledRowDensePackPass::applyFunctionGroup(Function *func, vector<ScaledRow
 
     for (ScaledRowUpdateNest &pat : nests)
         removeScaledRowNest(pat, continueBB);
+
+    skipRedundantPitchZeroInits(func, nests, zeroEntries, stageExits, n, hoistPackUnpack, outerHeader,
+                                outerExit, this);
 
     eraseUnreachableBlocks(func, this);
     return true;
