@@ -1,7 +1,7 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`ac4aaa3` / 线上约 **70.52s AC**（scaled-row dense-pack v2 指针步进）。  
-历史：`ecf9944` ≈70.64s；`b19f8b5` ≈71.20s；`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s。  
+当前稳定基线：`24d130d` / 线上约 **70.28s AC**（scaled-row dense-pack + 跳过 pitch-1024 清零）。  
+历史：`ac4aaa3`/`ea8ac12` ≈70.52s；`ecf9944` ≈70.64s；`b19f8b5` ≈71.20s；`15d931b` ≈72.40s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
 注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度、`loadd` 配对、dense-pack v1。
@@ -539,12 +539,23 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 |----|------|
 | 提交 | `ea8ac12` |
 | 目标 | `01_mm*` 去掉每轮 pack/unpack |
-| 做法 | 若两 nest 同处外层循环：`Lpre→packA→packB→L`；体内仅 zero+指针内核乒乓；`L` 出口→unpack |
-| 本地 | `01_mm*` qemu AC；IR 确认 pack 在 `icmp …,5` 之前、unpack 在循环出口 |
-| 线上 | **70.52s AC（SAME）**；mm 时间与 v2 相同 |
+| 做法 | 两 nest 同处外层循环时：`Lpre→pack→L`；体内仅 dense zero+内核；出口 unpack |
+| 本地 | `01_mm*` qemu AC |
+| 线上 | **70.52s AC（SAME）** |
 | 决策 | `SAME` 保留 |
 
-**说明**：相对 v2 无额外收益；板上 pack 占比已不大，或循环内残留的 pitch-1024 清零仍占时间。勿回退。下步可删/跳过 mm 内残留的 pitch-1024 zero-init。
+### M. Skip pitch-1024 zero-init before dense scaled-row — 有效（小幅）
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `24d130d` |
+| 目标 | `01_mm*` 循环内残留的 `C` 清零 |
+| 做法 | 识别「仅 store 0 到 cArray」的 i-j nest，入口改接到 dense `srdp_zero` |
+| 本地 | `01_mm*` qemu AC |
+| 线上 | **70.52→70.28s AC**（Δ≈−0.24s）；mm2 4.41→4.30；mm3 2.88→2.80；mm1 1.30→1.26 |
+| 决策 | `IMPROVED` 保留 |
+
+**残余**：`01_mm*` 仍 ≈63–107× best；dense 路径已较干净，需更强微内核（寄存器分块等）或算法级变换。
 
 ### L. ScaledRowDensePack v3（pack/unpack 抬到外层 i 循环外）— 待测
 
