@@ -1,10 +1,10 @@
 # 性能优化尝试记录（2026-08-02）
 
-当前稳定基线：`4070826` / 线上约 **72.40s AC**（ALU-only 调度门槛 2；与 `15d931b` 同分）。  
-历史：`3f36aec` ≈79.23s；`3f0185a` last-k ≈81.34s；licc_tail ≈81.64s。  
+当前稳定基线：`b19f8b5` / 线上约 **71.20s AC**（alias-safe i32 双 store→sd）。  
+历史：`4070826`/`15d931b` ≈72.40s；`3f36aec` ≈79.23s；`3f0185a` last-k ≈81.34s；licc_tail ≈81.64s。  
 流程：本地 qemu 验证目标性能样例 → push GitLab `test_16` → `educg_submit` → 涨分保留 / 否则回退。  
 Session：`educg_session` 以浏览器最新 cookie 为准。  
-注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度。
+注意：`76_n_queens` / `74_kmp` 偶发功能测 flake（PE）；干净树重提可 AC。已回退：post-i、无门控全局调度、`loadd` 配对。
 
 ## 评分原则（决定优先级）
 
@@ -15,15 +15,15 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 - **绝对耗时长**且 ratio 仍差一截的用例（`sl*`、`many_mat*`）小幅提速也能抬总分与总时间；
 - 比较基线只用**最后一次稳定 AC**，不要用已回退的错误提交。
 
-当前最大 gap（`15d931b` / 72.40s）：
+当前最大 gap（`b19f8b5` / 71.20s）：
 
 | 用例 | my | best | my/best | best/my |
 |------|-----|------|---------|---------|
-| 01_mm2/3/1 | 4.77 / 3.00 / 1.35 | 0.04 / 0.03 / 0.02 | ≈119 / 100 / 68 | ≈0.01 |
-| many_mat* | ≈7.9 | ≈0.29–0.36 | ≈22–27 | ≈0.04–0.05 |
+| 01_mm2/3/1 | 4.57 / 2.84 / 1.29 | 0.04 / 0.03 / 0.02 | ≈114 / 95 / 65 | ≈0.01 |
+| many_mat* | ≈7.5–7.6 | ≈0.29–0.36 | ≈21–26 | ≈0.04–0.05 |
 | sl* | 7.25 / 3.75 / 0.46 | 0.94 / 0.48 / 0.06 | ≈7.5–7.8 | ≈0.13 |
 | 03_sort* | ≈0.52 | 0.09 | ≈5.8 | ≈0.17 |
-| crypto* | 略差于调度前 | — | ≈1.7 | — |
+| matmul2 / crypto* | 4.15 / ≈1.7× | — | ≈1.75 | — |
 
 输入规模：`01_mm*` 的 n≈100–150（非 1024）；`A==1` 约 0–0.5%（skip 几乎不触发）；`many_mat` T≈412。
 
@@ -433,6 +433,7 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 11. **不要**打开**无门控**全局后端调度（`74_kmp` WA）；ALU-only 整块跳过（`15d931b`）已保留。  
 12. **不要**在含访存 BB 内做 mem-barrier 分段调度（`35_math`/`sl1` 已挂）。
 13. **不要**对 radix 高位轮做递归跳过或 pos 钳位（sort 已变慢）。
+14. **不要**做中端相邻 load→`loadd`+trunc/srad 配对（已变慢）。
 
 ### I. ALU 调度门槛 3→2 — 中性保留
 
@@ -444,3 +445,32 @@ Session：`educg_session` 以浏览器最新 cookie 为准。
 | 本地 | scheduling/crypto/many_mat qemu AC |
 | 线上 | **72.40s AC（SAME）**；总时间与 sort/crypto 未见明显变化 |
 | 决策 | `SAME` 保留 |
+
+### H. Alias-safe 相邻 i32 store → `packi64`+`stored` — 有效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `b19f8b5` |
+| 目标 | `01_mm*` / `many_mat*` 稠密内层 |
+| 做法 | `InstructionCombine`：中间访存可证明与首 store 不重叠时合并为 `sd`；支持 `addd`；`GEPChainFold` 后再跑一轮 |
+| 本地 | 目标性能样例 qemu AC |
+| 线上 | **72.42s → 71.20s AC**（Δ≈−1.23s）；mm ≈−0.43s；many_mat ≈−0.99s；matmul 略升 |
+| 评分 | `avg(best/my)` ≈0.596 → ≈0.615 |
+| 决策 | `IMPROVED` 保留 |
+
+**为何有效**：热循环 store 流量减半。  
+**注意**：别名放松必须可证明不重叠。
+
+### 21. 相邻 i32 load → `loadd`+trunc/srad — 无效
+
+| 项 | 内容 |
+|----|------|
+| 提交 | `fe8824a`（已回退） |
+| 目标 | `01_mm*` / `many_mat*` 配对 `lw` |
+| 做法 | 新增 `Opcode::Loadd`；合并相邻 load 为 `ld` + `trunc` + `srad 32` + `trunc` |
+| 本地 | 修正 def-before-use 后目标样例 qemu AC |
+| 线上 | **变慢**（71.20→72.28s）；mm/matmul 明显变差；many_mat 仅小幅下降 |
+| 决策 | `SLOWER_HARD` |
+
+**为何无效**：L1 命中时二次 `lw` 已很便宜，`srad`/`trunc` 与寄存器压力抵消 `ld` 收益。  
+**黑名单**：勿再上中端 `loadd`+提取配对（除非能量化证明提取链可被后端消掉且不伤 mm）。
