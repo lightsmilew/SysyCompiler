@@ -2,15 +2,6 @@
 #include "Pass.h"
 namespace optimization
 {
-    // 7b. 以中心点 GEP 为锚，将下标仅差常量的多维 GEP 转为 addd 字节偏移
-    class RelativeGepOffsetPass : public Pass
-    {
-    public:
-        RelativeGepOffsetPass(bool verbose = false) : Pass(verbose) {}
-        bool runOnFunction(Function *func) override;
-        std::string getName() const override { return "RelativeGepOffset"; }
-    };
-
     // 8.展开getelementptr
     class GEPExpansionPass : public Pass
     {

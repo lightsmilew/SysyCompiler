@@ -11,7 +11,7 @@ shared_ptr<RISCVModule> RISCVBuilder::generateRISCVCode(shared_ptr<Module> irMod
     runBlockLocalCSEPass();
     runLICMPass();
     runBlockLocalCSEPass(); // LICM 后再做 li/la 物化 CSE；copy 源 li 带 copyInit 标记，不参与合并
-    // instructionScheduler();
+    instructionSheduler();  // 仅无访存/调用的纯算术块
     allocateRegisters();
     SecondPeep();
     reallocOffsetForInstructions();

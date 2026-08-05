@@ -12,16 +12,18 @@
 
 | 等级 | 用途 |
 |------|------|
-| **O0 / O1 / O17** | 完整中端优化流水线（三者当前配置基本相同；O17 在内联后等处多一轮 DCE） |
+| **O0** | 完整中端流水线（含 `RecursionNormalization` 等；**不含** O1 专属 `LoopVersioning`） |
+| **O1** | 完整流水线 + **`LoopVersioning`**（日常评测主等级） |
+| **O17** | 完整流水线变体：无 `RecursionNormalization` / `LoopVersioning`；内联后等多一轮 DCE |
 | **O2** | 仅 DCE + Phi 消除（调试/最小优化） |
-| **O15** | 部分 Pass 实验配置（大量 Pass 被注释，用于阶段性测试） |
-| **O16** | 完整流水线至循环展开，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等；**额外启用** `RelativeGepOffset`（供后端调试） |
+| **O15** | 部分 Pass 实验配置（大量 Pass 被注释） |
+| **O16** | 完整流水线至循环展开附近，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等（供后端调试） |
 
-### O0/O1/O17 流水线阶段概览
+### O1 流水线阶段概览
 
 **阶段 A — 预处理与内联前**
 
-`CFGSimplification` → `MemoizationV2` → `CSE(块内)` → `RemoveRedundantStore` → [`Normalization`] → `GlobalScalarPromotion` → `PowDivLoopReduction` → `HelperReturnAnalysis` → `FunctionInlining` → [`DCE`]
+`CFGSimplification` → `RecursionNormalization` → `MemoizationV2` → `CSE(块内)` → `RemoveRedundantStore` → `Normalization` → `GlobalScalarPromotion` → `PowDivLoopReduction` → `CompareChainFold` → `HelperReturnAnalysis` → `FunctionInlining` → `LoopNestInteriorSplit`
 
 **阶段 B — 数组与循环结构**
 
@@ -29,17 +31,16 @@
 
 **阶段 C — 循环变换与展开**
 
-`LoopIfGuardHoist` → `LoopNestedBoundTightening` → [`DCE`/`BBMerge`] → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `TransposedBufferLoadForward` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → `LoopUnrolling` → `InstructionCombine` → `ArrayStoreLoadForward`
+`LoopIfGuardHoist` → `LoopNestedBoundTightening` → `BBMerge` → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → **`LoopVersioning`(O1)** → `LoopUnrolling` → `CopyChainElimination` → `InstructionCombine` → `ArrayStoreLoadForward`
 
 **阶段 D — GEP 与算术归约**
 
-`DCE` → `BBMerge` → `ConstantFolding` → `GEPExpansion` → `ArrayStoreLoadForward` → `DCE` → `CSE` → `AddChainReduction` → `GEPChainFold` → `DCE`
+`DCE` → `BBMerge` → `ConstantFolding` → `GEPExpansion` → `ArrayStoreLoadForward` → `DCE` → `CSE` → `AddChainReduction` → `GEPChainFold` → `InstructionCombine` → `DCE`
 
 **阶段 E — 收尾与后端准备**
 
 `TailRecursionElimination` → `FunctionInlining(二次)` → `GEPToBitCast` → `PhiElimination` → `AddChainReduction` → **`LoopInvariantCodeMotion`(IR)** → `ConstantFolding` → `CSE` → `SRFixed` → `ConstantFolding` → `RemoveRedundantStore` → `BasicBlockReorder` → `DCE` → `RemoveUnusedGlobalAndFunction` → **`LoopGccStyleTransform`**
 
-方括号内为 O17 相对 O16 多出的 DCE/BBMerge 轮次；O16 在 `LoopInterchange` 与 `LoopUnrolling` 之间额外启用 `RelativeGepOffset`。
 
 ---
 
@@ -102,7 +103,13 @@
 
 ### PowDivLoopReductionPass（幂除循环归约）
 
-- 识别 `x = x / c` 或幂相关循环，用公式或代数替换。
+- 改写为 `(num >> (pos<<log2(R))) & (R-1)`（`pos >= 32/log2(R)` 时为 0）；并记录已改写 callee，供调用点内联替换。
+
+
+### CompareChainFoldPass（比较链折叠 / 强度削弱）
+
+- 将可归约为移位的比较/条件链折叠为 `shl`/`sra`（通用强度削弱）。
+
 
 ---
 
@@ -128,7 +135,7 @@
 ### FunctionInliningPass（函数内联）
 
 - 按体积、递归、副作用等条件内联；修正参数、返回值与控制流。
-- O17 末尾有**二次内联**（`aggressive=true`），配合尾递归消除。
+- 流水线末段有**二次内联**（`aggressive=true`），配合尾递归消除。
 
 ### TailRecursionEliminationPass（尾递归消除）
 
@@ -141,6 +148,11 @@
 ### MemoizationV2Pass（记忆化 V2）
 
 - 对满足条件的递归函数插入统一缓存表（4096 槽），入口校验参数后查表/写表。
+
+### RecursionNormalizationPass（递归形态规范化）
+
+- 将可证明的「主参数 + 深度累加器」二元递归规范化为一元形式，便于后续记忆化。
+
 
 ### GlobalScalarPromotionPass（全局标量提升）
 
@@ -168,6 +180,7 @@
 
 - `(sum + x) % c` 形式循环公式化。
 
+
 ### LoopIfGuardHoistPass（循环 if 守卫外提）
 
 - 将循环内不变条件/守卫外提到更外层或 preheader。
@@ -184,6 +197,10 @@
 
 - 识别带条件的累加模式并化简。
 
+### LoopVersioningPass（循环版本化）
+
+- 对含循环不变除数的 nest 做版本化，特化快路径供后续常数除法强度削弱。
+
 ---
 
 ## 七、循环 — 迭代折叠与拷贝传播
@@ -193,9 +210,8 @@
 两类互补优化，**不使用** copy-nest 模式匹配：
 
 1. **迭代不变外层循环**  
-   - 条件：外层 trip > 1；归纳变量在循环体中仅用于比较/自增；所有 loop-carried phi 迭代不变；**读写全局数组在首次 store 前不得 load**（防止 `01_mm1` 类跨轮依赖）；每轮按执行顺序的首写 store 不依赖同单元旧值（copy 后再 trsm 等场景用 array-base 跟踪）。  
+   - 条件：外层 trip > 1；归纳变量在循环体中仅用于比较/自增；所有 loop-carried phi 迭代不变；**读写全局数组在首次 store 前不得 load**（防止跨轮依赖）；每轮按执行顺序的首写 store 不依赖同单元旧值。  
    - 动作：将所有 `icmp slt iv, N` 改为 `icmp slt iv, 1`。  
-   - 典型：`h-10-02` 中 `k<5` 压成 `k<1`（每轮先 copy 再 trsm，与 k 无关）。
 
 2. **线性累加器折叠**  
    - 条件：`acc' = acc + β`（β 不依赖 acc），外层体可线性折叠。  
@@ -208,9 +224,17 @@
 - 识别 **纯拷贝循环**：体内仅 1 load + 1 store，**且 store 的值就是该 load**（排除 `a2[i]=f(a1[i])` 等误匹配）。
 - 支持下标模式：
   - **同下标**：`dst[i] = src[i]`
-  - **常量偏移**：`dst[i] = src[off + i]`（`off` 为 loop-invariant，如 `M[i] = input[chunk_start + i]`）
-- 安全条件：无 enclosing 区域约束时直接传播；若 dst 在 copy 外还有 store（如 trsm），需证明区域内按执行顺序的首写 freshness。
+  - **常量偏移**：`dst[i] = src[off + i]`（`off` 为 loop-invariant）
+- 安全条件：无 enclosing 区域约束时直接传播；若 dst 在 copy 外还有 store，需证明区域内按执行顺序的首写 freshness。
 - 动作：删除 copy 循环；同下标时函数内 `dst` 基址替换为 `src`；偏移时将 `dst[...]` 的 GEP 改写为 `src[off + ...]`。
+
+### CopyChainEliminationPass（拷贝链消除）
+
+- 在可证明冗余的拷贝链上，将使用改写到起源并删除中间拷贝。
+
+### LoopNestInteriorSplitPass（循环 nest interior/border 拆分）
+
+- 基于循环嵌套与内存访问结构，将 guarded kernel（拆为 **interior**（无边界检查）与 **border**（保留 guard）。
 
 ---
 
@@ -218,11 +242,7 @@
 
 ### MatrixStructureAnalysisPass（矩阵结构分析）
 
-- 分析嵌套循环的矩阵访问模式，为 interchange / tiling 等提供元数据。
-
-### TransposedBufferLoadForwardPass（转置缓冲 load 转发）
-
-- 针对转置访问模式的 load 转发优化。
+- 分析嵌套循环的矩阵访问模式，为 interchange / packing 等提供元数据。
 
 ### SkewSymmetricLoopRestrictPass（斜对称循环约束）
 
@@ -232,9 +252,7 @@
 
 - 交换嵌套循环顺序以改善局部性（依赖矩阵结构分析）。
 
-### RelativeGepOffsetPass（相对 GEP 偏移）
 
-- 将 GEP 链转为相对基址的偏移形式；**仅在 `-O16` 流水线中启用**。
 
 ---
 
@@ -252,7 +270,7 @@
 
 - 删除从未 load 的数组 alloca 及相关 store/GEP。
 
-### ArrayCopyPropagationPass / ArrayStoreLoadForwardPass
+### ArrayCopyPropagationPass / ArrayStoreLoadForwardPass / CopyChainEliminationPass
 
 见第七、四节。
 
@@ -284,9 +302,9 @@
 
 ## 设计亮点
 
-- **高度模块化**：每个 Pass 独立，便于 `-O16`/`-O17` 分段调试。
+- **高度模块化**：每个 Pass 独立，便于 `-O15`/`-O16`/`-O1` 分段调试。
 - **GCC 风格协同**：`LoopGccStyleTransform` + 后端 LICM/CSE 针对 latch 上的界与 li/la 模式优化。
-- **迭代不变 + 拷贝传播解耦**：`LoopLinearIterationFold` 负责 trip 折叠；`ArrayCopyPropagation` 负责纯 copy 循环删除，语义分别证明，避免单一模式匹配。
+- **迭代不变 + 拷贝传播解耦**：`LoopLinearIterationFold` 负责 trip 折叠；`ArrayCopyPropagation` 负责纯 copy 循环删除，语义分别证明。
 - **调试友好**：所有 Pass 支持 `-info` 详细输出。
 
 ---

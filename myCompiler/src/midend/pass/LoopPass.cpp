@@ -290,9 +290,9 @@ std::set<BasicBlock *> collectPerIterationBlocks(const Loop &outer)
 
 static constexpr int kFullUnrollMaxTripCount = 20;
 static constexpr int kMaxConstantFullUnrollNestLayers = 2;
-static constexpr int kPartialUnrollFactor = 4;
+static constexpr int kPartialUnrollFactor = 8;
 static constexpr int kPartialUnrollMaxBodyInsts = 40;
-/// 纯计算循环体指令数超过此值时不做 4 路展开（展开后 I-cache 压力大、收益小）
+/// 纯计算循环体指令数超过此值时不做部分展开（展开后 I-cache 压力大、收益小）
 static constexpr int kPureComputePartialUnrollMaxBodyInsts = 4;
 
 void collectLoopBodyAndLatch(const Loop &loop, BasicBlock *&body, BasicBlock *&latch)
@@ -879,6 +879,11 @@ UnrollResult tryUnrollOneLoop(Function *func,
     }
 
     int unrollFactor = kPartialUnrollFactor;
+    // 纯计算小循环（如逐次 rotl1）常见 trip≪8；因子 8 使主段永不进入。
+    // 因子 4 仍保留稠密访存循环用 8 的收益路径。
+    if (partialCost.isPureComputation)
+        unrollFactor = 4;
+
     auto *unrollHeader = new BasicBlock(header->getName() + "_unroll_header", func);
     auto *unrollBody = new BasicBlock(body->getName() + "_unroll_body", func);
     auto *unrollExit = new BasicBlock(header->getName() + "_unroll_exit", func);
@@ -1200,110 +1205,6 @@ bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop 
         }
     }
     return true;
-}
-bool RemoveUselessWhilePass::runOnFunction(Function *func)
-{
-    bool changed = false;
-    bool localChanged;
-    do
-    {
-        localChanged = false;
-        func->setLoops(ControlFlowAnalysis::findLoops(func));
-        auto &loops = func->getLoops();
-        for (const auto &loop : loops)
-        {
-            // 只处理 header + 单 body 的典型 while
-            if (loop.blocks.size() != 2)
-                continue;
-
-            BasicBlock *whilebody = nullptr;
-            for (auto *bb : loop.blocks)
-            {
-                if (bb != loop.header)
-                    whilebody = bb;
-            }
-            if (!whilebody)
-                continue;
-
-            auto *term = dynamic_cast<BranchInst *>(loop.header->getTerminator());
-            if (!term || !term->isConditional())
-                continue;
-
-            // 出口：header 后继中不是 body 的那一边
-            BasicBlock *exitBlock = nullptr;
-            {
-                int sc = 0;
-                for (auto *succ : loop.header->getSuccessors())
-                {
-                    if (succ == whilebody)
-                        continue;
-                    exitBlock = succ;
-                    ++sc;
-                    if (sc > 1)
-                        break;
-                }
-            }
-            if (!exitBlock || loop.header->getSuccessors().size() != 2)
-                continue;
-
-            // 可证「零次进入 body」：条件为常量，且恒定走 exit 一边
-            auto *ci = dynamic_cast<ConstantInt *>(term->getCondition());
-            if (!ci)
-                continue;
-            BasicBlock *taken = (ci->Value != 0) ? term->getTrueBlock() : term->getFalseBlock();
-            if (taken != exitBlock)
-                continue;
-
-            // 循环外进入 header 的前驱只能有一个（典型 preheader）
-            int outerPreds = 0;
-            for (auto *pred : loop.header->getPredecessors())
-            {
-                if (pred == whilebody)
-                    continue;
-                ++outerPreds;
-                if (outerPreds > 1)
-                    break;
-            }
-            if (outerPreds != 1)
-                continue;
-
-            // 先改前驱到出口，避免删块后悬空
-            for (auto *pred : loop.header->getPredecessors())
-            {
-                if (pred == whilebody)
-                    continue;
-                for (auto &instPtr : pred->getInstructions())
-                {
-                    auto *br = dynamic_cast<BranchInst *>(instPtr.get());
-                    if (!br)
-                        continue;
-                    if (br->getTrueBlock() == loop.header)
-                        br->setTrueBlock(exitBlock);
-                    if (br->getFalseBlock() == loop.header)
-                        br->setFalseBlock(exitBlock);
-                }
-                pred->addSuccessor(exitBlock);
-                exitBlock->addPredecessor(pred);
-            }
-
-            // 删掉「从 exit 角度来自 header」的 Phi 边，并在仅余一条 incoming 时用单值替换 Phi
-            removePhiIncomingFromPredecessor(exitBlock, loop.header);
-
-            const string removedHeaderName = loop.header->getName();
-            for (auto *bb : loop.blocks)
-                bb->removeSelfBasicBlock();
-
-            localChanged = true;
-            changed = true;
-            if (verbose)
-            {
-                debugInfo << "RemoveUselessWhilePass: Removed zero-trip while at header "
-                          << removedHeaderName << "\n";
-            }
-            break;
-        }
-    } while (localChanged);
-    return changed;
 }
 // 目前只支持整型规约
 bool LoopSumReductionPass::runOnFunction(Function *func)
@@ -2066,34 +1967,268 @@ namespace
         return v;
     }
 
-    bool isPowDivLoopCallee(Function *func)
+    bool powdivIsPowerOfTwo(int x)
     {
-        if (!func || func->getName() != "getNumPos" || func->getArguments().size() != 2)
-            return false;
+        return x >= 2 && (x & (x - 1)) == 0;
+    }
 
+    int powdivFloorLog2(int x)
+    {
+        int n = 0;
+        while (x > 1)
+        {
+            x >>= 1;
+            ++n;
+        }
+        return n;
+    }
+
+    // 剥离 copy，以及「单值转发」的 exit phi（所有 incoming 归一到同一源）。
+    Value *powdivStripCopyAndForwardPhi(Value *v)
+    {
+        while (v)
+        {
+            if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            {
+                v = cpy->getSource();
+                continue;
+            }
+            if (auto *phi = dynamic_cast<PhiInst *>(v))
+            {
+                Value *unique = nullptr;
+                bool ok = true;
+                for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+                {
+                    Value *inc = powdivStripCopy(phi->getIncomingValue(i));
+                    if (inc == phi)
+                        continue;
+                    if (!unique)
+                        unique = inc;
+                    else if (unique != inc)
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok && unique)
+                {
+                    v = unique;
+                    continue;
+                }
+            }
+            break;
+        }
+        return v;
+    }
+
+    bool powdivSameValue(Value *a, Value *b)
+    {
+        return powdivStripCopyAndForwardPhi(a) == powdivStripCopyAndForwardPhi(b);
+    }
+
+    bool powdivIsConstInt(Value *v, int expected)
+    {
+        auto *ci = dynamic_cast<ConstantInt *>(powdivStripCopy(v));
+        return ci && ci->Value == expected;
+    }
+
+    // 纯计算函数：无 call / store / load（允许 alloca，通常已被 DCE）。
+    bool powdivIsPureComputeFunction(Function *func)
+    {
         for (auto &bbPtr : func->getBasicBlocks())
         {
             for (auto &instPtr : bbPtr->getInstructions())
             {
-                if (auto *div = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (div->getOpcode() != Opcode::SDiv)
-                        continue;
-                    auto *divisor = dynamic_cast<ConstantInt *>(powdivStripCopy(div->getRHS()));
-                    if (divisor && divisor->Value == 16)
-                        return true;
-                }
+                Instruction *inst = instPtr.get();
+                if (dynamic_cast<CallInst *>(inst) || dynamic_cast<StoreInst *>(inst) ||
+                    dynamic_cast<LoadInst *>(inst))
+                    return false;
             }
         }
-        return false;
+        return true;
     }
 
-    bool isPowDivLoopCall(CallInst *call)
+    // 匹配：num_phi = phi(arg0, sdiv(num_phi, R)); iv_phi = phi(0, iv+1);
+    //       while (iv < arg1) { num = num / R; } return num % R;
+    // R 为 ≥2 的 2 的幂。不依赖函数名。
+    bool matchPowDivLoopCallee(Function *func, PowDivLoopReductionPass::PowDivPattern &pat)
     {
-        if (!call)
+        if (!func || func->isLibraryFunction() || func->getName() == "main")
             return false;
-        Function *callee = call->getCalledFunction();
-        return callee && isPowDivLoopCallee(callee);
+        if (func->getArguments().size() != 2)
+            return false;
+        auto *fty = func->getFunctionType();
+        if (!fty || !fty->ReturnType || !fty->ReturnType->isIntegerTy())
+            return false;
+
+        Value *arg0 = func->getArguments()[0].get();
+        Value *arg1 = func->getArguments()[1].get();
+        if (!arg0 || !arg1 || !arg0->getType()->isIntegerTy() || !arg1->getType()->isIntegerTy())
+            return false;
+        if (!powdivIsPureComputeFunction(func))
+            return false;
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *header = bbPtr.get();
+            if (!header)
+                continue;
+
+            PhiInst *numPhi = nullptr;
+            BinaryOperator *divInst = nullptr;
+            int radix = 0;
+
+            for (auto &instPtr : header->getInstructions())
+            {
+                auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+                if (!phi || phi->getNumIncomingValues() != 2)
+                    continue;
+
+                Value *in0 = powdivStripCopy(phi->getIncomingValue(0));
+                Value *in1 = powdivStripCopy(phi->getIncomingValue(1));
+
+                for (int swap = 0; swap < 2; ++swap)
+                {
+                    Value *init = swap ? in1 : in0;
+                    Value *back = swap ? in0 : in1;
+                    if (!powdivSameValue(init, arg0))
+                        continue;
+                    auto *div = dynamic_cast<BinaryOperator *>(back);
+                    if (!div || div->getOpcode() != Opcode::SDiv)
+                        continue;
+                    if (!powdivSameValue(div->getLHS(), phi))
+                        continue;
+                    auto *rhs = dynamic_cast<ConstantInt *>(powdivStripCopy(div->getRHS()));
+                    if (!rhs || !powdivIsPowerOfTwo(rhs->Value))
+                        continue;
+                    numPhi = phi;
+                    divInst = div;
+                    radix = rhs->Value;
+                    break;
+                }
+                if (numPhi)
+                    break;
+            }
+            if (!numPhi || !divInst || radix < 2)
+                continue;
+
+            auto *hdrBr = dynamic_cast<BranchInst *>(header->getTerminator());
+            if (!hdrBr || !hdrBr->isConditional())
+                continue;
+            auto *icmp = dynamic_cast<ICmpInst *>(powdivStripCopy(hdrBr->getCondition()));
+            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+                continue;
+
+            Value *cmpIV = nullptr;
+            if (powdivSameValue(icmp->getRHS(), arg1))
+                cmpIV = powdivStripCopyAndForwardPhi(icmp->getLHS());
+            else if (powdivSameValue(icmp->getLHS(), arg1))
+                cmpIV = powdivStripCopyAndForwardPhi(icmp->getRHS());
+            else
+                continue;
+
+            auto *ivPhi = dynamic_cast<PhiInst *>(cmpIV);
+            if (!ivPhi || ivPhi->getNumIncomingValues() != 2)
+                continue;
+
+            bool ivOk = false;
+            for (int swap = 0; swap < 2; ++swap)
+            {
+                Value *init = powdivStripCopy(ivPhi->getIncomingValue(swap ? 1 : 0));
+                Value *back = powdivStripCopy(ivPhi->getIncomingValue(swap ? 0 : 1));
+                if (!powdivIsConstInt(init, 0))
+                    continue;
+                auto *add = dynamic_cast<BinaryOperator *>(back);
+                if (!add || add->getOpcode() != Opcode::Add)
+                    continue;
+                bool stepOne =
+                    (powdivSameValue(add->getLHS(), ivPhi) && powdivIsConstInt(add->getRHS(), 1)) ||
+                    (powdivSameValue(add->getRHS(), ivPhi) && powdivIsConstInt(add->getLHS(), 1));
+                if (!stepOne)
+                    continue;
+                ivOk = true;
+                break;
+            }
+            if (!ivOk)
+                continue;
+
+            // div 与 iv 自增应在同一 latch/body 块（扫描定位）
+            BasicBlock *divBB = nullptr;
+            BasicBlock *addBB = nullptr;
+            BinaryOperator *ivAdd = nullptr;
+            for (auto &bPtr : func->getBasicBlocks())
+            {
+                for (auto &ip : bPtr->getInstructions())
+                {
+                    if (ip.get() == divInst)
+                        divBB = bPtr.get();
+                    auto *add = dynamic_cast<BinaryOperator *>(ip.get());
+                    if (!add || add->getOpcode() != Opcode::Add)
+                        continue;
+                    if ((powdivSameValue(add->getLHS(), ivPhi) && powdivIsConstInt(add->getRHS(), 1)) ||
+                        (powdivSameValue(add->getRHS(), ivPhi) && powdivIsConstInt(add->getLHS(), 1)))
+                    {
+                        // 确认该 add 是 ivPhi 的回边 incoming
+                        for (unsigned i = 0; i < ivPhi->getNumIncomingValues(); ++i)
+                        {
+                            if (powdivStripCopy(ivPhi->getIncomingValue(i)) == add)
+                            {
+                                ivAdd = add;
+                                addBB = bPtr.get();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!divBB || !ivAdd || divBB != addBB)
+                continue;
+            // latch 应回边到 header
+            bool backsToHeader = false;
+            for (BasicBlock *succ : divBB->getSuccessors())
+            {
+                if (succ == header)
+                {
+                    backsToHeader = true;
+                    break;
+                }
+            }
+            if (!backsToHeader)
+                continue;
+
+            bool foundRem = false;
+            for (auto &exitBBPtr : func->getBasicBlocks())
+            {
+                for (auto &instPtr : exitBBPtr->getInstructions())
+                {
+                    auto *ret = dynamic_cast<ReturnInst *>(instPtr.get());
+                    if (!ret || !ret->getReturnValue())
+                        continue;
+                    auto *rem = dynamic_cast<BinaryOperator *>(powdivStripCopy(ret->getReturnValue()));
+                    if (!rem || rem->getOpcode() != Opcode::SRem)
+                        continue;
+                    if (!powdivIsConstInt(rem->getRHS(), radix))
+                        continue;
+                    if (!powdivSameValue(rem->getLHS(), numPhi))
+                        continue;
+                    foundRem = true;
+                    break;
+                }
+                if (foundRem)
+                    break;
+            }
+            if (!foundRem)
+                continue;
+
+            pat.radix = radix;
+            pat.posShiftLog2 = powdivFloorLog2(radix);
+            pat.radixMask = radix - 1;
+            pat.maxPos = (pat.posShiftLog2 > 0) ? (32 / pat.posShiftLog2) : 0;
+            if (pat.maxPos <= 0)
+                continue;
+            return true;
+        }
+        return false;
     }
 
     void powdivLink(BasicBlock *from, BasicBlock *to)
@@ -2134,32 +2269,11 @@ namespace
         return afterBB;
     }
 
-    Value *buildTruncMod16(BasicBlock *bb, const function<void(Instruction *)> &ins, Value *val,
-                           int radixMask, const string &s)
-    {
-        auto *sign = new BinaryOperator(Opcode::Sra, val, powdivCi(31),
-                                        powdivFreshName("powdiv_sign" + s));
-        ins(sign);
-
-        auto *bias = new BinaryOperator(Opcode::And, sign, powdivCi(radixMask),
-                                         powdivFreshName("powdiv_bias" + s));
-        ins(bias);
-
-        auto *adj = new BinaryOperator(Opcode::Add, val, bias, powdivFreshName("powdiv_adj" + s));
-        ins(adj);
-
-        auto *andMask = new BinaryOperator(Opcode::And, adj, powdivCi(radixMask),
-                                           powdivFreshName("powdiv_andmask" + s));
-        ins(andMask);
-
-        auto *digit = new BinaryOperator(Opcode::Sub, andMask, bias, powdivFreshName("powdiv_digit" + s));
-        ins(digit);
-        return digit;
-    }
-
+    // Non-negative digit extract: (num >> shift) & radixMask.
     Value *buildFastNonNegDigit(BasicBlock *bb, const function<void(Instruction *)> &ins, Value *num,
                                 Value *shiftAmt, int radixMask, const string &s)
     {
+        (void)bb;
         auto *shifted = new BinaryOperator(Opcode::Sra, num, shiftAmt,
                                            powdivFreshName("powdiv_fast_sra" + s));
         ins(shifted);
@@ -2170,104 +2284,41 @@ namespace
         return digit;
     }
 
-    Value *buildSlowTruncDivMod(BasicBlock *bb, const function<void(Instruction *)> &ins, Value *num,
-                                Value *shiftAmt, Value *divMask, int radixMask, const string &s)
-    {
-        auto *sign = new BinaryOperator(Opcode::Sra, num, powdivCi(31),
-                                        powdivFreshName("powdiv_sign" + s));
-        ins(sign);
-
-        auto *bias = new BinaryOperator(Opcode::And, sign, divMask, powdivFreshName("powdiv_bias" + s));
-        ins(bias);
-
-        auto *adj = new BinaryOperator(Opcode::Add, num, bias, powdivFreshName("powdiv_adj" + s));
-        ins(adj);
-
-        auto *quot = new BinaryOperator(Opcode::Sra, adj, shiftAmt, powdivFreshName("powdiv_quot" + s));
-        ins(quot);
-
-        return buildTruncMod16(bb, ins, quot, radixMask, s + "_mod");
-    }
-
-    Value *buildSlowTruncDivModConstShift(BasicBlock *bb, const function<void(Instruction *)> &ins,
-                                          Value *num, int shift, int radixMask, const string &s)
-    {
-        return buildSlowTruncDivMod(bb, ins, num, powdivCi(shift), powdivCi((1 << shift) - 1), radixMask,
-                                    s);
-    }
-
-    Value *buildNonNegSelectDigit(BasicBlock *bb, unsigned &insertIndex, Value *num, Value *shiftAmt,
-                                  int radixMask, const string &s,
-                                  const function<Value *(BasicBlock *, const function<void(Instruction *)> &)> &slowBuild)
-    {
-        auto ins = [&](Instruction *inst) {
-            bb->insert(powdivOwn(inst), insertIndex++);
-        };
-
-        auto *nonneg = new ICmpInst(ICmpInst::ICMP_SGE, num, powdivCi(0),
-                                    powdivFreshName("powdiv_nonneg" + s));
-        ins(nonneg);
-
-        Value *fastDigit = buildFastNonNegDigit(bb, ins, num, shiftAmt, radixMask, s + "_f");
-        Value *slowDigit = slowBuild(bb, ins);
-        auto *digit = new SelectInst(nonneg, fastDigit, slowDigit, powdivFreshName("powdiv_sel" + s));
-        ins(digit);
-        return digit;
-    }
-
     Value *buildPowDivDigitExtractLinear(BasicBlock *bb, unsigned &insertIndex, Value *num, Value *pos,
-                                         int posShiftLog2, int radixMask, const string &nameSuffix)
+                                         int posShiftLog2, int radixMask, int maxPos,
+                                         const string &nameSuffix)
     {
         num = powdivStripCopy(num);
         pos = powdivStripCopy(pos);
         const string s = nameSuffix;
 
-        if (auto *posCi = dynamic_cast<ConstantInt *>(pos))
-        {
-            const int p = posCi->Value;
-            if (p >= 8)
-                return powdivCi(0);
-            if (p == 0)
-            {
-                return buildNonNegSelectDigit(
-                    bb, insertIndex, num, powdivCi(0), radixMask, s,
-                    [&](BasicBlock *slowBB, const function<void(Instruction *)> &ins) {
-                        return buildTruncMod16(slowBB, ins, num, radixMask, s + "_s");
-                    });
-            }
-            const int shift = p * posShiftLog2;
-            return buildNonNegSelectDigit(
-                bb, insertIndex, num, powdivCi(shift), radixMask, s,
-                [&](BasicBlock *slowBB, const function<void(Instruction *)> &ins) {
-                    return buildSlowTruncDivModConstShift(slowBB, ins, num, shift, radixMask, s + "_s");
-                });
-        }
-
         auto ins = [&](Instruction *inst) {
             bb->insert(powdivOwn(inst), insertIndex++);
         };
 
+        if (auto *posCi = dynamic_cast<ConstantInt *>(pos))
+        {
+            const int p = posCi->Value;
+            if (p >= maxPos)
+                return powdivCi(0);
+            if (p == 0)
+            {
+                auto *digit = new BinaryOperator(Opcode::And, num, powdivCi(radixMask),
+                                                 powdivFreshName("powdiv_and0" + s));
+                ins(digit);
+                return digit;
+            }
+            return buildFastNonNegDigit(bb, ins, num, powdivCi(p * posShiftLog2), radixMask, s);
+        }
+
         auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
                                             powdivFreshName("powdiv_shift" + s));
         ins(shiftAmt);
-
-        auto *shlOne = new BinaryOperator(Opcode::Sll, powdivCi(1), shiftAmt,
-                                           powdivFreshName("powdiv_shlone" + s));
-        ins(shlOne);
-
-        auto *divMask = new BinaryOperator(Opcode::Add, shlOne, powdivCi(-1),
-                                           powdivFreshName("powdiv_divmask" + s));
-        ins(divMask);
-
-        return buildNonNegSelectDigit(
-            bb, insertIndex, num, shiftAmt, radixMask, s,
-            [&](BasicBlock *slowBB, const function<void(Instruction *)> &ins) {
-                return buildSlowTruncDivMod(slowBB, ins, num, shiftAmt, divMask, radixMask, s + "_s");
-            });
+        return buildFastNonNegDigit(bb, ins, num, shiftAmt, radixMask, s);
     }
 
     void buildPowDivFuncBody(Function *func, BasicBlock *entry, Value *num, Value *pos, int posShiftLog2,
-                             int radixMask)
+                             int radixMask, int maxPos)
     {
         num = powdivStripCopy(num);
         pos = powdivStripCopy(pos);
@@ -2276,93 +2327,51 @@ namespace
             bb->addInstruction(powdivOwn(new ReturnInst(val)));
         };
 
-        auto branchNonNeg = [&](BasicBlock *from, const string &tag,
-                                const function<Value *(BasicBlock *)> &fastBuild,
-                                const function<Value *(BasicBlock *)> &slowBuild) {
-            auto *fastBB = func->addBasicBlock(tag + ".fast");
-            auto *slowBB = func->addBasicBlock(tag + ".slow");
-            auto *nonneg = new ICmpInst(ICmpInst::ICMP_SGE, num, powdivCi(0), tag + ".nonneg");
-            from->addInstruction(powdivOwn(nonneg));
-            from->addInstruction(powdivOwn(new BranchInst(nonneg, fastBB, slowBB)));
-            from->addSuccessor(fastBB);
-            from->addSuccessor(slowBB);
-            fastBB->addPredecessor(from);
-            slowBB->addPredecessor(from);
-            retVal(fastBB, fastBuild(fastBB));
-            retVal(slowBB, slowBuild(slowBB));
-        };
-
         if (auto *posCi = dynamic_cast<ConstantInt *>(pos))
         {
             const int p = posCi->Value;
-            if (p >= 8)
+            if (p >= maxPos)
             {
                 retVal(entry, powdivCi(0));
                 return;
             }
             if (p == 0)
             {
-                branchNonNeg(
-                    entry, "powdiv_fn0",
-                    [&](BasicBlock *fastBB) {
-                        return new BinaryOperator(Opcode::And, num, powdivCi(radixMask), "powdiv_fn0_fast");
-                    },
-                    [&](BasicBlock *slowBB) {
-                        auto ins = [&](Instruction *inst) { slowBB->addInstruction(powdivOwn(inst)); };
-                        return buildTruncMod16(slowBB, ins, num, radixMask, "_fn0");
-                    });
+                auto *digit = new BinaryOperator(Opcode::And, num, powdivCi(radixMask), "powdiv_fn0");
+                entry->addInstruction(powdivOwn(digit));
+                retVal(entry, digit);
                 return;
             }
-            if (p >= 1 && p <= 7)
+            if (p >= 1 && p < maxPos)
             {
-                const int shift = p * posShiftLog2;
-                branchNonNeg(
-                    entry, "powdiv_fn",
-                    [&](BasicBlock *fastBB) {
-                        auto ins = [&](Instruction *inst) { fastBB->addInstruction(powdivOwn(inst)); };
-                        return buildFastNonNegDigit(fastBB, ins, num, powdivCi(shift), radixMask, "_fn_f");
-                    },
-                    [&](BasicBlock *slowBB) {
-                        auto ins = [&](Instruction *inst) { slowBB->addInstruction(powdivOwn(inst)); };
-                        return buildSlowTruncDivModConstShift(slowBB, ins, num, shift, radixMask, "_fn_s");
-                    });
+                auto ins = [&](Instruction *inst) { entry->addInstruction(powdivOwn(inst)); };
+                retVal(entry, buildFastNonNegDigit(entry, ins, num, powdivCi(p * posShiftLog2), radixMask,
+                                                   "_fn"));
                 return;
             }
         }
 
+        // Variable / out-of-range const: pos >= maxPos → 0, else (num >> (pos<<log2R)) & mask.
         auto *ret0BB = func->addBasicBlock("powdiv_fn.ret0");
-        auto *checkBB = func->addBasicBlock("powdiv_fn.chk");
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), "powdiv_fn_ge8");
-        entry->addInstruction(powdivOwn(ge8));
-        entry->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, checkBB)));
+        auto *extractBB = func->addBasicBlock("powdiv_fn.extract");
+        auto *geMax = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(maxPos), "powdiv_fn_gemax");
+        entry->addInstruction(powdivOwn(geMax));
+        entry->addInstruction(powdivOwn(new BranchInst(geMax, ret0BB, extractBB)));
         entry->addSuccessor(ret0BB);
-        entry->addSuccessor(checkBB);
+        entry->addSuccessor(extractBB);
         ret0BB->addPredecessor(entry);
-        checkBB->addPredecessor(entry);
+        extractBB->addPredecessor(entry);
         retVal(ret0BB, powdivCi(0));
 
-        branchNonNeg(
-            checkBB, "powdiv_fn",
-            [&](BasicBlock *fastBB) {
-                auto ins = [&](Instruction *inst) { fastBB->addInstruction(powdivOwn(inst)); };
-                auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
-                ins(shiftAmt);
-                return buildFastNonNegDigit(fastBB, ins, num, shiftAmt, radixMask, "_fn_f");
-            },
-            [&](BasicBlock *slowBB) {
-                auto ins = [&](Instruction *inst) { slowBB->addInstruction(powdivOwn(inst)); };
-                auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
-                ins(shiftAmt);
-                auto *shlOne = new BinaryOperator(Opcode::Sll, powdivCi(1), shiftAmt, "powdiv_fn_shlone");
-                ins(shlOne);
-                auto *divMask = new BinaryOperator(Opcode::Add, shlOne, powdivCi(-1), "powdiv_fn_divmask");
-                ins(divMask);
-                return buildSlowTruncDivMod(slowBB, ins, num, shiftAmt, divMask, radixMask, "_fn_s");
-            });
+        auto ins = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
+        auto *shiftAmt =
+            new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
+        ins(shiftAmt);
+        retVal(extractBB, buildFastNonNegDigit(extractBB, ins, num, shiftAmt, radixMask, "_fn"));
     }
 
     void emitPowdivVarPosCFG(Function *func, BasicBlock *bb, BasicBlock *afterBB, PhiInst *phi,
-                             Value *num, Value *pos, int posShiftLog2, int radixMask,
+                             Value *num, Value *pos, int posShiftLog2, int radixMask, int maxPos,
                              const string &nameSuffix)
     {
         num = powdivStripCopy(num);
@@ -2370,55 +2379,34 @@ namespace
         const string s = nameSuffix;
 
         auto *ret0BB = func->addBasicBlock(bb->getName() + ".powdiv0" + s);
-        auto *checkBB = func->addBasicBlock(bb->getName() + ".powdiv_chk" + s);
-        auto *fastBB = func->addBasicBlock(bb->getName() + ".powdiv_fast" + s);
-        auto *slowBB = func->addBasicBlock(bb->getName() + ".powdiv_slow" + s);
+        auto *extractBB = func->addBasicBlock(bb->getName() + ".powdiv_extract" + s);
 
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), powdivFreshName("powdiv_ge8" + s));
-        bb->addInstruction(powdivOwn(ge8));
-        bb->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, checkBB)));
+        auto *geMax =
+            new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(maxPos), powdivFreshName("powdiv_gemax" + s));
+        bb->addInstruction(powdivOwn(geMax));
+        bb->addInstruction(powdivOwn(new BranchInst(geMax, ret0BB, extractBB)));
         bb->addSuccessor(ret0BB);
-        bb->addSuccessor(checkBB);
+        bb->addSuccessor(extractBB);
         ret0BB->addPredecessor(bb);
-        checkBB->addPredecessor(bb);
+        extractBB->addPredecessor(bb);
 
         powdivLink(ret0BB, afterBB);
         phi->addIncoming(powdivCi(0), ret0BB);
 
-        auto *nonneg = new ICmpInst(ICmpInst::ICMP_SGE, num, powdivCi(0),
-                                    powdivFreshName("powdiv_nonneg" + s));
-        checkBB->addInstruction(powdivOwn(nonneg));
-        checkBB->addInstruction(powdivOwn(new BranchInst(nonneg, fastBB, slowBB)));
-        checkBB->addSuccessor(fastBB);
-        checkBB->addSuccessor(slowBB);
-        fastBB->addPredecessor(checkBB);
-        slowBB->addPredecessor(checkBB);
-
-        auto fastIns = [&](Instruction *inst) { fastBB->addInstruction(powdivOwn(inst)); };
+        auto extractIns = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
         auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
                                             powdivFreshName("powdiv_shift" + s));
-        fastIns(shiftAmt);
-        Value *fastDigit = buildFastNonNegDigit(fastBB, fastIns, num, shiftAmt, radixMask, s + "_f");
-        powdivLink(fastBB, afterBB);
-        phi->addIncoming(fastDigit, fastBB);
-
-        auto slowIns = [&](Instruction *inst) { slowBB->addInstruction(powdivOwn(inst)); };
-        auto *shlOne = new BinaryOperator(Opcode::Sll, powdivCi(1), shiftAmt,
-                                           powdivFreshName("powdiv_shlone" + s));
-        slowIns(shlOne);
-        auto *divMask = new BinaryOperator(Opcode::Add, shlOne, powdivCi(-1),
-                                           powdivFreshName("powdiv_divmask" + s));
-        slowIns(divMask);
-        Value *slowDigit =
-            buildSlowTruncDivMod(slowBB, slowIns, num, shiftAmt, divMask, radixMask, s + "_s");
-        powdivLink(slowBB, afterBB);
-        phi->addIncoming(slowDigit, slowBB);
+        extractIns(shiftAmt);
+        Value *digit = buildFastNonNegDigit(extractBB, extractIns, num, shiftAmt, radixMask, s);
+        powdivLink(extractBB, afterBB);
+        phi->addIncoming(digit, extractBB);
     }
 }
 
 bool PowDivLoopReductionPass::rewriteDivLoopCallee(Function *func)
 {
-    if (!isPowDivLoopCallee(func))
+    PowDivPattern pat;
+    if (!matchPowDivLoopCallee(func, pat))
         return false;
 
     BasicBlock *entry = func->getEntryBlock();
@@ -2444,21 +2432,21 @@ bool PowDivLoopReductionPass::rewriteDivLoopCallee(Function *func)
         insts.pop_back();
     }
 
-    unsigned idx = 0;
-    (void)idx;
-    buildPowDivFuncBody(func, entry, num, pos, kPosShiftLog2, kRadixMask);
+    buildPowDivFuncBody(func, entry, num, pos, pat.posShiftLog2, pat.radixMask, pat.maxPos);
+    reducedCallees[func] = pat;
 
     if (verbose)
     {
         debugInfo << "PowDivLoopReduction: reduced pow-base div loop in " << func->getName()
-                  << "\n";
+                  << " (radix=" << pat.radix << ")\n";
     }
     return true;
 }
 
 bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
 {
-    if (isPowDivLoopCallee(func))
+    // 已改写的 callee 自身不再做调用替换
+    if (reducedCallees.count(func))
         return false;
 
     vector<BasicBlock *> blocks;
@@ -2473,7 +2461,18 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
         for (int idx = static_cast<int>(insts.size()) - 1; idx >= 0; --idx)
         {
             auto *call = dynamic_cast<CallInst *>(insts[static_cast<unsigned>(idx)].get());
-            if (!isPowDivLoopCall(call))
+            if (!call)
+                continue;
+
+            Function *callee = call->getCalledFunction();
+            if (!callee)
+                continue;
+
+            PowDivPattern pat;
+            auto it = reducedCallees.find(callee);
+            if (it != reducedCallees.end())
+                pat = it->second;
+            else if (!matchPowDivLoopCallee(callee, pat))
                 continue;
 
             vector<Value *> args = call->getArguments();
@@ -2484,7 +2483,7 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
             Value *posArg = powdivStripCopy(args[1]);
             if (auto *posCi = dynamic_cast<ConstantInt *>(posArg))
             {
-                if (posCi->Value >= 8)
+                if (posCi->Value >= pat.maxPos)
                 {
                     call->replaceAllUsesWith(powdivCi(0));
                     call->removeThisFromOperands();
@@ -2494,7 +2493,8 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
                 {
                     unsigned insertIdx = callIdx;
                     Value *digit = buildPowDivDigitExtractLinear(bb, insertIdx, args[0], args[1],
-                                                               kPosShiftLog2, kRadixMask, "");
+                                                               pat.posShiftLog2, pat.radixMask,
+                                                               pat.maxPos, "");
                     const unsigned numInserted = insertIdx - callIdx;
                     call->replaceAllUsesWith(digit);
                     call->removeThisFromOperands();
@@ -2509,8 +2509,8 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
                 call->replaceAllUsesWith(phi);
                 call->removeThisFromOperands();
                 insts.erase(insts.begin() + static_cast<long>(callIdx));
-                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], kPosShiftLog2, kRadixMask,
-                                    "");
+                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], pat.posShiftLog2,
+                                    pat.radixMask, pat.maxPos, "");
             }
 
             if (verbose)

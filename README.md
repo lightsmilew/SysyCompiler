@@ -127,7 +127,6 @@ qemu-system-riscv64 \
 1. **LoopLinearIterationFoldPass**：迭代不变外层 trip 压 1 + 线性累加器补偿（见 [IRPass.md](docs/IRPass.md)）。
 2. **ArrayCopyPropagationPass**：纯 `dst[i]=src[i]` 拷贝循环删除与基址传播；要求 store 值即为 load 值。
 
-优化等级：`-O0`/`-O1`/`-O17` 为完整中端流水线；`-O16` 供后端调试（截断后段，并额外启用 `RelativeGepOffset`）。
 
 
 ## 优化效果分析：
@@ -135,7 +134,7 @@ qemu-system-riscv64 \
 - 效果较好的优化：
   1. 常量传播 / 常量折叠（`ConstantFoldingPass`）
   2. 函数内联（`FunctionInliningPass`）
-  3. **迭代不变外层折叠 + 数组拷贝传播**（`LoopLinearIterationFold` / `ArrayCopyPropagation`，如 `h-10-02`）
+  3. **迭代不变外层折叠 + 数组拷贝传播**（`LoopLinearIterationFold` / `ArrayCopyPropagation`）
   4. **后端 LICM + BlockLocalCSE**（`la`/`li` 外提与物化去重）
   5. 寄存器分配（图着色）
   6. CSE（IR 层 `CommonSubexpressionEliminationPass` + 后端 `BlockLocalCSE`）
@@ -154,8 +153,4 @@ qemu-system-riscv64 \
 
 C++ 标准库的 shared_ptr 的 == 运算符默认比较的是指针地址（即是否指向同一块内存），不会自动调用你自定义的 `operator==`。如果需要比较内容相等，需要使用 `get()` 方法获取裸指针进行比较。
 
-## 后续优化
 
-- 多面体优化，复杂可以最后实现 conv many_mat_cal sl
-- multiply 位运算识别
-- 插入临时变量，减少数据依赖，增加指令级并行度 optimaization_scheduling

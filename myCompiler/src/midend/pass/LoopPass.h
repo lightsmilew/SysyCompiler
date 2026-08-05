@@ -14,14 +14,6 @@ namespace optimization
         bool isLoopInvariant(Instruction *inst, const Loop &loop);
         bool canMoveToPreheader(Instruction *inst, const Loop &loop);
     };
-    // 14.移除无用的while循环
-    class RemoveUselessWhilePass : public Pass
-    {
-    public:
-        RemoveUselessWhilePass(bool verbose = false) : Pass(verbose) {}
-        bool runOnFunction(Function *func) override;
-        std::string getName() const override { return "RemoveUselessWhile"; }
-    };
     // 15.循环求和规约
     class LoopSumReductionPass : public Pass
     {
@@ -42,13 +34,22 @@ namespace optimization
     class PowDivLoopReductionPass : public Pass
     {
     public:
+        struct PowDivPattern
+        {
+            int radix = 0;        // 基（2 的幂），如 16
+            int posShiftLog2 = 0; // log2(radix)
+            int radixMask = 0;    // radix - 1
+            int maxPos = 0;       // 32 / posShiftLog2，超出则结果为 0
+        };
+
         PowDivLoopReductionPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "PowDivLoopReduction"; }
 
     private:
-        static constexpr int kPosShiftLog2 = 2;
-        static constexpr int kRadixMask = 15;
+        // 本轮已成功改写的 callee → 模式（供调用点内联替换，因改写后原 sdiv 循环已消失）
+        unordered_map<Function *, PowDivPattern> reducedCallees;
+
         bool rewriteDivLoopCallee(Function *func);
         bool replaceDivLoopCalls(Function *func);
     };
