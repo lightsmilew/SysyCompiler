@@ -1,4 +1,4 @@
-#include "IfLadderShiftPass.h"
+#include "CompareChainFoldPass.h"
 using namespace std;
 using namespace optimization;
 
@@ -103,7 +103,7 @@ namespace
     }
 }
 
-bool IfLadderShiftPass::matchIfLadderShiftFunction(Function *func, LadderKind &kind)
+bool CompareChainFoldPass::matchCompareChain(Function *func, FoldKind &kind)
 {
     if (func->isLibraryFunction() || func->getArguments().size() != 2)
     {
@@ -149,12 +149,12 @@ bool IfLadderShiftPass::matchIfLadderShiftFunction(Function *func, LadderKind &k
             if (bin->getOpcode() == Opcode::Mul)
             {
                 binOp = Opcode::Mul;
-                kind = LadderKind::MulPow2;
+                kind = FoldKind::MulPow2;
             }
             else if (bin->getOpcode() == Opcode::SDiv)
             {
                 binOp = Opcode::SDiv;
-                kind = LadderKind::SDivPow2;
+                kind = FoldKind::SDivPow2;
             }
             else
             {
@@ -174,7 +174,7 @@ bool IfLadderShiftPass::matchIfLadderShiftFunction(Function *func, LadderKind &k
     return parseDefaultRetX(bb, x);
 }
 
-void IfLadderShiftPass::rewriteFunction(Function *func, LadderKind kind)
+void CompareChainFoldPass::rewriteFunction(Function *func, FoldKind kind)
 {
     auto &bbs = func->getBasicBlocks();
     BasicBlock *entry = func->getEntryBlock();
@@ -215,7 +215,7 @@ void IfLadderShiftPass::rewriteFunction(Function *func, LadderKind kind)
     entry->clearInstructions();
 
     Instruction *result = nullptr;
-    if (kind == LadderKind::MulPow2)
+    if (kind == FoldKind::MulPow2)
     {
         result = new BinaryOperator(Opcode::Sll, x, n, prefix + "_shl");
     }
@@ -229,10 +229,10 @@ void IfLadderShiftPass::rewriteFunction(Function *func, LadderKind kind)
     func->setLoops({});
 }
 
-bool IfLadderShiftPass::runOnFunction(Function *func)
+bool CompareChainFoldPass::runOnFunction(Function *func)
 {
-    LadderKind kind = LadderKind::MulPow2;
-    if (!matchIfLadderShiftFunction(func, kind))
+    FoldKind kind = FoldKind::MulPow2;
+    if (!matchCompareChain(func, kind))
     {
         return false;
     }
@@ -240,8 +240,8 @@ bool IfLadderShiftPass::runOnFunction(Function *func)
     rewriteFunction(func, kind);
     if (verbose)
     {
-        debugInfo << "IfLadderShift: folded if-ladder in " << func->getName()
-                  << (kind == LadderKind::MulPow2 ? " to shl\n" : " to sra\n");
+        debugInfo << "CompareChainFold: folded compare-chain in " << func->getName()
+                  << (kind == FoldKind::MulPow2 ? " to shl\n" : " to sra\n");
     }
     return true;
 }

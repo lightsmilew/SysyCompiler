@@ -1,4 +1,4 @@
-#include "DepthPairToStepsPass.h"
+#include "RecursionNormalizationPass.h"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -165,7 +165,7 @@ namespace
     }
 } // namespace
 
-bool DepthPairToStepsPass::runOnFunction(Function *func)
+bool RecursionNormalizationPass::runOnFunction(Function *func)
 {
     Pattern pat;
     if (!matchPattern(func, pat))
@@ -175,14 +175,14 @@ bool DepthPairToStepsPass::runOnFunction(Function *func)
         return false;
 
     // Avoid transforming the same function twice.
-    if (func->getName().find("__steps") != string::npos)
+    if (func->getName().find("__rn") != string::npos)
         return false;
-    if (module->getFunction(func->getName() + "__steps"))
+    if (module->getFunction(func->getName() + "__rn"))
         return false;
 
     auto *i32 = IntegerType::getInstance();
     auto *stepsTy = new FunctionType(i32, vector<Type *>{i32});
-    Function *steps = module->addFunction(stepsTy, func->getName() + "__steps");
+    Function *steps = module->addFunction(stepsTy, func->getName() + "__rn");
     Argument *stepsN = steps->addArgument(i32, "n");
 
     unordered_map<BasicBlock *, BasicBlock *> bbMap;
@@ -278,7 +278,7 @@ bool DepthPairToStepsPass::runOnFunction(Function *func)
                 wireEdge(newBB, okBB);
                 failBB->addInstruction(own(new ReturnInst(rec)));
                 auto *dlt = new ConstantInt(i32, delta);
-                auto *sum = new BinaryOperator(Opcode::Add, rec, dlt, oldBB->getName() + "_steps");
+                auto *sum = new BinaryOperator(Opcode::Add, rec, dlt, oldBB->getName() + "_rn");
                 okBB->addInstruction(own(sum));
                 okBB->addInstruction(own(new ReturnInst(sum)));
                 continue;
@@ -332,7 +332,7 @@ bool DepthPairToStepsPass::runOnFunction(Function *func)
     }
 
     if (verbose)
-        debugInfo << "DepthPairToSteps: rewrote " << func->getName() << " → "
+        debugInfo << "RecursionNormalization: rewrote " << func->getName() << " → "
                   << steps->getName() << "\n";
     return true;
 }

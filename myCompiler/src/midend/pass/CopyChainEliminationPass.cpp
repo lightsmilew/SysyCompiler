@@ -1,4 +1,4 @@
-#include "InPlaceCopyOriginReductionPass.h"
+#include "CopyChainEliminationPass.h"
 #include "ControlFlowAnalysis.h"
 #include <algorithm>
 #include <unordered_set>
@@ -152,7 +152,7 @@ namespace
     }
 } // namespace
 
-bool InPlaceCopyOriginReductionPass::applyRewrite(Function *func, const InPlaceCopyOriginChain &chain)
+bool CopyChainEliminationPass::applyRewrite(Function *func, const InPlaceCopyOriginChain &chain)
 {
     auto *matrix = dynamic_cast<GlobalVariable *>(stripCopy(chain.matrix));
     auto *aArray = dynamic_cast<GlobalVariable *>(stripCopy(chain.shapeVec));
@@ -414,13 +414,13 @@ bool InPlaceCopyOriginReductionPass::applyRewrite(Function *func, const InPlaceC
 
     if (verbose)
     {
-        debugInfo << "InPlaceCopyOriginReduction: rewrote @" << matrix->getName()
+        debugInfo << "CopyChainElimination: rewrote @" << matrix->getName()
                   << " in " << func->getName() << "\n";
     }
     return true;
 }
 
-bool InPlaceCopyOriginReductionPass::runOnFunction(Function *func)
+bool CopyChainEliminationPass::runOnFunction(Function *func)
 {
     const MatrixFunctionAnalysis *analysis = getAnalysis(func);
     if (!analysis || !analysis->inPlaceCopyOriginChain || !analysis->inPlaceCopyOriginChain->valid)

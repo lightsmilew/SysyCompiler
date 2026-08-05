@@ -1,4 +1,4 @@
-#include "InvariantDivisorNestVersionPass.h"
+#include "LoopVersioningPass.h"
 #include "ControlFlowAnalysis.h"
 #include <algorithm>
 #include <unordered_map>
@@ -354,14 +354,14 @@ namespace
         }
 
         if (verbose)
-            debugInfo << "InvariantDivisorNestVersion: versioned nest at " << loop.header->getName()
+            debugInfo << "LoopVersioning: versioned nest at " << loop.header->getName()
                       << " for divisor, fast=" << fastHeader->getName()
                       << " liveOuts=" << liveOuts.size() << "\n";
         return true;
     }
 } // namespace
 
-bool InvariantDivisorNestVersionPass::runOnFunction(Function *func)
+bool LoopVersioningPass::runOnFunction(Function *func)
 {
     if (!func || func->isLibraryFunction())
         return false;

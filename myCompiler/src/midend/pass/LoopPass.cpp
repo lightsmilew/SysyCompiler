@@ -1206,110 +1206,6 @@ bool LoopInvariantCodeMotionPass::isLoopInvariant(Instruction *inst, const Loop 
     }
     return true;
 }
-bool RemoveUselessWhilePass::runOnFunction(Function *func)
-{
-    bool changed = false;
-    bool localChanged;
-    do
-    {
-        localChanged = false;
-        func->setLoops(ControlFlowAnalysis::findLoops(func));
-        auto &loops = func->getLoops();
-        for (const auto &loop : loops)
-        {
-            // 只处理 header + 单 body 的典型 while
-            if (loop.blocks.size() != 2)
-                continue;
-
-            BasicBlock *whilebody = nullptr;
-            for (auto *bb : loop.blocks)
-            {
-                if (bb != loop.header)
-                    whilebody = bb;
-            }
-            if (!whilebody)
-                continue;
-
-            auto *term = dynamic_cast<BranchInst *>(loop.header->getTerminator());
-            if (!term || !term->isConditional())
-                continue;
-
-            // 出口：header 后继中不是 body 的那一边
-            BasicBlock *exitBlock = nullptr;
-            {
-                int sc = 0;
-                for (auto *succ : loop.header->getSuccessors())
-                {
-                    if (succ == whilebody)
-                        continue;
-                    exitBlock = succ;
-                    ++sc;
-                    if (sc > 1)
-                        break;
-                }
-            }
-            if (!exitBlock || loop.header->getSuccessors().size() != 2)
-                continue;
-
-            // 可证「零次进入 body」：条件为常量，且恒定走 exit 一边
-            auto *ci = dynamic_cast<ConstantInt *>(term->getCondition());
-            if (!ci)
-                continue;
-            BasicBlock *taken = (ci->Value != 0) ? term->getTrueBlock() : term->getFalseBlock();
-            if (taken != exitBlock)
-                continue;
-
-            // 循环外进入 header 的前驱只能有一个（典型 preheader）
-            int outerPreds = 0;
-            for (auto *pred : loop.header->getPredecessors())
-            {
-                if (pred == whilebody)
-                    continue;
-                ++outerPreds;
-                if (outerPreds > 1)
-                    break;
-            }
-            if (outerPreds != 1)
-                continue;
-
-            // 先改前驱到出口，避免删块后悬空
-            for (auto *pred : loop.header->getPredecessors())
-            {
-                if (pred == whilebody)
-                    continue;
-                for (auto &instPtr : pred->getInstructions())
-                {
-                    auto *br = dynamic_cast<BranchInst *>(instPtr.get());
-                    if (!br)
-                        continue;
-                    if (br->getTrueBlock() == loop.header)
-                        br->setTrueBlock(exitBlock);
-                    if (br->getFalseBlock() == loop.header)
-                        br->setFalseBlock(exitBlock);
-                }
-                pred->addSuccessor(exitBlock);
-                exitBlock->addPredecessor(pred);
-            }
-
-            // 删掉「从 exit 角度来自 header」的 Phi 边，并在仅余一条 incoming 时用单值替换 Phi
-            removePhiIncomingFromPredecessor(exitBlock, loop.header);
-
-            const string removedHeaderName = loop.header->getName();
-            for (auto *bb : loop.blocks)
-                bb->removeSelfBasicBlock();
-
-            localChanged = true;
-            changed = true;
-            if (verbose)
-            {
-                debugInfo << "RemoveUselessWhilePass: Removed zero-trip while at header "
-                          << removedHeaderName << "\n";
-            }
-            break;
-        }
-    } while (localChanged);
-    return changed;
-}
 // 目前只支持整型规约
 bool LoopSumReductionPass::runOnFunction(Function *func)
 {
@@ -2071,34 +1967,268 @@ namespace
         return v;
     }
 
-    bool isPowDivLoopCallee(Function *func)
+    bool powdivIsPowerOfTwo(int x)
     {
-        if (!func || func->getName() != "getNumPos" || func->getArguments().size() != 2)
-            return false;
+        return x >= 2 && (x & (x - 1)) == 0;
+    }
 
+    int powdivFloorLog2(int x)
+    {
+        int n = 0;
+        while (x > 1)
+        {
+            x >>= 1;
+            ++n;
+        }
+        return n;
+    }
+
+    // 剥离 copy，以及「单值转发」的 exit phi（所有 incoming 归一到同一源）。
+    Value *powdivStripCopyAndForwardPhi(Value *v)
+    {
+        while (v)
+        {
+            if (auto *cpy = dynamic_cast<CopyInst *>(v))
+            {
+                v = cpy->getSource();
+                continue;
+            }
+            if (auto *phi = dynamic_cast<PhiInst *>(v))
+            {
+                Value *unique = nullptr;
+                bool ok = true;
+                for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+                {
+                    Value *inc = powdivStripCopy(phi->getIncomingValue(i));
+                    if (inc == phi)
+                        continue;
+                    if (!unique)
+                        unique = inc;
+                    else if (unique != inc)
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok && unique)
+                {
+                    v = unique;
+                    continue;
+                }
+            }
+            break;
+        }
+        return v;
+    }
+
+    bool powdivSameValue(Value *a, Value *b)
+    {
+        return powdivStripCopyAndForwardPhi(a) == powdivStripCopyAndForwardPhi(b);
+    }
+
+    bool powdivIsConstInt(Value *v, int expected)
+    {
+        auto *ci = dynamic_cast<ConstantInt *>(powdivStripCopy(v));
+        return ci && ci->Value == expected;
+    }
+
+    // 纯计算函数：无 call / store / load（允许 alloca，通常已被 DCE）。
+    bool powdivIsPureComputeFunction(Function *func)
+    {
         for (auto &bbPtr : func->getBasicBlocks())
         {
             for (auto &instPtr : bbPtr->getInstructions())
             {
-                if (auto *div = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (div->getOpcode() != Opcode::SDiv)
-                        continue;
-                    auto *divisor = dynamic_cast<ConstantInt *>(powdivStripCopy(div->getRHS()));
-                    if (divisor && divisor->Value == 16)
-                        return true;
-                }
+                Instruction *inst = instPtr.get();
+                if (dynamic_cast<CallInst *>(inst) || dynamic_cast<StoreInst *>(inst) ||
+                    dynamic_cast<LoadInst *>(inst))
+                    return false;
             }
         }
-        return false;
+        return true;
     }
 
-    bool isPowDivLoopCall(CallInst *call)
+    // 匹配：num_phi = phi(arg0, sdiv(num_phi, R)); iv_phi = phi(0, iv+1);
+    //       while (iv < arg1) { num = num / R; } return num % R;
+    // R 为 ≥2 的 2 的幂。不依赖函数名。
+    bool matchPowDivLoopCallee(Function *func, PowDivLoopReductionPass::PowDivPattern &pat)
     {
-        if (!call)
+        if (!func || func->isLibraryFunction() || func->getName() == "main")
             return false;
-        Function *callee = call->getCalledFunction();
-        return callee && isPowDivLoopCallee(callee);
+        if (func->getArguments().size() != 2)
+            return false;
+        auto *fty = func->getFunctionType();
+        if (!fty || !fty->ReturnType || !fty->ReturnType->isIntegerTy())
+            return false;
+
+        Value *arg0 = func->getArguments()[0].get();
+        Value *arg1 = func->getArguments()[1].get();
+        if (!arg0 || !arg1 || !arg0->getType()->isIntegerTy() || !arg1->getType()->isIntegerTy())
+            return false;
+        if (!powdivIsPureComputeFunction(func))
+            return false;
+
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *header = bbPtr.get();
+            if (!header)
+                continue;
+
+            PhiInst *numPhi = nullptr;
+            BinaryOperator *divInst = nullptr;
+            int radix = 0;
+
+            for (auto &instPtr : header->getInstructions())
+            {
+                auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+                if (!phi || phi->getNumIncomingValues() != 2)
+                    continue;
+
+                Value *in0 = powdivStripCopy(phi->getIncomingValue(0));
+                Value *in1 = powdivStripCopy(phi->getIncomingValue(1));
+
+                for (int swap = 0; swap < 2; ++swap)
+                {
+                    Value *init = swap ? in1 : in0;
+                    Value *back = swap ? in0 : in1;
+                    if (!powdivSameValue(init, arg0))
+                        continue;
+                    auto *div = dynamic_cast<BinaryOperator *>(back);
+                    if (!div || div->getOpcode() != Opcode::SDiv)
+                        continue;
+                    if (!powdivSameValue(div->getLHS(), phi))
+                        continue;
+                    auto *rhs = dynamic_cast<ConstantInt *>(powdivStripCopy(div->getRHS()));
+                    if (!rhs || !powdivIsPowerOfTwo(rhs->Value))
+                        continue;
+                    numPhi = phi;
+                    divInst = div;
+                    radix = rhs->Value;
+                    break;
+                }
+                if (numPhi)
+                    break;
+            }
+            if (!numPhi || !divInst || radix < 2)
+                continue;
+
+            auto *hdrBr = dynamic_cast<BranchInst *>(header->getTerminator());
+            if (!hdrBr || !hdrBr->isConditional())
+                continue;
+            auto *icmp = dynamic_cast<ICmpInst *>(powdivStripCopy(hdrBr->getCondition()));
+            if (!icmp || icmp->getPredicate() != ICmpInst::ICMP_SLT)
+                continue;
+
+            Value *cmpIV = nullptr;
+            if (powdivSameValue(icmp->getRHS(), arg1))
+                cmpIV = powdivStripCopyAndForwardPhi(icmp->getLHS());
+            else if (powdivSameValue(icmp->getLHS(), arg1))
+                cmpIV = powdivStripCopyAndForwardPhi(icmp->getRHS());
+            else
+                continue;
+
+            auto *ivPhi = dynamic_cast<PhiInst *>(cmpIV);
+            if (!ivPhi || ivPhi->getNumIncomingValues() != 2)
+                continue;
+
+            bool ivOk = false;
+            for (int swap = 0; swap < 2; ++swap)
+            {
+                Value *init = powdivStripCopy(ivPhi->getIncomingValue(swap ? 1 : 0));
+                Value *back = powdivStripCopy(ivPhi->getIncomingValue(swap ? 0 : 1));
+                if (!powdivIsConstInt(init, 0))
+                    continue;
+                auto *add = dynamic_cast<BinaryOperator *>(back);
+                if (!add || add->getOpcode() != Opcode::Add)
+                    continue;
+                bool stepOne =
+                    (powdivSameValue(add->getLHS(), ivPhi) && powdivIsConstInt(add->getRHS(), 1)) ||
+                    (powdivSameValue(add->getRHS(), ivPhi) && powdivIsConstInt(add->getLHS(), 1));
+                if (!stepOne)
+                    continue;
+                ivOk = true;
+                break;
+            }
+            if (!ivOk)
+                continue;
+
+            // div 与 iv 自增应在同一 latch/body 块（扫描定位）
+            BasicBlock *divBB = nullptr;
+            BasicBlock *addBB = nullptr;
+            BinaryOperator *ivAdd = nullptr;
+            for (auto &bPtr : func->getBasicBlocks())
+            {
+                for (auto &ip : bPtr->getInstructions())
+                {
+                    if (ip.get() == divInst)
+                        divBB = bPtr.get();
+                    auto *add = dynamic_cast<BinaryOperator *>(ip.get());
+                    if (!add || add->getOpcode() != Opcode::Add)
+                        continue;
+                    if ((powdivSameValue(add->getLHS(), ivPhi) && powdivIsConstInt(add->getRHS(), 1)) ||
+                        (powdivSameValue(add->getRHS(), ivPhi) && powdivIsConstInt(add->getLHS(), 1)))
+                    {
+                        // 确认该 add 是 ivPhi 的回边 incoming
+                        for (unsigned i = 0; i < ivPhi->getNumIncomingValues(); ++i)
+                        {
+                            if (powdivStripCopy(ivPhi->getIncomingValue(i)) == add)
+                            {
+                                ivAdd = add;
+                                addBB = bPtr.get();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!divBB || !ivAdd || divBB != addBB)
+                continue;
+            // latch 应回边到 header
+            bool backsToHeader = false;
+            for (BasicBlock *succ : divBB->getSuccessors())
+            {
+                if (succ == header)
+                {
+                    backsToHeader = true;
+                    break;
+                }
+            }
+            if (!backsToHeader)
+                continue;
+
+            bool foundRem = false;
+            for (auto &exitBBPtr : func->getBasicBlocks())
+            {
+                for (auto &instPtr : exitBBPtr->getInstructions())
+                {
+                    auto *ret = dynamic_cast<ReturnInst *>(instPtr.get());
+                    if (!ret || !ret->getReturnValue())
+                        continue;
+                    auto *rem = dynamic_cast<BinaryOperator *>(powdivStripCopy(ret->getReturnValue()));
+                    if (!rem || rem->getOpcode() != Opcode::SRem)
+                        continue;
+                    if (!powdivIsConstInt(rem->getRHS(), radix))
+                        continue;
+                    if (!powdivSameValue(rem->getLHS(), numPhi))
+                        continue;
+                    foundRem = true;
+                    break;
+                }
+                if (foundRem)
+                    break;
+            }
+            if (!foundRem)
+                continue;
+
+            pat.radix = radix;
+            pat.posShiftLog2 = powdivFloorLog2(radix);
+            pat.radixMask = radix - 1;
+            pat.maxPos = (pat.posShiftLog2 > 0) ? (32 / pat.posShiftLog2) : 0;
+            if (pat.maxPos <= 0)
+                continue;
+            return true;
+        }
+        return false;
     }
 
     void powdivLink(BasicBlock *from, BasicBlock *to)
@@ -2155,7 +2285,8 @@ namespace
     }
 
     Value *buildPowDivDigitExtractLinear(BasicBlock *bb, unsigned &insertIndex, Value *num, Value *pos,
-                                         int posShiftLog2, int radixMask, const string &nameSuffix)
+                                         int posShiftLog2, int radixMask, int maxPos,
+                                         const string &nameSuffix)
     {
         num = powdivStripCopy(num);
         pos = powdivStripCopy(pos);
@@ -2168,7 +2299,7 @@ namespace
         if (auto *posCi = dynamic_cast<ConstantInt *>(pos))
         {
             const int p = posCi->Value;
-            if (p >= 8)
+            if (p >= maxPos)
                 return powdivCi(0);
             if (p == 0)
             {
@@ -2187,7 +2318,7 @@ namespace
     }
 
     void buildPowDivFuncBody(Function *func, BasicBlock *entry, Value *num, Value *pos, int posShiftLog2,
-                             int radixMask)
+                             int radixMask, int maxPos)
     {
         num = powdivStripCopy(num);
         pos = powdivStripCopy(pos);
@@ -2199,7 +2330,7 @@ namespace
         if (auto *posCi = dynamic_cast<ConstantInt *>(pos))
         {
             const int p = posCi->Value;
-            if (p >= 8)
+            if (p >= maxPos)
             {
                 retVal(entry, powdivCi(0));
                 return;
@@ -2211,7 +2342,7 @@ namespace
                 retVal(entry, digit);
                 return;
             }
-            if (p >= 1 && p <= 7)
+            if (p >= 1 && p < maxPos)
             {
                 auto ins = [&](Instruction *inst) { entry->addInstruction(powdivOwn(inst)); };
                 retVal(entry, buildFastNonNegDigit(entry, ins, num, powdivCi(p * posShiftLog2), radixMask,
@@ -2220,13 +2351,12 @@ namespace
             }
         }
 
-        // Variable / out-of-range const: pos >= 8 → 0, else (num >> (pos<<2)) & mask.
-        // Needed so large pos stays semantically zero (RISC-V shifts mask to 5 bits).
+        // Variable / out-of-range const: pos >= maxPos → 0, else (num >> (pos<<log2R)) & mask.
         auto *ret0BB = func->addBasicBlock("powdiv_fn.ret0");
         auto *extractBB = func->addBasicBlock("powdiv_fn.extract");
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), "powdiv_fn_ge8");
-        entry->addInstruction(powdivOwn(ge8));
-        entry->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
+        auto *geMax = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(maxPos), "powdiv_fn_gemax");
+        entry->addInstruction(powdivOwn(geMax));
+        entry->addInstruction(powdivOwn(new BranchInst(geMax, ret0BB, extractBB)));
         entry->addSuccessor(ret0BB);
         entry->addSuccessor(extractBB);
         ret0BB->addPredecessor(entry);
@@ -2241,7 +2371,7 @@ namespace
     }
 
     void emitPowdivVarPosCFG(Function *func, BasicBlock *bb, BasicBlock *afterBB, PhiInst *phi,
-                             Value *num, Value *pos, int posShiftLog2, int radixMask,
+                             Value *num, Value *pos, int posShiftLog2, int radixMask, int maxPos,
                              const string &nameSuffix)
     {
         num = powdivStripCopy(num);
@@ -2251,9 +2381,10 @@ namespace
         auto *ret0BB = func->addBasicBlock(bb->getName() + ".powdiv0" + s);
         auto *extractBB = func->addBasicBlock(bb->getName() + ".powdiv_extract" + s);
 
-        auto *ge8 = new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(8), powdivFreshName("powdiv_ge8" + s));
-        bb->addInstruction(powdivOwn(ge8));
-        bb->addInstruction(powdivOwn(new BranchInst(ge8, ret0BB, extractBB)));
+        auto *geMax =
+            new ICmpInst(ICmpInst::ICMP_SGE, pos, powdivCi(maxPos), powdivFreshName("powdiv_gemax" + s));
+        bb->addInstruction(powdivOwn(geMax));
+        bb->addInstruction(powdivOwn(new BranchInst(geMax, ret0BB, extractBB)));
         bb->addSuccessor(ret0BB);
         bb->addSuccessor(extractBB);
         ret0BB->addPredecessor(bb);
@@ -2274,7 +2405,8 @@ namespace
 
 bool PowDivLoopReductionPass::rewriteDivLoopCallee(Function *func)
 {
-    if (!isPowDivLoopCallee(func))
+    PowDivPattern pat;
+    if (!matchPowDivLoopCallee(func, pat))
         return false;
 
     BasicBlock *entry = func->getEntryBlock();
@@ -2300,21 +2432,21 @@ bool PowDivLoopReductionPass::rewriteDivLoopCallee(Function *func)
         insts.pop_back();
     }
 
-    unsigned idx = 0;
-    (void)idx;
-    buildPowDivFuncBody(func, entry, num, pos, kPosShiftLog2, kRadixMask);
+    buildPowDivFuncBody(func, entry, num, pos, pat.posShiftLog2, pat.radixMask, pat.maxPos);
+    reducedCallees[func] = pat;
 
     if (verbose)
     {
         debugInfo << "PowDivLoopReduction: reduced pow-base div loop in " << func->getName()
-                  << "\n";
+                  << " (radix=" << pat.radix << ")\n";
     }
     return true;
 }
 
 bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
 {
-    if (isPowDivLoopCallee(func))
+    // 已改写的 callee 自身不再做调用替换
+    if (reducedCallees.count(func))
         return false;
 
     vector<BasicBlock *> blocks;
@@ -2329,7 +2461,18 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
         for (int idx = static_cast<int>(insts.size()) - 1; idx >= 0; --idx)
         {
             auto *call = dynamic_cast<CallInst *>(insts[static_cast<unsigned>(idx)].get());
-            if (!isPowDivLoopCall(call))
+            if (!call)
+                continue;
+
+            Function *callee = call->getCalledFunction();
+            if (!callee)
+                continue;
+
+            PowDivPattern pat;
+            auto it = reducedCallees.find(callee);
+            if (it != reducedCallees.end())
+                pat = it->second;
+            else if (!matchPowDivLoopCallee(callee, pat))
                 continue;
 
             vector<Value *> args = call->getArguments();
@@ -2340,7 +2483,7 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
             Value *posArg = powdivStripCopy(args[1]);
             if (auto *posCi = dynamic_cast<ConstantInt *>(posArg))
             {
-                if (posCi->Value >= 8)
+                if (posCi->Value >= pat.maxPos)
                 {
                     call->replaceAllUsesWith(powdivCi(0));
                     call->removeThisFromOperands();
@@ -2350,7 +2493,8 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
                 {
                     unsigned insertIdx = callIdx;
                     Value *digit = buildPowDivDigitExtractLinear(bb, insertIdx, args[0], args[1],
-                                                               kPosShiftLog2, kRadixMask, "");
+                                                               pat.posShiftLog2, pat.radixMask,
+                                                               pat.maxPos, "");
                     const unsigned numInserted = insertIdx - callIdx;
                     call->replaceAllUsesWith(digit);
                     call->removeThisFromOperands();
@@ -2365,8 +2509,8 @@ bool PowDivLoopReductionPass::replaceDivLoopCalls(Function *func)
                 call->replaceAllUsesWith(phi);
                 call->removeThisFromOperands();
                 insts.erase(insts.begin() + static_cast<long>(callIdx));
-                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], kPosShiftLog2, kRadixMask,
-                                    "");
+                emitPowdivVarPosCFG(func, bb, afterBB, phi, args[0], args[1], pat.posShiftLog2,
+                                    pat.radixMask, pat.maxPos, "");
             }
 
             if (verbose)

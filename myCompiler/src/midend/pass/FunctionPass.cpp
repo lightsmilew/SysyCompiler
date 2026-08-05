@@ -71,9 +71,6 @@ bool FunctionInliningPass::shouldInline(Function *callee, Function *caller)
 {
     if (!callee || callee->isLibraryFunction())
         return false;
-    // AP mod-sum closed-form helpers: keep outlined to avoid CFG explosion after inlining.
-    if (callee->getName().rfind("__apms_", 0) == 0)
-        return false;
     if (inlineMainCalleeLayer)
     {
         if (caller->getName() != "main")

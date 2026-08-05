@@ -4,7 +4,6 @@
 namespace optimization
 {
     /// 基于循环嵌套与内存访问结构，将 guarded kernel 拆为 interior（无边界检查）
-    /// 与 border（保留 guard）两段，不依赖基本块或变量名称。
     class LoopNestInteriorSplitPass : public Pass
     {
     public:
