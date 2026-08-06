@@ -2311,7 +2311,8 @@ namespace
             return buildFastNonNegDigit(bb, ins, num, powdivCi(p * posShiftLog2), radixMask, s);
         }
 
-        auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
+        // shift = pos * log2(radix)；不可写成 pos<<log2(radix)（那是 pos*radix）
+        auto *shiftAmt = new BinaryOperator(Opcode::Mul, pos, powdivCi(posShiftLog2),
                                             powdivFreshName("powdiv_shift" + s));
         ins(shiftAmt);
         return buildFastNonNegDigit(bb, ins, num, shiftAmt, radixMask, s);
@@ -2365,7 +2366,7 @@ namespace
 
         auto ins = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
         auto *shiftAmt =
-            new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
+            new BinaryOperator(Opcode::Mul, pos, powdivCi(posShiftLog2), "powdiv_fn_shift");
         ins(shiftAmt);
         retVal(extractBB, buildFastNonNegDigit(extractBB, ins, num, shiftAmt, radixMask, "_fn"));
     }
@@ -2394,7 +2395,7 @@ namespace
         phi->addIncoming(powdivCi(0), ret0BB);
 
         auto extractIns = [&](Instruction *inst) { extractBB->addInstruction(powdivOwn(inst)); };
-        auto *shiftAmt = new BinaryOperator(Opcode::Sll, pos, powdivCi(posShiftLog2),
+        auto *shiftAmt = new BinaryOperator(Opcode::Mul, pos, powdivCi(posShiftLog2),
                                             powdivFreshName("powdiv_shift" + s));
         extractIns(shiftAmt);
         Value *digit = buildFastNonNegDigit(extractBB, extractIns, num, shiftAmt, radixMask, s);

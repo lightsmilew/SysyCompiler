@@ -37,7 +37,7 @@ namespace optimization
         struct PowDivPattern
         {
             int radix = 0;        // 基（2 的幂），如 16
-            int posShiftLog2 = 0; // log2(radix)
+            int posShiftLog2 = 0; // log2(radix)：每位占用的比特数；变量位权用 pos*posShiftLog2
             int radixMask = 0;    // radix - 1
             int maxPos = 0;       // 32 / posShiftLog2，超出则结果为 0
         };
