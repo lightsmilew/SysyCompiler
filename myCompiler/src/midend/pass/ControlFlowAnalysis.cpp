@@ -303,6 +303,12 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                     return true; // 找到 store 到 arr，返回 true
                 }
             }
+            // 向量 store 同样写 arr
+            auto *vecStore = dynamic_cast<VecStoreInst *>(instPtr.get());
+            if (vecStore && isSameAddr(vecStore->getPointerOperand(), arr))
+            {
+                return true;
+            }
             auto *call = dynamic_cast<CallInst *>(instPtr.get());
             if (call && call->HasModifiedArray(arr))
             {
@@ -358,6 +364,27 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                 }
             }
         }
+        // 向量 store 同样写 arr
+        auto *vecStore = dynamic_cast<VecStoreInst *>(inst.get());
+        if (vecStore && isSameAddr(vecStore->getPointerOperand(), arr))
+        {
+            int pos1 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(inst1));
+            int pos2 = startBB->getInstructionOrder(dynamic_cast<Instruction *>(vecStore));
+            if (pos2 > pos1)
+            {
+                return true;
+            }
+            if (pos2 < pos1)
+            {
+                for (auto &loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(inst1)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
         auto *call = dynamic_cast<CallInst *>(inst.get());
         if (call && call->HasModifiedArray(arr))
         {
@@ -409,6 +436,27 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                 }
             }
         }
+        // 向量 store 同样写 arr
+        auto *vecStore = dynamic_cast<VecStoreInst *>(inst.get());
+        if (vecStore && isSameAddr(vecStore->getPointerOperand(), arr))
+        {
+            int pos1 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(inst2));
+            int pos2 = endBB->getInstructionOrder(dynamic_cast<Instruction *>(vecStore));
+            if (pos2 < pos1)
+            {
+                return true;
+            }
+            if (pos2 > pos1)
+            {
+                for (auto &loop : loops)
+                {
+                    if (loop.containsInBody(dynamic_cast<Instruction *>(inst2)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
         auto *call = dynamic_cast<CallInst *>(inst.get());
         if (call && call->HasModifiedArray(arr))
         {
@@ -452,6 +500,12 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                             return true; // 找到 store 到 arr，返回 true
                         }
                     }
+                    // 向量 store 同样写 arr
+                    auto *vecStore = dynamic_cast<VecStoreInst *>(inst3.get());
+                    if (vecStore && isSameAddr(vecStore->getPointerOperand(), arr))
+                    {
+                        return true;
+                    }
                     auto *call = dynamic_cast<CallInst *>(inst3.get());
                     if (call && call->HasModifiedArray(arr))
                     {
@@ -483,6 +537,12 @@ bool ControlFlowAnalysis::hasStoreOnPath(BasicBlock *startBB, BasicBlock *endBB,
                 {
                     return true; // 找到 store 到 arr，返回 true
                 }
+            }
+            // 向量 store 同样写 arr
+            auto *vecStore = dynamic_cast<VecStoreInst *>(instPtr.get());
+            if (vecStore && isSameAddr(vecStore->getPointerOperand(), arr))
+            {
+                return true;
             }
             auto *call = dynamic_cast<CallInst *>(instPtr.get());
             if (call && call->HasModifiedArray(arr))

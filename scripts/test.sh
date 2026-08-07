@@ -10,6 +10,8 @@ OUTPUT_DIR="assembles"
 CROSS_COMPILE="riscv64-linux-gnu-"
 TIMEOUT_SECONDS=150
 TIME_LOG="time_history.log"
+# 含 RVV 指令时需 rv64gcv；可用 MARCH=rv64gc 覆盖
+MARCH="${MARCH:-rv64gcv}"
 
 # 编译功能
 assemble() {
@@ -17,14 +19,14 @@ assemble() {
     for file in "$INPUT_DIR"/*.s; do
         [ -f "$file" ] || continue
         filename=$(basename "$file" .s)
-        echo "Assembling $filename...."
+        echo "Assembling $filename (march=$MARCH)...."
 
-        ${CROSS_COMPILE}as -g "$file" -o "$OUTPUT_DIR/${filename}.o" || {
+        ${CROSS_COMPILE}as -march="$MARCH" -g "$file" -o "$OUTPUT_DIR/${filename}.o" || {
             echo " 汇编 $filename 失败"
             continue
         }
 
-        ${CROSS_COMPILE}gcc -march=rv64gc -static -g "$OUTPUT_DIR/${filename}.o" -L. -lsysy_riscv -lc -lgcc -o "$OUTPUT_DIR/$filename" || {
+        ${CROSS_COMPILE}gcc -march="$MARCH" -static -g "$OUTPUT_DIR/${filename}.o" -L. -lsysy_riscv -lc -lgcc -o "$OUTPUT_DIR/$filename" || {
             echo " 链接 $filename 失败"
             continue
         }

@@ -31,6 +31,8 @@
 #include "SRFixedPass.h"
 #include "GlobalScalarPromotionPass.h"
 #include "NormalizationPass.h"
+#include "LoopVectorizePass.h"
+#include "../../common/CompilerConfig.h"
 #include <vector>
 #include <string>
 #include <memory>

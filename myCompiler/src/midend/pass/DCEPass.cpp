@@ -48,6 +48,12 @@ bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &deb
             clearPendingForAddr(pendingStores, load->getPointer());
             continue;
         }
+        // 向量 load 同样是内存读：读该地址后，之前的标量 store 不能再被后续 store 影子删除
+        if (auto *vload = dynamic_cast<VecLoadInst *>(inst))
+        {
+            clearPendingForAddr(pendingStores, vload->getPointerOperand());
+            continue;
+        }
         if (auto *store = dynamic_cast<StoreInst *>(inst))
         {
             Value *addr = store->getPointer();
@@ -55,6 +61,14 @@ bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &deb
                 shadowedStores.insert(prev);
             clearPendingForAddr(pendingStores, addr);
             pendingStores.push_back(store);
+        }
+        // 向量 store 是内存写：会覆盖同地址的标量 store，但自身不可被删除，故不加入 pending
+        if (auto *vstore = dynamic_cast<VecStoreInst *>(inst))
+        {
+            Value *addr = vstore->getPointerOperand();
+            if (StoreInst *prev = findPendingStore(pendingStores, addr))
+                shadowedStores.insert(prev);
+            clearPendingForAddr(pendingStores, addr);
         }
     }
 

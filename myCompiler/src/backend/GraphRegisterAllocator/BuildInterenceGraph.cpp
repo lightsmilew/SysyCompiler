@@ -35,6 +35,7 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
     // 按寄存器类型分别构建冲突图
     buildInterferencesByType(RegisterType::INT);
     buildInterferencesByType(RegisterType::FLOAT);
+    buildInterferencesByType(RegisterType::VECTOR);
 
 // 4. 实现冲突图的调试输出功能
 #ifdef DEBUG_REG_ALLOC
@@ -44,7 +45,7 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
 #endif
 
     // 统计不同类型寄存器的数量
-    int generalCount = 0, floatCount = 0, precoloredCount = 0, virtualCount = 0;
+    int generalCount = 0, floatCount = 0, vectorCount = 0, precoloredCount = 0, virtualCount = 0;
     int totalEdges = 0;
 
     for (auto reg : interferenceGraph.getNodes())
@@ -53,6 +54,8 @@ void GraphColorRegisterAllocator::buildInterferenceGraph()
             generalCount++;
         else if (reg->getType() == RegisterType::FLOAT)
             floatCount++;
+        else if (reg->getType() == RegisterType::VECTOR)
+            vectorCount++;
 
         if (isPrecolored(reg))
             precoloredCount++;

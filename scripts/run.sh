@@ -63,28 +63,30 @@ elif [ "$1" == "-ir" ]; then
     fi
 elif [ "$1" == "-riscv" ]; then
     mkdir -p "$OUTPUT_DIR"
-    if [[ "$2" =~ ^-O[0-9]+$ ]]; then
-        opt_level="${2#-}"
-        for file in $INPUT_DIR/*.sy; do
-            filename=$(basename "$file")
-            echo "Processing $filename (RISC-V mode, $opt_level)..."
-            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}"
-            status=$?
-            if [ $status -eq 124 ]; then
-                echo "⏰ $filename 编译超时（300秒）"
-            fi
-        done
-    else
-        for file in $INPUT_DIR/*.sy; do
-            filename=$(basename "$file")
-            echo "Processing $filename (RISC-V mode, no opt_level)..."
-            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
-            status=$?
-            if [ $status -eq 124 ]; then
-                echo "⏰ $filename 编译超时（300秒）"
-            fi
-        done
-    fi
+    rvv_flag=""
+    opt_level=""
+    shift
+    while [ $# -gt 0 ]; do
+        if [[ "$1" =~ ^-O[0-9]+$ ]]; then
+            opt_level="${1#-}"
+        elif [ "$1" == "-rvv" ]; then
+            rvv_flag="-rvv"
+        fi
+        shift
+    done
+    for file in $INPUT_DIR/*.sy; do
+        filename=$(basename "$file")
+        echo "Processing $filename (RISC-V mode, ${opt_level:-none} $rvv_flag)..."
+        if [ -n "$opt_level" ]; then
+            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}" $rvv_flag
+        else
+            timeout 300s ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" $rvv_flag
+        fi
+        status=$?
+        if [ $status -eq 124 ]; then
+            echo "⏰ $filename 编译超时（300秒）"
+        fi
+    done
 elif [ "$1" == "-transfer" ]; then
         # qemu 账号 ubuntu，默认密码 WSJ040511；优先 sshpass 免交互
         QEMU_PASS="${QEMU_PASS:-WSJ040511}"
@@ -108,8 +110,10 @@ elif [ "$1" == "-qemu-test" ]; then
         shift
         ./tools/qemu_verify.sh "${1:-functional}"
 elif [ "$1" == "-qemu" ]; then
+    # 启用 RVV（v=true）以便验证向量化代码；无 V 扩展时 vec 指令会非法指令
     qemu-system-riscv64 \
       -machine virt \
+      -cpu rv64,v=true,vlen=256,elen=64,vext_spec=v1.0 \
       -nographic \
       -m 2048 \
       -smp 4 \

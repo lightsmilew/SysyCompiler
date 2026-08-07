@@ -35,6 +35,7 @@ public:
         StringTyID,
         PointerTyID,
         ArrayTyID,
+        VectorTyID, // <N x i32> 等定长向量（RVV 后端按 VLMAX strip-mining）
         FunctionTyID
     };
 
@@ -52,6 +53,7 @@ public:
     bool isFloatTy() const { return ID == FloatTyID; }
     bool isPointerTy() const { return ID == PointerTyID; }
     bool isArrayTy() const { return ID == ArrayTyID; }
+    bool isVectorTy() const { return ID == VectorTyID; }
     bool isFunctionTy() const { return ID == FunctionTyID; }
     bool isStringTy() const { return ID == StringTyID; }
     bool isTypeEqual(Type *a, Type *b);
@@ -97,6 +99,33 @@ public:
     }
 
     string toString() const override { return "float"; }
+};
+
+// ===== VectorType Implementation =====
+// <N x i32>：定长向量类型。N 仅作为「向量寄存器最多容纳的元素数」的保守上限，
+// 实际每次处理的活跃元素个数由 vecsetvl 的结果（vl）决定（strip-mining）。
+class VectorType : public Type
+{
+public:
+    Type *ElementType;
+    unsigned NumElements;
+
+    VectorType(Type *elemTy, unsigned numElements)
+        : Type(VectorTyID), ElementType(elemTy), NumElements(numElements) {}
+
+    static VectorType *getInstance(Type *elemTy, unsigned numElements)
+    {
+        return new VectorType(elemTy, numElements);
+    }
+
+    Type *getElementType() const { return ElementType; }
+    unsigned getNumElements() const { return NumElements; }
+    bool isVectorTy() const { return true; }
+    string toString() const override
+    {
+        return "<" + std::to_string(NumElements) + " x " +
+               ElementType->toString() + ">";
+    }
 };
 
 // ===== StringType Implementation =====
@@ -443,7 +472,19 @@ enum class Opcode
     Call,
     Phi,
     Copy,
-    Select
+    Select,
+
+    // RVV 向量指令（中端向量化产物，后端直接选择为 RVV 指令）
+    VecSetVl,  // %vl = vecsetvl(i32 count, i32 sew_bits)  —— 设置 vtype，返回实际 vl
+    VecLoad,   // <N x i32> %v = vecload(i32* %ptr, i32 %vl) —— 加载 vl 个元素
+    VecStore,  // vecstore(<N x i32> %v, i32* %ptr, i32 %vl) —— 存储 vl 个元素
+    VecSplat,  // <N x i32> %v = vecsplat(i32 %x) —— 广播标量到所有 lane
+    VecAdd,    // <N x i32> vecadd(<N x i32>, <N x i32>)
+    VecSub,    // <N x i32> vecsub(<N x i32>, <N x i32>)
+    VecMul,    // <N x i32> vecmul(<N x i32>, <N x i32>)
+    VecSll,    // <N x i32> vecsll(<N x i32>, <N x i32>)
+    VecSrl,    // <N x i32> vecsrl(<N x i32>, <N x i32>)
+    VecSra     // <N x i32> vecsra(<N x i32>, <N x i32>)
 };
 
 // ====== Instruction System Implementation =====
@@ -785,6 +826,74 @@ public:
     Value *getCondition() const { return getOperandByIndex(0); }      // 获取条件操作数
     Value *getTrueValue() const { return getOperandByIndex(1); }      // 获取真值操作数
     Value *getFalseValue() const { return getOperandByIndex(2); }     // 获取假值操作数
+    string toString() const override;
+};
+
+// ===== RVV 向量指令 =====
+// %vl = vecsetvl i32 %count, 32 —— 根据 SEW/e32 与 vlmax 计算本次实际处理的元素数
+class VecSetVlInst : public Instruction
+{
+public:
+    VecSetVlInst(Value *count, unsigned sewBits, const string &name = "")
+        : Instruction(IntegerType::getInstance(), Opcode::VecSetVl,
+                      vector<Value *>{count}, name), SEWBits(sewBits) {}
+    Value *getCount() const { return getOperandByIndex(0); }
+    unsigned getSEWBits() const { return SEWBits; }
+    string toString() const override;
+private:
+    unsigned SEWBits;
+};
+
+// %v = vecload <N x i32>* %ptr, i32 %vl —— 从 ptr 加载 vl 个元素
+class VecLoadInst : public Instruction
+{
+public:
+    VecLoadInst(Value *ptr, Value *vl, Type *elemTy, unsigned lanes,
+                const string &name = "")
+        : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecLoad,
+                      vector<Value *>{ptr, vl}, name) {}
+    Value *getPointerOperand() const { return getOperandByIndex(0); }
+    Value *getVl() const { return getOperandByIndex(1); }
+    string toString() const override;
+};
+
+// vecstore <N x i32> %v, i32* %ptr, i32 %vl —— 向 ptr 写入 vl 个元素
+class VecStoreInst : public Instruction
+{
+public:
+    VecStoreInst(Value *value, Value *ptr, Value *vl)
+        : Instruction(VoidType::getInstance(), Opcode::VecStore,
+                      vector<Value *>{value, ptr, vl}) {}
+    Value *getValue() const { return getOperandByIndex(0); }
+    Value *getPointerOperand() const { return getOperandByIndex(1); }
+    Value *getVl() const { return getOperandByIndex(2); }
+    string toString() const override;
+};
+
+// 向量二元运算（vecadd / vecsub / vecmul）
+class VecBinaryInst : public Instruction
+{
+public:
+    VecBinaryInst(Opcode op, Value *lhs, Value *rhs, const string &name = "")
+        : Instruction(lhs->getType(), op, vector<Value *>{lhs, rhs}, name) {}
+    Value *getLHS() const { return getOperandByIndex(0); }
+    Value *getRHS() const { return getOperandByIndex(1); }
+    string toString() const override;
+};
+
+// %v = vecsplat <N x i32> i32 %x, i32 %vl —— 将标量广播到前 vl 个 lane。
+// vl 作为操作数：vmv.v.x 只写当前 VL 范围内的活动元素，因此 splat 必须与
+// 后续 load/store 使用相同的 VL；同时该依赖使 splat 不再是循环不变量，
+// 防止 LICM 将其外提到循环外（那会破坏 VL 语义）。
+class VecSplatInst : public Instruction
+{
+public:
+    VecSplatInst(Value *scalar, Value *vl, Type *elemTy, unsigned lanes,
+                 const string &name = "")
+        : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecSplat,
+                      vector<Value *>{scalar, vl}, name) {}
+    Value *getScalar() const { return getOperandByIndex(0); }
+    Value *getVl() const { return getOperandByIndex(1); }
     string toString() const override;
 };
 

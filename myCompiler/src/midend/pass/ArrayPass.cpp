@@ -2167,6 +2167,14 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
                     latestStoredValue[key] = storeInst->getValueToStore();
             }
 
+            // 向量 store 写该地址，使此前的标量 store 转发条目失效（读到的可能是向量写后的值）
+            if (auto *vecStore = dynamic_cast<VecStoreInst *>(inst))
+            {
+                const string key = getForwardingKey(vecStore->getPointerOperand());
+                if (!key.empty())
+                    latestStoredValue.erase(key);
+            }
+
             ++it;
         }
     }

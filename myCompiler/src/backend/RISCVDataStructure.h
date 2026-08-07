@@ -31,7 +31,8 @@ namespace RISCV
         B_TYPE, // 分支操作
         U_TYPE, // 上位立即数操作
         J_TYPE, // 跳转操作
-        PSEUDO  // 伪指令
+        PSEUDO, // 伪指令
+        VECTOR  // RVV 向量指令（vsetvli / vle / vse / vmv.v.x）
     };
 
     // RISC-V操作码枚举
@@ -142,6 +143,20 @@ namespace RISCV
 
         // 自创的伪指令
         INIT,
+
+        // RVV 向量指令
+        VSETVLI, // vsetvli rd, rs1, <vtype>（SEW=32, m1, ta, ma）
+        VLE32_V, // vle32.v vd, (rs1)
+        VSE32_V, // vse32.v vs2, (rs1)
+        VADD_VV, // vadd.vv vd, vs2, vs1
+        VSUB_VV, // vsub.vv vd, vs2, vs1
+        VMUL_VV, // vmul.vv vd, vs2, vs1
+        VMUL_VX, // vmul.vx vd, vs2, rs1
+        VSLL_VV, // vsll.vv vd, vs2, vs1
+        VSRL_VV, // vsrl.vv vd, vs2, vs1
+        VSRA_VV, // vsra.vv vd, vs2, vs1
+        VMV_V_X, // vmv.v.x vd, rs1（标量广播）
+        VMV_X_S  // vmv.x.s rd, vs2（取 lane 0，预留）
     };
 
     // 寄存器类型枚举
@@ -149,6 +164,7 @@ namespace RISCV
     {
         INT,
         FLOAT,
+        VECTOR,
     };
 
     // RISC-V寄存器类
@@ -223,7 +239,41 @@ namespace RISCV
             FT8,
             FT9,
             FT10,
-            FT11
+            FT11,
+
+            // 向量寄存器 v0-v31
+            V0 = 64,
+            V1,
+            V2,
+            V3,
+            V4,
+            V5,
+            V6,
+            V7,
+            V8,
+            V9,
+            V10,
+            V11,
+            V12,
+            V13,
+            V14,
+            V15,
+            V16,
+            V17,
+            V18,
+            V19,
+            V20,
+            V21,
+            V22,
+            V23,
+            V24,
+            V25,
+            V26,
+            V27,
+            V28,
+            V29,
+            V30,
+            V31
         };
 
     private:
@@ -367,6 +417,19 @@ namespace RISCV
         static shared_ptr<RISCVInstruction> createPseudoRET();
         static shared_ptr<RISCVInstruction> createPseudoECALL();
         static shared_ptr<RISCVInstruction> createPseudoINIT(const string &name, int64_t offset, int64_t size);
+
+        // RVV 指令工厂
+        static shared_ptr<RISCVInstruction> createVectorSetVl(shared_ptr<RISCVRegister> rd,
+                                                              shared_ptr<RISCVRegister> rs1);
+        static shared_ptr<RISCVInstruction> createVectorMemory(RISCVOpcode op,
+                                                               shared_ptr<RISCVRegister> reg,
+                                                               shared_ptr<RISCVRegister> base);
+        static shared_ptr<RISCVInstruction> createVectorSplat(shared_ptr<RISCVRegister> vd,
+                                                              shared_ptr<RISCVRegister> rs1);
+        static shared_ptr<RISCVInstruction> createVectorBinary(RISCVOpcode op,
+                                                               shared_ptr<RISCVRegister> vd,
+                                                               shared_ptr<RISCVRegister> vs2,
+                                                               shared_ptr<RISCVRegister> vs1);
 
         // 访问器
         RISCVOpcode getOpcode() const

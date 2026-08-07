@@ -176,6 +176,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<CopyChainEliminationPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
@@ -243,6 +245,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
         // 循环版本化须在展开/SRFixed 前
         pm->addPass(std::make_unique<LoopVersioningPass>(verbose));
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<CopyChainEliminationPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
@@ -374,6 +378,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<MatrixStructureAnalysisPass>(verbose));
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<CopyChainEliminationPass>(verbose));
         pm->addPass(std::make_unique<InstructionCombinePass>(verbose));
@@ -466,6 +472,8 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<SkewSymmetricLoopRestrictPass>(verbose));
         pm->addPass(std::make_unique<LoopInterchangePass>(verbose));
 
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
 
         pm->addPass(std::make_unique<LoopUnrollingPass>(verbose));
         pm->addPass(std::make_unique<CopyChainEliminationPass>(verbose));

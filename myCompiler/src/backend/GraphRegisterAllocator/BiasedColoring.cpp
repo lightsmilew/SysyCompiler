@@ -64,7 +64,12 @@ bool GraphColorRegisterAllocator::isCalleeSavedColor(
       {
         return i >= 15; // T0-T6, A0-A7, then S0-S11
       }
-      return i >= 20; // FT0-FT11, FA0-FA7, then FS0-FS11
+      if (color->getType() == RegisterType::FLOAT)
+      {
+        return i >= 20; // FT0-FT11, FA0-FA7, then FS0-FS11
+      }
+      // VECTOR: RVV v0-v31 全部为 caller-saved，无 callee-saved 向量寄存器
+      return false;
     }
   }
   return false;

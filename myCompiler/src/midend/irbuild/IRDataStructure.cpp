@@ -402,6 +402,26 @@ string Instruction::getOpcodeName() const
         return "copy";
     case Opcode::Select:
         return "select";
+    case Opcode::VecSetVl:
+        return "vecsetvl";
+    case Opcode::VecLoad:
+        return "vecload";
+    case Opcode::VecStore:
+        return "vecstore";
+    case Opcode::VecSplat:
+        return "vecsplat";
+    case Opcode::VecAdd:
+        return "vecadd";
+    case Opcode::VecSub:
+        return "vecsub";
+    case Opcode::VecMul:
+        return "vecmul";
+    case Opcode::VecSll:
+        return "vecsll";
+    case Opcode::VecSrl:
+        return "vecsrl";
+    case Opcode::VecSra:
+        return "vecsra";
     default:
         throw std::runtime_error("Unknown opcode");
     }
@@ -435,6 +455,7 @@ bool Instruction::mayHaveSideEffects() const
 {
     if (Op == Opcode::Store ||
         Op == Opcode::Stored ||
+        Op == Opcode::VecStore ||
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
@@ -487,9 +508,18 @@ bool Instruction::hasResult() const
     case Opcode::PackI64:
     case Opcode::Copy:
     case Opcode::Select:
+    case Opcode::VecSetVl:
+    case Opcode::VecLoad:
+    case Opcode::VecSplat:
+    case Opcode::VecAdd:
+    case Opcode::VecSub:
+    case Opcode::VecMul:
+    case Opcode::VecSll:
+    case Opcode::VecSrl:
+    case Opcode::VecSra:
         return true;
     default:
-        return false; // Ret, Br, Store等没有结果
+        return false; // Ret, Br, Store, VecStore 等没有结果
     }
 }
 bool Instruction::hasExternalUse(const Loop &loop) const
@@ -646,6 +676,34 @@ Instruction *Instruction::clone() const
         auto *select = static_cast<const SelectInst *>(this);
         return new SelectInst(select->getCondition(), select->getTrueValue(), select->getFalseValue(), getName());
     }
+    case Opcode::VecSetVl:
+    {
+        auto *vs = static_cast<const VecSetVlInst *>(this);
+        return new VecSetVlInst(getOperandByIndex(0), vs->getSEWBits(), getName());
+    }
+    case Opcode::VecLoad:
+    {
+        auto *vl = static_cast<const VecLoadInst *>(this);
+        auto *vecTy = static_cast<VectorType *>(getType());
+        return new VecLoadInst(getOperandByIndex(0), getOperandByIndex(1),
+                               vecTy->getElementType(), vecTy->getNumElements(), getName());
+    }
+    case Opcode::VecStore:
+        return new VecStoreInst(getOperandByIndex(0), getOperandByIndex(1),
+                                getOperandByIndex(2));
+    case Opcode::VecSplat:
+    {
+        auto *vecTy = static_cast<VectorType *>(getType());
+        return new VecSplatInst(getOperandByIndex(0), getOperandByIndex(1),
+                                vecTy->getElementType(), vecTy->getNumElements(), getName());
+    }
+    case Opcode::VecAdd:
+    case Opcode::VecSub:
+    case Opcode::VecMul:
+    case Opcode::VecSll:
+    case Opcode::VecSrl:
+    case Opcode::VecSra:
+        return new VecBinaryInst(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
     default:
         throw std::runtime_error("Clone not implemented for this opcode");
     }
@@ -1417,6 +1475,49 @@ std::string SelectInst::toString() const
        << ", " << getFalseValue()->toRef();
     return ss.str();
 }
+
+std::string VecSetVlInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecsetvl " << getCount()->getType()->toString()
+       << " " << getCount()->toRef() << ", " << SEWBits;
+    return ss.str();
+}
+
+std::string VecLoadInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecload " << getType()->toString() << " "
+       << getPointerOperand()->toRef() << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecStoreInst::toString() const
+{
+    std::stringstream ss;
+    ss << "vecstore " << getValue()->getType()->toString() << " "
+       << getValue()->toRef() << ", " << getPointerOperand()->toRef()
+       << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecBinaryInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = " << getOpcodeName() << " "
+       << getType()->toString() << " " << getLHS()->toRef() << ", "
+       << getRHS()->toRef();
+    return ss.str();
+}
+
+std::string VecSplatInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecsplat " << getType()->toString() << " "
+       << getScalar()->toRef() << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
 // ===== GetElementPtrInst Implementation =====
 Value *GetElementPtrInst::getPointerOperand() const
 {
@@ -1529,6 +1630,12 @@ bool Type::isTypeEqual(Type *a, Type *b)
     if (a->isPointerTy() && b->isPointerTy())
     {
         return isTypeEqual(static_cast<PointerType *>(a)->ElementType, static_cast<PointerType *>(b)->ElementType);
+    }
+    if (a->isVectorTy() && b->isVectorTy())
+    {
+        auto va = static_cast<VectorType *>(a);
+        auto vb = static_cast<VectorType *>(b);
+        return va->getNumElements() == vb->getNumElements() && isTypeEqual(va->ElementType, vb->ElementType);
     }
     // 基本类型直接比较
     return true;

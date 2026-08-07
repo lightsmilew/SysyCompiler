@@ -11,6 +11,7 @@
 #include "midend/irbuild/IRBuilder.h"
 #include "midend/pass/OptimizationPasses.h"
 #include "backend/RISCVBuilder.h"
+#include "common/CompilerConfig.h"
 
 using namespace antlr4;
 using namespace tree;
@@ -26,6 +27,7 @@ int main(int argc, const char *argv[])
     string input_file, output_file;
     optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
     bool emit_riscv = false;
+    CompilerConfig::enableRVV = false;
 
     // 参数解析
     if (argc >= 2 && strcmp(argv[1], "-debug") == 0)
@@ -33,7 +35,7 @@ int main(int argc, const char *argv[])
         debugMode = true;
         if (argc < 4)
         {
-            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...]" << endl;
+            cerr << "Usage: compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...|-rvv]" << endl;
             return 1;
         }
         input_file = argv[2];
@@ -42,6 +44,8 @@ int main(int argc, const char *argv[])
         {
             if (strcmp(argv[i], "-info") == 0)
                 infoMode = true;
+            else if (strcmp(argv[i], "-rvv") == 0)
+                CompilerConfig::enableRVV = true;
             else if (strncmp(argv[i], "-O", 2) == 0)
             {
                 string optstr = argv[i];
@@ -73,6 +77,8 @@ int main(int argc, const char *argv[])
         {
             if (strcmp(argv[i], "-S") == 0)
                 emit_riscv = true;
+            else if (strcmp(argv[i], "-rvv") == 0)
+                CompilerConfig::enableRVV = true;
             else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
                 output_file = argv[++i];
             else if (strncmp(argv[i], "-O", 2) == 0)
@@ -107,13 +113,17 @@ int main(int argc, const char *argv[])
         {
             cerr << "Usage:\n"
                  << "  参数顺序可变，示例：\n"
-                 << "    compiler -S -o <output.s> <input.sy> [-O0|-O1|-O2|...]\n"
-                 << "    compiler <input.sy> -S -o <output.s> [-O0|-O1|-O2|...]\n"
-                 << "    compiler -o <output.s> -S <input.sy> [-O0|-O1|-O2|...]\n"
-                 << "    compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...]\n";
+                 << "    compiler -S -o <output.s> <input.sy> [-O0|-O1|-O2|...] [-rvv]\n"
+                 << "    compiler <input.sy> -S -o <output.s> [-O0|-O1|-O2|...] [-rvv]\n"
+                 << "    compiler -o <output.s> -S <input.sy> [-O0|-O1|-O2|...] [-rvv]\n"
+                 << "    compiler -debug <input.sy> <output_prefix> [-info|-O0|-O1|...|-rvv]\n"
+                 << "  -rvv  启用 RVV 向量化扩展（调试用，默认关闭）\n";
             return 1;
         }
     }
+
+    if (CompilerConfig::enableRVV)
+        cerr << "[RVV] vector extension enabled\n";
 
     ifstream f_stream(input_file);
     if (!f_stream)

@@ -353,6 +353,16 @@ namespace
                 if (auto *st = dynamic_cast<StoreInst *>(midInst))
                     midPtr = st->getPointer();
             }
+            else if (midInst->getOpcode() == Opcode::VecLoad)
+            {
+                if (auto *vl = dynamic_cast<VecLoadInst *>(midInst))
+                    midPtr = vl->getPointerOperand();
+            }
+            else if (midInst->getOpcode() == Opcode::VecStore)
+            {
+                if (auto *vs = dynamic_cast<VecStoreInst *>(midInst))
+                    midPtr = vs->getPointerOperand();
+            }
             else
                 continue;
             if (!clearlyDistinctI32Addrs(midPtr, storeAddr))

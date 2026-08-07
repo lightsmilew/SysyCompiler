@@ -60,8 +60,6 @@ const vector<shared_ptr<RISCVRegister>>
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT9),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT10),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FT11),
-
-        // 浮点参数寄存器 (caller-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA0),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA1),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA2),
@@ -70,8 +68,6 @@ const vector<shared_ptr<RISCVRegister>>
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA5),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA6),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA7),
-
-        // 保存浮点寄存器 (callee-saved)
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS0),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS1),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS2),
@@ -84,6 +80,41 @@ const vector<shared_ptr<RISCVRegister>>
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS9),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS10),
         make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FS11)};
+
+const vector<shared_ptr<RISCVRegister>>
+    GraphColorRegisterAllocator::availableVectorRegs = {
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V0),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V1),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V2),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V3),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V4),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V5),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V6),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V7),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V8),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V9),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V10),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V11),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V12),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V13),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V14),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V15),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V16),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V17),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V18),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V19),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V20),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V21),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V22),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V23),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V24),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V25),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V26),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V27),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V28),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V29),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V30),
+        make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V31)};
 
 const vector<shared_ptr<RISCVRegister>> CallerSavedGeneralRegs = {
     // 临时寄存器 (caller-saved)
@@ -124,6 +155,40 @@ const vector<shared_ptr<RISCVRegister>> CallerSavedFloatRegs = {
     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA5),
     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA6),
     make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::FA7)};
+// 向量寄存器全部为 caller-saved
+const vector<shared_ptr<RISCVRegister>> CallerSavedVectorRegs = {
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V0),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V1),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V2),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V3),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V4),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V5),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V6),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V7),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V8),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V9),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V10),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V11),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V12),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V13),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V14),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V15),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V16),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V17),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V18),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V19),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V20),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V21),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V22),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V23),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V24),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V25),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V26),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V27),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V28),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V29),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V30),
+    make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::V31)};
 
 // 主要接口：为函数分配寄存器
 void GraphColorRegisterAllocator::allocateRegisters(
@@ -263,13 +328,21 @@ bool GraphColorRegisterAllocator::isPrecolored(
 
 int GraphColorRegisterAllocator::getK(RegisterType type) const
 {
-  return type == RegisterType::INT ? K_GENERAL : K_FLOAT;
+  if (type == RegisterType::INT)
+    return K_GENERAL;
+  if (type == RegisterType::FLOAT)
+    return K_FLOAT;
+  return K_VECTOR;
 }
 
 vector<shared_ptr<RISCVRegister>>
 GraphColorRegisterAllocator::getAvailableColors(RegisterType type) const
 {
-  return type == RegisterType::INT ? availableGeneralRegs : availableFloatRegs;
+  if (type == RegisterType::INT)
+    return availableGeneralRegs;
+  if (type == RegisterType::FLOAT)
+    return availableFloatRegs;
+  return availableVectorRegs;
 }
 
 NodeState
@@ -706,9 +779,17 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
           {
             loadOp = RISCVOpcode::LD; // 加载整数
           }
-          else
+          else if (useReg->getType() == RegisterType::FLOAT)
           {
             loadOp = RISCVOpcode::FLD; // 加载浮点数
+          }
+          else
+          {
+            // 向量寄存器溢出：K_VECTOR=32 且向量虚拟寄存器数目远小于 32，
+            // 正常向量化路径不会溢出，这里防御性报错
+            std::cerr << "ERROR: vector register spill not supported: "
+                      << useReg->toString() << std::endl;
+            continue;
           }
 
           if (offset <= 2047 && offset >= -2048)
@@ -757,9 +838,15 @@ void GraphColorRegisterAllocator::handleSpilledRegisters()
           {
             storeOp = RISCVOpcode::SD; // 存储整数
           }
-          else
+          else if (defReg->getType() == RegisterType::FLOAT)
           {
             storeOp = RISCVOpcode::FSD; // 存储浮点数
+          }
+          else
+          {
+            std::cerr << "ERROR: vector register spill not supported: "
+                      << defReg->toString() << std::endl;
+            continue;
           }
 
           if (offset <= 2047 && offset >= -2048)
@@ -1443,6 +1530,11 @@ namespace RISCV
             livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
           }
           for (auto &reg : CallerSavedFloatRegs)
+          {
+            livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
+          }
+          // 向量寄存器全部为 caller-saved，跨 call 活跃的向量值需溢出处理
+          for (auto &reg : CallerSavedVectorRegs)
           {
             livenessInfo.addLiveRange(reg, instrIndex[instr], instrIndex[instr]);
           }

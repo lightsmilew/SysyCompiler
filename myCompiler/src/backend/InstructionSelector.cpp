@@ -360,6 +360,28 @@ void InstructionSelector::visitInstruction(Instruction *inst)
             visitSelectInst(selectInst);
         }
         break;
+    case Opcode::VecSetVl:
+        if (auto *vs = dynamic_cast<VecSetVlInst *>(inst))
+            visitVecSetVlInst(vs);
+        break;
+    case Opcode::VecLoad:
+        if (auto *vl = dynamic_cast<VecLoadInst *>(inst))
+            visitVecLoadInst(vl);
+        break;
+    case Opcode::VecStore:
+        if (auto *vs = dynamic_cast<VecStoreInst *>(inst))
+            visitVecStoreInst(vs);
+        break;
+    case Opcode::VecSplat:
+        if (auto *vs = dynamic_cast<VecSplatInst *>(inst))
+            visitVecSplatInst(vs);
+        break;
+    case Opcode::VecAdd:
+    case Opcode::VecSub:
+    case Opcode::VecMul:
+        if (auto *vb = dynamic_cast<VecBinaryInst *>(inst))
+            visitVecBinaryInst(vb);
+        break;
     default:
         // 其他指令暂时忽略
         break;
@@ -2219,6 +2241,36 @@ shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVirtualReg(Value *valu
     return nullptr;
 }
 
+shared_ptr<RISCVRegister> InstructionSelector::getOrCreateVectorReg(Value *value, bool isPhysical)
+{
+    // 向量值（<N x i32>）：创建 RegisterType::VECTOR 虚拟寄存器
+    auto valueName = value->getName();
+    if (registerMap.find(valueName) != registerMap.end())
+    {
+        auto existing = registerMap[valueName];
+        if (existing->getType() == RegisterType::VECTOR)
+            return existing;
+    }
+
+    if (isPhysical)
+    {
+        // 向量暂不使用物理寄存器（由分配器从 v0-v31 中分配）
+        auto reg = make_shared<RISCVRegister>(RegisterType::VECTOR);
+        registerMap[valueName] = reg;
+        if (currentFunc)
+            currentFunc->addIRValueMapping(valueName, reg);
+        return reg;
+    }
+
+    auto virtualReg = make_shared<RISCVRegister>(RegisterType::VECTOR);
+    registerMap[valueName] = virtualReg;
+    if (currentFunc)
+    {
+        currentFunc->addIRValueMapping(valueName, virtualReg);
+    }
+    return virtualReg;
+}
+
 shared_ptr<RISCVRegister> InstructionSelector::getArgReg(const string &argName, RegisterType regType)
 {
     // 获取当前函数的参数寄存器
@@ -2312,5 +2364,80 @@ shared_ptr<RISCVRegister> InstructionSelector::LiLong(long longValue, bool isPhy
     currentBB->addInstruction(LiInst);
 
     return destReg;
+}
+
+void InstructionSelector::visitVecSetVlInst(VecSetVlInst *inst)
+{
+    // %vl = vecsetvl %count, sew —— vsetvli rd, rs1, e32, m1, ta, ma
+    auto count = getOrCreateVirtualReg(inst->getCount());
+    auto vlReg = getTempReg(); // rd 是 i32 虚拟寄存器（保存 vl）
+    currentBB->addInstruction(RISCVInstruction::createVectorSetVl(vlReg, count));
+    registerMap[inst->getName()] = vlReg;
+    if (currentFunc)
+        currentFunc->addIRValueMapping(inst->getName(), vlReg);
+}
+
+void InstructionSelector::visitVecLoadInst(VecLoadInst *inst)
+{
+    // %v = vecload %ptr, %vl —— vle32.v vd, (ptr)
+    auto ptr = getOrCreateVirtualReg(inst->getPointerOperand());
+    (void)inst->getVl(); // vl 由 vsetvli 隐含设置，无需单独传参
+    auto vd = getOrCreateVectorReg(inst);
+    currentBB->addInstruction(
+        RISCVInstruction::createVectorMemory(RISCVOpcode::VLE32_V, vd, ptr));
+}
+
+void InstructionSelector::visitVecStoreInst(VecStoreInst *inst)
+{
+    // vecstore %v, %ptr, %vl —— vse32.v vs2, (ptr)
+    auto val = getOrCreateVectorReg(inst->getValue());
+    auto ptr = getOrCreateVirtualReg(inst->getPointerOperand());
+    (void)inst->getVl();
+    currentBB->addInstruction(
+        RISCVInstruction::createVectorMemory(RISCVOpcode::VSE32_V, val, ptr));
+}
+
+void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)
+{
+    auto lhs = getOrCreateVectorReg(inst->getLHS());
+    auto rhs = getOrCreateVectorReg(inst->getRHS());
+    auto vd = getOrCreateVectorReg(inst);
+    RISCVOpcode op;
+    switch (inst->getOpcode())
+    {
+    case Opcode::VecAdd:
+        op = RISCVOpcode::VADD_VV;
+        break;
+    case Opcode::VecSub:
+        op = RISCVOpcode::VSUB_VV;
+        break;
+    case Opcode::VecMul:
+        op = RISCVOpcode::VMUL_VV;
+        break;
+    case Opcode::VecSll:
+        op = RISCVOpcode::VSLL_VV;
+        break;
+    case Opcode::VecSrl:
+        op = RISCVOpcode::VSRL_VV;
+        break;
+    case Opcode::VecSra:
+        op = RISCVOpcode::VSRA_VV;
+        break;
+    default:
+        op = RISCVOpcode::VMUL_VV;
+        break;
+    }
+    currentBB->addInstruction(RISCVInstruction::createVectorBinary(op, vd, lhs, rhs));
+}
+
+void InstructionSelector::visitVecSplatInst(VecSplatInst *inst)
+{
+    // %v = vecsplat %x —— vmv.v.x vd, rs1
+    // 注意：vmv.v.x 只写当前 VL 范围内的活动元素。LoopVectorizePass 会把 splat
+    // 放在 strip-mining 循环体内（紧跟循环的 vsetvli 之后），因此执行时 VL 与
+    // 后续 load/store 一致；不要在循环外执行 splat，否则高位元素会残留旧值。
+    auto scalar = getOrCreateVirtualReg(inst->getScalar());
+    auto vd = getOrCreateVectorReg(inst);
+    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, scalar));
 }
 

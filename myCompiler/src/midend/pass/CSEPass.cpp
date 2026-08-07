@@ -117,6 +117,16 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                             break;
                                         }
                                     }
+                                    // 向量 store 同样会修改该地址
+                                    if (auto *vecStore = dynamic_cast<VecStoreInst *>(insts[i].get()))
+                                    {
+                                        Value *storeAddr = vecStore->getPointerOperand();
+                                        if (isSameAddr(storeAddr, addr))
+                                        {
+                                            CanNotCSEWithLoadOrPhiOperand = true;
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -229,6 +239,15 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
             if (isSameAddr(storeAddr, addr))
             {
                 return false; // 两条load之间有store，不能CSE
+            }
+        }
+        // 向量 store 同样会修改该地址
+        if (auto *vecStore = dynamic_cast<VecStoreInst *>(insts[i].get()))
+        {
+            Value *storeAddr = vecStore->getPointerOperand();
+            if (isSameAddr(storeAddr, addr))
+            {
+                return false;
             }
         }
     }

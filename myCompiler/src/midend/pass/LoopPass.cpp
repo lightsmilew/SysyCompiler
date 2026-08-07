@@ -1149,7 +1149,7 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
         }
         // 获取addr的原始指针操作数
         Value *loadOriginalPointer = loadInst->getOriginalPointer();
-        // 判断循环体内是否有对该地址的store
+        // 判断循环体内是否有对该地址的store（含向量 store）
         for (auto *loopBB : loop.blocks)
         {
             for (auto &instPtr : loopBB->getInstructions())
@@ -1162,6 +1162,14 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
                     if (isSameAddr(storeOriginalAddr, loadOriginalPointer))
                     {
                         return false; // 两条load之间有store，不能外提
+                    }
+                }
+                if (auto vecStore = dynamic_cast<VecStoreInst *>(store))
+                {
+                    Value *storeOriginalAddr = stripCopy(vecStore->getPointerOperand());
+                    if (isSameAddr(storeOriginalAddr, loadOriginalPointer))
+                    {
+                        return false;
                     }
                 }
             }

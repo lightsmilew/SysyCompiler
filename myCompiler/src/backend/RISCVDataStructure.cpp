@@ -80,7 +80,9 @@ namespace RISCV
 
     // RISCVRegister 实现
     RISCVRegister::RISCVRegister(PhysicalReg reg)
-        : type(reg < PhysicalReg::FT0 ? RegisterType::INT : RegisterType::FLOAT),
+        : type(reg < PhysicalReg::FT0
+                   ? RegisterType::INT
+                   : (reg < PhysicalReg::V0 ? RegisterType::FLOAT : RegisterType::VECTOR)),
           physicalReg(reg), virtualId(-1) {}
 
     RISCVRegister::RISCVRegister(RegisterType regType)
@@ -93,7 +95,11 @@ namespace RISCV
     {
         if (isVirtual())
         {
-            return (type == RegisterType::INT ? "vr" : "vf") + std::to_string(virtualId);
+            if (type == RegisterType::INT)
+                return "vr" + std::to_string(virtualId);
+            if (type == RegisterType::FLOAT)
+                return "vf" + std::to_string(virtualId);
+            return "vv" + std::to_string(virtualId);
         }
 
         // 物理寄存器名称映射
@@ -228,6 +234,71 @@ namespace RISCV
             return "ft10";
         case PhysicalReg::FT11:
             return "ft11";
+        // 向量寄存器
+        case PhysicalReg::V0:
+            return "v0";
+        case PhysicalReg::V1:
+            return "v1";
+        case PhysicalReg::V2:
+            return "v2";
+        case PhysicalReg::V3:
+            return "v3";
+        case PhysicalReg::V4:
+            return "v4";
+        case PhysicalReg::V5:
+            return "v5";
+        case PhysicalReg::V6:
+            return "v6";
+        case PhysicalReg::V7:
+            return "v7";
+        case PhysicalReg::V8:
+            return "v8";
+        case PhysicalReg::V9:
+            return "v9";
+        case PhysicalReg::V10:
+            return "v10";
+        case PhysicalReg::V11:
+            return "v11";
+        case PhysicalReg::V12:
+            return "v12";
+        case PhysicalReg::V13:
+            return "v13";
+        case PhysicalReg::V14:
+            return "v14";
+        case PhysicalReg::V15:
+            return "v15";
+        case PhysicalReg::V16:
+            return "v16";
+        case PhysicalReg::V17:
+            return "v17";
+        case PhysicalReg::V18:
+            return "v18";
+        case PhysicalReg::V19:
+            return "v19";
+        case PhysicalReg::V20:
+            return "v20";
+        case PhysicalReg::V21:
+            return "v21";
+        case PhysicalReg::V22:
+            return "v22";
+        case PhysicalReg::V23:
+            return "v23";
+        case PhysicalReg::V24:
+            return "v24";
+        case PhysicalReg::V25:
+            return "v25";
+        case PhysicalReg::V26:
+            return "v26";
+        case PhysicalReg::V27:
+            return "v27";
+        case PhysicalReg::V28:
+            return "v28";
+        case PhysicalReg::V29:
+            return "v29";
+        case PhysicalReg::V30:
+            return "v30";
+        case PhysicalReg::V31:
+            return "v31";
         default:
             return "unknown";
         }
@@ -434,6 +505,30 @@ namespace RISCV
                 return "ecall";
             case RISCVOpcode::INIT:
                 return "";
+            case RISCVOpcode::VSETVLI:
+                return "vsetvli";
+            case RISCVOpcode::VLE32_V:
+                return "vle32.v";
+            case RISCVOpcode::VSE32_V:
+                return "vse32.v";
+            case RISCVOpcode::VADD_VV:
+                return "vadd.vv";
+            case RISCVOpcode::VSUB_VV:
+                return "vsub.vv";
+            case RISCVOpcode::VMUL_VV:
+                return "vmul.vv";
+            case RISCVOpcode::VMUL_VX:
+                return "vmul.vx";
+            case RISCVOpcode::VSLL_VV:
+                return "vsll.vv";
+            case RISCVOpcode::VSRL_VV:
+                return "vsrl.vv";
+            case RISCVOpcode::VSRA_VV:
+                return "vsra.vv";
+            case RISCVOpcode::VMV_V_X:
+                return "vmv.v.x";
+            case RISCVOpcode::VMV_X_S:
+                return "vmv.x.s";
             default:
                 return "unknown";
             }
@@ -458,6 +553,31 @@ namespace RISCV
             ss << "        addi s9, s9, 4\n";                                 // 假设每次循环处理4字节
             ss << "        addi s10, s10, -1\n";                              // 减少计数器
             ss << "        bnez s10, loop_" + operands[0]->toString() + "\n"; // 如果计数器不为0，继续循环
+        }
+        else if (opcode == RISCVOpcode::VSETVLI && operands.size() >= 2)
+        {
+            // vsetvli rd, rs1, e32, m1, ta, ma —— SEW=32，向量寄存器组 LMUL=1
+            ss << " " << operands[0]->toString() << ", " << operands[1]->toString()
+               << ", e32, m1, ta, ma";
+        }
+        else if (opcode == RISCVOpcode::VLE32_V && operands.size() >= 2)
+        {
+            // vle32.v vd, (rs1)
+            ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << ")";
+        }
+        else if (opcode == RISCVOpcode::VSE32_V && operands.size() >= 2)
+        {
+            // vse32.v vs2, (rs1)
+            ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << ")";
+        }
+        else if (opcode == RISCVOpcode::VMV_V_X && operands.size() >= 2)
+        {
+            // vmv.v.x vd, rs1
+            ss << " " << operands[0]->toString() << ", " << operands[1]->toString();
+        }
+        else if (opcode == RISCVOpcode::VMV_X_S && operands.size() >= 2)
+        {
+            ss << " " << operands[0]->toString() << ", " << operands[1]->toString();
         }
         // 特殊处理内存访问指令的操作数格式
         else if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
@@ -1030,6 +1150,42 @@ namespace RISCV
         return instr;
     }
 
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorSetVl(shared_ptr<RISCVRegister> rd,
+                                                                      shared_ptr<RISCVRegister> rs1)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VSETVLI, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(rs1)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorMemory(RISCVOpcode op,
+                                                                       shared_ptr<RISCVRegister> reg,
+                                                                       shared_ptr<RISCVRegister> base)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(reg), make_shared<RISCVOperand>(base)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorSplat(shared_ptr<RISCVRegister> vd,
+                                                                      shared_ptr<RISCVRegister> rs1)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VMV_V_X, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(vd), make_shared<RISCVOperand>(rs1)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorBinary(RISCVOpcode op,
+                                                                       shared_ptr<RISCVRegister> vd,
+                                                                       shared_ptr<RISCVRegister> vs2,
+                                                                       shared_ptr<RISCVRegister> vs1)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(vd), make_shared<RISCVOperand>(vs2),
+                           make_shared<RISCVOperand>(vs1)};
+        return instr;
+    }
+
     // RISCVInstruction 活跃性分析方法实现
 
     vector<shared_ptr<RISCVRegister>> RISCVInstruction::getUseRegisters() const
@@ -1152,6 +1308,45 @@ namespace RISCV
                 break;
             }
             break;
+
+        case InstructionType::VECTOR:
+            // RVV 向量指令
+            switch (opcode)
+            {
+            case RISCVOpcode::VSETVLI:
+            case RISCVOpcode::VLE32_V:
+            case RISCVOpcode::VMV_V_X:
+            case RISCVOpcode::VMV_X_S:
+                // use: rs1 (最后一个操作数)
+                if (operands.size() >= 2 && isRegisterOperand(operands[1]))
+                    useRegs.push_back(operands[1]->getReg());
+                break;
+            case RISCVOpcode::VSE32_V:
+                // vse32.v vs2, (rs1) -> use: 全部操作数
+                for (size_t i = 0; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]))
+                        useRegs.push_back(operands[i]->getReg());
+                }
+                break;
+            case RISCVOpcode::VADD_VV:
+            case RISCVOpcode::VSUB_VV:
+            case RISCVOpcode::VMUL_VV:
+            case RISCVOpcode::VMUL_VX:
+            case RISCVOpcode::VSLL_VV:
+            case RISCVOpcode::VSRL_VV:
+            case RISCVOpcode::VSRA_VV:
+                // use: vs2, vs1 (操作数1、2)
+                for (size_t i = 1; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]))
+                        useRegs.push_back(operands[i]->getReg());
+                }
+                break;
+            default:
+                break;
+            }
+            break;
         }
 
         return useRegs;
@@ -1219,8 +1414,28 @@ namespace RISCV
                 // ret指令不定义寄存器
                 break;
 
+            case RISCVOpcode::INIT:
+                break;
+
             default:
                 // 其他伪指令，如果第一个操作数是寄存器，则为定义
+                if (!operands.empty() && isRegisterOperand(operands[0]))
+                {
+                    defRegs.push_back(operands[0]->getReg());
+                }
+                break;
+            }
+            break;
+
+        case InstructionType::VECTOR:
+            // RVV 向量指令
+            switch (opcode)
+            {
+            case RISCVOpcode::VSE32_V:
+                // 存储指令不定义寄存器
+                break;
+            default:
+                // vsetvli/vle32.v/vadd.vv/vmul.vv/vmul.vx/vmv.v.x/vmv.x.s 定义第一个操作数
                 if (!operands.empty() && isRegisterOperand(operands[0]))
                 {
                     defRegs.push_back(operands[0]->getReg());
@@ -1329,6 +1544,18 @@ namespace RISCV
                 break;
             }
             break;
+
+        case InstructionType::VECTOR:
+            // RVV 向量指令：VSE32_V 全部操作数均为 use，其余从操作数1开始
+            {
+                size_t startIdx = (opcode == RISCVOpcode::VSE32_V) ? 0 : 1;
+                for (size_t i = startIdx; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]) && operands[i]->getReg() == oldReg)
+                        operands[i] = make_shared<RISCVOperand>(newReg);
+                }
+            }
+            break;
         }
     }
 
@@ -1381,6 +1608,15 @@ namespace RISCV
             default:
                 // 其他伪指令不处理
                 break;
+            }
+            break;
+
+        case InstructionType::VECTOR:
+            // RVV 向量指令：除 VSE32_V 外均定义第一个操作数 (vd/rd)
+            if (opcode != RISCVOpcode::VSE32_V && !operands.empty() &&
+                isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
+            {
+                operands[0] = make_shared<RISCVOperand>(newReg);
             }
             break;
         }
