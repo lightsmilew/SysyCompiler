@@ -45,9 +45,11 @@ get_last_time() {
 save_time() {
     local name="$1"
     local t="$2"
-    grep -v "^$name " "$TIME_LOG" > tmp.log 2>/dev/null
-    echo "$name $t" >> tmp.log
-    mv tmp.log "$TIME_LOG"
+    local tmp
+    tmp=$(mktemp)
+    grep -v "^$name " "$TIME_LOG" > "$tmp" 2>/dev/null || true
+    echo "$name $t" >> "$tmp"
+    mv "$tmp" "$TIME_LOG"
 }
 
 # 格式化毫秒 -> 秒
@@ -57,10 +59,80 @@ format_time() {
 }
 
 # 归一化输出再对比：折叠所有空白（含换行）为单个空格。
-# 避免 qemu/管道在 ~4096 字节边界插入换行导致超长单行误判 WA。
 normalize_out() {
     tr -d '\r' < "$1" | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
     echo
+}
+
+# 把「超长行被 4096 截断」的续行粘回去（行长 >= 4095 才粘，不影响一行一数的 h-9）。
+fix_long_line_wraps() {
+    awk '
+    NR == 1 { prev = $0; next }
+    length(prev) >= 4095 { prev = prev $0; next }
+    { print prev; prev = $0 }
+    END { if (NR) print prev }
+    ' "$1"
+}
+
+# 提取整数 token；先粘回被拆开的负号（-\n121）。sed -z 跨行，grep -o 流式抽取。
+extract_int_tokens() {
+    tr -d '\r' < "$1" | sed -z 's/-[[:space:]]\+\([0-9]\)/-\1/g' | grep -oE -- '-?[0-9]+'
+}
+
+# 对拍：快路径空白归一化；中路径修长行截断；慢路径流式 token 合并（避免大串 O(n²)）。
+outputs_match() {
+    local exp_file="$1" act_file="$2"
+    local exp_n act_n exp_f act_f exp_t act_t rc=1
+
+    exp_n=$(mktemp)
+    act_n=$(mktemp)
+    normalize_out "$exp_file" > "$exp_n"
+    normalize_out "$act_file" > "$act_n"
+    if diff -q "$exp_n" "$act_n" > /dev/null; then
+        rm -f "$exp_n" "$act_n"
+        return 0
+    fi
+
+    # 中路径：仅粘超长续行后再比（覆盖 fft1/shuffle1/sl1）
+    exp_f=$(mktemp)
+    act_f=$(mktemp)
+    fix_long_line_wraps "$exp_file" | tr -d '\r' | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$exp_f"
+    echo >> "$exp_f"
+    fix_long_line_wraps "$act_file" | tr -d '\r' | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$act_f"
+    echo >> "$act_f"
+    if diff -q "$exp_f" "$act_f" > /dev/null; then
+        rm -f "$exp_n" "$act_n" "$exp_f" "$act_f"
+        return 0
+    fi
+
+    # 慢路径：流式抽 token 再合并（覆盖 h-9 等短行中段截断）
+    exp_t=$(mktemp)
+    act_t=$(mktemp)
+    extract_int_tokens "$exp_file" > "$exp_t"
+    extract_int_tokens "$act_file" > "$act_t"
+    awk -v exp_t="$exp_t" -v act_t="$act_t" '
+    BEGIN {
+        while ((getline e < exp_t) > 0) E[++ne] = e
+        close(exp_t)
+        while ((getline a < act_t) > 0) A[++na] = a
+        close(act_t)
+        i = 1; j = 1
+        while (i <= ne && j <= na) {
+            if (A[j] == E[i]) { i++; j++; continue }
+            acc = A[j]; j++
+            while (j <= na && acc != E[i] && length(acc) < length(E[i]) + 2) {
+                if (A[j] ~ /^-/) break
+                acc = acc A[j]; j++
+            }
+            if (acc != E[i]) exit 1
+            i++
+        }
+        exit (i == ne + 1 && j == na + 1) ? 0 : 1
+    }
+    '
+    rc=$?
+    rm -f "$exp_n" "$act_n" "$exp_f" "$act_f" "$exp_t" "$act_t"
+    return "$rc"
 }
 
 # 测试功能（带耗时对比）
@@ -89,6 +161,8 @@ test_programs() {
 
         TMP_OUTPUT=$(mktemp)
         TMP_FILTERED=$(mktemp)
+        TMP_EXP_N=
+        TMP_ACT_N=
 
         echo -e "\n--- 测试 $filename ---"
 
@@ -116,7 +190,8 @@ test_programs() {
             normalize_out "$expected_file" > "$TMP_EXP_N"
             normalize_out "$TMP_FILTERED" > "$TMP_ACT_N"
 
-            if diff -q "$TMP_EXP_N" "$TMP_ACT_N" > /dev/null; then
+            # 对拍用原始过滤结果（保留截断换行信息）；归一化文件仅用于失败 diff 写入 log
+            if outputs_match "$expected_file" "$TMP_FILTERED"; then
                 echo "  测试通过"
 
                 printf "  耗时: %s" "$(format_time $cost_ms)s"
@@ -134,19 +209,14 @@ test_programs() {
                 else
                     echo " (首次运行，已记录时间)"
                 fi
-
-                rm -f "$TMP_OUTPUT" "$TMP_FILTERED" "$TMP_EXP_N" "$TMP_ACT_N"
             else
                 echo "  测试失败 → 差异已写入 failure_case.log"
-                echo "  原始输出文件: $TMP_OUTPUT"
-                echo "  过滤对比文件: $TMP_FILTERED"
-                echo "  预期输出文件: $expected_file"
-                
                 echo -e "\n--- $filename 测试失败 ---" >> failure_case.log
+                echo "(空白归一化 diff；若仅 4096 截断数字，token 合并对拍应已通过)" >> failure_case.log
                 diff -u "$TMP_EXP_N" "$TMP_ACT_N" >> failure_case.log
                 failed_cases+=("$filename")
-                rm -f "$TMP_EXP_N" "$TMP_ACT_N"
             fi
+            rm -f "$TMP_OUTPUT" "$TMP_FILTERED" "$TMP_EXP_N" "$TMP_ACT_N"
         else
             ec=$?
             if [ $ec -eq 124 ]; then
@@ -154,10 +224,14 @@ test_programs() {
             else
                 echo " 程序异常退出: $ec → 已记录"
             fi
-            echo "  原始输出文件: $TMP_OUTPUT"
             echo "--- $filename 超时/异常 ---" >> failure_case.log
+            # 超时/异常时把截断后的输出摘要写入 log，不保留临时文件
+            if [ -s "$TMP_OUTPUT" ]; then
+                echo "程序输出(末尾最多 40 行):" >> failure_case.log
+                tail -n 40 "$TMP_OUTPUT" >> failure_case.log
+            fi
             failed_cases+=("$filename")
-            # 超时/异常：保留临时文件
+            rm -f "$TMP_OUTPUT" "$TMP_FILTERED" "$TMP_EXP_N" "$TMP_ACT_N"
         fi
 
     done

@@ -1,6 +1,7 @@
-INPUT_DIR="debug_case/case_1"
-OUTPUT_DIR="debug_case/case_1"
-
+#INPUT_DIR="debug_case/case_1"
+#OUTPUT_DIR="debug_case/case_1"
+INPUT_DIR="case/performance2026"
+OUTPUT_DIR="case/performance2026"
 
 BUILD_DIR="myCompiler/build"
 JOBS="$(nproc 2>/dev/null || echo 4)"
@@ -98,9 +99,9 @@ elif [ "$1" == "-pull" ]; then
         QEMU_PASS="${QEMU_PASS:-WSJ040511}"
         SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         if command -v sshpass >/dev/null 2>&1; then
-            sshpass -p "$QEMU_PASS" scp $SSH_OPTS -P 2222 ubuntu@localhost:/home/ubuntu/assembles/* /mnt/d/work/compiler/SysY/case/exes
+            sshpass -p "$QEMU_PASS" scp $SSH_OPTS -P 2222 ubuntu@localhost:/home/ubuntu/failure_case.log /mnt/d/work/compiler/SysY/
         else
-            scp -P 2222 ubuntu@localhost:/home/ubuntu/assembles/* /mnt/d/work/compiler/SysY/case/exes
+            scp -P 2222 ubuntu@localhost:/home/ubuntu/failure_case.log /mnt/d/work/compiler/SysY/
         fi
 elif [ "$1" == "-qemu-test" ]; then
         # 本地编译 + 传到 qemu + 汇编运行对拍（账号 ubuntu / 密码 WSJ040511）
