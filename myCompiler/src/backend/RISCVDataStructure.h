@@ -148,6 +148,8 @@ namespace RISCV
         VSETVLI, // vsetvli rd, rs1, <vtype>（SEW=32, m1, ta, ma）
         VLE32_V, // vle32.v vd, (rs1)
         VSE32_V, // vse32.v vs2, (rs1)
+        VLESE32_V, // vlse32.v vd, (rs1), rs2 —— 按字节步长加载（stride = rs2 字节）
+        VSSE32_V,  // vsse32.v vs3, (rs1), rs2 —— 按字节步长存储
         VADD_VV, // vadd.vv vd, vs2, vs1
         VSUB_VV, // vsub.vv vd, vs2, vs1
         VMUL_VV, // vmul.vv vd, vs2, vs1
@@ -430,6 +432,10 @@ namespace RISCV
         static shared_ptr<RISCVInstruction> createVectorMemory(RISCVOpcode op,
                                                                shared_ptr<RISCVRegister> reg,
                                                                shared_ptr<RISCVRegister> base);
+        static shared_ptr<RISCVInstruction> createVectorStridedMemory(RISCVOpcode op,
+                                                                      shared_ptr<RISCVRegister> reg,
+                                                                      shared_ptr<RISCVRegister> base,
+                                                                      shared_ptr<RISCVRegister> stride);
         static shared_ptr<RISCVInstruction> createVectorSplat(shared_ptr<RISCVRegister> vd,
                                                               shared_ptr<RISCVRegister> rs1);
         static shared_ptr<RISCVInstruction> createVectorExtract(shared_ptr<RISCVRegister> rd,

@@ -130,11 +130,14 @@ namespace
 //     vl      = vecsetvl count, 32
 //     ... emitBody(body, vl, ptrs) ...
 //     countN  = sub count, vl
-//     ptr_iN  = gep ptr_i, vl
+//     ptr_iN  = gep ptr_i, advance_i     （advance_i = vl，或 vl * advances[i] 当 strides 访问）
 //     cond    = icmp ne countN, 0
 //     br cond, body, exit
 //   exit:
 //     br exitBlock
+//
+// advances 为可选参数：advances[i] 非空表示第 i 个指针为 strided 访问，
+// 每块推进 vl * advances[i] 个元素；为空数组或对应项为 nullptr 时按单位步长推进 vl。
 //
 // 原 j 循环的 header/latch 被移除；exitBlock 的 phi 中原由 oldHeader 提供的
 // incoming 改由 exit 提供（jIV 相关 phi 的值改为 bound）。
@@ -150,7 +153,8 @@ static void buildVectorLoop(
     const vector<string> &ptrNames,
     const string &bodyName,
     const string &exitName,
-    const function<void(BasicBlock *, Value *, const vector<Value *> &)> &emitBody)
+    const function<void(BasicBlock *, Value *, const vector<Value *> &)> &emitBody,
+    const vector<Value *> &advances = {})
 {
     auto &bbs = func->getBasicBlocks();
     auto body = new BasicBlock(bodyName, func);
@@ -185,7 +189,14 @@ static void buildVectorLoop(
 
     for (size_t i = 0; i < ptrPhis.size(); ++i)
     {
-        auto gep = new GetElementPtrInst(ptrPhis[i], vector<Value *>{vl}, freshName("ptrN"));
+        Value *adv = vl;
+        if (!advances.empty() && advances[i])
+        {
+            // strided 指针：每块推进 vl * stride 个元素
+            adv = new BinaryOperator(Opcode::Mul, vl, advances[i], freshName("ptrStep"));
+            body->addInstruction(own(static_cast<Instruction *>(adv)));
+        }
+        auto gep = new GetElementPtrInst(ptrPhis[i], vector<Value *>{adv}, freshName("ptrN"));
         body->addInstruction(own(gep));
         ptrPhis[i]->addIncoming(gep, body);
     }
@@ -309,101 +320,303 @@ static void buildVectorLoop(
             recordInvariantChain(op, loop, covered);
     }
 
-    // 解析一维线性索引：idx == jIV + inv（inv 循环不变；idx == jIV 时 invOut = nullptr）
-    static bool parseLinearIdx(Value *idx, Value *jIV, const Loop &loop, Value *&invOut)
+    // 尝试把操作数解析为 jIV 或 jIV * S（S 循环不变）；SOut=nullptr 表示单位步长
+    static bool parseJFactor(Value *op, Value *jIV, const Loop &loop, Value *&SOut)
     {
-        invOut = nullptr;
-        idx = stripCopy(idx);
-        if (matchesLoopIV(idx, jIV))
+        SOut = nullptr;
+        op = stripCopy(op);
+        if (matchesLoopIV(op, jIV))
             return true;
-        auto *bin = dynamic_cast<BinaryOperator *>(idx);
-        if (!bin || bin->getOpcode() != Opcode::Add)
+        auto *bin = dynamic_cast<BinaryOperator *>(op);
+        if (!bin || bin->getOpcode() != Opcode::Mul)
             return false;
         Value *a = stripCopy(bin->getLHS());
         Value *b = stripCopy(bin->getRHS());
         bool aIsJ = matchesLoopIV(a, jIV);
         bool bIsJ = matchesLoopIV(b, jIV);
+        Value *S = nullptr;
+        if (aIsJ && !bIsJ)
+            S = bin->getRHS();
+        else if (bIsJ && !aIsJ)
+            S = bin->getLHS();
+        else
+            return false;
+        if (!isLoopInvariantVal(S, loop))
+            return false;
+        // 常量 S==1 视为单位步长（无 strided 访存）
+        if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(S)))
+        {
+            if (c->Value == 1)
+                return true;
+        }
+        SOut = S;
+        return true;
+    }
+
+    // 合成循环不变偏移 init + extra：常量为 0 时直接折叠，否则在 entry 创建 add。
+    static Value *composeOffset(Value *init, Value *extra, BasicBlock *entry)
+    {
+        init = stripCopy(init);
+        extra = stripCopy(extra);
+        if (auto *c = dynamic_cast<ConstantInt *>(init))
+            if (c->Value == 0)
+                return extra;
+        if (auto *c = dynamic_cast<ConstantInt *>(extra))
+            if (c->Value == 0)
+                return init;
+        auto *add = new BinaryOperator(Opcode::Add, init, extra, freshName("stridedOff"));
+        entry->insertBeforeTerminator(std::unique_ptr<Instruction>(add));
+        return add;
+    }
+
+    // 识别循环 header 中的仿射归纳 phi（ISR 强度消减产物）：
+    //   %p = phi [init, entry], [add(%p, step), latch]
+    // 表示 p(j) = init + j*step，其中 init/step 循环不变。
+    // 若 covered 非空，将 latch 增量链记入 covered（覆盖检查放行）。
+    static bool parseAffinePhi(Value *v, const Loop &loop,
+                               Value *&initOut, Value *&stepOut,
+                               std::set<Instruction *> *covered = nullptr)
+    {
+        v = stripCopy(v);
+        auto *phi = dynamic_cast<PhiInst *>(v);
+        if (!phi || !loop.containsInst(phi))
+            return false;
+        Value *init = nullptr, *step = nullptr;
+        for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+        {
+            BasicBlock *pred = phi->getIncomingBlock(i);
+            Value *incVal = phi->getIncomingValue(i);
+            if (loop.containsBlock(pred))
+            {
+                Value *inc = stripCopy(incVal);
+                auto *bin = dynamic_cast<BinaryOperator *>(inc);
+                if (!bin || bin->getOpcode() != Opcode::Add)
+                    return false;
+                Value *a = stripCopy(bin->getLHS());
+                Value *b = stripCopy(bin->getRHS());
+                if (sameValue(a, phi))
+                    step = bin->getRHS();
+                else if (sameValue(b, phi))
+                    step = bin->getLHS();
+                else
+                    return false;
+                if (!isLoopInvariantVal(step, loop))
+                    return false;
+                if (covered)
+                {
+                    covered->insert(bin);
+                    if (auto *stepInst = dynamic_cast<Instruction *>(step))
+                        if (loop.containsInst(stepInst))
+                            covered->insert(stepInst);
+                }
+            }
+            else
+            {
+                init = incVal;
+                if (!isLoopInvariantVal(init, loop))
+                    return false;
+            }
+        }
+        if (!init || !step)
+            return false;
+        initOut = init;
+        stepOut = step;
+        return true;
+    }
+
+    // 解析一维线性索引（列索引）：
+    //   idx == jIV           → invOut=nullptr, strideOut=nullptr（单位步长）
+    //   idx == jIV + inv     → invOut=inv,     strideOut=nullptr
+    //   idx == jIV*S + inv   → invOut=inv,     strideOut=S（strided，步长 S 个元素）
+    //   idx == jIV*S         → invOut=nullptr, strideOut=S
+    //   idx == 仿射 phi      → invOut=init,    strideOut=step（ISR 消减后的 j*step）
+    //   idx == add(phi, inv) → invOut=init+inv, strideOut=step
+    // 步长 S 必须循环不变；jIV 只允许出现一次。
+    static bool parseLinearIdx(Value *idx, Value *jIV, const Loop &loop,
+                               Value *&invOut, Value *&strideOut,
+                               std::set<Instruction *> *covered = nullptr,
+                               BasicBlock *entry = nullptr)
+    {
+        invOut = nullptr;
+        strideOut = nullptr;
+        idx = stripCopy(idx);
+        if (matchesLoopIV(idx, jIV))
+            return true;
+        // 纯仿射 phi
+        {
+            Value *init, *step;
+            if (parseAffinePhi(idx, loop, init, step, covered))
+            {
+                invOut = init;
+                strideOut = step;
+                return true;
+            }
+        }
+        // 纯 jIV*S 形式（如 j*2*stride = mul(jIV, mul(2,stride))）
+        auto *pureMul = dynamic_cast<BinaryOperator *>(idx);
+        if (pureMul && pureMul->getOpcode() == Opcode::Mul)
+        {
+            Value *s = nullptr;
+            if (parseJFactor(pureMul, jIV, loop, s))
+            {
+                strideOut = s;
+                return true;
+            }
+        }
+        auto *bin = dynamic_cast<BinaryOperator *>(idx);
+        if (!bin || bin->getOpcode() != Opcode::Add)
+            return false;
+        Value *a = stripCopy(bin->getLHS());
+        Value *b = stripCopy(bin->getRHS());
+        // add(仿射 phi, inv)：offset = init + inv
+        {
+            Value *init, *step;
+            if (parseAffinePhi(a, loop, init, step, covered) &&
+                isLoopInvariantVal(bin->getRHS(), loop))
+            {
+                strideOut = step;
+                invOut = composeOffset(init, bin->getRHS(), entry);
+                return true;
+            }
+            if (parseAffinePhi(b, loop, init, step, covered) &&
+                isLoopInvariantVal(bin->getLHS(), loop))
+            {
+                strideOut = step;
+                invOut = composeOffset(init, bin->getLHS(), entry);
+                return true;
+            }
+        }
+        Value *s1 = nullptr, *s2 = nullptr;
+        bool aIsJ = parseJFactor(a, jIV, loop, s1);
+        bool bIsJ = parseJFactor(b, jIV, loop, s2);
         if (aIsJ && !bIsJ && isLoopInvariantVal(bin->getRHS(), loop))
         {
+            strideOut = s1;
             invOut = bin->getRHS();
             return true;
         }
         if (bIsJ && !aIsJ && isLoopInvariantVal(bin->getLHS(), loop))
         {
+            strideOut = s2;
             invOut = bin->getLHS();
             return true;
         }
         return false;
     }
 
-    // 解析数组访问地址（1D/2D，支持嵌套 GEP），要求列索引形如 jIV + 不变偏移。
-    // body 内的 GEP 指令会被记入 covered，保证覆盖检查通过。
+    // 解析数组访问地址（1D/2D/3D，支持嵌套 GEP），要求列索引为 jIV 的线性函数
+    // （jIV + 不变偏移，或 jIV*S + 不变偏移，S 为循环不变步长）。
+    // 输出 base=最外层数组基址，rowIdxs=逐层行索引（外层→内层），offset=列不变偏移，
+    // stride=元素步长（nullptr 表示单位步长）。body 内的 GEP 会被记入 covered。
+    // entry 为 j 循环 preheader（循环不变指令的插入点）。
     static bool parseVecAddr(Value *ptr, Value *jIV, const Loop &loop,
                              std::set<Instruction *> &covered,
-                             Value *&base, Value *&row, Value *&offset)
+                             Value *&base, std::vector<Value *> &rowIdxs,
+                             Value *&offset, Value *&stride,
+                             BasicBlock *entry)
     {
-        base = row = offset = nullptr;
-        auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(ptr));
-        if (!gep)
-            return false;
+        base = nullptr;
+        rowIdxs.clear();
+        offset = nullptr;
+        stride = nullptr;
 
         auto recordGep = [&](GetElementPtrInst *g)
         {
             if (g && loop.containsInst(g))
                 covered.insert(g);
         };
-        recordGep(gep);
 
-        auto indices = gep->getIndices();
-        // 2D：gep [N x T]* base, row, col
-        if (indices.size() == 2)
+        // 从最内层 GEP 出发逐层收集 GEP 链（最内层在末尾）
+        std::vector<GetElementPtrInst *> chain;
+        Value *cur = stripCopy(ptr);
+        while (auto *gep = dynamic_cast<GetElementPtrInst *>(stripCopy(cur)))
         {
-            Value *r = stripCopy(indices[0]);
+            chain.push_back(gep);
+            cur = gep->getPointerOperand();
+        }
+        if (chain.empty())
+        {
+            return false;
+        }
+        for (auto *g : chain)
+            recordGep(g);
+
+        // 最内层 GEP：最后一个索引是列索引（jIV 线性），其余为其行索引
+        auto *inner = chain.back();
+        auto innerIdx = inner->getIndices();
+        if (innerIdx.empty())
+            return false;
+        if (!parseLinearIdx(innerIdx.back(), jIV, loop, offset, stride, &covered, entry))
+        {
+            return false;
+        }
+        // 覆盖列索引计算链（如 add(mul(jIV,S), inv)）中的指令：重建地址后这些
+        // 指令成为死代码，随循环块一起删除，但覆盖检查必须放行。
+        // phi（归纳变量）可能构成循环引用，需 visited 去重并跳过。
+        std::set<Value *> idxVisited;
+        std::function<void(Value *)> coverIdx;
+        coverIdx = [&](Value *v)
+        {
+            if (!v || !idxVisited.insert(v).second)
+                return;
+            v = stripCopy(v);
+            auto *inst = dynamic_cast<Instruction *>(v);
+            if (!inst || dynamic_cast<PhiInst *>(inst))
+                return;
+            if (loop.containsInst(inst))
+                covered.insert(inst);
+            for (auto *op : inst->getOperands())
+                coverIdx(op);
+        };
+        coverIdx(innerIdx.back());
+        std::vector<Value *> rows;
+        for (size_t k = 0; k + 1 < innerIdx.size(); ++k)
+        {
+            Value *r = stripCopy(innerIdx[k]);
             if (!isLoopInvariantVal(r, loop))
                 return false;
-            if (!parseLinearIdx(indices[1], jIV, loop, offset))
-                return false;
+            rows.push_back(r);
             recordInvariantChain(r, loop, covered);
-            if (offset)
-                recordInvariantChain(offset, loop, covered);
-            base = gep->getPointerOperand();
-            row = r;
-            return true;
         }
-        if (indices.size() == 1)
+
+        // 外层 GEP：每个 GEP 的第一个索引为行索引（循环不变），
+        // 其余索引必须为常量 0（行首选择，重建时省略）。
+        for (int i = (int)chain.size() - 2; i >= 0; --i)
         {
-            // 嵌套 GEP：gep i32* rowGep, col，其中 rowGep = gep [N x T]* base, row, 0
-            auto *rowGep = dynamic_cast<GetElementPtrInst *>(stripCopy(gep->getPointerOperand()));
-            if (rowGep && rowGep->getIndices().size() == 2)
-            {
-                recordGep(rowGep);
-                Value *r = stripCopy(rowGep->getIndices()[0]);
-                if (!isLoopInvariantVal(r, loop))
-                    return false;
-                if (!parseLinearIdx(indices[0], jIV, loop, offset))
-                    return false;
-                recordInvariantChain(r, loop, covered);
-                if (offset)
-                    recordInvariantChain(offset, loop, covered);
-                base = rowGep->getPointerOperand();
-                row = r;
-                return true;
-            }
-            // 纯 1D：gep i32* base, idx
-            if (!parseLinearIdx(indices[0], jIV, loop, offset))
+            auto gidx = chain[i]->getIndices();
+            if (gidx.empty())
                 return false;
-            if (offset)
-                recordInvariantChain(offset, loop, covered);
-            base = gep->getPointerOperand();
-            return true;
+            Value *r = stripCopy(gidx[0]);
+            if (!isLoopInvariantVal(r, loop))
+                return false;
+            for (size_t k = 1; k < gidx.size(); ++k)
+            {
+                auto *c = dynamic_cast<ConstantInt *>(stripCopy(gidx[k]));
+                if (!c || c->Value != 0)
+                    return false;
+            }
+            rows.push_back(r);
+            recordInvariantChain(r, loop, covered);
         }
-        return false;
+        // rows 从最内层行索引开始收集，需反转为外层→内层
+        std::reverse(rows.begin(), rows.end());
+        rowIdxs = std::move(rows);
+
+        if (offset)
+            recordInvariantChain(offset, loop, covered);
+        if (stride)
+            recordInvariantChain(stride, loop, covered);
+
+        // base = 最外层 GEP 的指针操作数（数组基址）
+        base = chain[0]->getPointerOperand();
+        return true;
     }
 
     // 从标量表达式递归构建可向量化表达式树
     static bool buildElemExpr(Value *val, Value *jIV, const Loop &loop,
                               std::set<Instruction *> &covered,
-                              std::unique_ptr<ElemExpr> &out)
+                              std::unique_ptr<ElemExpr> &out,
+                              BasicBlock *entry)
     {
         Value *raw = stripCopy(val);
         if (auto *c = dynamic_cast<ConstantInt *>(raw))
@@ -428,14 +641,16 @@ static void buildVectorLoop(
             return false;
         if (auto *ld = dynamic_cast<LoadInst *>(inst))
         {
-            Value *base, *row, *offset;
-            if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, row, offset))
+            Value *base, *offset, *stride;
+            std::vector<Value *> rowIdxs;
+            if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride, entry))
                 return false;
             auto e = std::make_unique<ElemExpr>();
             e->kind = ElemKind::LOAD;
             e->base = base;
-            e->row = row;
+            e->rowIdxs = rowIdxs;
             e->offset = offset;
+            e->stride = stride;
             e->ir = ld;
             covered.insert(ld);
             out = std::move(e);
@@ -454,9 +669,9 @@ static void buildVectorLoop(
             default: return false;
             }
             std::unique_ptr<ElemExpr> lhs, rhs;
-            if (!buildElemExpr(bin->getLHS(), jIV, loop, covered, lhs))
+            if (!buildElemExpr(bin->getLHS(), jIV, loop, covered, lhs, entry))
                 return false;
-            if (!buildElemExpr(bin->getRHS(), jIV, loop, covered, rhs))
+            if (!buildElemExpr(bin->getRHS(), jIV, loop, covered, rhs, entry))
                 return false;
             auto e = std::make_unique<ElemExpr>();
             e->kind = k;
@@ -501,21 +716,29 @@ static void buildVectorLoop(
 bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &pat)
     {
         if (!isSimpleTwoBlockLoop(jLoop))
+        {
             return false;
+        }
         BasicBlock *jHeader = jLoop.header;
         BasicBlock *jBody = getLoopLatch(jLoop);
         BasicBlock *jExit = getLoopExit(jLoop);
         if (!jHeader || !jBody || !jExit || jBody == jHeader)
+        {
             return false;
+        }
 
         Value *jIV = nullptr, *bound = nullptr;
         ICmpInst *cmp = nullptr;
         if (!getHeaderBoundCmp(jHeader, jIV, bound, cmp))
+        {
             return false;
+        }
 
         // 可被完全展开的常量小循环（如 while(i<5)）交给循环展开 inline 化，不做向量化
         if (isFullyUnrollableLoop(jLoop, jIV, bound))
+        {
             return false;
+        }
 
         vector<BasicBlock *> entryPreds;
         for (auto *pred : jHeader->getPredecessors())
@@ -524,10 +747,14 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                 entryPreds.push_back(pred);
         }
         if (entryPreds.size() != 1)
+        {
             return false;
+        }
         BasicBlock *entry = entryPreds[0];
         if (!isValidVectorEntry(entry, jHeader))
+        {
             return false;
+        }
 
         std::set<Instruction *> covered;
         std::vector<Instruction *> computeInsts;
@@ -556,25 +783,35 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             if (!st)
                 continue;
             storeCount++;
-            Value *base, *row, *offset;
-            if (!parseVecAddr(st->getPointer(), jIV, jLoop, covered, base, row, offset))
+            Value *base, *offset, *stride;
+            std::vector<Value *> rowIdxs;
+            if (!parseVecAddr(st->getPointer(), jIV, jLoop, covered, base, rowIdxs, offset, stride, entry))
+            {
                 return false;
+            }
             ElemStore es;
             es.base = base;
-            es.row = row;
+            es.rowIdxs = rowIdxs;
             es.offset = offset;
-            if (!buildElemExpr(st->getValueToStore(), jIV, jLoop, covered, es.expr))
+            es.stride = stride;
+            if (!buildElemExpr(st->getValueToStore(), jIV, jLoop, covered, es.expr, entry))
+            {
                 return false;
+            }
             out.stores.push_back(std::move(es));
         }
         if (storeCount == 0)
+        {
             return false;
+        }
 
         // 覆盖检查：body 内所有非控制指令必须被某个 store 表达式访问
         for (auto *inst : computeInsts)
         {
             if (covered.count(inst) == 0)
+            {
                 return false;
+            }
         }
 
         pat = std::move(out);
@@ -617,43 +854,66 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             return clone;
         };
 
-        // 为所有地址（store + 表达式 load）构建行基址 GEP，去重
+        // 为所有地址（store + 表达式 load）构建行基址 GEP，去重。
+        // 每个指针对应一个推进步长（advances[i]：nullptr=单位步长，否则为元素步长）。
         vector<Value *> ptrs;
+        vector<Value *> advances;
         std::map<string, size_t> addrIndex;
-        auto ensurePtr = [&](Value *base, Value *row, Value *off) -> size_t
+        auto ensurePtr = [&](Value *base, const std::vector<Value *> &rowIdxs, Value *off,
+                             Value *stride) -> size_t
         {
             string key = base->getName();
-            if (row)
-                key += "@" + row->getName();
+            for (auto *r : rowIdxs)
+                key += "@" + r->getName();
             key += "#" + (off ? off->getName() : "0");
+            key += "|" + (stride ? stride->getName() : "1");
             auto it = addrIndex.find(key);
             if (it != addrIndex.end())
                 return it->second;
             Value *offVal = off ? hoistScalar(off) : ci(0);
-            GetElementPtrInst *gep = nullptr;
-            if (row)
-                gep = new GetElementPtrInst(base, vector<Value *>{hoistScalar(row), offVal},
-                                            freshName("row"));
-            else
-                gep = new GetElementPtrInst(base, vector<Value *>{offVal}, freshName("row"));
+            vector<Value *> idxs;
+            for (auto *r : rowIdxs)
+                idxs.push_back(hoistScalar(r));
+            idxs.push_back(offVal);
+            auto *gep = new GetElementPtrInst(base, idxs, freshName("row"));
             prependBeforeTerminator(entry, gep);
             size_t idx = ptrs.size();
             ptrs.push_back(gep);
+            // 推进步长必须在 entry 克隆：原始 stride 可能位于将被删除的旧循环体内
+            advances.push_back(stride ? hoistScalar(stride) : nullptr);
             addrIndex[key] = idx;
             return idx;
+        };
+
+        // 字节步长 = 元素步长 * 4（SEW=32）。常量直接折叠；非常量在 entry 生成 shl 2。
+        std::map<Value *, Value *> byteStrideCache;
+        auto byteStrideOf = [&](Value *strideElem) -> Value *
+        {
+            if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(strideElem)))
+                return ci(c->Value * 4);
+            auto it = byteStrideCache.find(strideElem);
+            if (it != byteStrideCache.end())
+                return it->second;
+            auto *bs = new BinaryOperator(Opcode::Sll, hoistScalar(strideElem), ci(2),
+                                          freshName("bs"));
+            prependBeforeTerminator(entry, bs);
+            byteStrideCache[strideElem] = bs;
+            return bs;
         };
 
         struct StoreInfo
         {
             size_t ptrIdx;
+            Value *stride;
             std::unique_ptr<ElemExpr> expr;
         };
         vector<StoreInfo> stores;
         for (const auto &es : pat.stores)
         {
-            size_t idx = ensurePtr(es.base, es.row, es.offset);
+            size_t idx = ensurePtr(es.base, es.rowIdxs, es.offset, es.stride);
             StoreInfo si;
             si.ptrIdx = idx;
+            si.stride = es.stride;
             // 深拷贝表达式树（ElemExpr 含 unique_ptr，需逐字段复制）
             std::function<void(const ElemExpr &, std::unique_ptr<ElemExpr> &)> cloneTree;
             cloneTree = [&](const ElemExpr &src, std::unique_ptr<ElemExpr> &dst)
@@ -663,8 +923,9 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                 e->cval = src.cval;
                 e->scalar = src.scalar;
                 e->base = src.base;
-                e->row = src.row;
+                e->rowIdxs = src.rowIdxs;
                 e->offset = src.offset;
+                e->stride = src.stride;
                 e->ir = src.ir;
                 if (src.lhs)
                     cloneTree(*src.lhs, e->lhs);
@@ -684,7 +945,7 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             collect = [&](const ElemExpr &e)
             {
                 if (e.kind == ElemKind::LOAD)
-                    loadPtrIdx[&e] = ensurePtr(e.base, e.row, e.offset);
+                    loadPtrIdx[&e] = ensurePtr(e.base, e.rowIdxs, e.offset, e.stride);
                 if (e.lhs)
                     collect(*e.lhs);
                 if (e.rhs)
@@ -721,8 +982,14 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                                                16, freshName("v"));
                         break;
                     case ElemKind::LOAD:
-                        res = new VecLoadInst(ptrs[loadPtrIdx[&e]], vl,
-                                              IntegerType::getInstance(), 16, freshName("v"));
+                        if (e.stride)
+                            res = new VecStridedLoadInst(
+                                ptrs[loadPtrIdx[&e]], byteStrideOf(e.stride), vl,
+                                IntegerType::getInstance(), 16, freshName("v"));
+                        else
+                            res = new VecLoadInst(ptrs[loadPtrIdx[&e]], vl,
+                                                  IntegerType::getInstance(), 16,
+                                                  freshName("v"));
                         break;
                     default:
                     {
@@ -751,9 +1018,14 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                 for (auto &si : stores)
                 {
                     Value *result = translate(*si.expr);
-                    body->addInstruction(own(new VecStoreInst(result, ptrs[si.ptrIdx], vl)));
+                    if (si.stride)
+                        body->addInstruction(own(new VecStridedStoreInst(
+                            result, ptrs[si.ptrIdx], byteStrideOf(si.stride), vl)));
+                    else
+                        body->addInstruction(own(new VecStoreInst(result, ptrs[si.ptrIdx], vl)));
                 }
-            });
+            },
+            advances);
 
         removeLoopBlocks(func, {jHeader, jBody});
         return true;
@@ -1690,6 +1962,11 @@ bool LoopVectorizePass::runOnFunction(Function *func)
 
     // 结构分析（内含 findLoops），随后逐个替换 j 内层循环
     MatrixFunctionAnalysis analysis = matrixStructure::analyzeFunction(func);
+
+    // 矩阵标量优化性能优于向量化
+    // 直接跳过向量化，把循环留给 CopyChainElimination。
+    if (analysis.inPlaceCopyOriginChain && analysis.inPlaceCopyOriginChain->valid)
+        return false;
 
     bool changed = false;
     // 复制 nests：变换会破坏 func->Loops，不能边遍历边用引用

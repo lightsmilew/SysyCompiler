@@ -1114,7 +1114,7 @@ namespace RISCV
                 opcode == RISCVOpcode::LH || opcode == RISCVOpcode::LB ||
                 opcode == RISCVOpcode::LHU || opcode == RISCVOpcode::LBU ||
                 opcode == RISCVOpcode::FLW || opcode == RISCVOpcode::FLD ||
-                opcode == RISCVOpcode::VLE32_V);
+                opcode == RISCVOpcode::VLE32_V || opcode == RISCVOpcode::VLESE32_V);
     }
 
     bool InstructionScheduler::isMemoryStoreInstruction(RISCVOpcode opcode) const
@@ -1122,7 +1122,7 @@ namespace RISCV
         return (opcode == RISCVOpcode::SD || opcode == RISCVOpcode::SW ||
                 opcode == RISCVOpcode::SH || opcode == RISCVOpcode::SB ||
                 opcode == RISCVOpcode::FSW || opcode == RISCVOpcode::FSD ||
-                opcode == RISCVOpcode::VSE32_V);
+                opcode == RISCVOpcode::VSE32_V || opcode == RISCVOpcode::VSSE32_V);
     }
 
     bool InstructionScheduler::mayAlias(const std::shared_ptr<RISCVInstruction> &inst1,

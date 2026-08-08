@@ -79,6 +79,8 @@ private:
     void visitVecSetVlInst(VecSetVlInst *inst);
     void visitVecLoadInst(VecLoadInst *inst);
     void visitVecStoreInst(VecStoreInst *inst);
+    void visitVecStridedLoadInst(VecStridedLoadInst *inst);
+    void visitVecStridedStoreInst(VecStridedStoreInst *inst);
     void visitVecBinaryInst(VecBinaryInst *inst);
     void visitVecSplatInst(VecSplatInst *inst);
     void visitVecVidInst(VecVidInst *inst);

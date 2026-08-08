@@ -2167,10 +2167,11 @@ bool ArrayStoreLoadForwardPass::runOnFunction(Function *func)
                     latestStoredValue[key] = storeInst->getValueToStore();
             }
 
-            // 向量 store 写该地址，使此前的标量 store 转发条目失效（读到的可能是向量写后的值）
-            if (auto *vecStore = dynamic_cast<VecStoreInst *>(inst))
+            // 任何非标量内存写（向量/strided store）写该地址，使此前的标量 store
+            // 转发条目失效（读到的可能是向量写后的值）
+            if (inst->isMemoryStore() && !dynamic_cast<StoreInst *>(inst))
             {
-                const string key = getForwardingKey(vecStore->getPointerOperand());
+                const string key = getForwardingKey(inst->getPointerOperand());
                 if (!key.empty())
                     latestStoredValue.erase(key);
             }

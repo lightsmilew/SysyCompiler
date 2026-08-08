@@ -43,15 +43,11 @@ bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &deb
             pendingStores.clear();
             continue;
         }
-        if (auto *load = dynamic_cast<LoadInst *>(inst))
+        // 任何内存读（标量/向量/strided load）都会读取该地址：
+        // 读之后，此前的标量 store 不能被后续 store 影子删除
+        if (inst->isMemoryLoad())
         {
-            clearPendingForAddr(pendingStores, load->getPointer());
-            continue;
-        }
-        // 向量 load 同样是内存读：读该地址后，之前的标量 store 不能再被后续 store 影子删除
-        if (auto *vload = dynamic_cast<VecLoadInst *>(inst))
-        {
-            clearPendingForAddr(pendingStores, vload->getPointerOperand());
+            clearPendingForAddr(pendingStores, inst->getPointerOperand());
             continue;
         }
         if (auto *store = dynamic_cast<StoreInst *>(inst))
@@ -62,10 +58,10 @@ bool removeShadowedStoresInBlock(BasicBlock *bb, bool verbose, stringstream &deb
             clearPendingForAddr(pendingStores, addr);
             pendingStores.push_back(store);
         }
-        // 向量 store 是内存写：会覆盖同地址的标量 store，但自身不可被删除，故不加入 pending
-        if (auto *vstore = dynamic_cast<VecStoreInst *>(inst))
+        // 向量 store（含 strided）是内存写：会覆盖同地址的标量 store，但自身不可被删除，故不加入 pending
+        if (inst->isMemoryStore() && !dynamic_cast<StoreInst *>(inst))
         {
-            Value *addr = vstore->getPointerOperand();
+            Value *addr = inst->getPointerOperand();
             if (StoreInst *prev = findPendingStore(pendingStores, addr))
                 shadowedStores.insert(prev);
             clearPendingForAddr(pendingStores, addr);

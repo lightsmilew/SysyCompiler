@@ -981,7 +981,8 @@ bool DeadCodeEliminationPass::hasSideEffects(shared_ptr<RISCVInstruction> instr)
         return true;
     }
 
-    if (opcode == RISCVOpcode::VSE32_V || opcode == RISCVOpcode::INIT)
+    if (opcode == RISCVOpcode::VSE32_V || opcode == RISCVOpcode::VSSE32_V ||
+        opcode == RISCVOpcode::INIT)
     {
         // 向量存储与 INIT 均有副作用
         return true;

@@ -358,8 +358,8 @@ static bool isPureComputationInst(Instruction *inst)
     {
         return true;
     }
-    const Opcode op = inst->getOpcode();
-    if (op == Opcode::Load || op == Opcode::Store || op == Opcode::Stored || op == Opcode::Call)
+    // 统一接口：任何内存读写（含向量/strided）或 call 都不是纯计算
+    if (inst->isMemoryLoad() || inst->isMemoryStore() || inst->getOpcode() == Opcode::Call)
     {
         return false;
     }
@@ -1149,27 +1149,19 @@ bool LoopInvariantCodeMotionPass::canMoveToPreheader(Instruction *inst, const Lo
         }
         // 获取addr的原始指针操作数
         Value *loadOriginalPointer = loadInst->getOriginalPointer();
-        // 判断循环体内是否有对该地址的store（含向量 store）
+        // 判断循环体内是否有对该地址的store（含向量/strided store）
         for (auto *loopBB : loop.blocks)
         {
             for (auto &instPtr : loopBB->getInstructions())
             {
                 Instruction *store = instPtr.get();
-                if (auto storeInst = dynamic_cast<StoreInst *>(store))
+                // 任何内存写都可能修改 load 地址：统一剥 Copy 与 GEP 后比较基址
+                if (store->isMemoryStore())
                 {
-                    Value *storeOriginalAddr = storeInst->getOriginalPointer();
-                    // 如果store的地址和load的地址相同，则不能外提
-                    if (isSameAddr(storeOriginalAddr, loadOriginalPointer))
+                    Value *storeOriginalAddr = stripCopy(store->getOriginalPointer());
+                    if (storeOriginalAddr && isSameAddr(storeOriginalAddr, loadOriginalPointer))
                     {
                         return false; // 两条load之间有store，不能外提
-                    }
-                }
-                if (auto vecStore = dynamic_cast<VecStoreInst *>(store))
-                {
-                    Value *storeOriginalAddr = stripCopy(vecStore->getPointerOperand());
-                    if (isSameAddr(storeOriginalAddr, loadOriginalPointer))
-                    {
-                        return false;
                     }
                 }
             }
@@ -2048,8 +2040,7 @@ namespace
             for (auto &instPtr : bbPtr->getInstructions())
             {
                 Instruction *inst = instPtr.get();
-                if (dynamic_cast<CallInst *>(inst) || dynamic_cast<StoreInst *>(inst) ||
-                    dynamic_cast<LoadInst *>(inst))
+                if (dynamic_cast<CallInst *>(inst) || inst->isMemoryLoad() || inst->isMemoryStore())
                     return false;
             }
         }

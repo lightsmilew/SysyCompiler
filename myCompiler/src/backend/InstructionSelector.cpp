@@ -372,6 +372,14 @@ void InstructionSelector::visitInstruction(Instruction *inst)
         if (auto *vs = dynamic_cast<VecStoreInst *>(inst))
             visitVecStoreInst(vs);
         break;
+    case Opcode::VecStridedLoad:
+        if (auto *vs = dynamic_cast<VecStridedLoadInst *>(inst))
+            visitVecStridedLoadInst(vs);
+        break;
+    case Opcode::VecStridedStore:
+        if (auto *vs = dynamic_cast<VecStridedStoreInst *>(inst))
+            visitVecStridedStoreInst(vs);
+        break;
     case Opcode::VecSplat:
         if (auto *vs = dynamic_cast<VecSplatInst *>(inst))
             visitVecSplatInst(vs);
@@ -2410,6 +2418,28 @@ void InstructionSelector::visitVecStoreInst(VecStoreInst *inst)
     (void)inst->getVl();
     currentBB->addInstruction(
         RISCVInstruction::createVectorMemory(RISCVOpcode::VSE32_V, val, ptr));
+}
+
+void InstructionSelector::visitVecStridedLoadInst(VecStridedLoadInst *inst)
+{
+    // vecstridedload %ptr, %strideBytes, %vl —— vlse32.v vd, (ptr), stride
+    auto ptr = getOrCreateVirtualReg(inst->getPointerOperand());
+    auto stride = getOrCreateVirtualReg(inst->getStride());
+    (void)inst->getVl();
+    auto vd = getOrCreateVectorReg(inst);
+    currentBB->addInstruction(RISCVInstruction::createVectorStridedMemory(
+        RISCVOpcode::VLESE32_V, vd, ptr, stride));
+}
+
+void InstructionSelector::visitVecStridedStoreInst(VecStridedStoreInst *inst)
+{
+    // vecstridedstore %v, %ptr, %strideBytes, %vl —— vsse32.v vs3, (ptr), stride
+    auto val = getOrCreateVectorReg(inst->getValue());
+    auto ptr = getOrCreateVirtualReg(inst->getPointerOperand());
+    auto stride = getOrCreateVirtualReg(inst->getStride());
+    (void)inst->getVl();
+    currentBB->addInstruction(RISCVInstruction::createVectorStridedMemory(
+        RISCVOpcode::VSSE32_V, val, ptr, stride));
 }
 
 void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)

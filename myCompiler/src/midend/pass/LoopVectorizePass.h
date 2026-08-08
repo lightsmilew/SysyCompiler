@@ -19,8 +19,9 @@ namespace optimization
         int64_t cval = 0;             // CONST
         Value *scalar = nullptr;      // INVARIANT：循环不变标量
         Value *base = nullptr;        // LOAD：数组基址
-        Value *row = nullptr;         // LOAD：行索引（1D 为 nullptr）
+        std::vector<Value *> rowIdxs; // LOAD：行索引列表（1D 为空）
         Value *offset = nullptr;      // LOAD：列偏移（jIV 之外的不变部分）
+        Value *stride = nullptr;      // LOAD：列步长（元素数；jIV*S+inv 时非空，否则单位步长）
         Instruction *ir = nullptr;    // 源 IR 指令（LOAD/Binary），用于覆盖检查
         std::unique_ptr<ElemExpr> lhs, rhs;
     };
@@ -28,8 +29,9 @@ namespace optimization
     struct ElemStore
     {
         Value *base = nullptr;
-        Value *row = nullptr;
+        std::vector<Value *> rowIdxs;
         Value *offset = nullptr;
+        Value *stride = nullptr; // 元素步长；非空表示 strided store
         std::unique_ptr<ElemExpr> expr;
     };
 

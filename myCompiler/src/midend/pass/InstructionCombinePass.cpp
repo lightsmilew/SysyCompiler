@@ -342,29 +342,10 @@ namespace
                 continue;
             if (midInst->getOpcode() == Opcode::Call)
                 return true;
-            Value *midPtr = nullptr;
-            if (midInst->getOpcode() == Opcode::Load)
-            {
-                if (auto *ld = dynamic_cast<LoadInst *>(midInst))
-                    midPtr = ld->getPointer();
-            }
-            else if (midInst->getOpcode() == Opcode::Store || midInst->getOpcode() == Opcode::Stored)
-            {
-                if (auto *st = dynamic_cast<StoreInst *>(midInst))
-                    midPtr = st->getPointer();
-            }
-            else if (midInst->getOpcode() == Opcode::VecLoad)
-            {
-                if (auto *vl = dynamic_cast<VecLoadInst *>(midInst))
-                    midPtr = vl->getPointerOperand();
-            }
-            else if (midInst->getOpcode() == Opcode::VecStore)
-            {
-                if (auto *vs = dynamic_cast<VecStoreInst *>(midInst))
-                    midPtr = vs->getPointerOperand();
-            }
-            else
+            // 任何访存（标量/向量/strided load 或 store）若不能证明与首 store 地址不同，则禁止合并
+            if (!midInst->isMemoryLoad() && !midInst->isMemoryStore())
                 continue;
+            Value *midPtr = midInst->getPointerOperand();
             if (!clearlyDistinctI32Addrs(midPtr, storeAddr))
                 return true;
         }

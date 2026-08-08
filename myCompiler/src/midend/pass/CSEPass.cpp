@@ -108,20 +108,12 @@ bool CommonSubexpressionEliminationPass::runOnFunction(Function *func)
                                 auto &insts = bb->getInstructions();
                                 for (int i = pos1 + 1; i < pos2; i++)
                                 {
-                                    if (auto *storeInst = dynamic_cast<StoreInst *>(insts[i].get()))
+                                    // 任何内存写（标量/向量/strided）都可能修改该地址：
+                                    // recognizeMode 0 用原始基址，1 用直接地址
+                                    if (insts[i]->isMemoryStore())
                                     {
-                                        Value *storeAddr = recognizeMode == 0 ? storeInst->getOriginalPointer() : storeInst->getPointer();
-                                        if (isSameAddr(storeAddr, addr))
-                                        {
-                                            CanNotCSEWithLoadOrPhiOperand = true;
-                                            break;
-                                        }
-                                    }
-                                    // 向量 store 同样会修改该地址
-                                    if (auto *vecStore = dynamic_cast<VecStoreInst *>(insts[i].get()))
-                                    {
-                                        Value *storeAddr = vecStore->getPointerOperand();
-                                        if (isSameAddr(storeAddr, addr))
+                                        Value *storeAddr = recognizeMode == 0 ? insts[i]->getOriginalPointer() : insts[i]->getPointerOperand();
+                                        if (storeAddr && isSameAddr(storeAddr, addr))
                                         {
                                             CanNotCSEWithLoadOrPhiOperand = true;
                                             break;
@@ -233,21 +225,13 @@ bool CommonSubexpressionEliminationPass::CanLoadCSE(Instruction *inst, Instructi
     // 检查load之前是否有store，load之后不能有store
     for (int i = pos1 + 1; i < pos2; ++i)
     {
-        if (auto *store = dynamic_cast<StoreInst *>(insts[i].get()))
+        // 任何内存写（标量/向量/strided）都可能修改该地址
+        if (insts[i]->isMemoryStore())
         {
-            Value *storeAddr = recognizeMode == 0 ? store->getOriginalPointer() : store->getPointer();
-            if (isSameAddr(storeAddr, addr))
+            Value *storeAddr = recognizeMode == 0 ? insts[i]->getOriginalPointer() : insts[i]->getPointerOperand();
+            if (storeAddr && isSameAddr(storeAddr, addr))
             {
                 return false; // 两条load之间有store，不能CSE
-            }
-        }
-        // 向量 store 同样会修改该地址
-        if (auto *vecStore = dynamic_cast<VecStoreInst *>(insts[i].get()))
-        {
-            Value *storeAddr = vecStore->getPointerOperand();
-            if (isSameAddr(storeAddr, addr))
-            {
-                return false;
             }
         }
     }

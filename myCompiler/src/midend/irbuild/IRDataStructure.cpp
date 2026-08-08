@@ -408,6 +408,10 @@ string Instruction::getOpcodeName() const
         return "vecload";
     case Opcode::VecStore:
         return "vecstore";
+    case Opcode::VecStridedLoad:
+        return "vecstridedload";
+    case Opcode::VecStridedStore:
+        return "vecstridedstore";
     case Opcode::VecSplat:
         return "vecsplat";
     case Opcode::VecAdd:
@@ -468,6 +472,7 @@ bool Instruction::mayHaveSideEffects() const
     if (Op == Opcode::Store ||
         Op == Opcode::Stored ||
         Op == Opcode::VecStore ||
+        Op == Opcode::VecStridedStore ||
         Op == Opcode::Br ||
         Op == Opcode::Ret ||
         Op == Opcode::Alloca)
@@ -522,6 +527,7 @@ bool Instruction::hasResult() const
     case Opcode::Select:
     case Opcode::VecSetVl:
     case Opcode::VecLoad:
+    case Opcode::VecStridedLoad:
     case Opcode::VecSplat:
     case Opcode::VecAdd:
     case Opcode::VecSub:
@@ -709,6 +715,16 @@ Instruction *Instruction::clone() const
     case Opcode::VecStore:
         return new VecStoreInst(getOperandByIndex(0), getOperandByIndex(1),
                                 getOperandByIndex(2));
+    case Opcode::VecStridedLoad:
+    {
+        auto *vecTy = static_cast<VectorType *>(getType());
+        return new VecStridedLoadInst(getOperandByIndex(0), getOperandByIndex(1),
+                                      getOperandByIndex(2), vecTy->getElementType(),
+                                      vecTy->getNumElements(), getName());
+    }
+    case Opcode::VecStridedStore:
+        return new VecStridedStoreInst(getOperandByIndex(0), getOperandByIndex(1),
+                                       getOperandByIndex(2), getOperandByIndex(3));
     case Opcode::VecSplat:
     {
         auto *vecTy = static_cast<VectorType *>(getType());
@@ -1528,6 +1544,24 @@ std::string VecStoreInst::toString() const
     ss << "vecstore " << getValue()->getType()->toString() << " "
        << getValue()->toRef() << ", " << getPointerOperand()->toRef()
        << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecStridedLoadInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecstridedload " << getType()->toString() << " "
+       << getPointerOperand()->toRef() << ", stride=" << getStride()->toRef()
+       << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecStridedStoreInst::toString() const
+{
+    std::stringstream ss;
+    ss << "vecstridedstore " << getValue()->getType()->toString() << " "
+       << getValue()->toRef() << ", " << getPointerOperand()->toRef()
+       << ", stride=" << getStride()->toRef() << ", vl=" << getVl()->toRef();
     return ss.str();
 }
 

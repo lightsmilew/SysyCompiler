@@ -478,6 +478,10 @@ enum class Opcode
     VecSetVl,  // %vl = vecsetvl(i32 count, i32 sew_bits)  —— 设置 vtype，返回实际 vl
     VecLoad,   // <N x i32> %v = vecload(i32* %ptr, i32 %vl) —— 加载 vl 个元素
     VecStore,  // vecstore(<N x i32> %v, i32* %ptr, i32 %vl) —— 存储 vl 个元素
+    VecStridedLoad,  // <N x i32> %v = vecstridedload(i32* %ptr, i32 %strideBytes, i32 %vl)
+                     //   —— 从 ptr 加载 vl 个元素，相邻元素间隔 strideBytes 字节（vlse32.v）
+    VecStridedStore, // vecstridedstore(<N x i32> %v, i32* %ptr, i32 %strideBytes, i32 %vl)
+                     //   —— 向 ptr 写入 vl 个元素，相邻元素间隔 strideBytes 字节（vsse32.v）
     VecSplat,  // <N x i32> %v = vecsplat(i32 %x) —— 广播标量到所有 lane
     VecAdd,    // <N x i32> vecadd(<N x i32>, <N x i32>)
     VecSub,    // <N x i32> vecsub(<N x i32>, <N x i32>)
@@ -522,6 +526,19 @@ public:
     bool isCopy() const;                               // 是否为复制指令
     bool mayHaveSideEffects() const;                   // 是否有负面作用
     bool hasResult() const;                            // 是否有结果
+    // ===== 统一访存接口 =====
+    // 中端 pass 对访存指令的判断与取地址统一走以下四个虚方法：
+    // 新增访存指令（如 gather/scatter）时，只需在对应子类重写
+    // isMemoryLoad / isMemoryStore / getPointerOperand（getOriginalPointer
+    // 默认经 getOriginalPointerFromAddress 剥离 GEP 链），各 pass 无需改动。
+    virtual bool isMemoryLoad() const { return false; }   // 是否为内存读指令
+    virtual bool isMemoryStore() const { return false; }  // 是否为内存写指令
+    virtual Value *getPointerOperand() const { return nullptr; } // 内存指令的直接地址操作数；非访存指令返回 nullptr
+    virtual Value *getOriginalPointer() const             // 剥离 GEP/BitCast 链后的原始基址
+    {
+        Value *ptr = getPointerOperand();
+        return ptr ? getOriginalPointerFromAddress(ptr) : nullptr;
+    }
     bool hasExternalUse(const Loop &loop) const;       // 是否有外部使用
     bool hasExternalUse(const Loop &loop,
                         std::set<const Instruction *> *visited) const; // 是否有外部使用(递归)
@@ -645,7 +662,9 @@ public:
 
     Value *getDest() const;                     // 获取目的操作数(本身)
     Value *getPointer() const;                  // 获取指针操作数
-    Value *getOriginalPointer() const;          // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *getOriginalPointer() const override; // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    bool isMemoryLoad() const override { return true; }
+    Value *getPointerOperand() const override { return getPointer(); }
     string toString() const override;
 
 private:
@@ -666,7 +685,9 @@ public:
                       vector<Value *>{val, ptr}) {}
     Value *getValueToStore() const;              // 获取要存储的值
     Value *getPointer() const;                   // 获取存储的指针
-    Value *getOriginalPointer() const;           // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    Value *getOriginalPointer() const override;  // 获取原始存储指针(用于gep展开时递归获取最上层指针)
+    bool isMemoryStore() const override { return true; }
+    Value *getPointerOperand() const override { return getPointer(); }
     string toString() const override;
 };
 
@@ -788,7 +809,7 @@ public:
     vector<Value *> getIndices() const;       // 获取索引操作数
     vector<int> *getArrayStride() const;      // 获取数组的步长
     Value *getDest() const;                   // 获取目的操作数(本身)
-    Value *getPointerOperand() const;         // 获取指针操作数
+    Value *getPointerOperand() const override;         // 获取指针操作数
     Value *getOriginalPointerOperand() const; // 获取原始指针操作数(用于gep展开时递归获取最上层指针)
     string toString() const override;
 
@@ -858,8 +879,9 @@ public:
                 const string &name = "")
         : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecLoad,
                       vector<Value *>{ptr, vl}, name) {}
-    Value *getPointerOperand() const { return getOperandByIndex(0); }
+    Value *getPointerOperand() const override { return getOperandByIndex(0); }
     Value *getVl() const { return getOperandByIndex(1); }
+    bool isMemoryLoad() const override { return true; }
     string toString() const override;
 };
 
@@ -871,8 +893,42 @@ public:
         : Instruction(VoidType::getInstance(), Opcode::VecStore,
                       vector<Value *>{value, ptr, vl}) {}
     Value *getValue() const { return getOperandByIndex(0); }
-    Value *getPointerOperand() const { return getOperandByIndex(1); }
+    Value *getPointerOperand() const override { return getOperandByIndex(1); }
     Value *getVl() const { return getOperandByIndex(2); }
+    bool isMemoryStore() const override { return true; }
+    string toString() const override;
+};
+
+// %v = vecstridedload <N x i32>* %ptr, i32 %strideBytes, i32 %vl
+// —— 从 ptr 加载 vl 个元素，相邻元素间隔 strideBytes 字节（对应 vlse32.v）。
+// strideBytes 作为操作数：与 vl 一样参与值依赖，防止被外提到错误的 vsetvli 上下文。
+class VecStridedLoadInst : public Instruction
+{
+public:
+    VecStridedLoadInst(Value *ptr, Value *stride, Value *vl, Type *elemTy,
+                       unsigned lanes, const string &name = "")
+        : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecStridedLoad,
+                      vector<Value *>{ptr, stride, vl}, name) {}
+    Value *getPointerOperand() const override { return getOperandByIndex(0); }
+    Value *getStride() const { return getOperandByIndex(1); }
+    Value *getVl() const { return getOperandByIndex(2); }
+    bool isMemoryLoad() const override { return true; }
+    string toString() const override;
+};
+
+// vecstridedstore <N x i32> %v, i32* %ptr, i32 %strideBytes, i32 %vl
+// —— 向 ptr 写入 vl 个元素，相邻元素间隔 strideBytes 字节（对应 vsse32.v）。
+class VecStridedStoreInst : public Instruction
+{
+public:
+    VecStridedStoreInst(Value *value, Value *ptr, Value *stride, Value *vl)
+        : Instruction(VoidType::getInstance(), Opcode::VecStridedStore,
+                      vector<Value *>{value, ptr, stride, vl}) {}
+    Value *getValue() const { return getOperandByIndex(0); }
+    Value *getPointerOperand() const override { return getOperandByIndex(1); }
+    Value *getStride() const { return getOperandByIndex(2); }
+    Value *getVl() const { return getOperandByIndex(3); }
+    bool isMemoryStore() const override { return true; }
     string toString() const override;
 };
 

@@ -511,6 +511,10 @@ namespace RISCV
                 return "vle32.v";
             case RISCVOpcode::VSE32_V:
                 return "vse32.v";
+            case RISCVOpcode::VLESE32_V:
+                return "vlse32.v";
+            case RISCVOpcode::VSSE32_V:
+                return "vsse32.v";
             case RISCVOpcode::VADD_VV:
                 return "vadd.vv";
             case RISCVOpcode::VSUB_VV:
@@ -581,6 +585,18 @@ namespace RISCV
         {
             // vse32.v vs2, (rs1)
             ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << ")";
+        }
+        else if (opcode == RISCVOpcode::VLESE32_V && operands.size() >= 3)
+        {
+            // vlse32.v vd, (rs1), rs2
+            ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << "), "
+               << operands[2]->toString();
+        }
+        else if (opcode == RISCVOpcode::VSSE32_V && operands.size() >= 3)
+        {
+            // vsse32.v vs3, (rs1), rs2
+            ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << "), "
+               << operands[2]->toString();
         }
         else if (opcode == RISCVOpcode::VMV_V_X && operands.size() >= 2)
         {
@@ -1193,6 +1209,17 @@ namespace RISCV
         return instr;
     }
 
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorStridedMemory(RISCVOpcode op,
+                                                                              shared_ptr<RISCVRegister> reg,
+                                                                              shared_ptr<RISCVRegister> base,
+                                                                              shared_ptr<RISCVRegister> stride)
+    {
+        auto instr = make_shared<RISCVInstruction>(op, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(reg), make_shared<RISCVOperand>(base),
+                           make_shared<RISCVOperand>(stride)};
+        return instr;
+    }
+
     shared_ptr<RISCVInstruction> RISCVInstruction::createVectorSplat(shared_ptr<RISCVRegister> vd,
                                                                       shared_ptr<RISCVRegister> rs1)
     {
@@ -1363,8 +1390,17 @@ namespace RISCV
                 if (operands.size() >= 2 && isRegisterOperand(operands[1]))
                     useRegs.push_back(operands[1]->getReg());
                 break;
+            case RISCVOpcode::VLESE32_V:
+                // vlse32.v vd, (rs1), rs2 -> use: base, stride
+                for (size_t i = 1; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]))
+                        useRegs.push_back(operands[i]->getReg());
+                }
+                break;
             case RISCVOpcode::VSE32_V:
-                // vse32.v vs2, (rs1) -> use: 全部操作数
+            case RISCVOpcode::VSSE32_V:
+                // vse32.v/vsse32.v vs2, (rs1)[, rs2] -> use: 全部操作数
                 for (size_t i = 0; i < operands.size(); ++i)
                 {
                     if (isRegisterOperand(operands[i]))
@@ -1489,6 +1525,7 @@ namespace RISCV
             switch (opcode)
             {
             case RISCVOpcode::VSE32_V:
+            case RISCVOpcode::VSSE32_V:
                 // 存储指令不定义寄存器
                 break;
             default:
@@ -1603,10 +1640,11 @@ namespace RISCV
             break;
 
         case InstructionType::VECTOR:
-            // RVV 向量指令：VSE32_V 全部操作数均为 use，vredsum 的 vd 也是累积源，
+            // RVV 向量指令：VSE32_V/VSSE32_V 全部操作数均为 use，vredsum 的 vd 也是累积源，
             // 其余从操作数1开始
             {
                 size_t startIdx = (opcode == RISCVOpcode::VSE32_V ||
+                                   opcode == RISCVOpcode::VSSE32_V ||
                                    opcode == RISCVOpcode::VREDSUM_VS)
                                       ? 0
                                       : 1;
@@ -1673,8 +1711,9 @@ namespace RISCV
             break;
 
         case InstructionType::VECTOR:
-            // RVV 向量指令：除 VSE32_V 外均定义第一个操作数 (vd/rd)
-            if (opcode != RISCVOpcode::VSE32_V && !operands.empty() &&
+            // RVV 向量指令：除 VSE32_V/VSSE32_V 外均定义第一个操作数 (vd/rd)
+            if (opcode != RISCVOpcode::VSE32_V && opcode != RISCVOpcode::VSSE32_V &&
+                !operands.empty() &&
                 isRegisterOperand(operands[0]) && operands[0]->getReg() == oldReg)
             {
                 operands[0] = make_shared<RISCVOperand>(newReg);
