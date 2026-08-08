@@ -155,8 +155,14 @@ namespace RISCV
         VSLL_VV, // vsll.vv vd, vs2, vs1
         VSRL_VV, // vsrl.vv vd, vs2, vs1
         VSRA_VV, // vsra.vv vd, vs2, vs1
+        VMAX_VV, // vmax.vv vd, vs2, vs1
+        VMIN_VV, // vmin.vv vd, vs2, vs1
+        VDIV_VV, // vdiv.vv vd, vs2, vs1
+        VREM_VV, // vrem.vv vd, vs2, vs1
+        VID_V,   // vid.v vd（0..vl-1 索引）
+        VREDSUM_VS, // vredsum.vs vd, vs2, vs1（归约到 lane0）
         VMV_V_X, // vmv.v.x vd, rs1（标量广播）
-        VMV_X_S  // vmv.x.s rd, vs2（取 lane 0，预留）
+        VMV_X_S  // vmv.x.s rd, vs2（取 lane 0）
     };
 
     // 寄存器类型枚举
@@ -426,10 +432,13 @@ namespace RISCV
                                                                shared_ptr<RISCVRegister> base);
         static shared_ptr<RISCVInstruction> createVectorSplat(shared_ptr<RISCVRegister> vd,
                                                               shared_ptr<RISCVRegister> rs1);
+        static shared_ptr<RISCVInstruction> createVectorExtract(shared_ptr<RISCVRegister> rd,
+                                                                shared_ptr<RISCVRegister> vs2);
         static shared_ptr<RISCVInstruction> createVectorBinary(RISCVOpcode op,
                                                                shared_ptr<RISCVRegister> vd,
                                                                shared_ptr<RISCVRegister> vs2,
                                                                shared_ptr<RISCVRegister> vs1);
+        static shared_ptr<RISCVInstruction> createVectorVid(shared_ptr<RISCVRegister> vd);
 
         // 访问器
         RISCVOpcode getOpcode() const

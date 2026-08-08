@@ -422,6 +422,18 @@ string Instruction::getOpcodeName() const
         return "vecsrl";
     case Opcode::VecSra:
         return "vecsra";
+    case Opcode::VecMax:
+        return "vecmax";
+    case Opcode::VecMin:
+        return "vecmin";
+    case Opcode::VecDiv:
+        return "vecdiv";
+    case Opcode::VecRem:
+        return "vecrem";
+    case Opcode::VecVid:
+        return "vecvid";
+    case Opcode::VecReduceAdd:
+        return "vecreduceadd";
     default:
         throw std::runtime_error("Unknown opcode");
     }
@@ -517,6 +529,12 @@ bool Instruction::hasResult() const
     case Opcode::VecSll:
     case Opcode::VecSrl:
     case Opcode::VecSra:
+    case Opcode::VecMax:
+    case Opcode::VecMin:
+    case Opcode::VecDiv:
+    case Opcode::VecRem:
+    case Opcode::VecVid:
+    case Opcode::VecReduceAdd:
         return true;
     default:
         return false; // Ret, Br, Store, VecStore 等没有结果
@@ -703,7 +721,19 @@ Instruction *Instruction::clone() const
     case Opcode::VecSll:
     case Opcode::VecSrl:
     case Opcode::VecSra:
+    case Opcode::VecMax:
+    case Opcode::VecMin:
+    case Opcode::VecDiv:
+    case Opcode::VecRem:
         return new VecBinaryInst(Op, getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::VecVid:
+    {
+        auto *vecTy = static_cast<VectorType *>(getType());
+        return new VecVidInst(getOperandByIndex(0), vecTy->getElementType(),
+                              vecTy->getNumElements(), getName());
+    }
+    case Opcode::VecReduceAdd:
+        return new VecReduceAddInst(getOperandByIndex(0), getOperandByIndex(1), getName());
     default:
         throw std::runtime_error("Clone not implemented for this opcode");
     }
@@ -1515,6 +1545,22 @@ std::string VecSplatInst::toString() const
     std::stringstream ss;
     ss << "%" << getName() << " = vecsplat " << getType()->toString() << " "
        << getScalar()->toRef() << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecVidInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecvid " << getType()->toString() << ", vl="
+       << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecReduceAddInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecreduceadd " << getVector()->getType()->toString()
+       << " " << getVector()->toRef() << ", vl=" << getVl()->toRef();
     return ss.str();
 }
 

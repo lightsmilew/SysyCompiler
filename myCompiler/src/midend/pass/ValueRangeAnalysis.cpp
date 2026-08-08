@@ -643,6 +643,33 @@ static RangeInfo positiveModRange(int modHint)
     return r;
 }
 
+// SRem(x,M) 的 C remainder 结果域是 (-M, M) 而非 [0, M-1]：
+// 仅当 x 可证明非负时才取 [0, M-1]；否则保守 (-M, M)。
+// 避免 (sumAcc + blockSum%mod) 这类含负数 remainder 的和被错误证明非负，
+// 进而在 SRFixedPass 中被替换成一次条件减（负数会被漏减）。
+static RangeInfo moduloOperandRange(Value *op, int modHint, Function *func,
+                                    unordered_set<Value *> &visiting, BasicBlock *useBB,
+                                    unordered_set<string> &nameGuard)
+{
+    if (modHint <= 0)
+        return {};
+    auto *bin = dynamic_cast<BinaryOperator *>(stripCopy(op));
+    if (bin && bin->getOpcode() == Opcode::SRem)
+    {
+        RangeInfo lhsR =
+            analyzeValueRange(bin->getLHS(), func, modHint, visiting, useBB, nameGuard);
+        if (!lhsR.hasLower || lhsR.lower < 0)
+        {
+            RangeInfo conservative;
+            conservative.hasLower = conservative.hasUpper = true;
+            conservative.lower = -(static_cast<int64_t>(modHint) - 1);
+            conservative.upper = static_cast<int64_t>(modHint) - 1;
+            return conservative;
+        }
+    }
+    return positiveModRange(modHint);
+}
+
 // SRFixedPass pms: res = sub(cur, and(sub(0, icmp sge cur, M), M))
 static bool isPositiveCondSubModResult(const BinaryOperator *resSub, int modHint)
 {
@@ -799,7 +826,7 @@ static RangeInfo rangeFromNamedModuloCopies(Function *func, const string &name, 
             }
             if (isSameModuloResult(src, modHint))
             {
-                RangeInfo r = positiveModRange(modHint);
+                RangeInfo r = moduloOperandRange(src, modHint, func, visiting, nullptr, nameGuard);
                 if (!merged.hasLower && !merged.hasUpper)
                     merged = r;
                 else
@@ -885,7 +912,7 @@ static RangeInfo tryRangeFromPositiveModuloResult(Value *v, int modHint, Functio
         RangeInfo accR = analyzeValueRange(add->getLHS(), func, modHint, visiting, useBB, nameGuard);
         if (isSameModuloResult(add->getLHS(), modHint))
         {
-            accR = positiveModRange(modHint);
+            accR = moduloOperandRange(add->getLHS(), modHint, func, visiting, useBB, nameGuard);
         }
         else if ((!accR.hasLower || !accR.hasUpper) && !add->getLHS()->getName().empty())
             accR = rangeFromNamedModuloCopies(func, add->getLHS()->getName(), modHint, visiting,
@@ -983,7 +1010,7 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
         {
             auto rangeOfAddOperand = [&](Value *op) -> RangeInfo {
                 if (isSameModuloResult(op, modHint))
-                    return positiveModRange(modHint);
+                    return moduloOperandRange(op, modHint, func, visiting, useBB, nameGuard);
                 RangeInfo r =
                     analyzeValueRange(op, func, modHint, visiting, useBB, nameGuard);
                 if ((!r.hasLower || !r.hasUpper) && !op->getName().empty())
@@ -1159,7 +1186,7 @@ static bool proveModuloAccumulateAddRangeImpl(Value *lhs, int mod, Function *fun
     RangeInfo accR;
     Value *accOp = stripCopy(add->getLHS());
     if (isSameModuloResult(accOp, mod))
-        accR = positiveModRange(mod);
+        accR = moduloOperandRange(accOp, mod, func, visiting, useBB, nameGuard);
     else if (!accOp->getName().empty())
         accR = rangeFromNamedModuloCopies(func, accOp->getName(), mod, visiting, nameGuard);
     if (!accR.hasLower || !accR.hasUpper)

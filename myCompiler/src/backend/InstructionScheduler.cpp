@@ -810,11 +810,14 @@ namespace RISCV
         }
 
         // 含访存/调用的块整块跳过（全局调度曾导致 74_kmp WA）
+        // 含向量指令的块也整块跳过：vsetvli 设置 VL/VTYPE 是全局状态，
+        // 把 vid.v 等向量指令重排到 vsetvli 之前会导致 VL 未初始化 → 非法指令
         for (const auto &instr : instructions)
         {
             auto op = instr->getOpcode();
             if (isMemoryLoadInstruction(op) || isMemoryStoreInstruction(op) ||
-                op == RISCVOpcode::CALL || op == RISCVOpcode::ECALL)
+                op == RISCVOpcode::CALL || op == RISCVOpcode::ECALL ||
+                instr->getInstrType() == InstructionType::VECTOR)
             {
                 return;
             }

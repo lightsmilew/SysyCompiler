@@ -474,7 +474,7 @@ enum class Opcode
     Copy,
     Select,
 
-    // RVV 向量指令（中端向量化产物，后端直接选择为 RVV 指令）
+    // RVV 向量指令
     VecSetVl,  // %vl = vecsetvl(i32 count, i32 sew_bits)  —— 设置 vtype，返回实际 vl
     VecLoad,   // <N x i32> %v = vecload(i32* %ptr, i32 %vl) —— 加载 vl 个元素
     VecStore,  // vecstore(<N x i32> %v, i32* %ptr, i32 %vl) —— 存储 vl 个元素
@@ -484,7 +484,13 @@ enum class Opcode
     VecMul,    // <N x i32> vecmul(<N x i32>, <N x i32>)
     VecSll,    // <N x i32> vecsll(<N x i32>, <N x i32>)
     VecSrl,    // <N x i32> vecsrl(<N x i32>, <N x i32>)
-    VecSra     // <N x i32> vecsra(<N x i32>, <N x i32>)
+    VecSra,    // <N x i32> vecsra(<N x i32>, <N x i32>)
+    VecMax,    // <N x i32> vecmax(<N x i32>, <N x i32>)
+    VecMin,    // <N x i32> vecmin(<N x i32>, <N x i32>)
+    VecDiv,    // <N x i32> vecdiv(<N x i32>, <N x i32>)
+    VecRem,    // <N x i32> vecrem(<N x i32>, <N x i32>)
+    VecVid,    // <N x i32> vecvid(i32 %vl) —— 0,1,...,vl-1
+    VecReduceAdd // i32 vecreduceadd(<N x i32>, i32 %vl) —— 前 vl 个 lane 求和
 };
 
 // ====== Instruction System Implementation =====
@@ -893,6 +899,29 @@ public:
         : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecSplat,
                       vector<Value *>{scalar, vl}, name) {}
     Value *getScalar() const { return getOperandByIndex(0); }
+    Value *getVl() const { return getOperandByIndex(1); }
+    string toString() const override;
+};
+
+// %v = vecvid i32 %vl —— 生成 0,1,...,vl-1 的索引序列（对应 vid.v）
+class VecVidInst : public Instruction
+{
+public:
+    VecVidInst(Value *vl, Type *elemTy, unsigned lanes, const string &name = "")
+        : Instruction(VectorType::getInstance(elemTy, lanes), Opcode::VecVid,
+                      vector<Value *>{vl}, name) {}
+    Value *getVl() const { return getOperandByIndex(0); }
+    string toString() const override;
+};
+
+// %s = vecreduceadd <N x i32> %v, i32 %vl —— 对前 vl 个 lane 求和（对应 vredsum.vs + vmv.x.s）
+class VecReduceAddInst : public Instruction
+{
+public:
+    VecReduceAddInst(Value *vec, Value *vl, const string &name = "")
+        : Instruction(IntegerType::getInstance(), Opcode::VecReduceAdd,
+                      vector<Value *>{vec, vl}, name) {}
+    Value *getVector() const { return getOperandByIndex(0); }
     Value *getVl() const { return getOperandByIndex(1); }
     string toString() const override;
 };

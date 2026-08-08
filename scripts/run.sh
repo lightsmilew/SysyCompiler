@@ -51,7 +51,7 @@ elif [ "$1" == "-ir" ]; then
             filename=$(basename "$file")
             output_prefix="$OUTPUT_DIR/${filename%.sy}"
             echo "Processing $filename (IR debug mode, $opt_level $info_flag)..."
-            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level} $info_flag
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level} $info_flag 
         done
     else
         for file in $INPUT_DIR/*.sy; do

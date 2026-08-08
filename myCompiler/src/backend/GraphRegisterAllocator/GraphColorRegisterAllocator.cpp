@@ -1473,7 +1473,26 @@ namespace RISCV
         // 先处理def，截断区间：移除该reg的所有区间（即后续use不会再延长到更前面）
         for (const auto &defReg : instr->getDefRegisters())
         {
-          truncateRangeAt(defReg, pos);
+          // 循环语义：若 reg 是本块的 liveOut 且本块存在回边（后继块编号更小），
+          // 则该值跨迭代活跃（如循环 phi 的退出 copy），其区间必须覆盖整个循环体，
+          // 否则会与循环头其它定义（如 vsetvli 的 rd）静态区间不重叠而错误同色。
+          bool liveOutAcrossLoop = false;
+          if (bb->getLiveOut().count(defReg) > 0)
+          {
+            for (const auto &succ : bb->getSuccessors())
+            {
+              if (succ->getInstructions().empty())
+                continue;
+              auto sit = instrIndex.find(succ->getInstructions().front());
+              if (sit != instrIndex.end() && sit->second < bbStart)
+              {
+                liveOutAcrossLoop = true;
+                break;
+              }
+            }
+          }
+          if (!liveOutAcrossLoop)
+            truncateRangeAt(defReg, pos);
           livenessInfo.defPoints[defReg].push_back(pos);
         }
         // 这里显式把参数寄存器加入 use 集合，确保活跃分析正确

@@ -525,6 +525,18 @@ namespace RISCV
                 return "vsrl.vv";
             case RISCVOpcode::VSRA_VV:
                 return "vsra.vv";
+            case RISCVOpcode::VMAX_VV:
+                return "vmax.vv";
+            case RISCVOpcode::VMIN_VV:
+                return "vmin.vv";
+            case RISCVOpcode::VDIV_VV:
+                return "vdiv.vv";
+            case RISCVOpcode::VREM_VV:
+                return "vrem.vv";
+            case RISCVOpcode::VID_V:
+                return "vid.v";
+            case RISCVOpcode::VREDSUM_VS:
+                return "vredsum.vs";
             case RISCVOpcode::VMV_V_X:
                 return "vmv.v.x";
             case RISCVOpcode::VMV_X_S:
@@ -578,6 +590,20 @@ namespace RISCV
         else if (opcode == RISCVOpcode::VMV_X_S && operands.size() >= 2)
         {
             ss << " " << operands[0]->toString() << ", " << operands[1]->toString();
+        }
+        else if (opcode == RISCVOpcode::VID_V && operands.size() >= 1)
+        {
+            // vid.v vd（单操作数）
+            ss << " " << operands[0]->toString();
+        }
+        // 通用 VECTOR 二元/三元（vmax/vmin/vdiv/vrem/vredsum 等）：vd, vs2, vs1
+        else if (instrType == InstructionType::VECTOR && operands.size() >= 3 &&
+                 (opcode == RISCVOpcode::VMAX_VV || opcode == RISCVOpcode::VMIN_VV ||
+                  opcode == RISCVOpcode::VDIV_VV ||
+                  opcode == RISCVOpcode::VREM_VV || opcode == RISCVOpcode::VREDSUM_VS))
+        {
+            ss << " " << operands[0]->toString() << ", " << operands[1]->toString()
+               << ", " << operands[2]->toString();
         }
         // 特殊处理内存访问指令的操作数格式
         else if (instrType == InstructionType::S_TYPE && operands.size() >= 3)
@@ -1175,6 +1201,15 @@ namespace RISCV
         return instr;
     }
 
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorExtract(shared_ptr<RISCVRegister> rd,
+                                                                       shared_ptr<RISCVRegister> vs2)
+    {
+        // vmv.x.s rd, vs2 —— 取向量 lane 0 到整数寄存器
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VMV_X_S, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(vs2)};
+        return instr;
+    }
+
     shared_ptr<RISCVInstruction> RISCVInstruction::createVectorBinary(RISCVOpcode op,
                                                                        shared_ptr<RISCVRegister> vd,
                                                                        shared_ptr<RISCVRegister> vs2,
@@ -1183,6 +1218,13 @@ namespace RISCV
         auto instr = make_shared<RISCVInstruction>(op, InstructionType::VECTOR);
         instr->operands = {make_shared<RISCVOperand>(vd), make_shared<RISCVOperand>(vs2),
                            make_shared<RISCVOperand>(vs1)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorVid(shared_ptr<RISCVRegister> vd)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VID_V, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(vd)};
         return instr;
     }
 
@@ -1336,12 +1378,27 @@ namespace RISCV
             case RISCVOpcode::VSLL_VV:
             case RISCVOpcode::VSRL_VV:
             case RISCVOpcode::VSRA_VV:
+            case RISCVOpcode::VMAX_VV:
+            case RISCVOpcode::VMIN_VV:
+            case RISCVOpcode::VDIV_VV:
+            case RISCVOpcode::VREM_VV:
                 // use: vs2, vs1 (操作数1、2)
                 for (size_t i = 1; i < operands.size(); ++i)
                 {
                     if (isRegisterOperand(operands[i]))
                         useRegs.push_back(operands[i]->getReg());
                 }
+                break;
+            case RISCVOpcode::VREDSUM_VS:
+                // vredsum.vs vd, vs2, vs1 —— vd 同时是累积源（读改写）
+                for (size_t i = 0; i < operands.size(); ++i)
+                {
+                    if (isRegisterOperand(operands[i]))
+                        useRegs.push_back(operands[i]->getReg());
+                }
+                break;
+            case RISCVOpcode::VID_V:
+                // vid.v vd —— 无 use
                 break;
             default:
                 break;
@@ -1546,9 +1603,13 @@ namespace RISCV
             break;
 
         case InstructionType::VECTOR:
-            // RVV 向量指令：VSE32_V 全部操作数均为 use，其余从操作数1开始
+            // RVV 向量指令：VSE32_V 全部操作数均为 use，vredsum 的 vd 也是累积源，
+            // 其余从操作数1开始
             {
-                size_t startIdx = (opcode == RISCVOpcode::VSE32_V) ? 0 : 1;
+                size_t startIdx = (opcode == RISCVOpcode::VSE32_V ||
+                                   opcode == RISCVOpcode::VREDSUM_VS)
+                                      ? 0
+                                      : 1;
                 for (size_t i = startIdx; i < operands.size(); ++i)
                 {
                     if (isRegisterOperand(operands[i]) && operands[i]->getReg() == oldReg)

@@ -379,8 +379,23 @@ void InstructionSelector::visitInstruction(Instruction *inst)
     case Opcode::VecAdd:
     case Opcode::VecSub:
     case Opcode::VecMul:
+    case Opcode::VecSll:
+    case Opcode::VecSrl:
+    case Opcode::VecSra:
+    case Opcode::VecMax:
+    case Opcode::VecMin:
+    case Opcode::VecDiv:
+    case Opcode::VecRem:
         if (auto *vb = dynamic_cast<VecBinaryInst *>(inst))
             visitVecBinaryInst(vb);
+        break;
+    case Opcode::VecVid:
+        if (auto *vv = dynamic_cast<VecVidInst *>(inst))
+            visitVecVidInst(vv);
+        break;
+    case Opcode::VecReduceAdd:
+        if (auto *vr = dynamic_cast<VecReduceAddInst *>(inst))
+            visitVecReduceAddInst(vr);
         break;
     default:
         // 其他指令暂时忽略
@@ -2423,6 +2438,18 @@ void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)
     case Opcode::VecSra:
         op = RISCVOpcode::VSRA_VV;
         break;
+    case Opcode::VecMax:
+        op = RISCVOpcode::VMAX_VV;
+        break;
+    case Opcode::VecMin:
+        op = RISCVOpcode::VMIN_VV;
+        break;
+    case Opcode::VecDiv:
+        op = RISCVOpcode::VDIV_VV;
+        break;
+    case Opcode::VecRem:
+        op = RISCVOpcode::VREM_VV;
+        break;
     default:
         op = RISCVOpcode::VMUL_VV;
         break;
@@ -2439,5 +2466,31 @@ void InstructionSelector::visitVecSplatInst(VecSplatInst *inst)
     auto scalar = getOrCreateVirtualReg(inst->getScalar());
     auto vd = getOrCreateVectorReg(inst);
     currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, scalar));
+}
+
+void InstructionSelector::visitVecVidInst(VecVidInst *inst)
+{
+    // %v = vecvid %vl —— vid.v vd（生成 0..vl-1）
+    auto vd = getOrCreateVectorReg(inst);
+    (void)inst->getVl();
+    currentBB->addInstruction(RISCVInstruction::createVectorVid(vd));
+}
+
+void InstructionSelector::visitVecReduceAddInst(VecReduceAddInst *inst)
+{
+    // %s = vecreduceadd %v, %vl —— vredsum.vs vd, vs2, vd + vmv.x.s rd, vd
+    // vd 初始为 splat(0)（vmv.v.x vd, x0），随后 vredsum 累积，最后 vmv.x.s 取 lane0
+    auto vec = getOrCreateVectorReg(inst->getVector());
+    auto rd = getOrCreateVirtualReg(inst);
+    // vd 是纯临时累加器，无对应 IR 值，直接创建向量虚拟寄存器
+    auto vd = make_shared<RISCVRegister>(RegisterType::VECTOR);
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    // vmv.v.x vd, x0 —— 把归约累加器清零（注意需在当前 VL 下，vsetvli 已由循环体提供）
+    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, zeroReg));
+    // vredsum.vs vd, vs2, vd —— vd += sum(vs2)，只写 lane0
+    currentBB->addInstruction(
+        RISCVInstruction::createVectorBinary(RISCVOpcode::VREDSUM_VS, vd, vec, vd));
+    // vmv.x.s rd, vd —— 取 lane0 到整数寄存器
+    currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
 }
 
