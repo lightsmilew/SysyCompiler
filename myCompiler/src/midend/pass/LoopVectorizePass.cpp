@@ -2226,7 +2226,7 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
         if (dynamic_cast<StoreInst *>(ip.get()))
             return false;
 
-    // 找到 sum phi：header 中除 jIV 外的另一个整数/浮点 phi
+    // 找到 sum phi：header 中除 jIV / ISR 仿射伴生 phi 外的归约 phi
     PhiInst *sumPhi = nullptr;
     PhiInst *jPhi = dynamic_cast<PhiInst *>(stripCopy(jIV));
     for (auto &ip : header->getInstructions())
@@ -2237,6 +2237,13 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
         Type *ty = phi->getType();
         if (!ty || (!ty->isIntegerTy() && !ty->isFloatTy()))
             continue;
+        // 强度消减产生的伴生 IV：phi [init], [add(phi, invariant step)]
+        // 归约 phi 的回边是 add(phi, load/…) 而非不变步长，不会被识别为仿射。
+        {
+            Value *ainit = nullptr, *astep = nullptr;
+            if (parseAffinePhi(phi, loop, ainit, astep, nullptr))
+                continue;
+        }
         if (sumPhi)
             return false; // 多于一个候选
         sumPhi = phi;
@@ -2277,7 +2284,9 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
         return false;
 
     bool square = false;
+    bool product = false;
     LoadInst *ld = dynamic_cast<LoadInst *>(addend);
+    LoadInst *ld2 = nullptr;
     if (!ld)
     {
         auto *mul = dynamic_cast<BinaryOperator *>(addend);
@@ -2287,12 +2296,14 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
             return false;
         Value *ml = stripCopy(mul->getLHS());
         Value *mr = stripCopy(mul->getRHS());
-        if (ml != mr)
-            return false;
         ld = dynamic_cast<LoadInst *>(ml);
-        if (!ld)
+        ld2 = dynamic_cast<LoadInst *>(mr);
+        if (!ld || !ld2)
             return false;
-        square = true;
+        if (ld == ld2 || sameValue(ld, ld2))
+            square = true;
+        else
+            product = true;
     }
 
     Value *jInit = nullptr;
@@ -2306,15 +2317,28 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
     std::set<Instruction *> covered;
     covered.insert(add);
     covered.insert(ld);
-    if (square)
+    if (square || product)
+    {
         if (auto *mul = dynamic_cast<BinaryOperator *>(addend))
             covered.insert(mul);
+        if (product && ld2)
+            covered.insert(ld2);
+    }
 
     Value *base = nullptr, *offset = nullptr, *stride = nullptr;
     std::vector<Value *> rowIdxs;
     if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride,
                       entry, jInit))
         return false;
+
+    Value *base2 = nullptr, *offset2 = nullptr, *stride2 = nullptr;
+    std::vector<Value *> rowIdxs2;
+    if (product)
+    {
+        if (!parseVecAddr(ld2->getPointer(), jIV, loop, covered, base2, rowIdxs2, offset2,
+                          stride2, entry, jInit))
+            return false;
+    }
 
     // 覆盖：body 内非控制指令均须被归约表达式覆盖
     for (auto &ip : body->getInstructions())
@@ -2338,10 +2362,15 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
     pat.sumInit = sumInit;
     pat.elemTy = elemTypeOf(sumPhi);
     pat.square = square;
+    pat.product = product;
     pat.base = base;
     pat.rowIdxs = rowIdxs;
     pat.offset = offset;
     pat.stride = stride;
+    pat.base2 = base2;
+    pat.rowIdxs2 = rowIdxs2;
+    pat.offset2 = offset2;
+    pat.stride2 = stride2;
     return true;
 }
 
@@ -2403,25 +2432,42 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
         }
     }
 
-    Value *offVal = pat.offset ? hoistScalar(pat.offset) : ci(0);
-    vector<Value *> idxs;
-    for (auto *r : pat.rowIdxs)
-        idxs.push_back(hoistScalar(r));
-    idxs.push_back(offVal);
-    auto *rowPtr = new GetElementPtrInst(pat.base, idxs, freshName("row"));
-    prependBeforeTerminator(entry, rowPtr);
-
-    Value *strideElem = pat.stride ? hoistScalar(pat.stride) : nullptr;
-    Value *byteStride = nullptr;
-    if (strideElem)
+    auto makeRowPtr = [&](Value *base, const std::vector<Value *> &rows, Value *off,
+                          const string &name) -> GetElementPtrInst *
     {
+        Value *offVal = off ? hoistScalar(off) : ci(0);
+        vector<Value *> idxs;
+        for (auto *r : rows)
+            idxs.push_back(hoistScalar(r));
+        idxs.push_back(offVal);
+        auto *rowPtr = new GetElementPtrInst(base, idxs, freshName(name));
+        prependBeforeTerminator(entry, rowPtr);
+        return rowPtr;
+    };
+    auto makeByteStride = [&](Value *strideElem) -> Value *
+    {
+        if (!strideElem)
+            return nullptr;
+        strideElem = hoistScalar(strideElem);
         if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(strideElem)))
-            byteStride = ci(c->Value * 4);
-        else
-        {
-            byteStride = new BinaryOperator(Opcode::Sll, strideElem, ci(2), freshName("bs"));
-            prependBeforeTerminator(entry, static_cast<Instruction *>(byteStride));
-        }
+            return ci(c->Value * 4);
+        auto *bs = new BinaryOperator(Opcode::Sll, strideElem, ci(2), freshName("bs"));
+        prependBeforeTerminator(entry, static_cast<Instruction *>(bs));
+        return bs;
+    };
+
+    auto *rowPtr = makeRowPtr(pat.base, pat.rowIdxs, pat.offset, "row");
+    Value *strideElem = pat.stride ? hoistScalar(pat.stride) : nullptr;
+    Value *byteStride = makeByteStride(pat.stride);
+
+    GetElementPtrInst *rowPtr2 = nullptr;
+    Value *strideElem2 = nullptr;
+    Value *byteStride2 = nullptr;
+    if (pat.product)
+    {
+        rowPtr2 = makeRowPtr(pat.base2, pat.rowIdxs2, pat.offset2, "row2");
+        strideElem2 = pat.stride2 ? hoistScalar(pat.stride2) : nullptr;
+        byteStride2 = makeByteStride(pat.stride2);
     }
 
     // 独立 vguard：count==0 时跳过向量体。不可改写 entry 终结符——entry 可能是
@@ -2450,6 +2496,14 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
     ptrPhi->addIncoming(rowPtr, guard);
     sumPhi->addIncoming(sumInit, guard);
 
+    PhiInst *ptrPhi2 = nullptr;
+    if (pat.product)
+    {
+        ptrPhi2 = new PhiInst(rowPtr2->getType(), freshName("ptr2"));
+        body->addInstruction(own(ptrPhi2));
+        ptrPhi2->addIncoming(rowPtr2, guard);
+    }
+
     auto vl = new VecSetVlInst(countPhi, 32, freshName("vl"));
     body->addInstruction(own(vl));
 
@@ -2464,6 +2518,19 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
     if (pat.square)
     {
         auto *vm = new VecBinaryInst(Opcode::VecMul, vload, vload, freshName("vsq"));
+        body->addInstruction(own(vm));
+        toReduce = vm;
+    }
+    else if (pat.product)
+    {
+        Instruction *vload2 = nullptr;
+        if (byteStride2)
+            vload2 = new VecStridedLoadInst(ptrPhi2, byteStride2, vl, elemTy, 16,
+                                            freshName("v2"));
+        else
+            vload2 = new VecLoadInst(ptrPhi2, vl, elemTy, 16, freshName("v2"));
+        body->addInstruction(own(vload2));
+        auto *vm = new VecBinaryInst(Opcode::VecMul, vload, vload2, freshName("vdot"));
         body->addInstruction(own(vm));
         toReduce = vm;
     }
@@ -2482,15 +2549,20 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
     body->addInstruction(own(countN));
     countPhi->addIncoming(countN, body);
 
-    Value *adv = vl;
-    if (strideElem)
-    {
-        adv = new BinaryOperator(Opcode::Mul, vl, strideElem, freshName("ptrStep"));
-        body->addInstruction(own(static_cast<Instruction *>(adv)));
-    }
-    auto *ptrN = new GetElementPtrInst(ptrPhi, vector<Value *>{adv}, freshName("ptrN"));
-    body->addInstruction(own(ptrN));
-    ptrPhi->addIncoming(ptrN, body);
+    auto advancePtr = [&](PhiInst *pPhi, Value *strideE) {
+        Value *adv = vl;
+        if (strideE)
+        {
+            adv = new BinaryOperator(Opcode::Mul, vl, strideE, freshName("ptrStep"));
+            body->addInstruction(own(static_cast<Instruction *>(adv)));
+        }
+        auto *ptrN = new GetElementPtrInst(pPhi, vector<Value *>{adv}, freshName("ptrN"));
+        body->addInstruction(own(ptrN));
+        pPhi->addIncoming(ptrN, body);
+    };
+    advancePtr(ptrPhi, strideElem);
+    if (pat.product)
+        advancePtr(ptrPhi2, strideElem2);
 
     auto cond = new ICmpInst(ICmpInst::ICMP_NE, countN, ci(0), freshName("cond"));
     body->addInstruction(own(cond));

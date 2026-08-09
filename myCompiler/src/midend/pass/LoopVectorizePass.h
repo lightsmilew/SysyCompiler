@@ -50,7 +50,7 @@ namespace optimization
         std::vector<ElemStore> stores;
     };
 
-    // ===== 数组归约：sum += A[j] 或 sum += A[j]*A[j] =====
+    // ===== 数组归约：sum += A[j] / A[j]*A[j] / A[j]*B[j] =====
     struct ArrayReducePattern
     {
         BasicBlock *entry = nullptr;
@@ -64,11 +64,17 @@ namespace optimization
         Value *sum = nullptr;     // 循环内 sum phi（或等价 copy）
         Value *sumInit = nullptr;
         Type *elemTy = nullptr;
-        bool square = false; // true: sum += load*load；false: sum += load
+        bool square = false;  // true: sum += load*load（同一 load）
+        bool product = false; // true: sum += loadA*loadB（两路不同 load，点积）
         Value *base = nullptr;
         std::vector<Value *> rowIdxs;
         Value *offset = nullptr;
         Value *stride = nullptr;
+        // product 第二路地址（square/plain 时不用）
+        Value *base2 = nullptr;
+        std::vector<Value *> rowIdxs2;
+        Value *offset2 = nullptr;
+        Value *stride2 = nullptr;
     };
 
     // ===== 纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约，无数组访存）的模式结构 =====
@@ -112,7 +118,7 @@ namespace optimization
         bool findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &pat);
         bool vectorizeElementwiseLoop(Function *func, const ElemLoopPattern &pat);
 
-        // 数组归约循环（sum += A[j] / sum += A[j]*A[j]）
+        // 数组归约循环（sum += A[j] / A[j]*A[j] / A[j]*B[j]）
         bool findArrayReduceLoop(const Loop &loop, ArrayReducePattern &pat);
         bool vectorizeArrayReduceLoop(Function *func, const ArrayReducePattern &pat);
 
