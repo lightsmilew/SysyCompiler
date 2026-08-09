@@ -271,12 +271,11 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
             BasicBlock *bb = it->get();
             if (bb != entry && bb->getPredecessors().empty())
             {
-                // 从后继中删除自身
-                // for (auto *succ : bb->getSuccessors())
-                // {
-                //     succ->removePredecessor(bb);
-                //     bb->removeSuccessor(succ);
-                // }
+                // 释放前清理 use 链：Instruction 析构不自动 removeThisFromOperands，
+                // 若留下悬空 user，后续遍历 getUsers()（如 LoopVectorize 的
+                // feedsInductionVar）会在 dynamic_cast 处崩溃。
+                for (auto &instPtr : bb->getInstructions())
+                    instPtr->removeThisFromOperands();
                 bb->removeSelfBasicBlock();
                 // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
                 needToDelete.push_back(it->release());
@@ -291,6 +290,8 @@ bool DeadCodeEliminationPass::runOnFunction(Function *func)
                 //     succ->removePredecessor(bb);
                 //     bb->removeSuccessor(succ);
                 // }
+                for (auto &instPtr : bb->getInstructions())
+                    instPtr->removeThisFromOperands();
                 bb->removeSelfBasicBlock();
                 needToDelete.push_back(it->release());
                 it = bbs.erase(it);

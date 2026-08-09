@@ -42,6 +42,7 @@ namespace optimization
         BasicBlock *jBody = nullptr;
         BasicBlock *jExit = nullptr;
         Value *jIV = nullptr;
+        Value *jInit = nullptr; // jIV 在 entry 边的初值（可能为 nullptr/常量 0，表示从 0 开始）
         Value *bound = nullptr;
         std::vector<ElemStore> stores;
     };

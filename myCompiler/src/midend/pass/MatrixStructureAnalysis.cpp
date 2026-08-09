@@ -42,6 +42,11 @@ namespace optimization::matrixStructure
     {
         if (!from || !iv || depth > 8)
             return false;
+        // 常量/参数/全局等非指令值没有「作为 user 喂养归纳变量」的语义，
+        // 且常量的 Users 列表可能包含其他 pass 删除指令后遗留的悬垂指针，
+        // 遍历它会在 dynamic_cast 处崩溃。只沿指令 use 链递归。
+        if (!dynamic_cast<Instruction *>(from))
+            return false;
         if (sameValue(from, iv))
             return true;
         for (auto *user : from->getUsers())

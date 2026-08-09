@@ -173,6 +173,12 @@ namespace
 
         thenBB->removeSelfBasicBlock();
         mergeBB->removeSelfBasicBlock();
+        // clear 会析构指令，但析构不自动 removeThisFromOperands，
+        // 残留指令的 operand（如循环 phi）的 users 列表会留下悬垂指针。
+        for (auto &instPtr : thenBB->getInstructions())
+            instPtr->removeThisFromOperands();
+        for (auto &instPtr : mergeBB->getInstructions())
+            instPtr->removeThisFromOperands();
         thenBB->getInstructions().clear();
         mergeBB->getInstructions().clear();
     }

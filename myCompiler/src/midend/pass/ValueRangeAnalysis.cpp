@@ -1,6 +1,7 @@
 #include "ValueRangeAnalysis.h"
 #include <algorithm>
 #include <map>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 using namespace std;
@@ -9,6 +10,20 @@ namespace optimization
 {
 namespace
 {
+
+// 单次 top-level analyze 内对 DAG 做记忆化，避免 select/srem 链指数爆炸
+static thread_local unordered_map<Value *, RangeInfo> *gRangeMemo = nullptr;
+
+struct RangeMemoScope
+{
+    unordered_map<Value *, RangeInfo> memo;
+    unordered_map<Value *, RangeInfo> *prev;
+    RangeMemoScope() : prev(gRangeMemo)
+    {
+        gRangeMemo = &memo;
+    }
+    ~RangeMemoScope() { gRangeMemo = prev; }
+};
 
 static Value *stripCopy(Value *v)
 {
@@ -968,10 +983,21 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
     if (auto *c = dynamic_cast<ConstantInt *>(v))
         return rangeFromConst(c->Value);
 
+    if (gRangeMemo)
+    {
+        auto it = gRangeMemo->find(v);
+        if (it != gRangeMemo->end())
+            return it->second;
+    }
+
     RangeInfo moduloR =
         tryRangeFromPositiveModuloResult(v, modHint, func, visiting, useBB, nameGuard);
     if (moduloR.hasLower && moduloR.hasUpper)
+    {
+        if (gRangeMemo)
+            (*gRangeMemo)[v] = moduloR;
         return moduloR;
+    }
 
     if (visiting.count(v))
     {
@@ -1001,6 +1027,8 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
             }
         }
         visiting.erase(v);
+        if (gRangeMemo)
+            (*gRangeMemo)[v] = result;
         return result;
     }
 
@@ -1050,6 +1078,8 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
                     result.hasUpper = true;
                     result.upper = static_cast<int64_t>(modHint) - 1;
                     visiting.erase(v);
+                    if (gRangeMemo)
+                        (*gRangeMemo)[v] = result;
                     return result;
                 }
             }
@@ -1107,6 +1137,8 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
         if (tryRangeOfPositiveCondModSelect(sel, modHint, func, visiting, nameGuard, result))
         {
             visiting.erase(v);
+            if (gRangeMemo)
+                (*gRangeMemo)[v] = result;
             return result;
         }
 
@@ -1167,9 +1199,15 @@ static RangeInfo analyzeValueRange(Value *v, Function *func, int modHint,
         RangeInfo merged =
             analyzeNamedCopyDefRanges(func, v->getName(), modHint, visiting, nameGuard, useBB);
         if (merged.hasLower && merged.hasUpper)
+        {
+            if (gRangeMemo)
+                (*gRangeMemo)[v] = merged;
             return merged;
+        }
     }
 
+    if (gRangeMemo)
+        (*gRangeMemo)[v] = result;
     return result;
 }
 
@@ -1213,6 +1251,7 @@ RangeInfo ValueRangeAnalysis::analyze(Value *v, Function *func, int modHint, Bas
 {
     if (!v || !func)
         return {};
+    RangeMemoScope memoScope;
     unordered_set<Value *> visiting;
     unordered_set<string> nameGuard;
     return analyzeValueRange(v, func, modHint, visiting, useBB, nameGuard);
@@ -1229,6 +1268,7 @@ bool ValueRangeAnalysis::tryProveModuloAccumulateAddRange(Value *lhs, int mod, F
 {
     if (!lhs || !func || !useBB)
         return false;
+    RangeMemoScope memoScope;
     unordered_set<Value *> visiting;
     unordered_set<string> nameGuard;
     return proveModuloAccumulateAddRangeImpl(lhs, mod, func, useBB, visiting, nameGuard, out);

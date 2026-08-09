@@ -480,6 +480,9 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
                     //     succ->removePredecessor(bb);
                     //     bb->removeSuccessor(succ);
                     // }
+                    // 释放前清理 use 链，避免留下悬空 user（遍历 getUsers() 会崩溃）
+                    for (auto &instPtr : bb->getInstructions())
+                        instPtr->removeThisFromOperands();
                     bb->removeSelfBasicBlock();
                     // 这里不能直接删除，把它放到needToDelete中,否则内存空间释放了
                     needToDelete.push_back(it->release());
@@ -495,6 +498,8 @@ bool BasicBlockMergePass::runOnFunction(Function *func)
                     //     succ->removePredecessor(bb);
                     //     bb->removeSuccessor(succ);
                     // }
+                    for (auto &instPtr : bb->getInstructions())
+                        instPtr->removeThisFromOperands();
                     bb->removeSelfBasicBlock();
                     needToDelete.push_back(it->release());
                     it = _bbs.erase(it);

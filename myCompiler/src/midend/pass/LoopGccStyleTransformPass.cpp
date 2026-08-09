@@ -446,6 +446,15 @@ bool LoopGccStyleTransformPass::tryTransform(Function *func, const Loop &loop)
         {
             return false;
         }
+        // Header 只能承载循环条件相关计算。若含访存/调用（如 lnis 把整段
+        // kernel 放在 header），do-while 变换会把 store 挪到计算之前，结果错误。
+        // 以前靠不可达块残留的死 user 让 hasExternalUse 误判为 true 而跳过；
+        // DCE 正确清理 use 链后必须在此显式拒绝。
+        if (inst->isMemoryLoad() || inst->isMemoryStore() ||
+            dynamic_cast<CallInst *>(inst))
+        {
+            return false;
+        }
     }
 
     const bool unrollLoop = isUnrollLoopHeader(header);

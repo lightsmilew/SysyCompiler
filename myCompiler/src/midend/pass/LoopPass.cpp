@@ -709,19 +709,33 @@ UnrollResult tryUnrollOneLoop(Function *func,
     }
 
     // 6. tripCount
+    // SLT iv<bound, step>0: iv=init, init+step, ... 共 ceil((bound-init)/step)
+    //   = (bound-init+step-1)/step；旧实现 (bound-init)/step 在不能整除时少一趟
+    //   （如 init=0,bound=5,step=2 → 实际 0,2,4 共 3 次，整除得 2）。
+    // SLE iv<=bound, step>0: floor((bound-init)/step)+1。
     int tripCount = -1;
     Value *initVal = copyBasedIV ? copyIV.init : phiInit[indPhi];
     auto *initConst = dynamic_cast<ConstantInt *>(stripCopy(initVal));
     auto *boundConst = dynamic_cast<ConstantInt *>(stripCopy(boundVal));
-    if (initConst && boundConst)
+    if (initConst && boundConst && intcValue != 0)
     {
         int init = initConst->Value;
         int bound = boundConst->Value;
+        int step = intcValue;
         if (cmp->getPredicate() == ICmpInst::ICMP_SLT)
-            tripCount = (cmpSide == 0) ? (bound - init) : (init - bound);
+        {
+            if (cmpSide == 0 && step > 0 && bound > init)
+                tripCount = (bound - init + step - 1) / step;
+            else if (cmpSide != 0 && step > 0 && init > bound)
+                tripCount = (init - bound + step - 1) / step;
+        }
         else if (cmp->getPredicate() == ICmpInst::ICMP_SLE)
-            tripCount = (cmpSide == 0) ? (bound - init + 1) : (init - bound + 1);
-        tripCount = tripCount / intcValue;
+        {
+            if (cmpSide == 0 && step > 0 && bound >= init)
+                tripCount = (bound - init) / step + 1;
+            else if (cmpSide != 0 && step > 0 && init >= bound)
+                tripCount = (init - bound) / step + 1;
+        }
     }
 
     // 9. 完全展开（常量循环嵌套最多展开 kMaxConstantFullUnrollNestLayers 层）
@@ -1691,31 +1705,34 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
     for (const auto &loop : loops)
     {
         BasicBlock *headBlock = loop.header;
+        // 合法性：只匹配 header+单一 body。若把外层循环的 blocks 整树扫进去，
+        // 会把内层 `sum=(sum+x)%m` 误算成外层 trip count（公式错误）。
+        if (loop.blocks.size() != 2)
+            continue;
         if (headBlock->getInstructions().size() < 2)
             continue;
         // 1. 检查循环条件 while(i < maxindex)
-        // 只处理小于等于
         auto *cmp = dynamic_cast<ICmpInst *>(headBlock->getInstructions()[headBlock->getInstructions().size() - 2].get());
         if (!cmp || cmp->getPredicate() != ICmpInst::ICMP_SLT)
             continue;
         Value *iVar = cmp->getLHS();
         Value *maxindex = cmp->getRHS();
 
-        // 2. 检查phi获取i和sum初值
+        // 2. 仅两个 phi：归纳变量 + 累加器
         PhiInst *iPhi = nullptr, *sumPhi = nullptr;
+        int phiCount = 0;
         for (auto &instPtr : headBlock->getInstructions())
         {
             if (auto *phi = dynamic_cast<PhiInst *>(instPtr.get()))
             {
+                ++phiCount;
                 if (phi == iVar)
-                {
                     iPhi = phi;
-                }
                 else
                     sumPhi = phi;
             }
         }
-        if (!iPhi || !sumPhi)
+        if (!iPhi || !sumPhi || phiCount != 2)
             continue;
         Value *iInit = nullptr, *sumInit = nullptr;
         for (size_t i = 0; i < iPhi->getNumIncomingValues(); ++i)
@@ -1736,170 +1753,184 @@ bool ModLoopReductionPass ::runOnFunction(Function *func)
                 break;
             }
         }
-        // 4. 在所有body块中查找 sum += x; sum %= remconst; i++
+        if (!iInit || !sumInit)
+            continue;
+
+        BasicBlock *bodyBB = nullptr;
+        for (auto *bb : loop.blocks)
+            if (bb != headBlock)
+                bodyBB = bb;
+        if (!bodyBB)
+            continue;
+
+        // 3. body 中识别 sum=(sum+x)%m; i+=step，且不得夹杂其它副作用
         BinaryOperator *sumAdd = nullptr, *sumMod = nullptr, *iInc = nullptr;
         Value *x = nullptr, *remconst = nullptr, *stepLength = nullptr;
-        for (auto *bb : loop.blocks)
+        bool bodyPure = true;
+        for (auto &instPtr : bodyBB->getInstructions())
         {
-            if (bb == headBlock)
+            Instruction *inst = instPtr.get();
+            if (inst->isTerminator())
                 continue;
-            for (auto &instPtr : bb->getInstructions())
+            auto *bin = dynamic_cast<BinaryOperator *>(inst);
+            if (!bin)
             {
-                if (auto *bin = dynamic_cast<BinaryOperator *>(instPtr.get()))
-                {
-                    if (!sumAdd && bin->getOpcode() == Opcode::Add &&
-                        (bin->getLHS() == sumPhi || bin->getRHS() == sumPhi))
-                    {
-                        sumAdd = bin;
-                        x = (bin->getLHS() == sumPhi) ? bin->getRHS() : bin->getLHS();
-                    }
-                    if (!sumMod && bin->getOpcode() == Opcode::SRem &&
-                        bin->getLHS() == sumAdd)
-                    {
-                        sumMod = bin;
-                        remconst = bin->getRHS();
-                    }
-                    if (!iInc && bin->getOpcode() == Opcode::Add &&
-                        (bin->getLHS() == iPhi || bin->getRHS() == iPhi))
-                    {
-                        iInc = bin;
-                        stepLength = (bin->getLHS() == iPhi) ? bin->getRHS() : bin->getLHS();
-                    }
-                }
+                bodyPure = false;
+                break;
+            }
+            if (!sumAdd && bin->getOpcode() == Opcode::Add &&
+                (bin->getLHS() == sumPhi || bin->getRHS() == sumPhi))
+            {
+                sumAdd = bin;
+                x = (bin->getLHS() == sumPhi) ? bin->getRHS() : bin->getLHS();
+                continue;
+            }
+            if (!sumMod && bin->getOpcode() == Opcode::SRem && bin->getLHS() == sumAdd)
+            {
+                sumMod = bin;
+                remconst = bin->getRHS();
+                continue;
+            }
+            if (!iInc && bin->getOpcode() == Opcode::Add &&
+                (bin->getLHS() == iPhi || bin->getRHS() == iPhi))
+            {
+                iInc = bin;
+                stepLength = (bin->getLHS() == iPhi) ? bin->getRHS() : bin->getLHS();
+                continue;
+            }
+            bodyPure = false;
+            break;
+        }
+        if (!bodyPure || !sumAdd || !sumMod || !iInc || !x || !remconst)
+            continue;
+
+        bool sumModFeedsPhi = false;
+        for (size_t i = 0; i < sumPhi->getNumIncomingValues(); ++i)
+        {
+            if (sumPhi->getIncomingValue(i) == sumMod)
+            {
+                sumModFeedsPhi = true;
+                break;
             }
         }
-        if (!sumAdd || !sumMod || !iInc || !x || !remconst)
+        if (!sumModFeedsPhi)
             continue;
-        // 5. 只处理常量remconst和x
+
         auto *remconstC = dynamic_cast<ConstantInt *>(remconst);
         auto *xC = dynamic_cast<ConstantInt *>(x);
-        if (!remconstC || !xC)
+        auto *stepC = dynamic_cast<ConstantInt *>(stepLength);
+        if (!remconstC || !xC || !stepC || stepC->Value <= 0)
             continue;
-        // 超过2^16的常量不处理,因为会溢出
         if (remconstC->Value > 65536)
             continue;
-        // 6. 生成归约公式
-        // 公式 initsum%remconst+(maxindex-i/stepLength*x%remconst)&remconst
-        auto *sumInitMod = new BinaryOperator(Opcode::SRem, sumInit, remconst, "sumInit_mod");
-        auto *max_minus_i = new BinaryOperator(Opcode::Sub, maxindex, iInit, "max_minus_i");
-        auto *max_minus_i_div_step = new BinaryOperator(Opcode::SDiv, max_minus_i, stepLength, "max_minus_i_div");
-        auto *max_minus_i_mod = new BinaryOperator(Opcode::SRem, max_minus_i_div_step, remconst, "max_minus_i_mod");
-        auto *x_mod = new BinaryOperator(Opcode::SRem, x, remconst, "x_mod");
-        auto *mul = new BinaryOperator(Opcode::Mul, max_minus_i_mod, x_mod, "mul_mod");
-        auto *mul_mod = new BinaryOperator(Opcode::SRem, mul, remconst, "mul_mod2");
-        auto *finalSum = new BinaryOperator(Opcode::Add, sumInitMod, mul_mod, "final_sum");
-        auto *finalSumMod = new BinaryOperator(Opcode::SRem, finalSum, remconst, "final_sum_mod");
 
-        auto *if_sumPhi = new PhiInst(sumInit->getType(), "if_sum_phi");
-        auto *i_Phi = new PhiInst(iInit->getType(), "i_phi");
-        // 7. 替换循环为if-else
         BasicBlock *preBlock = nullptr;
         for (auto *pred : headBlock->getPredecessors())
             if (find(loop.blocks.begin(), loop.blocks.end(), pred) == loop.blocks.end())
                 preBlock = pred;
-        if (!preBlock)
-            continue;
         BasicBlock *exitBlock = nullptr;
         for (auto *succ : headBlock->getSuccessors())
             if (find(loop.blocks.begin(), loop.blocks.end(), succ) == loop.blocks.end())
                 exitBlock = succ;
-        if (!exitBlock)
+        if (!preBlock || !exitBlock)
             continue;
 
+        // 只接受 preBlock 无条件跳入 header（嵌套 while 的典型形态）
+        BranchInst *entryBr = nullptr;
+        for (auto &instPtr : preBlock->getInstructions())
+        {
+            if (auto *br = dynamic_cast<BranchInst *>(instPtr.get()))
+            {
+                if (!br->isConditional() && br->getTrueBlock() == headBlock)
+                    entryBr = br;
+            }
+        }
+        if (!entryBr)
+            continue;
+
+        // 4. 闭式：(sumInit + ceil((max-iInit)/step)*x) % rem
+        //    ceil((max-i)/step) = (max-i+step-1)/step （step>0 且 max>i）
+        //    用 select 处理零趟；preBlock 直连 exit（单前驱）。
         auto *cond = new ICmpInst(ICmpInst::ICMP_SLT, iInit, maxindex, "modulo_cond");
-        auto *thenBB = new BasicBlock("modulo_then", func);
-        auto *elseBB = new BasicBlock("modulo_else", func);
-        // phi添加输入
-        if_sumPhi->addIncoming(finalSumMod, thenBB);
-        if_sumPhi->addIncoming(sumInit, elseBB);
-        // 如果来自then，则已经循环到最大
-        i_Phi->addIncoming(maxindex, thenBB);
-        i_Phi->addIncoming(iInit, elseBB);
-        // then块跳转
-        thenBB->addInstruction(std::unique_ptr<Instruction>(sumInitMod));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(max_minus_i));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(max_minus_i_div_step));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(max_minus_i_mod));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(max_minus_i));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(x_mod));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(mul));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(mul_mod));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(finalSum));
-        thenBB->addInstruction(std::unique_ptr<Instruction>(finalSumMod));
+        auto *sumInitMod = new BinaryOperator(Opcode::SRem, sumInit, remconst, "sumInit_mod");
+        auto *max_minus_i = new BinaryOperator(Opcode::Sub, maxindex, iInit, "max_minus_i");
+        auto *stepMinus1 = new ConstantInt(IntegerType::getInstance(), stepC->Value - 1);
+        auto *span_ceil = new BinaryOperator(Opcode::Add, max_minus_i, stepMinus1, "span_ceil");
+        auto *trip_ceil =
+            new BinaryOperator(Opcode::SDiv, span_ceil, stepLength, "trip_ceil");
+        auto *trip_mod = new BinaryOperator(Opcode::SRem, trip_ceil, remconst, "trip_mod");
+        auto *x_mod = new BinaryOperator(Opcode::SRem, x, remconst, "x_mod");
+        auto *mul = new BinaryOperator(Opcode::Mul, trip_mod, x_mod, "mul_mod");
+        auto *mul_mod = new BinaryOperator(Opcode::SRem, mul, remconst, "mul_mod2");
+        auto *finalSum = new BinaryOperator(Opcode::Add, sumInitMod, mul_mod, "final_sum");
+        auto *finalSumMod = new BinaryOperator(Opcode::SRem, finalSum, remconst, "final_sum_mod");
+        auto *selSum = new SelectInst(cond, finalSumMod, sumInit, "modulo_sum");
+        auto *selI = new SelectInst(cond, maxindex, iInit, "modulo_i");
 
-        // 跳转到merge块
-        thenBB->addInstruction(std::make_unique<BranchInst>(exitBlock));
-        elseBB->addInstruction(std::make_unique<BranchInst>(exitBlock));
+        // 删除 pre -> header，改为在 pre 末尾插入公式后直跳 exit
+        {
+            auto &preInsts = preBlock->getInstructions();
+            entryBr->removeThisFromOperands();
+            needToDelete.push_back(entryBr);
+            preInsts.erase(std::remove_if(preInsts.begin(), preInsts.end(),
+                                          [entryBr](const std::unique_ptr<Instruction> &inst)
+                                          { return inst.get() == entryBr; }),
+                           preInsts.end());
+            preBlock->removeSuccessor(headBlock);
+            headBlock->removePredecessor(preBlock);
+        }
 
-        exitBlock->addInstruction(std::unique_ptr<Instruction>(if_sumPhi));
-        exitBlock->addInstruction(std::unique_ptr<Instruction>(i_Phi));
-        // if.cond块添加跳转
         preBlock->addInstruction(std::unique_ptr<Instruction>(cond));
-        preBlock->addInstruction(std::make_unique<BranchInst>(cond, thenBB, elseBB));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(sumInitMod));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(max_minus_i));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(span_ceil));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(trip_ceil));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(trip_mod));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(x_mod));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(mul));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(mul_mod));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(finalSum));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(finalSumMod));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(selSum));
+        preBlock->addInstruction(std::unique_ptr<Instruction>(selI));
+        preBlock->addInstruction(std::make_unique<BranchInst>(exitBlock));
+        preBlock->addSuccessor(exitBlock);
+        exitBlock->addPredecessor(preBlock);
 
-        preBlock->addSuccessor(thenBB);
-        preBlock->addSuccessor(elseBB);
-        thenBB->addPredecessor(preBlock);
-        elseBB->addPredecessor(preBlock);
-        thenBB->addSuccessor(exitBlock);
-        elseBB->addSuccessor(exitBlock);
-        exitBlock->addPredecessor(thenBB);
-        exitBlock->addPredecessor(elseBB);
+        // exit 中来自 header 的边改为来自 preBlock，累加器/IV 换成闭式结果
+        {
+            auto &exitInsts = exitBlock->getInstructions();
+            for (size_t pi = 0; pi < exitInsts.size(); ++pi)
+            {
+                auto *phi = dynamic_cast<PhiInst *>(exitInsts[pi].get());
+                if (!phi)
+                    continue;
+                for (unsigned ii = 0; ii < phi->getNumIncomingValues(); ++ii)
+                {
+                    if (phi->getIncomingBlock(ii) != headBlock)
+                        continue;
+                    Value *val = phi->getIncomingValue(ii);
+                    if (val == sumPhi)
+                        val = selSum;
+                    else if (val == iPhi)
+                        val = selI;
+                    phi->setIncomingValue(ii, val);
+                    phi->replaceIncomingBasicBlock(headBlock, preBlock);
+                }
+            }
+        }
 
-        sumPhi->replaceAllUsesWith(if_sumPhi);
-        iPhi->replaceAllUsesWith(i_Phi);
-        // 删除原循环体
+        sumPhi->replaceAllUsesWith(selSum);
+        iPhi->replaceAllUsesWith(selI);
+
         for (auto *bb : loop.blocks)
             bb->removeSelfBasicBlock();
 
-        func->addBasicBlock(std::unique_ptr<BasicBlock>(thenBB));
-        func->addBasicBlock(std::unique_ptr<BasicBlock>(elseBB));
-        // 删除原来preBlock的跳转
-        auto &preInsts = preBlock->getInstructions();
-        // 先收集，统一删除
-        std::vector<Instruction *> branchToDelete;
-        for (auto it = preInsts.begin(); it != preInsts.end();)
-        {
-            if (auto *br = dynamic_cast<BranchInst *>(it->get()))
-            {
-                // 如果是无条件跳转，删除
-                if (!br->isConditional() && br->getTrueBlock() == headBlock)
-                {
-                    branchToDelete.push_back(br);
-                }
-            }
-            ++it;
-        }
-        for (auto *br : branchToDelete)
-        {
-            br->removeThisFromOperands();
-            needToDelete.push_back(br);
-            preInsts.erase(std::remove_if(preInsts.begin(), preInsts.end(),
-                                          [br](const std::unique_ptr<Instruction> &inst)
-                                          { return inst.get() == br; }),
-                           preInsts.end());
-        }
-        // 修正exit的phi输入
-        auto &exitInsts = exitBlock->getInstructions();
-        for (auto it = exitInsts.begin(); it != exitInsts.end();)
-        {
-            if (auto *phi = dynamic_cast<PhiInst *>(it->get()))
-            {
-                // 这里需要先获取incomingBlocks再用于find比较，否则获得的是拷贝
-                auto incomingBlocks = phi->getIncomingBlocks();
-                // 如果有来自header输入的phi
-                if (find(incomingBlocks.begin(), incomingBlocks.end(), headBlock) != incomingBlocks.end())
-                {
-                    phi->replaceIncomingBasicBlock(headBlock, preBlock); // 替换为preBlock
-                    continue;
-                }
-            }
-            ++it;
-        }
         changed = true;
         if (verbose)
-            debugInfo << "LoopModuloReductionPass: Reduced loop at header " << headBlock->getName() << " to modulo formula.\n";
-        break; // 只处理一个
+            debugInfo << "LoopModuloReductionPass: Reduced loop at header " << headBlock->getName()
+                      << " to modulo formula (pre->exit).\n";
+        break; // 只处理一个；PassManager 可再次调度
     }
     return changed;
 }
@@ -1909,18 +1940,18 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
     bool changed = false;
     int fullUnrollLayersDone = 0;
     bool fullUnrolledThisRound;
+    int fullUnrollRounds = 0;
+    static constexpr int kMaxFullUnrollRounds = 32;
     do
     {
         fullUnrolledThisRound = false;
         func->setLoops(ControlFlowAnalysis::findLoops(func));
         auto loops = func->getLoops();
         sortLoopsInnermostFirst(loops);
+        // layersDone 跨轮累积，达到 kMaxConstantFullUnrollNestLayers 后停止 Full。
+        // 不再在 depth==0 时清零（innermost-first 下会在同轮末尾误清零）。
         for (const auto &loop : loops)
         {
-            // 每遇到一个新的最外层循环子树，重新计数已完全展开的嵌套层数
-            if (loopNestingDepth(loop, loops) == 0)
-                fullUnrollLayersDone = 0;
-
             switch (tryUnrollOneLoop(func, loop, loops, fullUnrollLayersDone, verbose, debugInfo))
             {
             case UnrollResult::Full:
@@ -1936,6 +1967,8 @@ bool LoopUnrollingPass::runOnFunction(Function *func)
             if (fullUnrolledThisRound)
                 break;
         }
+        if (fullUnrolledThisRound && ++fullUnrollRounds >= kMaxFullUnrollRounds)
+            break;
     } while (fullUnrolledThisRound);
     return changed;
 }

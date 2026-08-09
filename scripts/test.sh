@@ -112,6 +112,8 @@ outputs_match() {
     act_t=$(mktemp)
     extract_int_tokens "$exp_file" > "$exp_t"
     extract_int_tokens "$act_file" > "$act_t"
+    # Force string compares: bare == coerces huge digit strings to doubles
+    # and falsely equates e.g. ...630 with ...6300 (67_reverse_output).
     awk -v exp_t="$exp_t" -v act_t="$act_t" '
     BEGIN {
         while ((getline e < exp_t) > 0) E[++ne] = e
@@ -120,13 +122,13 @@ outputs_match() {
         close(act_t)
         i = 1; j = 1
         while (i <= ne && j <= na) {
-            if (A[j] == E[i]) { i++; j++; continue }
+            if (A[j] "" == E[i] "") { i++; j++; continue }
             acc = A[j]; j++
-            while (j <= na && acc != E[i] && length(acc) < length(E[i]) + 2) {
+            while (j <= na && acc "" != E[i] "" && length(acc) < length(E[i]) + 2) {
                 if (A[j] ~ /^-/) break
                 acc = acc A[j]; j++
             }
-            if (acc != E[i]) exit 1
+            if (acc "" != E[i] "") exit 1
             i++
         }
         exit (i == ne + 1 && j == na + 1) ? 0 : 1
@@ -172,17 +174,19 @@ test_programs() {
         start=$(date +%s%3N)
         # Ensure a newline before appending exit code: putint does not emit '\n',
         # so bare `echo $? >>` would glue digits onto the answer (e.g. 39219810).
-        if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; echo >> $TMP_OUTPUT; echo \$? >> $TMP_OUTPUT"; then
+        # Capture exit code before `echo >>`, otherwise $? becomes 0.
+        if timeout ${TIMEOUT_SECONDS} bash -c "$exe $input_redir > $TMP_OUTPUT 2>&1; rc=\$?; echo >> $TMP_OUTPUT; echo \$rc >> $TMP_OUTPUT"; then
             end=$(date +%s%3N)
             cost_ms=$((end - start))
             last_ms=$(get_last_time "$filename")
             save_time "$filename" "$cost_ms"
 
             # 精准过滤时间格式：Timer@0065-0084: 0H-0M-0S-60306us
+            # TOTAL may be glued mid-line after putint (no trailing '\n'), e.g. "31TOTAL: ..."
             sed -E '
             s/^[[:space:]]*$/MARKER_EMPTY/;
             s/Timer@[0-9]+-[0-9]+: [0-9]+H-[0-9]+M-[0-9]+S-[0-9]+us//g;
-            s/^TOTAL:.*//g;
+            s/TOTAL:[[:space:]]*[0-9]+H-[0-9]+M-[0-9]+S-[0-9]+us//g;
             /^[[:space:]]*$/d;
             s/MARKER_EMPTY//g;
             ' "$TMP_OUTPUT" > "$TMP_FILTERED"

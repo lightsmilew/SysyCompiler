@@ -89,9 +89,39 @@ namespace
         return true;
     }
 
-    // 断开并移除给定基本块（从函数块列表删除）
-    static void removeLoopBlocks(Function *func, const vector<BasicBlock *> &blocks)
+    // 断开并移除给定基本块（从函数块列表删除）。
+    // 返回 false 表示存在块外存活指令引用了待删块中的指令（变换不完整，
+    // 若强行删除会产生悬垂指针，如 while 多轮向量化中 entry 的 rvv GEP
+    // 引用外层循环 phi）。调用方应放弃本次变换。
+    static bool removeLoopBlocks(Function *func, const vector<BasicBlock *> &blocks)
     {
+        // 收集待删块内所有指令
+        std::set<Instruction *> doomed;
+        for (auto *bb : blocks)
+        {
+            if (!bb)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+                doomed.insert(instPtr.get());
+        }
+        // 检查块外存活指令是否引用待删指令（phi 的 incoming 块引用除外）
+        for (auto &bbPtr : func->getBasicBlocks())
+        {
+            BasicBlock *bb = bbPtr.get();
+            if (find(blocks.begin(), blocks.end(), bb) != blocks.end())
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                Instruction *inst = instPtr.get();
+                for (unsigned i = 0; i < inst->getNumOperands(); ++i)
+                {
+                    Value *op = inst->getOperandByIndex(i);
+                    if (auto *opInst = dynamic_cast<Instruction *>(op))
+                        if (doomed.count(opInst))
+                            return false;
+                }
+            }
+        }
         for (auto *bb : blocks)
         {
             if (!bb)
@@ -111,6 +141,7 @@ namespace
                                 return find(blocks.begin(), blocks.end(), p.get()) != blocks.end();
                             }),
                   bbs.end());
+        return true;
     }
 
     static int freshId = 0;
@@ -435,13 +466,25 @@ static void buildVectorLoop(
     static bool parseLinearIdx(Value *idx, Value *jIV, const Loop &loop,
                                Value *&invOut, Value *&strideOut,
                                std::set<Instruction *> *covered = nullptr,
-                               BasicBlock *entry = nullptr)
+                               BasicBlock *entry = nullptr,
+                               Value *jInit = nullptr)
     {
         invOut = nullptr;
         strideOut = nullptr;
         idx = stripCopy(idx);
         if (matchesLoopIV(idx, jIV))
+        {
+            // IV 初值非零（如 j 从 mid 开始、l 从参数开始）：偏移必须包含初值，
+            // 否则向量地址起点会指向数组头部，错误写越界。
+            if (jInit)
+            {
+                Value *j = stripCopy(jInit);
+                auto *c = dynamic_cast<ConstantInt *>(j);
+                if (!c || c->Value != 0)
+                    invOut = jInit;
+            }
             return true;
+        }
         // 纯仿射 phi
         {
             Value *init, *step;
@@ -513,7 +556,8 @@ static void buildVectorLoop(
                              std::set<Instruction *> &covered,
                              Value *&base, std::vector<Value *> &rowIdxs,
                              Value *&offset, Value *&stride,
-                             BasicBlock *entry)
+                             BasicBlock *entry,
+                             Value *jInit = nullptr)
     {
         base = nullptr;
         rowIdxs.clear();
@@ -546,7 +590,7 @@ static void buildVectorLoop(
         auto innerIdx = inner->getIndices();
         if (innerIdx.empty())
             return false;
-        if (!parseLinearIdx(innerIdx.back(), jIV, loop, offset, stride, &covered, entry))
+        if (!parseLinearIdx(innerIdx.back(), jIV, loop, offset, stride, &covered, entry, jInit))
         {
             return false;
         }
@@ -616,7 +660,8 @@ static void buildVectorLoop(
     static bool buildElemExpr(Value *val, Value *jIV, const Loop &loop,
                               std::set<Instruction *> &covered,
                               std::unique_ptr<ElemExpr> &out,
-                              BasicBlock *entry)
+                              BasicBlock *entry,
+                              Value *jInit = nullptr)
     {
         Value *raw = stripCopy(val);
         if (auto *c = dynamic_cast<ConstantInt *>(raw))
@@ -643,7 +688,7 @@ static void buildVectorLoop(
         {
             Value *base, *offset, *stride;
             std::vector<Value *> rowIdxs;
-            if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride, entry))
+            if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride, entry, jInit))
                 return false;
             auto e = std::make_unique<ElemExpr>();
             e->kind = ElemKind::LOAD;
@@ -669,9 +714,9 @@ static void buildVectorLoop(
             default: return false;
             }
             std::unique_ptr<ElemExpr> lhs, rhs;
-            if (!buildElemExpr(bin->getLHS(), jIV, loop, covered, lhs, entry))
+            if (!buildElemExpr(bin->getLHS(), jIV, loop, covered, lhs, entry, jInit))
                 return false;
-            if (!buildElemExpr(bin->getRHS(), jIV, loop, covered, rhs, entry))
+            if (!buildElemExpr(bin->getRHS(), jIV, loop, covered, rhs, entry, jInit))
                 return false;
             auto e = std::make_unique<ElemExpr>();
             e->kind = k;
@@ -756,6 +801,20 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             return false;
         }
 
+        // jIV 在 entry 边的初值（非零初值时向量指针起点与 trip count 都要包含它）
+        Value *jInit = nullptr;
+        if (auto *jPhi = dynamic_cast<PhiInst *>(stripCopy(jIV)))
+        {
+            for (unsigned i = 0; i < jPhi->getNumIncomingValues(); ++i)
+            {
+                if (jPhi->getIncomingBlock(i) == entry)
+                {
+                    jInit = stripCopy(jPhi->getIncomingValue(i));
+                    break;
+                }
+            }
+        }
+
         std::set<Instruction *> covered;
         std::vector<Instruction *> computeInsts;
         for (auto &instPtr : jBody->getInstructions())
@@ -774,6 +833,7 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
         out.jBody = jBody;
         out.jExit = jExit;
         out.jIV = jIV;
+        out.jInit = jInit;
         out.bound = bound;
 
         int storeCount = 0;
@@ -785,7 +845,7 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             storeCount++;
             Value *base, *offset, *stride;
             std::vector<Value *> rowIdxs;
-            if (!parseVecAddr(st->getPointer(), jIV, jLoop, covered, base, rowIdxs, offset, stride, entry))
+            if (!parseVecAddr(st->getPointer(), jIV, jLoop, covered, base, rowIdxs, offset, stride, entry, jInit))
             {
                 return false;
             }
@@ -794,7 +854,7 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             es.rowIdxs = rowIdxs;
             es.offset = offset;
             es.stride = stride;
-            if (!buildElemExpr(st->getValueToStore(), jIV, jLoop, covered, es.expr, entry))
+            if (!buildElemExpr(st->getValueToStore(), jIV, jLoop, covered, es.expr, entry, jInit))
             {
                 return false;
             }
@@ -828,10 +888,66 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
         Value *jIV = pat.jIV;
         Value *bound = pat.bound;
 
+        // 安全护栏：若 jHeader/jBody 内的指令被「本次变换之外的存活块」引用
+        // （例如多轮迭代中，内层向量化生成的 entry GEP 引用外层循环的值，
+        //  随后外层循环又被向量化），删除旧循环会产生悬垂引用。
+        // 这种情况下放弃本次向量化。
+        {
+            std::set<Instruction *> doomed;
+            auto collect = [&](BasicBlock *bb)
+            {
+                if (!bb)
+                    return;
+                for (auto &ip : bb->getInstructions())
+                    doomed.insert(ip.get());
+            };
+            collect(jHeader);
+            collect(jBody);
+            for (auto &bbPtr : func->getBasicBlocks())
+            {
+                BasicBlock *bb = bbPtr.get();
+                if (bb == jHeader || bb == jBody)
+                    continue;
+                for (auto &ip : bb->getInstructions())
+                {
+                    Instruction *inst = ip.get();
+                    // phi 的 incoming 值引用旧循环指令是合法场景：
+                    // buildVectorLoop 会把 exitBlock 的 phi incoming 重连到新循环。
+                    if (dynamic_cast<PhiInst *>(inst))
+                        continue;
+                    for (unsigned i = 0; i < inst->getNumOperands(); ++i)
+                    {
+                        Value *op = inst->getOperandByIndex(i);
+                        if (auto *opInst = dynamic_cast<Instruction *>(op))
+                            if (doomed.count(opInst))
+                                return false;
+                    }
+                }
+            }
+        }
+
         // 循环内定义的“循环不变”纯计算标量链（如行偏移 r*N_eff 被其他 pass
         // 放入循环 header）需克隆到 entry：旧循环块随后会被删除，新向量指令
         // 不能引用其中的指令，否则 removeThisFromOperands 会清掉其操作数。
         std::map<Value *, Value *> hoistedScalars;
+        // 判断 inst 是否物理位于将被删除的旧循环块（jHeader/jBody）内。
+        // 不能用 containsByName：无名字指令（空 name）匹配会失效，
+        // 导致克隆跳过、引用随旧循环删除而悬垂。
+        auto inOldLoop = [&](Instruction *inst) -> bool
+        {
+            auto inBlock = [&](BasicBlock *bb)
+            {
+                if (!bb)
+                    return false;
+                for (auto &ip : bb->getInstructions())
+                {
+                    if (ip.get() == inst)
+                        return true;
+                }
+                return false;
+            };
+            return inBlock(jHeader) || inBlock(jBody);
+        };
         std::function<Value *(Value *)> hoistScalar = [&](Value *v) -> Value *
         {
             if (!v || dynamic_cast<Constant *>(v))
@@ -839,9 +955,10 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             auto *inst = dynamic_cast<Instruction *>(v);
             if (!inst)
                 return v;
-            if (!jHeader->containsByName(inst->getName()) &&
-                !jBody->containsByName(inst->getName()))
+            if (!inOldLoop(inst))
+            {
                 return v;
+            }
             auto it = hoistedScalars.find(inst);
             if (it != hoistedScalars.end())
                 return it->second;
@@ -862,11 +979,20 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
         auto ensurePtr = [&](Value *base, const std::vector<Value *> &rowIdxs, Value *off,
                              Value *stride) -> size_t
         {
-            string key = base->getName();
+            // key 必须能区分常量索引（0 vs 1）：常量无名字，getName() 均为空，
+            // 直接用 name 会导致不同行索引（如 buf[0][j] 与 buf[1][j]）被错误去重。
+            auto valKey = [&](Value *v) -> string
+            {
+                v = stripCopy(v);
+                if (auto *c = dynamic_cast<ConstantInt *>(v))
+                    return "c" + to_string(c->Value);
+                return v ? v->getName() : "0";
+            };
+            string key = valKey(base);
             for (auto *r : rowIdxs)
-                key += "@" + r->getName();
-            key += "#" + (off ? off->getName() : "0");
-            key += "|" + (stride ? stride->getName() : "1");
+                key += "@" + valKey(r);
+            key += "#" + valKey(off);
+            key += "|" + valKey(stride);
             auto it = addrIndex.find(key);
             if (it != addrIndex.end())
                 return it->second;
@@ -958,8 +1084,25 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
         for (size_t i = 0; i < ptrs.size(); ++i)
             ptrNames.push_back("rowPtr" + to_string(i));
 
+        // trip count = bound - jInit。bound 可能位于将被删除的旧循环 header 内
+        // （如 arrCopy 的 bound = load @n 由 LICM/内联放进 header），必须先提升到 entry，
+        // 否则 removeLoopBlocks 因外部引用放弃删除、或删除后 countPhi 悬垂。
+        Value *boundSafe = hoistScalar(bound);
+        Value *count0 = boundSafe;
+        if (pat.jInit)
+        {
+            Value *j = stripCopy(pat.jInit);
+            auto *jc = dynamic_cast<ConstantInt *>(j);
+            if (!jc || jc->Value != 0)
+            {
+                count0 = new BinaryOperator(Opcode::Sub, boundSafe, hoistScalar(pat.jInit),
+                                            freshName("count0"));
+                prependBeforeTerminator(entry, static_cast<Instruction *>(count0));
+            }
+        }
+
         buildVectorLoop(
-            func, entry, jHeader, jExit, bound, jIV, bound, ptrs, ptrNames,
+            func, entry, jHeader, jExit, count0, jIV, boundSafe, ptrs, ptrNames,
             freshName("vbody"), freshName("vexit"),
             [&](BasicBlock *body, Value *vl, const vector<Value *> &ptrs)
             {
@@ -1203,8 +1346,10 @@ bool LoopVectorizePass::isFullyUnrollableLoop(const Loop &loop, Value *jIV, Valu
     if (stepConst <= 0)
         return false;
 
-    // LoopUnroll 完全展开仅对 SLT/SLE 且 tripCount 为小常量（<=20）生效
-    int tripCount = (boundConst->Value - initConst->Value) / stepConst;
+    // 与 LoopUnroll 一致：SLT 用 ceil((bound-init)/step)
+    if (stepConst <= 0 || boundConst->Value <= initConst->Value)
+        return false;
+    int tripCount = (boundConst->Value - initConst->Value + stepConst - 1) / stepConst;
     return tripCount > 0 && tripCount <= kFullUnrollMaxTripCount;
 }
 
