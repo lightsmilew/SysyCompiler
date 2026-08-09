@@ -970,16 +970,28 @@ public:
     string toString() const override;
 };
 
-// %s = vecreduceadd <N x i32> %v, i32 %vl —— 对前 vl 个 lane 求和（对应 vredsum.vs + vmv.x.s）
+// %s = vecreduceadd <N x T> %v, i32 %vl —— 对前 vl 个 lane 求和
+// T=i32 → vredsum.vs + vmv.x.s；T=float → vfredosum.vs + vfmv.f.s
 class VecReduceAddInst : public Instruction
 {
 public:
     VecReduceAddInst(Value *vec, Value *vl, const string &name = "")
-        : Instruction(IntegerType::getInstance(), Opcode::VecReduceAdd,
+        : Instruction(reduceResultType(vec), Opcode::VecReduceAdd,
                       vector<Value *>{vec, vl}, name) {}
     Value *getVector() const { return getOperandByIndex(0); }
     Value *getVl() const { return getOperandByIndex(1); }
     string toString() const override;
+
+private:
+    static Type *reduceResultType(Value *vec)
+    {
+        if (auto *vt = dynamic_cast<VectorType *>(vec ? vec->getType() : nullptr))
+        {
+            if (vt->getElementType() && vt->getElementType()->isFloatTy())
+                return FloatType::getInstance();
+        }
+        return IntegerType::getInstance();
+    }
 };
 
 // ===== Basic Block =====

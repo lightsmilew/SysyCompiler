@@ -164,7 +164,16 @@ namespace RISCV
         VID_V,   // vid.v vd（0..vl-1 索引）
         VREDSUM_VS, // vredsum.vs vd, vs2, vs1（归约到 lane0）
         VMV_V_X, // vmv.v.x vd, rs1（标量广播）
-        VMV_X_S  // vmv.x.s rd, vs2（取 lane 0）
+        VMV_X_S, // vmv.x.s rd, vs2（取 lane 0）
+        // RVV 浮点（SEW=32）
+        VFADD_VV,      // vfadd.vv
+        VFSUB_VV,      // vfsub.vv
+        VFMUL_VV,      // vfmul.vv
+        VFDIV_VV,      // vfdiv.vv
+        VFREDUSUM_VS,  // vfredusum.vs（无序归约，更快）
+        VFREDOSUM_VS,  // vfredosum.vs（有序归约，贴近标量累加）
+        VFMV_V_F,      // vfmv.v.f vd, rs1（FPR 广播）
+        VFMV_F_S       // vfmv.f.s rd, vs2（lane0 → FPR）
     };
 
     // 寄存器类型枚举
@@ -438,8 +447,12 @@ namespace RISCV
                                                                       shared_ptr<RISCVRegister> stride);
         static shared_ptr<RISCVInstruction> createVectorSplat(shared_ptr<RISCVRegister> vd,
                                                               shared_ptr<RISCVRegister> rs1);
+        static shared_ptr<RISCVInstruction> createVectorFloatSplat(shared_ptr<RISCVRegister> vd,
+                                                                   shared_ptr<RISCVRegister> fs1);
         static shared_ptr<RISCVInstruction> createVectorExtract(shared_ptr<RISCVRegister> rd,
                                                                 shared_ptr<RISCVRegister> vs2);
+        static shared_ptr<RISCVInstruction> createVectorFloatExtract(shared_ptr<RISCVRegister> fd,
+                                                                     shared_ptr<RISCVRegister> vs2);
         static shared_ptr<RISCVInstruction> createVectorBinary(RISCVOpcode op,
                                                                shared_ptr<RISCVRegister> vd,
                                                                shared_ptr<RISCVRegister> vs2,

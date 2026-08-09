@@ -11,12 +11,14 @@
 namespace optimization
 {
     // ===== 通用逐元素表达式循环的模式结构 =====
-    enum class ElemKind { CONST, INVARIANT, LOAD, ADD, SUB, MUL, SLL, SRL, SRA };
+    enum class ElemKind { CONST, INVARIANT, LOAD, ADD, SUB, MUL, DIV, REM, SLL, SRL, SRA };
 
     struct ElemExpr
     {
         ElemKind kind = ElemKind::CONST;
-        int64_t cval = 0;             // CONST
+        int64_t cval = 0;             // CONST（整数）
+        float fval = 0.0f;            // CONST（浮点）
+        bool isFloatConst = false;    // CONST 是否为 float
         Value *scalar = nullptr;      // INVARIANT：循环不变标量
         Value *base = nullptr;        // LOAD：数组基址
         std::vector<Value *> rowIdxs; // LOAD：行索引列表（1D 为空）
@@ -44,7 +46,29 @@ namespace optimization
         Value *jIV = nullptr;
         Value *jInit = nullptr; // jIV 在 entry 边的初值（可能为 nullptr/常量 0，表示从 0 开始）
         Value *bound = nullptr;
+        Type *elemTy = nullptr; // IntegerType 或 FloatType
         std::vector<ElemStore> stores;
+    };
+
+    // ===== 数组归约：sum += A[j] 或 sum += A[j]*A[j] =====
+    struct ArrayReducePattern
+    {
+        BasicBlock *entry = nullptr;
+        BasicBlock *header = nullptr;
+        BasicBlock *body = nullptr;
+        BasicBlock *exitBlock = nullptr;
+        Loop loop;
+        Value *jIV = nullptr;
+        Value *jInit = nullptr;
+        Value *bound = nullptr;
+        Value *sum = nullptr;     // 循环内 sum phi（或等价 copy）
+        Value *sumInit = nullptr;
+        Type *elemTy = nullptr;
+        bool square = false; // true: sum += load*load；false: sum += load
+        Value *base = nullptr;
+        std::vector<Value *> rowIdxs;
+        Value *offset = nullptr;
+        Value *stride = nullptr;
     };
 
     // ===== 纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约，无数组访存）的模式结构 =====
@@ -87,6 +111,10 @@ namespace optimization
         // 通用逐元素表达式循环（含零填充、常量/循环不变填充、逐元素表达式、拷贝）
         bool findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &pat);
         bool vectorizeElementwiseLoop(Function *func, const ElemLoopPattern &pat);
+
+        // 数组归约循环（sum += A[j] / sum += A[j]*A[j]）
+        bool findArrayReduceLoop(const Loop &loop, ArrayReducePattern &pat);
+        bool vectorizeArrayReduceLoop(Function *func, const ArrayReducePattern &pat);
 
         // 纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约）
         bool findScalarChainLoop(const Loop &loop, ScalarChainPattern &pat);

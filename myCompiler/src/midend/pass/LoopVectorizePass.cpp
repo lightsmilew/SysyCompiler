@@ -20,6 +20,20 @@ namespace
         return new ConstantInt(IntegerType::getInstance(), v);
     }
 
+    static ConstantFloat *cf(float v)
+    {
+        return new ConstantFloat(FloatType::getInstance(), v);
+    }
+
+    static Type *elemTypeOf(Value *v)
+    {
+        if (!v || !v->getType())
+            return IntegerType::getInstance();
+        if (v->getType()->isFloatTy())
+            return FloatType::getInstance();
+        return IntegerType::getInstance();
+    }
+
     static unique_ptr<Instruction> own(Instruction *inst)
     {
         return unique_ptr<Instruction>(inst);
@@ -292,6 +306,10 @@ static void buildVectorLoop(
         case Opcode::Mul:
         case Opcode::SDiv:
         case Opcode::SRem:
+        case Opcode::FAdd:
+        case Opcode::FSub:
+        case Opcode::FMul:
+        case Opcode::FDiv:
         case Opcode::Sll:
         case Opcode::Sra:
         case Opcode::And:
@@ -672,6 +690,79 @@ static void buildVectorLoop(
             out = std::move(e);
             return true;
         }
+        if (auto *c = dynamic_cast<ConstantFloat *>(raw))
+        {
+            auto e = std::make_unique<ElemExpr>();
+            e->kind = ElemKind::CONST;
+            e->isFloatConst = true;
+            e->fval = c->Value;
+            out = std::move(e);
+            return true;
+        }
+        // sitofp i32 C → float 常量（h-10 中 `+ 1` 常见形态）
+        if (auto *cast = dynamic_cast<CastInst *>(raw))
+        {
+            if (cast->getOpcode() == Opcode::SIToFP)
+            {
+                if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(cast->getOperand())))
+                {
+                    auto e = std::make_unique<ElemExpr>();
+                    e->kind = ElemKind::CONST;
+                    e->isFloatConst = true;
+                    e->fval = static_cast<float>(c->Value);
+                    e->ir = cast;
+                    covered.insert(cast);
+                    out = std::move(e);
+                    return true;
+                }
+            }
+        }
+        auto *inst = dynamic_cast<Instruction *>(raw);
+        if (!inst)
+        {
+            if (isLoopInvariantVal(val, loop))
+            {
+                auto e = std::make_unique<ElemExpr>();
+                e->kind = ElemKind::INVARIANT;
+                e->scalar = val;
+                out = std::move(e);
+                return true;
+            }
+            return false;
+        }
+        if (auto *ld = dynamic_cast<LoadInst *>(inst))
+        {
+            Value *base, *offset, *stride;
+            std::vector<Value *> rowIdxs;
+            // 沿 j 的向量 load
+            if (parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride,
+                             entry, jInit))
+            {
+                auto e = std::make_unique<ElemExpr>();
+                e->kind = ElemKind::LOAD;
+                e->base = base;
+                e->rowIdxs = rowIdxs;
+                e->offset = offset;
+                e->stride = stride;
+                e->ir = ld;
+                covered.insert(ld);
+                out = std::move(e);
+                return true;
+            }
+            // 地址相对 j 循环不变的标量 load（如 A[i][i]）→ 提升后 splat
+            if (isLoopInvariantVal(ld->getPointer(), loop))
+            {
+                auto e = std::make_unique<ElemExpr>();
+                e->kind = ElemKind::INVARIANT;
+                e->scalar = ld;
+                e->ir = ld;
+                covered.insert(ld);
+                recordInvariantChain(ld->getPointer(), loop, covered);
+                out = std::move(e);
+                return true;
+            }
+            return false;
+        }
         if (isLoopInvariantVal(val, loop))
         {
             auto e = std::make_unique<ElemExpr>();
@@ -681,34 +772,20 @@ static void buildVectorLoop(
             recordInvariantChain(val, loop, covered);
             return true;
         }
-        auto *inst = dynamic_cast<Instruction *>(raw);
-        if (!inst)
-            return false;
-        if (auto *ld = dynamic_cast<LoadInst *>(inst))
-        {
-            Value *base, *offset, *stride;
-            std::vector<Value *> rowIdxs;
-            if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride, entry, jInit))
-                return false;
-            auto e = std::make_unique<ElemExpr>();
-            e->kind = ElemKind::LOAD;
-            e->base = base;
-            e->rowIdxs = rowIdxs;
-            e->offset = offset;
-            e->stride = stride;
-            e->ir = ld;
-            covered.insert(ld);
-            out = std::move(e);
-            return true;
-        }
         if (auto *bin = dynamic_cast<BinaryOperator *>(inst))
         {
             ElemKind k;
             switch (bin->getOpcode())
             {
-            case Opcode::Add: k = ElemKind::ADD; break;
-            case Opcode::Sub: k = ElemKind::SUB; break;
-            case Opcode::Mul: k = ElemKind::MUL; break;
+            case Opcode::Add:
+            case Opcode::FAdd: k = ElemKind::ADD; break;
+            case Opcode::Sub:
+            case Opcode::FSub: k = ElemKind::SUB; break;
+            case Opcode::Mul:
+            case Opcode::FMul: k = ElemKind::MUL; break;
+            case Opcode::SDiv:
+            case Opcode::FDiv: k = ElemKind::DIV; break;
+            case Opcode::SRem: k = ElemKind::REM; break;
             case Opcode::Sll: k = ElemKind::SLL; break;
             case Opcode::Sra: k = ElemKind::SRA; break;
             default: return false;
@@ -858,12 +935,19 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             {
                 return false;
             }
+            Type *stTy = elemTypeOf(st->getValueToStore());
+            if (!out.elemTy)
+                out.elemTy = stTy;
+            else if (out.elemTy != stTy)
+                return false;
             out.stores.push_back(std::move(es));
         }
         if (storeCount == 0)
         {
             return false;
         }
+        if (!out.elemTy)
+            out.elemTy = IntegerType::getInstance();
 
         // 覆盖检查：body 内所有非控制指令必须被某个 store 表达式访问
         for (auto *inst : computeInsts)
@@ -986,6 +1070,8 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                 v = stripCopy(v);
                 if (auto *c = dynamic_cast<ConstantInt *>(v))
                     return "c" + to_string(c->Value);
+                if (auto *c = dynamic_cast<ConstantFloat *>(v))
+                    return "f" + to_string(c->Value);
                 return v ? v->getName() : "0";
             };
             string key = valKey(base);
@@ -1047,6 +1133,8 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                 auto e = std::make_unique<ElemExpr>();
                 e->kind = src.kind;
                 e->cval = src.cval;
+                e->fval = src.fval;
+                e->isFloatConst = src.isFloatConst;
                 e->scalar = src.scalar;
                 e->base = src.base;
                 e->rowIdxs = src.rowIdxs;
@@ -1106,6 +1194,7 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
             freshName("vbody"), freshName("vexit"),
             [&](BasicBlock *body, Value *vl, const vector<Value *> &ptrs)
             {
+                Type *elemTy = pat.elemTy ? pat.elemTy : IntegerType::getInstance();
                 std::map<const ElemExpr *, Value *> cache;
                 std::function<Value *(const ElemExpr &)> translate;
                 translate = [&](const ElemExpr &e) -> Value *
@@ -1117,22 +1206,28 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                     switch (e.kind)
                     {
                     case ElemKind::CONST:
-                        res = new VecSplatInst(ci(e.cval), vl, IntegerType::getInstance(), 16,
-                                               freshName("v"));
+                        if (e.isFloatConst || elemTy->isFloatTy())
+                            res = new VecSplatInst(cf(e.isFloatConst ? e.fval
+                                                                     : static_cast<float>(e.cval)),
+                                                   vl, FloatType::getInstance(), 16,
+                                                   freshName("v"));
+                        else
+                            res = new VecSplatInst(ci(static_cast<int>(e.cval)), vl,
+                                                   IntegerType::getInstance(), 16,
+                                                   freshName("v"));
                         break;
                     case ElemKind::INVARIANT:
-                        res = new VecSplatInst(hoistScalar(e.scalar), vl, IntegerType::getInstance(),
+                        res = new VecSplatInst(hoistScalar(e.scalar), vl, elemTypeOf(e.scalar),
                                                16, freshName("v"));
                         break;
                     case ElemKind::LOAD:
                         if (e.stride)
                             res = new VecStridedLoadInst(
                                 ptrs[loadPtrIdx[&e]], byteStrideOf(e.stride), vl,
-                                IntegerType::getInstance(), 16, freshName("v"));
+                                elemTy, 16, freshName("v"));
                         else
                             res = new VecLoadInst(ptrs[loadPtrIdx[&e]], vl,
-                                                  IntegerType::getInstance(), 16,
-                                                  freshName("v"));
+                                                  elemTy, 16, freshName("v"));
                         break;
                     default:
                     {
@@ -1144,6 +1239,8 @@ bool LoopVectorizePass::findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &
                         case ElemKind::ADD: op = Opcode::VecAdd; break;
                         case ElemKind::SUB: op = Opcode::VecSub; break;
                         case ElemKind::MUL: op = Opcode::VecMul; break;
+                        case ElemKind::DIV: op = Opcode::VecDiv; break;
+                        case ElemKind::REM: op = Opcode::VecRem; break;
                         case ElemKind::SLL: op = Opcode::VecSll; break;
                         case ElemKind::SRL: op = Opcode::VecSrl; break;
                         case ElemKind::SRA: op = Opcode::VecSra; break;
@@ -1974,23 +2071,21 @@ bool LoopVectorizePass::vectorizeScalarChainLoop(Function *func, const Loop &loo
         // ---- exit 块：br exitBlock ----
         exit->addInstruction(own(new BranchInst(exitBlock)));
 
-        // ---- CFG 重连 ----
-        retargetEntryEdge(entry, header, body);
-        // entry 原条件分支依赖已删除的循环头 phi。改为 count != 0 才进入向量循环体；
-        // count == 0（无迭代）直接跳 vexit，避免 vl=0 下向量指令（vmv.x.s 读累加器）
-        // 读取未初始化寄存器
-        {
-            auto &entryInsts = entry->getInstructions();
-            if (!entryInsts.empty() && entryInsts.back()->Op == Opcode::Br)
-                entryInsts.back()->removeThisFromOperands();
-            entryInsts.pop_back();
-            auto entryCond = new ICmpInst(ICmpInst::ICMP_NE, n5, ci(0), freshName("encond"));
-            entry->addInstruction(own(entryCond));
-            entry->addInstruction(own(new BranchInst(entryCond, body, exit)));
-        }
+        // ---- CFG 重连：独立 vguard 做 count!=0 判断，保留 entry 其它出边 ----
+        auto guard = new BasicBlock(freshName("vguard"), func);
+        bbs.push_back(unique_ptr<BasicBlock>(guard));
+        auto entryCond = new ICmpInst(ICmpInst::ICMP_NE, n5, ci(0), freshName("encond"));
+        guard->addInstruction(own(entryCond));
+        guard->addInstruction(own(new BranchInst(entryCond, body, exit)));
+        // body/exit 的 phi 原先以 entry 为前驱，改为 guard
+        countPhi->setIncomingBlock(0, guard);
+        xPhi->setIncomingBlock(0, guard);
+        sumPhi->setIncomingBlock(0, guard);
+        retargetEntryEdge(entry, header, guard);
+        wireEdge(guard, body);
+        wireEdge(guard, exit);
         wireEdge(body, body);
         wireEdge(body, exit);
-        wireEdge(entry, exit);
         wireEdge(exit, exitBlock);
 
         // ---- exitBlock 的 phi：旧循环内 incoming 改由 exit 提供 ----
@@ -2008,11 +2103,10 @@ bool LoopVectorizePass::vectorizeScalarChainLoop(Function *func, const Loop &loo
         }
 
         // ---- exitBlock 中对旧 sum 的循环外 use 替换 ----
-        // vexit 是汇合点：count==0 时从 entry 直接到（sum 保持 sumInit），
-        // 否则从 vbody 到（sum 取向量累加器 sumPhi 的最终值）
+        // vexit 汇合：count==0 自 vguard（sumInit）；有趟自 vbody 取 sumN
         auto sumOut = new PhiInst(IntegerType::getInstance(), freshName("sumout"));
-        sumOut->addIncoming(sumInit, entry);
-        sumOut->addIncoming(sumPhi, body);
+        sumOut->addIncoming(sumInit, guard);
+        sumOut->addIncoming(sumN, body);
         prependBeforeTerminator(exit, sumOut);
         for (auto *user : sum->getUsers())
         {
@@ -2100,6 +2194,359 @@ bool LoopVectorizePass::vectorizeScaledRowUpdate(Function *func, const ScaledRow
     return true;
 }
 
+bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern &pat)
+{
+    if (!isSimpleTwoBlockLoop(loop))
+        return false;
+    BasicBlock *header = loop.header;
+    BasicBlock *body = getLoopLatch(loop);
+    BasicBlock *exitBlock = getLoopExit(loop);
+    if (!header || !body || !exitBlock || body == header)
+        return false;
+
+    Value *jIV = nullptr, *bound = nullptr;
+    ICmpInst *cmp = nullptr;
+    if (!getHeaderBoundCmp(header, jIV, bound, cmp))
+        return false;
+    if (isFullyUnrollableLoop(loop, jIV, bound))
+        return false;
+
+    vector<BasicBlock *> entryPreds;
+    for (auto *pred : header->getPredecessors())
+        if (!loop.containsBlock(pred))
+            entryPreds.push_back(pred);
+    if (entryPreds.size() != 1)
+        return false;
+    BasicBlock *entry = entryPreds[0];
+    if (!isValidVectorEntry(entry, header))
+        return false;
+
+    // 禁止 body 内 store（纯归约）
+    for (auto &ip : body->getInstructions())
+        if (dynamic_cast<StoreInst *>(ip.get()))
+            return false;
+
+    // 找到 sum phi：header 中除 jIV 外的另一个整数/浮点 phi
+    PhiInst *sumPhi = nullptr;
+    PhiInst *jPhi = dynamic_cast<PhiInst *>(stripCopy(jIV));
+    for (auto &ip : header->getInstructions())
+    {
+        auto *phi = dynamic_cast<PhiInst *>(ip.get());
+        if (!phi || phi == jPhi)
+            continue;
+        Type *ty = phi->getType();
+        if (!ty || (!ty->isIntegerTy() && !ty->isFloatTy()))
+            continue;
+        if (sumPhi)
+            return false; // 多于一个候选
+        sumPhi = phi;
+    }
+    if (!sumPhi)
+        return false;
+    // 浮点归约即使 vfredosum 也会因 strip-mining 分块改变结合律，无法保证与
+    // 标量逐元累加 bit-exact（h-10 对拍要求十六进制浮点一致）。
+    if (sumPhi->getType() && sumPhi->getType()->isFloatTy())
+        return false;
+
+    Value *sumInit = nullptr, *sumNext = nullptr;
+    for (unsigned i = 0; i < sumPhi->getNumIncomingValues(); ++i)
+    {
+        if (sumPhi->getIncomingBlock(i) == entry)
+            sumInit = stripCopy(sumPhi->getIncomingValue(i));
+        else if (loop.containsBlock(sumPhi->getIncomingBlock(i)))
+            sumNext = stripCopy(sumPhi->getIncomingValue(i));
+    }
+    if (!sumInit || !sumNext)
+        return false;
+
+    auto *add = dynamic_cast<BinaryOperator *>(sumNext);
+    if (!add)
+        return false;
+    bool isF = add->getOpcode() == Opcode::FAdd;
+    if (add->getOpcode() != Opcode::Add && !isF)
+        return false;
+
+    Value *addL = stripCopy(add->getLHS());
+    Value *addR = stripCopy(add->getRHS());
+    Value *addend = nullptr;
+    if (addL == sumPhi || sameValue(addL, sumPhi))
+        addend = addR;
+    else if (addR == sumPhi || sameValue(addR, sumPhi))
+        addend = addL;
+    else
+        return false;
+
+    bool square = false;
+    LoadInst *ld = dynamic_cast<LoadInst *>(addend);
+    if (!ld)
+    {
+        auto *mul = dynamic_cast<BinaryOperator *>(addend);
+        if (!mul)
+            return false;
+        if (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul)
+            return false;
+        Value *ml = stripCopy(mul->getLHS());
+        Value *mr = stripCopy(mul->getRHS());
+        if (ml != mr)
+            return false;
+        ld = dynamic_cast<LoadInst *>(ml);
+        if (!ld)
+            return false;
+        square = true;
+    }
+
+    Value *jInit = nullptr;
+    if (jPhi)
+    {
+        for (unsigned i = 0; i < jPhi->getNumIncomingValues(); ++i)
+            if (jPhi->getIncomingBlock(i) == entry)
+                jInit = stripCopy(jPhi->getIncomingValue(i));
+    }
+
+    std::set<Instruction *> covered;
+    covered.insert(add);
+    covered.insert(ld);
+    if (square)
+        if (auto *mul = dynamic_cast<BinaryOperator *>(addend))
+            covered.insert(mul);
+
+    Value *base = nullptr, *offset = nullptr, *stride = nullptr;
+    std::vector<Value *> rowIdxs;
+    if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride,
+                      entry, jInit))
+        return false;
+
+    // 覆盖：body 内非控制指令均须被归约表达式覆盖
+    for (auto &ip : body->getInstructions())
+    {
+        Instruction *inst = ip.get();
+        if (isControlInst(inst, jIV, loop))
+            continue;
+        if (!covered.count(inst))
+            return false;
+    }
+
+    pat.entry = entry;
+    pat.header = header;
+    pat.body = body;
+    pat.exitBlock = exitBlock;
+    pat.loop = loop;
+    pat.jIV = jIV;
+    pat.jInit = jInit;
+    pat.bound = bound;
+    pat.sum = sumPhi;
+    pat.sumInit = sumInit;
+    pat.elemTy = elemTypeOf(sumPhi);
+    pat.square = square;
+    pat.base = base;
+    pat.rowIdxs = rowIdxs;
+    pat.offset = offset;
+    pat.stride = stride;
+    return true;
+}
+
+bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayReducePattern &pat)
+{
+    BasicBlock *entry = pat.entry;
+    BasicBlock *header = pat.header;
+    BasicBlock *bodyOld = pat.body;
+    BasicBlock *exitBlock = pat.exitBlock;
+    Type *elemTy = pat.elemTy ? pat.elemTy : IntegerType::getInstance();
+    bool isFloat = elemTy->isFloatTy();
+
+    std::map<Value *, Value *> hoistedScalars;
+    auto inOldLoop = [&](Instruction *inst) -> bool
+    {
+        for (auto *bb : {header, bodyOld})
+        {
+            if (!bb)
+                continue;
+            for (auto &ip : bb->getInstructions())
+                if (ip.get() == inst)
+                    return true;
+        }
+        return false;
+    };
+    std::function<Value *(Value *)> hoistScalar = [&](Value *v) -> Value *
+    {
+        if (!v || dynamic_cast<Constant *>(v))
+            return v;
+        auto *inst = dynamic_cast<Instruction *>(v);
+        if (!inst)
+            return v;
+        if (!inOldLoop(inst))
+            return v;
+        auto it = hoistedScalars.find(inst);
+        if (it != hoistedScalars.end())
+            return it->second;
+        Instruction *clone = inst->clone();
+        clone->setName(clone->getName() + "_lvh");
+        for (unsigned i = 0; i < clone->getOperands().size(); ++i)
+            clone->setOperandByIndex(i, hoistScalar(inst->getOperandByIndex(i)));
+        prependBeforeTerminator(entry, clone);
+        hoistedScalars[inst] = clone;
+        return clone;
+    };
+
+    Value *boundSafe = hoistScalar(pat.bound);
+    Value *sumInit = hoistScalar(pat.sumInit);
+    Value *count0 = boundSafe;
+    if (pat.jInit)
+    {
+        Value *j = stripCopy(pat.jInit);
+        auto *jc = dynamic_cast<ConstantInt *>(j);
+        if (!jc || jc->Value != 0)
+        {
+            count0 = new BinaryOperator(Opcode::Sub, boundSafe, hoistScalar(pat.jInit),
+                                        freshName("count0"));
+            prependBeforeTerminator(entry, static_cast<Instruction *>(count0));
+        }
+    }
+
+    Value *offVal = pat.offset ? hoistScalar(pat.offset) : ci(0);
+    vector<Value *> idxs;
+    for (auto *r : pat.rowIdxs)
+        idxs.push_back(hoistScalar(r));
+    idxs.push_back(offVal);
+    auto *rowPtr = new GetElementPtrInst(pat.base, idxs, freshName("row"));
+    prependBeforeTerminator(entry, rowPtr);
+
+    Value *strideElem = pat.stride ? hoistScalar(pat.stride) : nullptr;
+    Value *byteStride = nullptr;
+    if (strideElem)
+    {
+        if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(strideElem)))
+            byteStride = ci(c->Value * 4);
+        else
+        {
+            byteStride = new BinaryOperator(Opcode::Sll, strideElem, ci(2), freshName("bs"));
+            prependBeforeTerminator(entry, static_cast<Instruction *>(byteStride));
+        }
+    }
+
+    // 独立 vguard：count==0 时跳过向量体。不可改写 entry 终结符——entry 可能是
+    // LoopInterchange 的 licc_tail_dispatch（条件分支 safe→tail / nofold），
+    // 若直接替换会丢掉 nofold 边导致错误折叠。
+    auto *nz = new ICmpInst(ICmpInst::ICMP_NE, count0, ci(0), freshName("encond"));
+
+    auto &bbs = func->getBasicBlocks();
+    auto guard = new BasicBlock(freshName("vguard"), func);
+    auto body = new BasicBlock(freshName("vbody"), func);
+    auto exit = new BasicBlock(freshName("vexit"), func);
+    bbs.push_back(unique_ptr<BasicBlock>(guard));
+    bbs.push_back(unique_ptr<BasicBlock>(body));
+    bbs.push_back(unique_ptr<BasicBlock>(exit));
+
+    guard->addInstruction(own(nz));
+    guard->addInstruction(own(new BranchInst(nz, body, exit)));
+
+    auto countPhi = new PhiInst(IntegerType::getInstance(), freshName("count"));
+    auto ptrPhi = new PhiInst(rowPtr->getType(), freshName("ptr"));
+    auto sumPhi = new PhiInst(elemTy, freshName("sumacc"));
+    body->addInstruction(own(countPhi));
+    body->addInstruction(own(ptrPhi));
+    body->addInstruction(own(sumPhi));
+    countPhi->addIncoming(count0, guard);
+    ptrPhi->addIncoming(rowPtr, guard);
+    sumPhi->addIncoming(sumInit, guard);
+
+    auto vl = new VecSetVlInst(countPhi, 32, freshName("vl"));
+    body->addInstruction(own(vl));
+
+    Instruction *vload = nullptr;
+    if (byteStride)
+        vload = new VecStridedLoadInst(ptrPhi, byteStride, vl, elemTy, 16, freshName("v"));
+    else
+        vload = new VecLoadInst(ptrPhi, vl, elemTy, 16, freshName("v"));
+    body->addInstruction(own(vload));
+
+    Value *toReduce = vload;
+    if (pat.square)
+    {
+        auto *vm = new VecBinaryInst(Opcode::VecMul, vload, vload, freshName("vsq"));
+        body->addInstruction(own(vm));
+        toReduce = vm;
+    }
+    auto *blockSum = new VecReduceAddInst(toReduce, vl, freshName("bsum"));
+    body->addInstruction(own(blockSum));
+
+    Instruction *sumN = nullptr;
+    if (isFloat)
+        sumN = new BinaryOperator(Opcode::FAdd, sumPhi, blockSum, freshName("snew"));
+    else
+        sumN = new BinaryOperator(Opcode::Add, sumPhi, blockSum, freshName("snew"));
+    body->addInstruction(own(sumN));
+    sumPhi->addIncoming(sumN, body);
+
+    auto countN = new BinaryOperator(Opcode::Sub, countPhi, vl, freshName("countn"));
+    body->addInstruction(own(countN));
+    countPhi->addIncoming(countN, body);
+
+    Value *adv = vl;
+    if (strideElem)
+    {
+        adv = new BinaryOperator(Opcode::Mul, vl, strideElem, freshName("ptrStep"));
+        body->addInstruction(own(static_cast<Instruction *>(adv)));
+    }
+    auto *ptrN = new GetElementPtrInst(ptrPhi, vector<Value *>{adv}, freshName("ptrN"));
+    body->addInstruction(own(ptrN));
+    ptrPhi->addIncoming(ptrN, body);
+
+    auto cond = new ICmpInst(ICmpInst::ICMP_NE, countN, ci(0), freshName("cond"));
+    body->addInstruction(own(cond));
+    body->addInstruction(own(new BranchInst(cond, body, exit)));
+
+    // exit：汇合 sumInit（零趟，自 vguard）与 sumN（有趟；sumPhi 不含最后一块）
+    auto sumOut = new PhiInst(elemTy, freshName("sumout"));
+    sumOut->addIncoming(sumInit, guard);
+    sumOut->addIncoming(sumN, body);
+    exit->addInstruction(own(sumOut));
+    exit->addInstruction(own(new BranchInst(exitBlock)));
+
+    // entry → header 改到 vguard，保留 entry 上其余条件出边（如 licc nofold）
+    retargetEntryEdge(entry, header, guard);
+    wireEdge(guard, body);
+    wireEdge(guard, exit);
+    wireEdge(body, body);
+    wireEdge(body, exit);
+    wireEdge(exit, exitBlock);
+
+    for (auto &instPtr : exitBlock->getInstructions())
+    {
+        auto *phi = dynamic_cast<PhiInst *>(instPtr.get());
+        if (!phi)
+            continue;
+        for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i)
+        {
+            if (phi->getIncomingBlock(i) != header)
+                continue;
+            phi->setIncomingBlock(i, exit);
+            if (sameValue(phi, pat.jIV) || feedsInductionVar(phi, pat.jIV) ||
+                feedsInductionVar(pat.jIV, phi))
+                phi->setIncomingValue(i, boundSafe);
+            else if (sameValue(phi, pat.sum) || phi == pat.sum)
+                phi->setIncomingValue(i, sumOut);
+        }
+    }
+
+    // 替换循环外对旧 sum 的使用
+    vector<Instruction *> users;
+    for (auto *user : pat.sum->getUsers())
+        if (auto *u = dynamic_cast<Instruction *>(user))
+            users.push_back(u);
+    for (auto *u : users)
+    {
+        if (inOldLoop(u))
+            continue;
+        for (unsigned i = 0; i < u->getNumOperands(); ++i)
+            if (u->getOperandByIndex(i) == pat.sum)
+                u->setOperandByIndex(i, sumOut);
+    }
+
+    removeLoopBlocks(func, {header, bodyOld});
+    return true;
+}
+
 bool LoopVectorizePass::runOnFunction(Function *func)
 {
     if (!CompilerConfig::enableRVV || !func || func->isLibraryFunction())
@@ -2141,6 +2588,17 @@ bool LoopVectorizePass::runOnFunction(Function *func)
                 if (verbose)
                     debugInfo << "LoopVectorize: elementwise loop @ " << func->getName()
                               << " header=" << pat.jHeader->getName() << "\n";
+                break;
+            }
+            ArrayReducePattern rpat;
+            if (findArrayReduceLoop(loop, rpat) &&
+                vectorizeArrayReduceLoop(func, rpat))
+            {
+                localChanged = true;
+                changed = true;
+                if (verbose)
+                    debugInfo << "LoopVectorize: array-reduce loop @ " << func->getName()
+                              << " header=" << rpat.header->getName() << "\n";
                 break;
             }
             // 无数组访存的纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约）

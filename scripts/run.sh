@@ -37,35 +37,36 @@ elif [ "$1" == "-build" ]; then
 elif [ "$1" == "-ir" ]; then
     mkdir -p "$OUTPUT_DIR"
     info_flag=""
-    # 检查是否有 -info 参数（支持 -ir -info 或 -ir -O1 -info）
-    if [[ "$2" == "-info" ]]; then
-        info_flag="-info"
-        shift
-    fi
-    if [[ "$2" =~ ^-O[0-9]+$ ]]; then
-        opt_level="${2#-}"
-        if [[ "$3" == "-info" ]]; then
+    rvv_flag=""
+    opt_level=""
+    shift
+    # 支持任意顺序：-ir -O17 -rvv -info
+    while [ $# -gt 0 ]; do
+        if [[ "$1" =~ ^-O[0-9]+$ ]]; then
+            opt_level="${1#-}"
+        elif [ "$1" == "-rvv" ]; then
+            rvv_flag="-rvv"
+        elif [ "$1" == "-info" ]; then
             info_flag="-info"
         fi
-        for file in $INPUT_DIR/*.sy; do
-            filename=$(basename "$file")
-            output_prefix="$OUTPUT_DIR/${filename%.sy}"
-            echo "Processing $filename (IR debug mode, $opt_level $info_flag)..."
-            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" -${opt_level} $info_flag 
-        done
-    else
-        for file in $INPUT_DIR/*.sy; do
-            filename=$(basename "$file")
-            output_prefix="$OUTPUT_DIR/${filename%.sy}"
-            echo "Processing $filename (IR debug mode, no opt_level $info_flag)..."
-            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" $info_flag
-        done
-    fi
+        shift
+    done
+    for file in $INPUT_DIR/*.sy; do
+        filename=$(basename "$file")
+        output_prefix="$OUTPUT_DIR/${filename%.sy}"
+        echo "Processing $filename (IR debug mode, ${opt_level:-none} $rvv_flag $info_flag)..."
+        if [ -n "$opt_level" ]; then
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" "-${opt_level}" $rvv_flag $info_flag
+        else
+            ./myCompiler/build/my_compiler -debug "$file" "$output_prefix" $rvv_flag $info_flag
+        fi
+    done
 elif [ "$1" == "-riscv" ]; then
     mkdir -p "$OUTPUT_DIR"
     rvv_flag=""
     opt_level=""
     shift
+    # 支持任意顺序：-riscv -O17 -rvv
     while [ $# -gt 0 ]; do
         if [[ "$1" =~ ^-O[0-9]+$ ]]; then
             opt_level="${1#-}"
@@ -141,19 +142,37 @@ elif [ "$1" == "-diff" ]; then
         fi
     done      
 elif [ "$1" == "-gdb" ]; then
+    rvv_flag=""
+    opt_level=""
+    shift
+    while [ $# -gt 0 ]; do
+        if [[ "$1" =~ ^-O[0-9]+$ ]]; then
+            opt_level="${1#-}"
+        elif [ "$1" == "-rvv" ]; then
+            rvv_flag="-rvv"
+        fi
+        shift
+    done
     for file in $INPUT_DIR/*.sy; do
         filename=$(basename "$file")
         echo -e "\n\033[1;34m==========================================\033[0m"
-        echo -e "\033[1;34m🔍 Processing: $filename\033[0m"
+        echo -e "\033[1;34m🔍 Processing: $filename (${opt_level:-none} $rvv_flag)\033[0m"
         echo -e "\033[1;34m==========================================\033[0m"
-        # 直接显示编译器输出和错误信息
-        ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
+        if [ -n "$opt_level" ]; then
+            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}" $rvv_flag
+        else
+            ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" $rvv_flag
+        fi
         status=$?
         if [ $status -ne 0 ]; then
             echo -e "\n\033[1;31m❌ ERROR OCCURRED WITH: $filename\033[0m"
             echo -e "\033[1;31m==========================================\033[0m"
             echo -e "\033[1;33m🔧 Running with GDB for debugging...\033[0m"
-            gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file"
+            if [ -n "$opt_level" ]; then
+                gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" "-${opt_level}" $rvv_flag
+            else
+                gdb --batch --ex run --ex bt --ex quit --args ./myCompiler/build/my_compiler -S -o "$OUTPUT_DIR/${filename%.sy}.s" "$file" $rvv_flag
+            fi
         else
             echo -e "\033[1;32m✅ Successfully processed: $filename\033[0m"
         fi

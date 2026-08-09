@@ -2447,17 +2447,23 @@ void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)
     auto lhs = getOrCreateVectorReg(inst->getLHS());
     auto rhs = getOrCreateVectorReg(inst->getRHS());
     auto vd = getOrCreateVectorReg(inst);
+    bool isFloat = false;
+    if (auto *vt = dynamic_cast<VectorType *>(inst->getType()))
+        isFloat = vt->getElementType() && vt->getElementType()->isFloatTy();
     RISCVOpcode op;
     switch (inst->getOpcode())
     {
     case Opcode::VecAdd:
-        op = RISCVOpcode::VADD_VV;
+        op = isFloat ? RISCVOpcode::VFADD_VV : RISCVOpcode::VADD_VV;
         break;
     case Opcode::VecSub:
-        op = RISCVOpcode::VSUB_VV;
+        op = isFloat ? RISCVOpcode::VFSUB_VV : RISCVOpcode::VSUB_VV;
         break;
     case Opcode::VecMul:
-        op = RISCVOpcode::VMUL_VV;
+        op = isFloat ? RISCVOpcode::VFMUL_VV : RISCVOpcode::VMUL_VV;
+        break;
+    case Opcode::VecDiv:
+        op = isFloat ? RISCVOpcode::VFDIV_VV : RISCVOpcode::VDIV_VV;
         break;
     case Opcode::VecSll:
         op = RISCVOpcode::VSLL_VV;
@@ -2474,14 +2480,11 @@ void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)
     case Opcode::VecMin:
         op = RISCVOpcode::VMIN_VV;
         break;
-    case Opcode::VecDiv:
-        op = RISCVOpcode::VDIV_VV;
-        break;
     case Opcode::VecRem:
         op = RISCVOpcode::VREM_VV;
         break;
     default:
-        op = RISCVOpcode::VMUL_VV;
+        op = isFloat ? RISCVOpcode::VFMUL_VV : RISCVOpcode::VMUL_VV;
         break;
     }
     currentBB->addInstruction(RISCVInstruction::createVectorBinary(op, vd, lhs, rhs));
@@ -2489,13 +2492,19 @@ void InstructionSelector::visitVecBinaryInst(VecBinaryInst *inst)
 
 void InstructionSelector::visitVecSplatInst(VecSplatInst *inst)
 {
-    // %v = vecsplat %x —— vmv.v.x vd, rs1
-    // 注意：vmv.v.x 只写当前 VL 范围内的活动元素。LoopVectorizePass 会把 splat
-    // 放在 strip-mining 循环体内（紧跟循环的 vsetvli 之后），因此执行时 VL 与
-    // 后续 load/store 一致；不要在循环外执行 splat，否则高位元素会残留旧值。
+    // %v = vecsplat %x —— int: vmv.v.x；float: vfmv.v.f
+    // 注意：splat 只写当前 VL 范围内的活动元素，须紧跟循环内 vsetvli。
     auto scalar = getOrCreateVirtualReg(inst->getScalar());
     auto vd = getOrCreateVectorReg(inst);
-    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, scalar));
+    bool isFloat = false;
+    if (auto *vt = dynamic_cast<VectorType *>(inst->getType()))
+        isFloat = vt->getElementType() && vt->getElementType()->isFloatTy();
+    else if (inst->getScalar() && inst->getScalar()->getType())
+        isFloat = inst->getScalar()->getType()->isFloatTy();
+    if (isFloat)
+        currentBB->addInstruction(RISCVInstruction::createVectorFloatSplat(vd, scalar));
+    else
+        currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, scalar));
 }
 
 void InstructionSelector::visitVecVidInst(VecVidInst *inst)
@@ -2508,19 +2517,27 @@ void InstructionSelector::visitVecVidInst(VecVidInst *inst)
 
 void InstructionSelector::visitVecReduceAddInst(VecReduceAddInst *inst)
 {
-    // %s = vecreduceadd %v, %vl —— vredsum.vs vd, vs2, vd + vmv.x.s rd, vd
-    // vd 初始为 splat(0)（vmv.v.x vd, x0），随后 vredsum 累积，最后 vmv.x.s 取 lane0
+    // int:   vredsum.vs + vmv.x.s
+    // float: vfredosum.vs + vfmv.f.s（有序归约，贴近标量从左到右累加）
     auto vec = getOrCreateVectorReg(inst->getVector());
     auto rd = getOrCreateVirtualReg(inst);
-    // vd 是纯临时累加器，无对应 IR 值，直接创建向量虚拟寄存器
     auto vd = make_shared<RISCVRegister>(RegisterType::VECTOR);
-    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-    // vmv.v.x vd, x0 —— 把归约累加器清零（注意需在当前 VL 下，vsetvli 已由循环体提供）
-    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, zeroReg));
-    // vredsum.vs vd, vs2, vd —— vd += sum(vs2)，只写 lane0
-    currentBB->addInstruction(
-        RISCVInstruction::createVectorBinary(RISCVOpcode::VREDSUM_VS, vd, vec, vd));
-    // vmv.x.s rd, vd —— 取 lane0 到整数寄存器
-    currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
+    bool isFloat = inst->getType() && inst->getType()->isFloatTy();
+    if (isFloat)
+    {
+        auto zeroF = getOrCreateVirtualReg(new ConstantFloat(FloatType::getInstance(), 0.0f));
+        currentBB->addInstruction(RISCVInstruction::createVectorFloatSplat(vd, zeroF));
+        currentBB->addInstruction(
+            RISCVInstruction::createVectorBinary(RISCVOpcode::VFREDOSUM_VS, vd, vec, vd));
+        currentBB->addInstruction(RISCVInstruction::createVectorFloatExtract(rd, vd));
+    }
+    else
+    {
+        auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+        currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, zeroReg));
+        currentBB->addInstruction(
+            RISCVInstruction::createVectorBinary(RISCVOpcode::VREDSUM_VS, vd, vec, vd));
+        currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
+    }
 }
 

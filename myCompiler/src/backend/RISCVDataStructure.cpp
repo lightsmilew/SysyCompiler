@@ -545,6 +545,22 @@ namespace RISCV
                 return "vmv.v.x";
             case RISCVOpcode::VMV_X_S:
                 return "vmv.x.s";
+            case RISCVOpcode::VFADD_VV:
+                return "vfadd.vv";
+            case RISCVOpcode::VFSUB_VV:
+                return "vfsub.vv";
+            case RISCVOpcode::VFMUL_VV:
+                return "vfmul.vv";
+            case RISCVOpcode::VFDIV_VV:
+                return "vfdiv.vv";
+            case RISCVOpcode::VFREDUSUM_VS:
+                return "vfredusum.vs";
+            case RISCVOpcode::VFREDOSUM_VS:
+                return "vfredosum.vs";
+            case RISCVOpcode::VFMV_V_F:
+                return "vfmv.v.f";
+            case RISCVOpcode::VFMV_F_S:
+                return "vfmv.f.s";
             default:
                 return "unknown";
             }
@@ -598,12 +614,14 @@ namespace RISCV
             ss << " " << operands[0]->toString() << ", (" << operands[1]->toString() << "), "
                << operands[2]->toString();
         }
-        else if (opcode == RISCVOpcode::VMV_V_X && operands.size() >= 2)
+        else if ((opcode == RISCVOpcode::VMV_V_X || opcode == RISCVOpcode::VFMV_V_F) &&
+                 operands.size() >= 2)
         {
-            // vmv.v.x vd, rs1
+            // vmv.v.x / vfmv.v.f vd, rs1
             ss << " " << operands[0]->toString() << ", " << operands[1]->toString();
         }
-        else if (opcode == RISCVOpcode::VMV_X_S && operands.size() >= 2)
+        else if ((opcode == RISCVOpcode::VMV_X_S || opcode == RISCVOpcode::VFMV_F_S) &&
+                 operands.size() >= 2)
         {
             ss << " " << operands[0]->toString() << ", " << operands[1]->toString();
         }
@@ -612,11 +630,15 @@ namespace RISCV
             // vid.v vd（单操作数）
             ss << " " << operands[0]->toString();
         }
-        // 通用 VECTOR 二元/三元（vmax/vmin/vdiv/vrem/vredsum 等）：vd, vs2, vs1
+        // 通用 VECTOR 二元/三元（vmax/vmin/vdiv/vrem/vredsum/vf* 等）：vd, vs2, vs1
         else if (instrType == InstructionType::VECTOR && operands.size() >= 3 &&
                  (opcode == RISCVOpcode::VMAX_VV || opcode == RISCVOpcode::VMIN_VV ||
                   opcode == RISCVOpcode::VDIV_VV ||
-                  opcode == RISCVOpcode::VREM_VV || opcode == RISCVOpcode::VREDSUM_VS))
+                  opcode == RISCVOpcode::VREM_VV || opcode == RISCVOpcode::VREDSUM_VS ||
+                  opcode == RISCVOpcode::VFADD_VV || opcode == RISCVOpcode::VFSUB_VV ||
+                  opcode == RISCVOpcode::VFMUL_VV || opcode == RISCVOpcode::VFDIV_VV ||
+                  opcode == RISCVOpcode::VFREDUSUM_VS ||
+                  opcode == RISCVOpcode::VFREDOSUM_VS))
         {
             ss << " " << operands[0]->toString() << ", " << operands[1]->toString()
                << ", " << operands[2]->toString();
@@ -1228,12 +1250,28 @@ namespace RISCV
         return instr;
     }
 
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorFloatSplat(shared_ptr<RISCVRegister> vd,
+                                                                          shared_ptr<RISCVRegister> fs1)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VFMV_V_F, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(vd), make_shared<RISCVOperand>(fs1)};
+        return instr;
+    }
+
     shared_ptr<RISCVInstruction> RISCVInstruction::createVectorExtract(shared_ptr<RISCVRegister> rd,
                                                                        shared_ptr<RISCVRegister> vs2)
     {
         // vmv.x.s rd, vs2 —— 取向量 lane 0 到整数寄存器
         auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VMV_X_S, InstructionType::VECTOR);
         instr->operands = {make_shared<RISCVOperand>(rd), make_shared<RISCVOperand>(vs2)};
+        return instr;
+    }
+
+    shared_ptr<RISCVInstruction> RISCVInstruction::createVectorFloatExtract(shared_ptr<RISCVRegister> fd,
+                                                                            shared_ptr<RISCVRegister> vs2)
+    {
+        auto instr = make_shared<RISCVInstruction>(RISCVOpcode::VFMV_F_S, InstructionType::VECTOR);
+        instr->operands = {make_shared<RISCVOperand>(fd), make_shared<RISCVOperand>(vs2)};
         return instr;
     }
 
@@ -1386,6 +1424,8 @@ namespace RISCV
             case RISCVOpcode::VLE32_V:
             case RISCVOpcode::VMV_V_X:
             case RISCVOpcode::VMV_X_S:
+            case RISCVOpcode::VFMV_V_F:
+            case RISCVOpcode::VFMV_F_S:
                 // use: rs1 (最后一个操作数)
                 if (operands.size() >= 2 && isRegisterOperand(operands[1]))
                     useRegs.push_back(operands[1]->getReg());
@@ -1418,6 +1458,10 @@ namespace RISCV
             case RISCVOpcode::VMIN_VV:
             case RISCVOpcode::VDIV_VV:
             case RISCVOpcode::VREM_VV:
+            case RISCVOpcode::VFADD_VV:
+            case RISCVOpcode::VFSUB_VV:
+            case RISCVOpcode::VFMUL_VV:
+            case RISCVOpcode::VFDIV_VV:
                 // use: vs2, vs1 (操作数1、2)
                 for (size_t i = 1; i < operands.size(); ++i)
                 {
@@ -1426,7 +1470,9 @@ namespace RISCV
                 }
                 break;
             case RISCVOpcode::VREDSUM_VS:
-                // vredsum.vs vd, vs2, vs1 —— vd 同时是累积源（读改写）
+            case RISCVOpcode::VFREDUSUM_VS:
+            case RISCVOpcode::VFREDOSUM_VS:
+                // vredsum/vfred*sum.vs vd, vs2, vs1 —— vd 同时是累积源（读改写）
                 for (size_t i = 0; i < operands.size(); ++i)
                 {
                     if (isRegisterOperand(operands[i]))
@@ -1645,7 +1691,9 @@ namespace RISCV
             {
                 size_t startIdx = (opcode == RISCVOpcode::VSE32_V ||
                                    opcode == RISCVOpcode::VSSE32_V ||
-                                   opcode == RISCVOpcode::VREDSUM_VS)
+                                   opcode == RISCVOpcode::VREDSUM_VS ||
+                                   opcode == RISCVOpcode::VFREDUSUM_VS ||
+                                   opcode == RISCVOpcode::VFREDOSUM_VS)
                                       ? 0
                                       : 1;
                 for (size_t i = startIdx; i < operands.size(); ++i)
