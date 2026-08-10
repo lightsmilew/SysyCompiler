@@ -2152,7 +2152,7 @@ bool LoopVectorizePass::vectorizeScaledRowUpdate(Function *func, const ScaledRow
     prependBeforeTerminator(entry, cRowGep);
     prependBeforeTerminator(entry, bRowGep);
 
-    // scale = A[i][k]；无 skip-guard 时原 load 在 j 体内，需在 entry 新建 load
+    // scale = A[i][k] / A[j][i]；无 skip-guard 时原 load 在 j 体内，需在 entry 新建 load
     Value *scale = nest.aLoad;
     if (!nest.hasSkipGuard || !scale)
     {
@@ -2164,33 +2164,264 @@ bool LoopVectorizePass::vectorizeScaledRowUpdate(Function *func, const ScaledRow
         scale = ld;
     }
 
+    Type *elemTy = nest.elemTy ? nest.elemTy : IntegerType::getInstance();
+    bool isFloat = elemTy->isFloatTy();
+    const bool isSubtract = nest.isSubtract;
+
     // 向量 splat 放在循环体内（紧跟循环 vsetvli 之后）：vmv.v.x 只写当前 VL
     // 范围内的元素，循环内执行才能保证 splat 与 load/store 的 VL 一致
     buildVectorLoop(
         func, entry, jHeader, jExit, nest.bound, nest.jIV, nest.bound, {cRowGep, bRowGep},
         {"cPtr", "bPtr"}, freshName("vbody"), freshName("vexit"),
-        [scale](BasicBlock *body, Value *vl, const vector<Value *> &ptrs)
+        [scale, elemTy, isFloat, isSubtract](BasicBlock *body, Value *vl,
+                                             const vector<Value *> &ptrs)
         {
-            auto vs = new VecSplatInst(scale, vl, IntegerType::getInstance(), 16,
-                                       freshName("vs"));
+            auto vs = new VecSplatInst(scale, vl, elemTy, 16, freshName("vs"));
             body->addInstruction(own(vs));
-            auto vc = new VecLoadInst(ptrs[0], vl, IntegerType::getInstance(), 16,
-                                      freshName("vc"));
+            auto vc = new VecLoadInst(ptrs[0], vl, elemTy, 16, freshName("vc"));
             body->addInstruction(own(vc));
-            auto vb = new VecLoadInst(ptrs[1], vl, IntegerType::getInstance(), 16,
-                                      freshName("vb"));
+            auto vb = new VecLoadInst(ptrs[1], vl, elemTy, 16, freshName("vb"));
             body->addInstruction(own(vb));
-            auto vm = new VecBinaryInst(Opcode::VecMul, vc, vs, freshName("vm"));
-            body->addInstruction(own(vm));
-            auto va = new VecBinaryInst(Opcode::VecAdd, vm, vb, freshName("va"));
+            Instruction *va = nullptr;
+            if (isSubtract)
+            {
+                auto vm = new VecBinaryInst(Opcode::VecMul, vs, vb, freshName("vm"));
+                body->addInstruction(own(vm));
+                va = new VecBinaryInst(Opcode::VecSub, vc, vm, freshName("va"));
+            }
+            else
+            {
+                auto vm = new VecBinaryInst(Opcode::VecMul, vc, vs, freshName("vm"));
+                body->addInstruction(own(vm));
+                va = new VecBinaryInst(Opcode::VecAdd, vm, vb, freshName("va"));
+            }
             body->addInstruction(own(va));
             body->addInstruction(own(new VecStoreInst(va, ptrs[0], vl)));
         });
 
     removeLoopBlocks(func, {jHeader, jBody});
     if (verbose)
-        debugInfo << "LoopVectorize: vec C=A*C+B @ " << func->getName()
+        debugInfo << "LoopVectorize: vec scaled-row "
+                  << (isSubtract ? "sub " : "fma ")
+                  << (isFloat ? "float " : "") << "@ " << func->getName()
                   << " j=" << jHeader->getName() << "\n";
+    return true;
+}
+
+bool LoopVectorizePass::findCopyBasedArrayMaxLoop(const Loop &loop, ArrayReducePattern &pat)
+{
+    if (loop.blocks.size() < 2 || loop.blocks.size() > 4)
+        return false;
+
+    // 在 loop 内找到含 load 与 max/min icmp 的 body 块
+    BasicBlock *bodyBB = loop.header;
+    LoadInst *ld = nullptr;
+    ICmpInst *maxCmp = nullptr;
+    for (auto *bb : loop.blocks)
+    {
+        LoadInst *blockLd = nullptr;
+        ICmpInst *blockCmp = nullptr;
+        for (auto &ip : bb->getInstructions())
+        {
+            if (auto *li = dynamic_cast<LoadInst *>(ip.get()))
+                blockLd = li;
+            if (auto *ci = dynamic_cast<ICmpInst *>(ip.get()))
+            {
+                if (ci->getPredicate() == ICmpInst::ICMP_SLT)
+                    blockCmp = ci;
+            }
+        }
+        if (blockLd && blockCmp)
+        {
+            ld = blockLd;
+            maxCmp = blockCmp;
+            bodyBB = bb;
+            break;
+        }
+    }
+    if (!ld || !maxCmp)
+        return false;
+
+    BasicBlock *header = bodyBB;
+    BasicBlock *latch = getLoopLatch(loop);
+    BasicBlock *exitBlock = getLoopExit(loop);
+    if (!exitBlock)
+    {
+        auto *lbr = dynamic_cast<BranchInst *>(latch->getTerminator());
+        if (lbr && lbr->isConditional())
+        {
+            for (BasicBlock *bb : {lbr->getTrueBlock(), lbr->getFalseBlock()})
+            {
+                if (bb && !loop.containsBlock(bb))
+                {
+                    exitBlock = bb;
+                    break;
+                }
+            }
+        }
+    }
+    if (!header || !latch || !exitBlock || header == latch)
+        return false;
+
+    auto *hbr = dynamic_cast<BranchInst *>(header->getTerminator());
+    if (!hbr || !hbr->isConditional())
+        return false;
+    BasicBlock *thenBB = hbr->getTrueBlock();
+    BasicBlock *elseBB = hbr->getFalseBlock();
+
+    auto pickCopy = [](BasicBlock *bb) -> CopyInst *
+    {
+        CopyInst *found = nullptr;
+        for (auto &ip : bb->getInstructions())
+            if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+                found = cpy;
+        return found;
+    };
+
+    CopyInst *thenCopy = pickCopy(thenBB);
+    if (!thenCopy)
+        return false;
+
+    CopyInst *elseArmCopy = nullptr;
+    if (elseBB == latch)
+    {
+        for (auto &ip : header->getInstructions())
+            if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+                elseArmCopy = cpy;
+    }
+    else
+    {
+        elseArmCopy = pickCopy(elseBB);
+    }
+    if (!elseArmCopy)
+        return false;
+
+    Value *thenV = stripCopy(thenCopy->getSource());
+    Value *elseV = stripCopy(elseArmCopy->getSource());
+    bool thenIsLoad = (thenV == ld || sameValue(thenV, ld));
+    bool elseIsLoad = (elseV == ld || sameValue(elseV, ld));
+    if (thenIsLoad == elseIsLoad)
+        return false;
+
+    Value *mVal = thenIsLoad ? elseV : thenV;
+    pat.kind = thenIsLoad ? ArrayReducePattern::Kind::Max : ArrayReducePattern::Kind::Min;
+
+    CopyInst *mUpdate = nullptr;
+    Value *jIV = nullptr;
+    Value *bound = nullptr;
+    ICmpInst *loopCmp = nullptr;
+    for (auto &ip : latch->getInstructions())
+    {
+        if (auto *ci = dynamic_cast<ICmpInst *>(ip.get()))
+        {
+            if (ci->getPredicate() == ICmpInst::ICMP_SLT)
+            {
+                loopCmp = ci;
+                jIV = ci->getLHS();
+                bound = ci->getRHS();
+            }
+        }
+        if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+        {
+            if (dynamic_cast<BinaryOperator *>(stripCopy(cpy->getSource())))
+                continue;
+            mUpdate = cpy;
+        }
+    }
+    if (!mUpdate || !jIV || !bound || !loopCmp)
+        return false;
+    if (mUpdate->getType() && !mUpdate->getType()->isIntegerTy())
+        return false;
+
+    vector<BasicBlock *> entryPreds;
+    for (auto *pred : header->getPredecessors())
+        if (!loop.containsBlock(pred))
+            entryPreds.push_back(pred);
+    if (entryPreds.size() != 1)
+        return false;
+    BasicBlock *entry = entryPreds[0];
+    if (!isValidVectorEntry(entry, header))
+        return false;
+
+    Value *mInit = nullptr;
+    CopyInst *mAccCopy = nullptr;
+    const string mName = mVal->getName();
+    for (auto &ip : entry->getInstructions())
+    {
+        if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+        {
+            if (!mName.empty() && cpy->getName() == mName)
+            {
+                mInit = cpy->getSource();
+                mAccCopy = cpy;
+            }
+        }
+    }
+    if (!mAccCopy && mInit)
+    {
+        for (auto &ip : entry->getInstructions())
+        {
+            if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+            {
+                if (sameValue(cpy->getSource(), mInit))
+                {
+                    mAccCopy = cpy;
+                    break;
+                }
+            }
+        }
+    }
+    if (!mInit || !mAccCopy)
+        return false;
+
+    if (isFullyUnrollableLoop(loop, jIV, bound))
+        return false;
+
+    std::set<Instruction *> covered;
+    covered.insert(maxCmp);
+    covered.insert(ld);
+    covered.insert(thenCopy);
+    covered.insert(elseArmCopy);
+    covered.insert(mUpdate);
+    covered.insert(loopCmp);
+    for (auto *bb : loop.blocks)
+    {
+        for (auto &ip : bb->getInstructions())
+        {
+            if (auto *cpy = dynamic_cast<CopyInst *>(ip.get()))
+                covered.insert(cpy);
+            if (auto *add = dynamic_cast<BinaryOperator *>(ip.get()))
+                if (add->getOpcode() == Opcode::Add)
+                    covered.insert(add);
+            if (auto *gep = dynamic_cast<GetElementPtrInst *>(ip.get()))
+                covered.insert(gep);
+        }
+    }
+
+    Value *base = nullptr, *offset = nullptr, *stride = nullptr;
+    std::vector<Value *> rowIdxs;
+    if (!parseVecAddr(ld->getPointer(), jIV, loop, covered, base, rowIdxs, offset, stride,
+                      entry, nullptr))
+        return false;
+
+    pat.entry = entry;
+    pat.header = header;
+    pat.body = latch;
+    pat.exitBlock = exitBlock;
+    pat.loop = loop;
+    pat.jIV = jIV;
+    pat.jInit = nullptr;
+    pat.bound = bound;
+    pat.sum = mUpdate;
+    pat.sumInit = mInit;
+    pat.sumAcc = mAccCopy;
+    pat.elemTy = IntegerType::getInstance();
+    pat.square = false;
+    pat.product = false;
+    pat.base = base;
+    pat.rowIdxs = rowIdxs;
+    pat.offset = offset;
+    pat.stride = stride;
     return true;
 }
 
@@ -2266,44 +2497,118 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
     if (!sumInit || !sumNext)
         return false;
 
-    auto *add = dynamic_cast<BinaryOperator *>(sumNext);
-    if (!add)
-        return false;
-    bool isF = add->getOpcode() == Opcode::FAdd;
-    if (add->getOpcode() != Opcode::Add && !isF)
-        return false;
-
-    Value *addL = stripCopy(add->getLHS());
-    Value *addR = stripCopy(add->getRHS());
-    Value *addend = nullptr;
-    if (addL == sumPhi || sameValue(addL, sumPhi))
-        addend = addR;
-    else if (addR == sumPhi || sameValue(addR, sumPhi))
-        addend = addL;
-    else
-        return false;
-
+    ArrayReducePattern::Kind reduceKind = ArrayReducePattern::Kind::Sum;
     bool square = false;
     bool product = false;
-    LoadInst *ld = dynamic_cast<LoadInst *>(addend);
+    LoadInst *ld = nullptr;
     LoadInst *ld2 = nullptr;
-    if (!ld)
+    std::set<Instruction *> covered;
+
+    if (auto *add = dynamic_cast<BinaryOperator *>(sumNext))
     {
-        auto *mul = dynamic_cast<BinaryOperator *>(addend);
-        if (!mul)
+        bool isF = add->getOpcode() == Opcode::FAdd;
+        if (add->getOpcode() != Opcode::Add && !isF)
             return false;
-        if (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul)
-            return false;
-        Value *ml = stripCopy(mul->getLHS());
-        Value *mr = stripCopy(mul->getRHS());
-        ld = dynamic_cast<LoadInst *>(ml);
-        ld2 = dynamic_cast<LoadInst *>(mr);
-        if (!ld || !ld2)
-            return false;
-        if (ld == ld2 || sameValue(ld, ld2))
-            square = true;
+
+        Value *addL = stripCopy(add->getLHS());
+        Value *addR = stripCopy(add->getRHS());
+        Value *addend = nullptr;
+        if (addL == sumPhi || sameValue(addL, sumPhi))
+            addend = addR;
+        else if (addR == sumPhi || sameValue(addR, sumPhi))
+            addend = addL;
         else
-            product = true;
+            return false;
+
+        ld = dynamic_cast<LoadInst *>(addend);
+        if (!ld)
+        {
+            auto *mul = dynamic_cast<BinaryOperator *>(addend);
+            if (!mul)
+                return false;
+            if (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul)
+                return false;
+            Value *ml = stripCopy(mul->getLHS());
+            Value *mr = stripCopy(mul->getRHS());
+            ld = dynamic_cast<LoadInst *>(ml);
+            ld2 = dynamic_cast<LoadInst *>(mr);
+            if (!ld || !ld2)
+                return false;
+            if (ld == ld2 || sameValue(ld, ld2))
+                square = true;
+            else
+                product = true;
+        }
+
+        covered.insert(add);
+        covered.insert(ld);
+        if (square || product)
+        {
+            if (auto *mul = dynamic_cast<BinaryOperator *>(addend))
+                covered.insert(mul);
+            if (product && ld2)
+                covered.insert(ld2);
+        }
+    }
+    else if (auto *sel = dynamic_cast<SelectInst *>(sumNext))
+    {
+        Value *tv = stripCopy(sel->getTrueValue());
+        Value *fv = stripCopy(sel->getFalseValue());
+        if (tv == sumPhi || sameValue(tv, sumPhi))
+            ld = dynamic_cast<LoadInst *>(fv);
+        else if (fv == sumPhi || sameValue(fv, sumPhi))
+            ld = dynamic_cast<LoadInst *>(tv);
+        else
+            return false;
+        if (!ld)
+            return false;
+
+        auto *icmp = dynamic_cast<ICmpInst *>(stripCopy(sel->getCondition()));
+        if (!icmp)
+            return false;
+        Value *il = stripCopy(icmp->getLHS());
+        Value *ir = stripCopy(icmp->getRHS());
+        bool ldOnTrue = (tv == ld || sameValue(tv, ld));
+        if (icmp->getPredicate() == ICmpInst::ICMP_SGT)
+        {
+            if ((il == ld || sameValue(il, ld)) && (ir == sumPhi || sameValue(ir, sumPhi)) &&
+                ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Max;
+            else if ((ir == ld || sameValue(ir, ld)) && (il == sumPhi || sameValue(il, sumPhi)) &&
+                     !ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Max;
+            else
+                return false;
+        }
+        else if (icmp->getPredicate() == ICmpInst::ICMP_SLT)
+        {
+            if ((il == ld || sameValue(il, ld)) && (ir == sumPhi || sameValue(ir, sumPhi)) &&
+                ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Min;
+            else if ((ir == ld || sameValue(ir, ld)) && (il == sumPhi || sameValue(il, sumPhi)) &&
+                     !ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Min;
+            else if ((il == sumPhi || sameValue(il, sumPhi)) &&
+                     (ir == ld || sameValue(ir, ld)) && ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Max;
+            else if ((ir == sumPhi || sameValue(ir, sumPhi)) &&
+                     (il == ld || sameValue(il, ld)) && !ldOnTrue)
+                reduceKind = ArrayReducePattern::Kind::Max;
+            else
+                return false;
+        }
+        else
+        {
+            return false;
+        }
+
+        covered.insert(sel);
+        covered.insert(icmp);
+        covered.insert(ld);
+    }
+    else
+    {
+        return false;
     }
 
     Value *jInit = nullptr;
@@ -2312,17 +2617,6 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
         for (unsigned i = 0; i < jPhi->getNumIncomingValues(); ++i)
             if (jPhi->getIncomingBlock(i) == entry)
                 jInit = stripCopy(jPhi->getIncomingValue(i));
-    }
-
-    std::set<Instruction *> covered;
-    covered.insert(add);
-    covered.insert(ld);
-    if (square || product)
-    {
-        if (auto *mul = dynamic_cast<BinaryOperator *>(addend))
-            covered.insert(mul);
-        if (product && ld2)
-            covered.insert(ld2);
     }
 
     Value *base = nullptr, *offset = nullptr, *stride = nullptr;
@@ -2371,6 +2665,7 @@ bool LoopVectorizePass::findArrayReduceLoop(const Loop &loop, ArrayReducePattern
     pat.rowIdxs2 = rowIdxs2;
     pat.offset2 = offset2;
     pat.stride2 = stride2;
+    pat.kind = reduceKind;
     return true;
 }
 
@@ -2470,48 +2765,49 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
         byteStride2 = makeByteStride(pat.stride2);
     }
 
-    // 独立 vguard：count==0 时跳过向量体。不可改写 entry 终结符——entry 可能是
-    // LoopInterchange 的 licc_tail_dispatch（条件分支 safe→tail / nofold），
-    // 若直接替换会丢掉 nofold 边导致错误折叠。
+    // 用 copy 链（与 rvv_dot 等已验证样例一致），不用 vguard+phi：
+    // 后端对 guard→body 的 phi 边未插入并行拷贝，会导致 count/ptr 寄存器未初始化而崩溃。
+    const string countNm = freshName("count");
+    const string ptrNm = freshName("ptr");
+    const string sumaccNm = freshName("sumacc");
+    const string sumoutNm = freshName("sumout");
+    string ptr2Nm;
+    if (pat.product)
+        ptr2Nm = freshName("ptr2");
+
+    auto *countVar = new CopyInst(count0, countNm);
+    auto *ptrVar = new CopyInst(rowPtr, ptrNm);
+    auto *sumaccVar = new CopyInst(sumInit, sumaccNm);
+    auto *sumoutVar = new CopyInst(sumInit, sumoutNm);
+    prependBeforeTerminator(entry, countVar);
+    prependBeforeTerminator(entry, ptrVar);
+    prependBeforeTerminator(entry, sumaccVar);
+    prependBeforeTerminator(entry, sumoutVar);
+
+    CopyInst *ptrVar2 = nullptr;
+    if (pat.product)
+    {
+        ptrVar2 = new CopyInst(rowPtr2, ptr2Nm);
+        prependBeforeTerminator(entry, ptrVar2);
+    }
+
     auto *nz = new ICmpInst(ICmpInst::ICMP_NE, count0, ci(0), freshName("encond"));
+    prependBeforeTerminator(entry, nz);
 
     auto &bbs = func->getBasicBlocks();
-    auto guard = new BasicBlock(freshName("vguard"), func);
     auto body = new BasicBlock(freshName("vbody"), func);
     auto exit = new BasicBlock(freshName("vexit"), func);
-    bbs.push_back(unique_ptr<BasicBlock>(guard));
     bbs.push_back(unique_ptr<BasicBlock>(body));
     bbs.push_back(unique_ptr<BasicBlock>(exit));
 
-    guard->addInstruction(own(nz));
-    guard->addInstruction(own(new BranchInst(nz, body, exit)));
-
-    auto countPhi = new PhiInst(IntegerType::getInstance(), freshName("count"));
-    auto ptrPhi = new PhiInst(rowPtr->getType(), freshName("ptr"));
-    auto sumPhi = new PhiInst(elemTy, freshName("sumacc"));
-    body->addInstruction(own(countPhi));
-    body->addInstruction(own(ptrPhi));
-    body->addInstruction(own(sumPhi));
-    countPhi->addIncoming(count0, guard);
-    ptrPhi->addIncoming(rowPtr, guard);
-    sumPhi->addIncoming(sumInit, guard);
-
-    PhiInst *ptrPhi2 = nullptr;
-    if (pat.product)
-    {
-        ptrPhi2 = new PhiInst(rowPtr2->getType(), freshName("ptr2"));
-        body->addInstruction(own(ptrPhi2));
-        ptrPhi2->addIncoming(rowPtr2, guard);
-    }
-
-    auto vl = new VecSetVlInst(countPhi, 32, freshName("vl"));
+    auto vl = new VecSetVlInst(countVar, 32, freshName("vl"));
     body->addInstruction(own(vl));
 
     Instruction *vload = nullptr;
     if (byteStride)
-        vload = new VecStridedLoadInst(ptrPhi, byteStride, vl, elemTy, 16, freshName("v"));
+        vload = new VecStridedLoadInst(ptrVar, byteStride, vl, elemTy, 16, freshName("v"));
     else
-        vload = new VecLoadInst(ptrPhi, vl, elemTy, 16, freshName("v"));
+        vload = new VecLoadInst(ptrVar, vl, elemTy, 16, freshName("v"));
     body->addInstruction(own(vload));
 
     Value *toReduce = vload;
@@ -2525,60 +2821,107 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
     {
         Instruction *vload2 = nullptr;
         if (byteStride2)
-            vload2 = new VecStridedLoadInst(ptrPhi2, byteStride2, vl, elemTy, 16,
-                                            freshName("v2"));
+            vload2 = new VecStridedLoadInst(ptrVar2, byteStride2, vl, elemTy, 16, freshName("v2"));
         else
-            vload2 = new VecLoadInst(ptrPhi2, vl, elemTy, 16, freshName("v2"));
+            vload2 = new VecLoadInst(ptrVar2, vl, elemTy, 16, freshName("v2"));
         body->addInstruction(own(vload2));
         auto *vm = new VecBinaryInst(Opcode::VecMul, vload, vload2, freshName("vdot"));
         body->addInstruction(own(vm));
         toReduce = vm;
     }
-    auto *blockSum = new VecReduceAddInst(toReduce, vl, freshName("bsum"));
-    body->addInstruction(own(blockSum));
+    Instruction *blockReduce = nullptr;
+    if (pat.kind == ArrayReducePattern::Kind::Max)
+        blockReduce = new VecReduceMaxInst(toReduce, vl, freshName("bmax"));
+    else if (pat.kind == ArrayReducePattern::Kind::Min)
+        blockReduce = new VecReduceMinInst(toReduce, vl, freshName("bmin"));
+    else
+        blockReduce = new VecReduceAddInst(toReduce, vl, freshName("bsum"));
+    body->addInstruction(own(blockReduce));
 
     Instruction *sumN = nullptr;
-    if (isFloat)
-        sumN = new BinaryOperator(Opcode::FAdd, sumPhi, blockSum, freshName("snew"));
+    if (pat.kind == ArrayReducePattern::Kind::Sum)
+    {
+        if (isFloat)
+            sumN = new BinaryOperator(Opcode::FAdd, sumaccVar, blockReduce, freshName("snew"));
+        else
+            sumN = new BinaryOperator(Opcode::Add, sumaccVar, blockReduce, freshName("snew"));
+    }
+    else if (pat.kind == ArrayReducePattern::Kind::Max)
+    {
+        auto *gt = new ICmpInst(ICmpInst::ICMP_SGT, blockReduce, sumaccVar, freshName("mxcmp"));
+        body->addInstruction(own(gt));
+        sumN = new SelectInst(gt, blockReduce, sumaccVar, freshName("snew"));
+    }
     else
-        sumN = new BinaryOperator(Opcode::Add, sumPhi, blockSum, freshName("snew"));
+    {
+        auto *lt = new ICmpInst(ICmpInst::ICMP_SLT, blockReduce, sumaccVar, freshName("mncmp"));
+        body->addInstruction(own(lt));
+        sumN = new SelectInst(lt, blockReduce, sumaccVar, freshName("snew"));
+    }
     body->addInstruction(own(sumN));
-    sumPhi->addIncoming(sumN, body);
 
-    auto countN = new BinaryOperator(Opcode::Sub, countPhi, vl, freshName("countn"));
+    auto countN = new BinaryOperator(Opcode::Sub, countVar, vl, freshName("countn"));
     body->addInstruction(own(countN));
-    countPhi->addIncoming(countN, body);
+    body->addInstruction(own(new CopyInst(countN, countNm)));
 
-    auto advancePtr = [&](PhiInst *pPhi, Value *strideE) {
+    auto advancePtrCopy = [&](CopyInst *pVar, Value *strideE, const string &nm)
+    {
         Value *adv = vl;
         if (strideE)
         {
             adv = new BinaryOperator(Opcode::Mul, vl, strideE, freshName("ptrStep"));
             body->addInstruction(own(static_cast<Instruction *>(adv)));
         }
-        auto *ptrN = new GetElementPtrInst(pPhi, vector<Value *>{adv}, freshName("ptrN"));
+        auto *ptrN = new GetElementPtrInst(pVar, vector<Value *>{adv}, freshName("ptrN"));
         body->addInstruction(own(ptrN));
-        pPhi->addIncoming(ptrN, body);
+        body->addInstruction(own(new CopyInst(ptrN, nm)));
     };
-    advancePtr(ptrPhi, strideElem);
+    advancePtrCopy(ptrVar, strideElem, ptrNm);
     if (pat.product)
-        advancePtr(ptrPhi2, strideElem2);
+        advancePtrCopy(ptrVar2, strideElem2, ptr2Nm);
+
+    body->addInstruction(own(new CopyInst(sumN, sumaccNm)));
+    body->addInstruction(own(new CopyInst(sumN, sumoutNm)));
 
     auto cond = new ICmpInst(ICmpInst::ICMP_NE, countN, ci(0), freshName("cond"));
     body->addInstruction(own(cond));
     body->addInstruction(own(new BranchInst(cond, body, exit)));
 
-    // exit：汇合 sumInit（零趟，自 vguard）与 sumN（有趟；sumPhi 不含最后一块）
-    auto sumOut = new PhiInst(elemTy, freshName("sumout"));
-    sumOut->addIncoming(sumInit, guard);
-    sumOut->addIncoming(sumN, body);
-    exit->addInstruction(own(sumOut));
     exit->addInstruction(own(new BranchInst(exitBlock)));
 
-    // entry → header 改到 vguard，保留 entry 上其余条件出边（如 licc nofold）
-    retargetEntryEdge(entry, header, guard);
-    wireEdge(guard, body);
-    wireEdge(guard, exit);
+    // entry：保留原条件出边，仅把「进旧 header」的边改到向量体；零元素走 vexit
+    retargetEntryEdge(entry, header, body);
+    // 在 entry 终结符前插入「count==0 则跳过向量体」分支（替换原单一 branch）
+    {
+        auto *term = entry->getTerminator();
+        auto *br = dynamic_cast<BranchInst *>(term);
+        if (br && br->isConditional())
+        {
+            BasicBlock *onTrue = br->getTrueBlock();
+            BasicBlock *onFalse = br->getFalseBlock();
+            if (onTrue == body)
+            {
+                // entry: br scalar_cond, body, onFalse  →  br scalar_cond, ventry, onFalse
+                auto *ventry = new BasicBlock(freshName("ventry"), func);
+                bbs.push_back(unique_ptr<BasicBlock>(ventry));
+                ventry->addInstruction(own(new BranchInst(nz, body, exit)));
+                wireEdge(ventry, body);
+                wireEdge(ventry, exit);
+                br->setTrueBlock(ventry);
+                wireEdge(entry, ventry);
+            }
+            else if (onFalse == body)
+            {
+                auto *ventry = new BasicBlock(freshName("ventry"), func);
+                bbs.push_back(unique_ptr<BasicBlock>(ventry));
+                ventry->addInstruction(own(new BranchInst(nz, body, exit)));
+                wireEdge(ventry, body);
+                wireEdge(ventry, exit);
+                br->setFalseBlock(ventry);
+                wireEdge(entry, ventry);
+            }
+        }
+    }
     wireEdge(body, body);
     wireEdge(body, exit);
     wireEdge(exit, exitBlock);
@@ -2597,25 +2940,55 @@ bool LoopVectorizePass::vectorizeArrayReduceLoop(Function *func, const ArrayRedu
                 feedsInductionVar(pat.jIV, phi))
                 phi->setIncomingValue(i, boundSafe);
             else if (sameValue(phi, pat.sum) || phi == pat.sum)
-                phi->setIncomingValue(i, sumOut);
+                phi->setIncomingValue(i, sumoutVar);
         }
     }
 
-    // 替换循环外对旧 sum 的使用
-    vector<Instruction *> users;
-    for (auto *user : pat.sum->getUsers())
-        if (auto *u = dynamic_cast<Instruction *>(user))
-            users.push_back(u);
-    for (auto *u : users)
+    // 替换循环外对旧累加器的引用（copy-based max/min 的 entry copy 或 sum phi）
+    const string accNm =
+        pat.sumAcc ? pat.sumAcc->getName() : (pat.sum ? pat.sum->getName() : string());
+    for (auto &bbPtr : func->getBasicBlocks())
     {
-        if (inOldLoop(u))
-            continue;
-        for (unsigned i = 0; i < u->getNumOperands(); ++i)
-            if (u->getOperandByIndex(i) == pat.sum)
-                u->setOperandByIndex(i, sumOut);
+        for (auto &instPtr : bbPtr->getInstructions())
+        {
+            Instruction *inst = instPtr.get();
+            if (inOldLoop(inst))
+                continue;
+            for (unsigned i = 0; i < inst->getNumOperands(); ++i)
+            {
+                Value *op = inst->getOperandByIndex(i);
+                bool match = (op == pat.sumAcc || op == pat.sum);
+                if (!match && !accNm.empty())
+                {
+                    if (auto *cpy = dynamic_cast<CopyInst *>(op))
+                        match = (normalizeName(cpy->getName()) == normalizeName(accNm));
+                }
+                if (match)
+                    inst->setOperandByIndex(i, sumoutVar);
+            }
+        }
+    }
+    // copy-based max/min：循环外 putint 引用 entry 上的 m 初值 copy，必须接到 sumout
+    if (pat.kind == ArrayReducePattern::Kind::Max ||
+        pat.kind == ArrayReducePattern::Kind::Min)
+    {
+        for (auto &instPtr : exitBlock->getInstructions())
+        {
+            auto *call = dynamic_cast<CallInst *>(instPtr.get());
+            if (!call)
+                continue;
+            Function *callee = call->getCalledFunction();
+            if (!callee)
+                continue;
+            const string &fn = callee->getName();
+            if (fn != "putint" && fn != "putfloat")
+                continue;
+            for (unsigned i = 1; i < call->getNumOperands(); ++i)
+                call->setOperandByIndex(i, sumoutVar);
+        }
     }
 
-    removeLoopBlocks(func, {header, bodyOld});
+    removeLoopBlocks(func, pat.loop.blocks);
     return true;
 }
 
@@ -2663,7 +3036,7 @@ bool LoopVectorizePass::runOnFunction(Function *func)
                 break;
             }
             ArrayReducePattern rpat;
-            if (findArrayReduceLoop(loop, rpat) &&
+            if ((findArrayReduceLoop(loop, rpat) || findCopyBasedArrayMaxLoop(loop, rpat)) &&
                 vectorizeArrayReduceLoop(func, rpat))
             {
                 localChanged = true;

@@ -494,7 +494,9 @@ enum class Opcode
     VecDiv,    // <N x i32> vecdiv(<N x i32>, <N x i32>)
     VecRem,    // <N x i32> vecrem(<N x i32>, <N x i32>)
     VecVid,    // <N x i32> vecvid(i32 %vl) —— 0,1,...,vl-1
-    VecReduceAdd // i32 vecreduceadd(<N x i32>, i32 %vl) —— 前 vl 个 lane 求和
+    VecReduceAdd, // i32 vecreduceadd(<N x i32>, i32 %vl) —— 前 vl 个 lane 求和
+    VecReduceMax, // i32 vecreducemax(<N x i32>, i32 %vl) —— 前 vl 个 lane 取 max
+    VecReduceMin  // i32 vecreducemin(<N x i32>, i32 %vl) —— 前 vl 个 lane 取 min
 };
 
 // ====== Instruction System Implementation =====
@@ -972,26 +974,48 @@ public:
 
 // %s = vecreduceadd <N x T> %v, i32 %vl —— 对前 vl 个 lane 求和
 // T=i32 → vredsum.vs + vmv.x.s；T=float → vfredosum.vs + vfmv.f.s
+inline Type *vecReduceScalarType(Value *vec)
+{
+    if (auto *vt = dynamic_cast<VectorType *>(vec ? vec->getType() : nullptr))
+    {
+        if (vt->getElementType() && vt->getElementType()->isFloatTy())
+            return FloatType::getInstance();
+    }
+    return IntegerType::getInstance();
+}
+
 class VecReduceAddInst : public Instruction
 {
 public:
     VecReduceAddInst(Value *vec, Value *vl, const string &name = "")
-        : Instruction(reduceResultType(vec), Opcode::VecReduceAdd,
+        : Instruction(vecReduceScalarType(vec), Opcode::VecReduceAdd,
                       vector<Value *>{vec, vl}, name) {}
     Value *getVector() const { return getOperandByIndex(0); }
     Value *getVl() const { return getOperandByIndex(1); }
     string toString() const override;
+};
 
-private:
-    static Type *reduceResultType(Value *vec)
-    {
-        if (auto *vt = dynamic_cast<VectorType *>(vec ? vec->getType() : nullptr))
-        {
-            if (vt->getElementType() && vt->getElementType()->isFloatTy())
-                return FloatType::getInstance();
-        }
-        return IntegerType::getInstance();
-    }
+// %s = vecreducemax / vecreducemin —— 对前 vl 个 lane 取 max/min（i32）
+class VecReduceMaxInst : public Instruction
+{
+public:
+    VecReduceMaxInst(Value *vec, Value *vl, const string &name = "")
+        : Instruction(vecReduceScalarType(vec), Opcode::VecReduceMax,
+                      vector<Value *>{vec, vl}, name) {}
+    Value *getVector() const { return getOperandByIndex(0); }
+    Value *getVl() const { return getOperandByIndex(1); }
+    string toString() const override;
+};
+
+class VecReduceMinInst : public Instruction
+{
+public:
+    VecReduceMinInst(Value *vec, Value *vl, const string &name = "")
+        : Instruction(vecReduceScalarType(vec), Opcode::VecReduceMin,
+                      vector<Value *>{vec, vl}, name) {}
+    Value *getVector() const { return getOperandByIndex(0); }
+    Value *getVl() const { return getOperandByIndex(1); }
+    string toString() const override;
 };
 
 // ===== Basic Block =====

@@ -1,7 +1,7 @@
 INPUT_DIR="debug_case/case_1"
 OUTPUT_DIR="debug_case/case_1"
-INPUT_DIR="case/performance2026"
-OUTPUT_DIR="case/performance2026"
+INPUT_DIR="case/performance2025"
+OUTPUT_DIR="case/performance2025"
 
 BUILD_DIR="myCompiler/build"
 JOBS="$(nproc 2>/dev/null || echo 4)"
@@ -110,6 +110,10 @@ elif [ "$1" == "-qemu-test" ]; then
         # 本地编译 + 传到 qemu + 汇编运行对拍（账号 ubuntu / 密码 WSJ040511）
         shift
         ./tools/qemu_verify.sh "${1:-functional}"
+elif [ "$1" == "-qemu-test-rvv" ]; then
+        # 全量 RVV 验证（functional + h_functional + performance2026），汇编 hash 增量跳过
+        shift
+        ./tools/qemu_verify_rvv.sh "$@"
 elif [ "$1" == "-qemu" ]; then
     # 启用 RVV（v=true）以便验证向量化代码；无 V 扩展时 vec 指令会非法指令
     qemu-system-riscv64 \

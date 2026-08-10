@@ -53,6 +53,8 @@ namespace optimization
     // ===== 数组归约：sum += A[j] / A[j]*A[j] / A[j]*B[j] =====
     struct ArrayReducePattern
     {
+        enum class Kind { Sum, Max, Min };
+
         BasicBlock *entry = nullptr;
         BasicBlock *header = nullptr;
         BasicBlock *body = nullptr;
@@ -61,8 +63,9 @@ namespace optimization
         Value *jIV = nullptr;
         Value *jInit = nullptr;
         Value *bound = nullptr;
-        Value *sum = nullptr;     // 循环内 sum phi（或等价 copy）
+        Value *sum = nullptr;     // 循环内 sum phi（或 latch copy）
         Value *sumInit = nullptr;
+        Value *sumAcc = nullptr;  // copy-based max/min：entry 上的累加器 copy（循环外仍引用）
         Type *elemTy = nullptr;
         bool square = false;  // true: sum += load*load（同一 load）
         bool product = false; // true: sum += loadA*loadB（两路不同 load，点积）
@@ -75,6 +78,7 @@ namespace optimization
         std::vector<Value *> rowIdxs2;
         Value *offset2 = nullptr;
         Value *stride2 = nullptr;
+        Kind kind = Kind::Sum;
     };
 
     // ===== 纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约，无数组访存）的模式结构 =====
@@ -118,8 +122,9 @@ namespace optimization
         bool findElementwiseLoop(const Loop &jLoop, ElemLoopPattern &pat);
         bool vectorizeElementwiseLoop(Function *func, const ElemLoopPattern &pat);
 
-        // 数组归约循环（sum += A[j] / A[j]*A[j] / A[j]*B[j]）
+        // 数组归约循环（sum += A[j] / A[j]*A[j] / A[j]*B[j] / max,min）
         bool findArrayReduceLoop(const Loop &loop, ArrayReducePattern &pat);
+        bool findCopyBasedArrayMaxLoop(const Loop &loop, ArrayReducePattern &pat);
         bool vectorizeArrayReduceLoop(Function *func, const ArrayReducePattern &pat);
 
         // 纯标量链循环（x += d 归纳 + f(x) 计算 + sum 归约）

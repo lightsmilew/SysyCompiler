@@ -163,6 +163,8 @@ namespace RISCV
         VREM_VV, // vrem.vv vd, vs2, vs1
         VID_V,   // vid.v vd（0..vl-1 索引）
         VREDSUM_VS, // vredsum.vs vd, vs2, vs1（归约到 lane0）
+        VREDMAX_VS, // vredmax.vs vd, vs2, vs1
+        VREDMIN_VS, // vredmin.vs vd, vs2, vs1
         VMV_V_X, // vmv.v.x vd, rs1（标量广播）
         VMV_X_S, // vmv.x.s rd, vs2（取 lane 0）
         // RVV 浮点（SEW=32）

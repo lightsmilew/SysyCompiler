@@ -541,6 +541,10 @@ namespace RISCV
                 return "vid.v";
             case RISCVOpcode::VREDSUM_VS:
                 return "vredsum.vs";
+            case RISCVOpcode::VREDMAX_VS:
+                return "vredmax.vs";
+            case RISCVOpcode::VREDMIN_VS:
+                return "vredmin.vs";
             case RISCVOpcode::VMV_V_X:
                 return "vmv.v.x";
             case RISCVOpcode::VMV_X_S:
@@ -635,6 +639,7 @@ namespace RISCV
                  (opcode == RISCVOpcode::VMAX_VV || opcode == RISCVOpcode::VMIN_VV ||
                   opcode == RISCVOpcode::VDIV_VV ||
                   opcode == RISCVOpcode::VREM_VV || opcode == RISCVOpcode::VREDSUM_VS ||
+                  opcode == RISCVOpcode::VREDMAX_VS || opcode == RISCVOpcode::VREDMIN_VS ||
                   opcode == RISCVOpcode::VFADD_VV || opcode == RISCVOpcode::VFSUB_VV ||
                   opcode == RISCVOpcode::VFMUL_VV || opcode == RISCVOpcode::VFDIV_VV ||
                   opcode == RISCVOpcode::VFREDUSUM_VS ||
@@ -1470,6 +1475,8 @@ namespace RISCV
                 }
                 break;
             case RISCVOpcode::VREDSUM_VS:
+            case RISCVOpcode::VREDMAX_VS:
+            case RISCVOpcode::VREDMIN_VS:
             case RISCVOpcode::VFREDUSUM_VS:
             case RISCVOpcode::VFREDOSUM_VS:
                 // vredsum/vfred*sum.vs vd, vs2, vs1 —— vd 同时是累积源（读改写）
@@ -1692,6 +1699,8 @@ namespace RISCV
                 size_t startIdx = (opcode == RISCVOpcode::VSE32_V ||
                                    opcode == RISCVOpcode::VSSE32_V ||
                                    opcode == RISCVOpcode::VREDSUM_VS ||
+                                   opcode == RISCVOpcode::VREDMAX_VS ||
+                                   opcode == RISCVOpcode::VREDMIN_VS ||
                                    opcode == RISCVOpcode::VFREDUSUM_VS ||
                                    opcode == RISCVOpcode::VFREDOSUM_VS)
                                       ? 0

@@ -411,6 +411,14 @@ void InstructionSelector::visitInstruction(Instruction *inst)
         if (auto *vr = dynamic_cast<VecReduceAddInst *>(inst))
             visitVecReduceAddInst(vr);
         break;
+    case Opcode::VecReduceMax:
+        if (auto *vr = dynamic_cast<VecReduceMaxInst *>(inst))
+            visitVecReduceMaxInst(vr);
+        break;
+    case Opcode::VecReduceMin:
+        if (auto *vr = dynamic_cast<VecReduceMinInst *>(inst))
+            visitVecReduceMinInst(vr);
+        break;
     default:
         // 其他指令暂时忽略
         break;
@@ -2642,5 +2650,29 @@ void InstructionSelector::visitVecReduceAddInst(VecReduceAddInst *inst)
             RISCVInstruction::createVectorBinary(RISCVOpcode::VREDSUM_VS, vd, vec, vd));
         currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
     }
+}
+
+void InstructionSelector::visitVecReduceMaxInst(VecReduceMaxInst *inst)
+{
+    auto vec = getOrCreateVectorReg(inst->getVector());
+    auto rd = getOrCreateVirtualReg(inst);
+    auto vd = make_shared<RISCVRegister>(RegisterType::VECTOR);
+    auto seed = getOrCreateVirtualReg(new ConstantInt(IntegerType::getInstance(), -2147483648));
+    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, seed));
+    currentBB->addInstruction(
+        RISCVInstruction::createVectorBinary(RISCVOpcode::VREDMAX_VS, vd, vec, vd));
+    currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
+}
+
+void InstructionSelector::visitVecReduceMinInst(VecReduceMinInst *inst)
+{
+    auto vec = getOrCreateVectorReg(inst->getVector());
+    auto rd = getOrCreateVirtualReg(inst);
+    auto vd = make_shared<RISCVRegister>(RegisterType::VECTOR);
+    auto seed = getOrCreateVirtualReg(new ConstantInt(IntegerType::getInstance(), 2147483647));
+    currentBB->addInstruction(RISCVInstruction::createVectorSplat(vd, seed));
+    currentBB->addInstruction(
+        RISCVInstruction::createVectorBinary(RISCVOpcode::VREDMIN_VS, vd, vec, vd));
+    currentBB->addInstruction(RISCVInstruction::createVectorExtract(rd, vd));
 }
 

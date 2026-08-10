@@ -89,6 +89,8 @@ private:
     void visitVecSplatInst(VecSplatInst *inst);
     void visitVecVidInst(VecVidInst *inst);
     void visitVecReduceAddInst(VecReduceAddInst *inst);
+    void visitVecReduceMaxInst(VecReduceMaxInst *inst);
+    void visitVecReduceMinInst(VecReduceMinInst *inst);
 
     // 获取虚拟寄存器
     // 常量默认用虚拟寄存器，供寄存器分配与 LICM 外提；仅局部 scratch 显式传 isPhysical=true

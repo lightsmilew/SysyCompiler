@@ -68,7 +68,9 @@ namespace optimization
         Value *oldResult = nullptr;        // 原归约结果，供 RAUW
     };
 
-    /// k-i-j scaled-row 更新：C[i][j] = C[i][j] * A[i][k] + B[k][j]（可选 A[i][k]==1 跳过）
+    /// k-i-j scaled-row 更新：
+    ///   add: C[i][j] = C[i][j] * A[i][k] + B[k][j]（可选 A[i][k]==1 跳过）
+    ///   sub: B[j][k] = B[j][k] - A[j][i] * B[i][k]（TRSM rank-1 / float）
     struct ScaledRowUpdateNest
     {
         bool valid = false;
@@ -82,6 +84,7 @@ namespace optimization
         Value *aArray = nullptr;
         Value *bArray = nullptr;
         Value *cArray = nullptr;
+        Type *elemTy = nullptr;
         BasicBlock *kHeader = nullptr;
         BasicBlock *iHeader = nullptr;
         BasicBlock *jHeader = nullptr;
@@ -90,6 +93,7 @@ namespace optimization
         StoreInst *cStore = nullptr;
         ICmpInst *skipCmp = nullptr;
         bool hasSkipGuard = false;
+        bool isSubtract = false;
     };
 
     /// i-j-k 点积 nest：out[i][j] += (可选奇偶条件) * lhs[i][k] * rhs[k][j]

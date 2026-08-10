@@ -438,6 +438,10 @@ string Instruction::getOpcodeName() const
         return "vecvid";
     case Opcode::VecReduceAdd:
         return "vecreduceadd";
+    case Opcode::VecReduceMax:
+        return "vecreducemax";
+    case Opcode::VecReduceMin:
+        return "vecreducemin";
     default:
         throw std::runtime_error("Unknown opcode");
     }
@@ -541,6 +545,8 @@ bool Instruction::hasResult() const
     case Opcode::VecRem:
     case Opcode::VecVid:
     case Opcode::VecReduceAdd:
+    case Opcode::VecReduceMax:
+    case Opcode::VecReduceMin:
         return true;
     default:
         return false; // Ret, Br, Store, VecStore 等没有结果
@@ -750,6 +756,10 @@ Instruction *Instruction::clone() const
     }
     case Opcode::VecReduceAdd:
         return new VecReduceAddInst(getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::VecReduceMax:
+        return new VecReduceMaxInst(getOperandByIndex(0), getOperandByIndex(1), getName());
+    case Opcode::VecReduceMin:
+        return new VecReduceMinInst(getOperandByIndex(0), getOperandByIndex(1), getName());
     default:
         throw std::runtime_error("Clone not implemented for this opcode");
     }
@@ -1594,6 +1604,22 @@ std::string VecReduceAddInst::toString() const
 {
     std::stringstream ss;
     ss << "%" << getName() << " = vecreduceadd " << getVector()->getType()->toString()
+       << " " << getVector()->toRef() << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecReduceMaxInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecreducemax " << getVector()->getType()->toString()
+       << " " << getVector()->toRef() << ", vl=" << getVl()->toRef();
+    return ss.str();
+}
+
+std::string VecReduceMinInst::toString() const
+{
+    std::stringstream ss;
+    ss << "%" << getName() << " = vecreducemin " << getVector()->getType()->toString()
        << " " << getVector()->toRef() << ", vl=" << getVl()->toRef();
     return ss.str();
 }

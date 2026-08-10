@@ -48,8 +48,11 @@ make
 # 生成优化后的 IR（可加 -O0/-O1/-O16/-O17 指定优化等级）
 ./run.sh -ir -O1
 
-# 生成 RISC-V 汇编代码（可加 -O0/-O1/-O16/-O17 指定优化等级）
-./run.sh -riscv -O2
+# 生成 RISC-V 汇编代码（可加 -O0/-O1/-O16/-O17 指定优化等级；加 -rvv 启用 RVV 向量化）
+./run.sh -riscv -O17 -rvv
+
+# RVV 全量 QEMU 正确性（functional + h_functional + performance2026，支持汇编 hash 增量）
+./run.sh -qemu-test-rvv
 
 # gdb 调试所有 .sy 文件，遇到崩溃自动进入 gdb 并打印回溯
 ./run.sh -gdb
@@ -66,7 +69,8 @@ make
 
 - `INPUT_DIR` 和 `OUTPUT_DIR` 可在脚本顶部灵活配置，支持多套测试用例和输出目录切换。
 - 支持自动创建输出目录、超时检测、彩色输出、详细进度提示等功能，便于批量测试和调试。
-- 脚本参数可组合使用，具体用法详见脚本注释或直接运行 `./run.sh` 查看帮助。
+- 脚本参数可组合使用，具体用法详见 [Script.md](docs/Script.md) 或 `./run.sh` 帮助。
+- **RVV 向量化**：编译加 `-rvv`；设计见 [设计文档 §4.5](docs/设计文档.md)；指令与实现见 [RVV.md](docs/RVV.md)。
 
 ### qemu-riscv64 模拟器运行
 

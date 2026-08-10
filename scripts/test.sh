@@ -13,12 +13,22 @@ TIME_LOG="time_history.log"
 # 含 RVV 指令时需 rv64gcv；可用 MARCH=rv64gc 覆盖
 MARCH="${MARCH:-rv64gcv}"
 
+# 若设置 CASE_LIST（每行一个用例名，无 .s），仅处理列表内用例（增量 QEMU 验证）
+case_in_list() {
+    local name="$1"
+    if [ -z "${CASE_LIST:-}" ] || [ ! -f "$CASE_LIST" ]; then
+        return 0
+    fi
+    grep -qxF "$name" "$CASE_LIST"
+}
+
 # 编译功能
 assemble() {
     mkdir -p "$OUTPUT_DIR"
     for file in "$INPUT_DIR"/*.s; do
         [ -f "$file" ] || continue
         filename=$(basename "$file" .s)
+        case_in_list "$filename" || continue
         echo "Assembling $filename (march=$MARCH)...."
 
         ${CROSS_COMPILE}as -march="$MARCH" -g "$file" -o "$OUTPUT_DIR/${filename}.o" || {
@@ -153,6 +163,7 @@ test_programs() {
     for file in "$INPUT_DIR"/*.s; do
         [ -f "$file" ] || continue
         filename=$(basename "$file" .s)
+        case_in_list "$filename" || continue
         exe="$OUTPUT_DIR/$filename"
 
         [ -x "$exe" ] || { echo " 跳过 $filename：无执行文件"; continue; }

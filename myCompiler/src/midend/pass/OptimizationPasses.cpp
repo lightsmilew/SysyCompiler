@@ -210,6 +210,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
+        // phi/copy 归约形态在 LatePass 之后才稳定，再跑一轮向量化
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
     }
     else if (level == OptimizationLevel::O1)
     {
@@ -279,6 +282,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
+        // phi/copy 归约形态在 LatePass 之后才稳定，再跑一轮向量化
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
     }
     else if (level == OptimizationLevel::O2)
     {
@@ -391,7 +397,6 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<ConstantFoldingPass>(verbose));
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
-
 
         // pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
@@ -515,6 +520,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<RemoveUnusedGlobalAndFunctionPass>(verbose));
         pm->addPass(std::make_unique<LoopGccStyleTransformPass>(verbose));
+        // phi/copy 归约形态在 LatePass 之后才稳定，再跑一轮向量化
+        if (CompilerConfig::enableRVV)
+            pm->addPass(std::make_unique<LoopVectorizePass>(verbose));
     }
     return pm;
 }

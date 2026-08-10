@@ -13,10 +13,10 @@
 | 等级 | 用途 |
 |------|------|
 | **O0** | 完整中端流水线（含 `RecursionNormalization` 等；**不含** O1 专属 `LoopVersioning`） |
-| **O1** | 完整流水线 + **`LoopVersioning`**（日常评测主等级） |
+| **O1** | 完整流水线 + **`LoopVersioning`**|
 | **O17** | 完整流水线变体：无 `RecursionNormalization` / `LoopVersioning`；内联后等多一轮 DCE |
 | **O2** | 仅 DCE + Phi 消除（调试/最小优化） |
-| **O15** | 部分 Pass 实验配置（大量 Pass 被注释） |
+| **O15** | 部分 Pass 实验配置 |
 | **O16** | 完整流水线至循环展开附近，**跳过后段** GEP 展开、尾递归、Phi 消除、LICM 等（供后端调试） |
 
 ### O1 流水线阶段概览
@@ -31,7 +31,7 @@
 
 **阶段 C — 循环变换与展开**
 
-`LoopIfGuardHoist` → `LoopNestedBoundTightening` → `BBMerge` → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → **`LoopVersioning`(O1)** → `LoopUnrolling` → `CopyChainElimination` → `InstructionCombine` → `ArrayStoreLoadForward`
+`LoopIfGuardHoist` → `LoopNestedBoundTightening` → `BBMerge` → `LoopInductionStrengthReduction` → `CondGuardedAccumulate` → `MatrixStructureAnalysis` → `SkewSymmetricLoopRestrict` → `LoopInterchange` → **`LoopVectorize`（`-rvv`）** → **`LoopVersioning`(O1)** → `LoopUnrolling` → `CopyChainElimination` → … → **`LoopGccStyleTransform`** → **`LoopVectorize`（`-rvv`，末轮）**
 
 **阶段 D — GEP 与算术归约**
 
@@ -207,7 +207,6 @@
 
 ### LoopLinearIterationFoldPass（外层线性/迭代不变折叠）
 
-两类互补优化，**不使用** copy-nest 模式匹配：
 
 1. **迭代不变外层循环**  
    - 条件：外层 trip > 1；归纳变量在循环体中仅用于比较/自增；所有 loop-carried phi 迭代不变；**读写全局数组在首次 store 前不得 load**（防止跨轮依赖）；每轮按执行顺序的首写 store 不依赖同单元旧值。  
@@ -238,11 +237,12 @@
 
 ---
 
-## 八、循环 — 矩阵/多面体
+## 八、循环 — 矩阵
 
 ### MatrixStructureAnalysisPass（矩阵结构分析）
 
-- 分析嵌套循环的矩阵访问模式，为 interchange / packing 等提供元数据。
+- 分析嵌套循环的矩阵访问模式，为 interchange / **RVV scaled-row 向量化** / packing 等提供元数据。
+- 主要结构：`ScaledRowUpdateNest`（`C[i][j]*=A[i][k]+B[k][j]` 等）、`InPlaceCopyOriginChain`（fill→拷贝→只读 dst）。
 
 ### SkewSymmetricLoopRestrictPass（斜对称循环约束）
 
@@ -252,8 +252,18 @@
 
 - 交换嵌套循环顺序以改善局部性（依赖矩阵结构分析）。
 
+### LoopVectorizePass（RVV 循环向量化，`-rvv`）
 
-
+- **位置**：`LoopInterchange` 之后、`LoopUnrolling` 之前；**O0/O1/O17** 在 `LoopGccStyleTransform` 之后再跑一轮。
+- **前置**：依赖 `MatrixStructureAnalysisPass` 的 scaled-row / copy-chain 元数据；小 trip（≤20 可完全展开）跳过，交给 `LoopUnrollingPass`。
+- **模式**：
+  - scaled-row 矩阵内层更新（int/float，含 TRSM 减法变体）；
+  - 逐元素 1D/2D 循环（含 strided load/store、div/rem、多 store）；
+  - 数组 sum / square-sum / dot-product 归约；
+  - 数组 max/min（phi 与 copy-based 形态）；
+  - 标量链（`VecVid` + lane 表达式 + 归约）。
+- **IR 产出**：`VecSetVl`、`VecLoad`/`VecStore`（及 strided 变体）、向量算术、`VecReduceAdd/Max/Min` 等；详见 [RVV.md](./RVV.md) §12。
+- **实现**：`LoopVectorizePass.cpp` / `.h`，`MatrixStructureAnalysis.cpp`。
 ---
 
 ## 九、数组
@@ -298,14 +308,6 @@
 
 - SSA phi 转为前驱块 copy；为后端与 IR LICM 准备非 SSA 形式。
 
----
-
-## 设计亮点
-
-- **高度模块化**：每个 Pass 独立，便于 `-O15`/`-O16`/`-O1` 分段调试。
-- **GCC 风格协同**：`LoopGccStyleTransform` + 后端 LICM/CSE 针对 latch 上的界与 li/la 模式优化。
-- **迭代不变 + 拷贝传播解耦**：`LoopLinearIterationFold` 负责 trip 折叠；`ArrayCopyPropagation` 负责纯 copy 循环删除，语义分别证明。
-- **调试友好**：所有 Pass 支持 `-info` 详细输出。
 
 ---
 

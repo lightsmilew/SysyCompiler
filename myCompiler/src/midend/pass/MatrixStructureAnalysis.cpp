@@ -660,10 +660,12 @@ namespace optimization::matrixStructure
 
     static bool isScaledRowUpdateStore(StoreInst *store, Value *iIV, Value *jIV, Value *kIV,
                                        LoadInst *&cLoad, LoadInst *&bLoad, LoadInst *&aLoad,
-                                       Value *&cArray, Value *&bArray, Value *&aArray)
+                                       Value *&cArray, Value *&bArray, Value *&aArray,
+                                       bool &isSubtract)
     {
         cLoad = bLoad = aLoad = nullptr;
         cArray = bArray = aArray = nullptr;
+        isSubtract = false;
         if (!store || !iIV || !jIV || !kIV)
             return false;
 
@@ -673,28 +675,64 @@ namespace optimization::matrixStructure
         if (!matchesLoopIV(storeRow, iIV) || !matchesLoopIV(storeCol, jIV))
             return false;
 
-        auto *add = dynamic_cast<BinaryOperator *>(stripCopy(store->getValueToStore()));
-        if (!add || add->getOpcode() != Opcode::Add)
+        auto *top = dynamic_cast<BinaryOperator *>(stripCopy(store->getValueToStore()));
+        if (!top)
             return false;
 
-        auto *mul = dynamic_cast<BinaryOperator *>(stripCopy(add->getLHS()));
-        LoadInst *bLd = resolveLoad(add->getRHS());
-        if (!mul || mul->getOpcode() != Opcode::Mul || !bLd)
+        LoadInst *cLd = nullptr;
+        LoadInst *bLd = nullptr;
+        LoadInst *aLd = nullptr;
+        BinaryOperator *mul = nullptr;
+
+        if (top->getOpcode() == Opcode::Add || top->getOpcode() == Opcode::FAdd)
         {
-            mul = dynamic_cast<BinaryOperator *>(stripCopy(add->getRHS()));
-            bLd = resolveLoad(add->getLHS());
-            if (!mul || mul->getOpcode() != Opcode::Mul || !bLd)
+            mul = dynamic_cast<BinaryOperator *>(stripCopy(top->getLHS()));
+            bLd = resolveLoad(top->getRHS());
+            if (!mul || (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul) ||
+                !bLd)
+            {
+                mul = dynamic_cast<BinaryOperator *>(stripCopy(top->getRHS()));
+                bLd = resolveLoad(top->getLHS());
+            }
+            if (!mul || (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul) ||
+                !bLd)
                 return false;
+            cLd = resolveLoad(mul->getLHS());
+            aLd = resolveLoad(mul->getRHS());
+            if (!cLd)
+            {
+                cLd = resolveLoad(mul->getRHS());
+                aLd = resolveLoad(mul->getLHS());
+            }
+        }
+        else if (top->getOpcode() == Opcode::Sub || top->getOpcode() == Opcode::FSub)
+        {
+            cLd = resolveLoad(top->getLHS());
+            mul = dynamic_cast<BinaryOperator *>(stripCopy(top->getRHS()));
+            if (!cLd || !mul ||
+                (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul))
+            {
+                cLd = resolveLoad(top->getRHS());
+                mul = dynamic_cast<BinaryOperator *>(stripCopy(top->getLHS()));
+            }
+            if (!cLd || !mul ||
+                (mul->getOpcode() != Opcode::Mul && mul->getOpcode() != Opcode::FMul))
+                return false;
+            aLd = resolveLoad(mul->getLHS());
+            bLd = resolveLoad(mul->getRHS());
+            if (!aLd)
+            {
+                aLd = resolveLoad(mul->getRHS());
+                bLd = resolveLoad(mul->getLHS());
+            }
+            isSubtract = true;
+        }
+        else
+        {
+            return false;
         }
 
-        LoadInst *cLd = resolveLoad(mul->getLHS());
-        LoadInst *aLd = resolveLoad(mul->getRHS());
-        if (!cLd)
-        {
-            cLd = resolveLoad(mul->getRHS());
-            aLd = resolveLoad(mul->getLHS());
-        }
-        if (!cLd || !aLd)
+        if (!cLd || !bLd || !aLd)
             return false;
 
         Value *cRow = nullptr, *cCol = nullptr, *cBase = nullptr;
@@ -812,13 +850,14 @@ namespace optimization::matrixStructure
         Value *cArray = nullptr;
         Value *bArray = nullptr;
         Value *aArray = nullptr;
+        bool isSubtract = false;
         for (auto &instPtr : jBody->getInstructions())
         {
             auto *st = dynamic_cast<StoreInst *>(instPtr.get());
             if (!st)
                 continue;
             if (!isScaledRowUpdateStore(st, iIV, jIV, kIV, cLoad, bLoad, aLoad, cArray, bArray,
-                                        aArray))
+                                        aArray, isSubtract))
                 continue;
             if (witness)
             {
@@ -875,6 +914,8 @@ namespace optimization::matrixStructure
         out.cStore = witness;
         out.skipCmp = skipCmp;
         out.hasSkipGuard = hasSkipGuard;
+        out.isSubtract = isSubtract;
+        out.elemTy = cLoad ? cLoad->getType() : nullptr;
         return true;
     }
 

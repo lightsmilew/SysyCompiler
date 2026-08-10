@@ -1,6 +1,6 @@
 # RISC-V Vector Extension (RVV) 指令集参考
 
-本文档面向本编译器后续 **RVV 向量化扩展**，整理 RVV 1.0 程序员模型与常用指令。完整规范见 [RISC-V V Extension 1.0](https://docs.riscv.org/reference/isa/v20250508/unpriv/v-st-ext.html)。
+本文档包含 **RVV 1.0 程序员模型与常用指令**（§1–§8），以及本编译器 **`-rvv` 向量化扩展的实现说明**（§12）。架构与流水线位置见 [设计文档.md](./设计文档.md) §4.5；Pass 细节见 [IRPass.md](./IRPass.md)「LoopVectorizePass」。
 
 > **说明**：RVV 是可变长向量扩展（非定长 Packed-SIMD）。定长 P 扩展不在本文范围。
 
@@ -356,18 +356,18 @@ QEMU / 交叉工具链常见 march：`rv64gcv`、`rv64gc_zve32f` 等。
 
 ---
 
-## 9. 编译器后端落地清单（建议）
+## 9. 编译器后端落地清单
 
-实现 RVV 扩展时可按下列顺序接入：
+| 项 | 状态 | 说明 |
+|----|------|------|
+| MIR / 指令枚举 | **已实现** | `RISCVOpcode`：`VSETVLI`、`VLE32_V`/`VSE32_V`、`VLSE32_V`/`VSSE32_V`、整数/浮点 `.vv`、归约 |
+| `vset*` 插入 | **已实现** | `VecSetVlInst` → `vsetvli`；默认 e32、m1、ta/ma |
+| 寄存器分配 | **已实现** | 向量寄存器独立着色；LMUL 固定 m1 |
+| 调用约定 | **保守** | SysY 无向量 ABI；向量值不跨函数调用存活 |
+| 循环向量化 | **已实现** | `LoopVectorizePass`：strip-mining + 多种循环模式（见 §12） |
+| mask / gather | **未实现** | 暂无条件向量循环、`vrgather` 等 |
 
-1. **MIR / 指令枚举**：配置、`vle/vse`、整数 `.vv/.vx`、`vmv`、归约。
-2. **`vset*` 插入**：按 SEW/LMUL/`vl` 需求放置；避免冗余配置。
-3. **寄存器分配**：向量寄存器 `v0`–`v31`；注意 LMUL>1 时的组约束与 `v0` 掩码占用。
-4. **调用约定**：调用者保存向量状态（或按平台 ABI / 保守全保存）；SysY 无向量 ABI 时可先禁止跨调用存活。
-5. **循环向量化**：识别可向量化循环 → 生成 strip-mining（`vsetvli` + body + 指针推进）。
-6. **浮点 / mask / gather**：按收益逐步打开。
-
-最小向量加循环模板：
+最小向量加循环模板（与后端生成形态一致）：
 
 ```asm
 # a0=n, a1=dst, a2=src0, a3=src1
@@ -415,8 +415,74 @@ QEMU / 交叉工具链常见 march：`rv64gcv`、`rv64gc_zve32f` 等。
 
 ---
 
+## 12. 本编译器 `-rvv` 向量化实现
+
+### 12.1 启用方式
+
+```bash
+./myCompiler/build/my_compiler -S -o out.s prog.sy -rvv          # O0 + RVV
+./myCompiler/build/my_compiler -S -o out.s prog.sy -O17 -rvv   # 性能测例推荐
+./run.sh -riscv -O17 -rvv
+```
+
+`-rvv` 设置 `CompilerConfig::enableRVV`，在 O0/O1/O17 流水线中插入 `LoopVectorizePass`。**O0/O1/O17** 均在 `LoopInterchange` 后与 **`LoopGccStyleTransform` 末尾**各跑一轮（后者用于 copy/phi 归约形态稳定后的 array max 等）。
+
+QEMU 运行需向量扩展：`qemu-riscv64 -cpu rv64,v=true,vlen=128 …`
+
+### 12.2 IR 向量指令
+
+| Opcode | 含义 | 后端 |
+|--------|------|------|
+| `VecSetVl` | 按剩余 trip 设置 vl | `vsetvli` |
+| `VecLoad` / `VecStore` | 连续 load/store | `vle32.v` / `vse32.v` |
+| `VecLoadStrided` / `VecStoreStrided` | 跨步访存 | `vlse32.v` / `vsse32.v` |
+| `VecAdd/Sub/Mul/Div/Rem/…` | 逐 lane 算术 | `vadd.vv` 等 / `vfadd.vv` 等 |
+| `VecSplat` | 标量广播 | `vmv.v.x` / `vfmv.v.f` |
+| `VecVid` | lane 索引 | `vid.v` |
+| `VecReduceAdd/Max/Min` | 块内归约 | `vredsum` / `vredmax` / `vredmin`；浮点 `vfredosum` |
+
+实现文件：`LoopVectorizePass.cpp`、`InstructionSelector.cpp`（向量 lowering）、`IRDataStructure.h`。
+
+### 12.3 已支持的循环模式
+
+1. **Scaled-row 更新**（`MatrixStructureAnalysis::scaledRowUpdateNests`）  
+   `C[i][j] *= A[i][k] + B[k][j]` 及 `continue when A[i][k]==1`；浮点与同构 **TRSM 减法** `B[j][k]-=A[j][i]*B[i][k]`。
+
+2. **逐元素循环**（`findElementwiseLoop`）  
+   常量填充、拷贝、`axpy`、逐元素 int/float 二元运算；1D/2D GEP、列 stride、多 store。
+
+3. **数组归约**  
+   `sum+=A[i]`、`sum+=A[i]*A[i]`、`sum+=A[i]*B[i]` → strip-mining + `VecReduceAdd`。
+
+4. **数组 max/min**  
+   phi 归约与 **copy-based if** 形态；copy 链用向量体累加器（避免 guard 边寄存器未初始化）。
+
+5. **标量链**  
+   lane 独立表达式 + 归约（`VecVid` + 算术 + `VecReduceAdd`）。
+
+
+### 12.4 测试
+
+| 命令 | 范围 |
+|------|------|
+| `./run.sh -qemu-test-rvv` | functional + h_functional（O0-rvv）+ performance2026（O17-rvv） |
+| `FORCE_QEMU=1 ./run.sh -qemu-test-rvv` | 忽略汇编 hash 缓存，全量 QEMU |
+| `./tools/rvv_patterns_verify.sh` | `case/rvv_patterns/` 专项样例（norvv/rvv 对照） |
+
+汇编 SHA256 缓存在 `.cache/qemu_asm/asm_sha256.tsv`；与上次 PASS 且 hash 一致则跳过 scp 与 guest 运行。
+
+### 12.5 尚未覆盖
+
+- 条件向量循环（mask、`vmerge`）
+- `vrgather` / indexed load（FFT 奇偶置换等）
+- LMUL>1、SEW≠32 的通用支持
+- 跨函数向量 ABI
+
+---
+
 ## 修订记录
 
 | 日期 | 说明 |
 |------|------|
 | 2026-08-07 | 初版：RVV 1.0 模型与指令分类，供后端向量扩展使用 |
+| 2026-08-10 | §9 更新为已实现状态；新增 §12 编译器 `-rvv` 向量化说明 |
