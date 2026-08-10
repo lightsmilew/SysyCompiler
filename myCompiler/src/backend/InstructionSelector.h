@@ -43,6 +43,10 @@ private:
                                  shared_ptr<RISCVBasicBlock> setupBB,
                                  shared_ptr<RISCVBasicBlock> loopBB,
                                  shared_ptr<RISCVBasicBlock> tailBB);
+    void emitRvvAllocaZeroInit(const vector<PendingAllocaInit> &group,
+                               shared_ptr<RISCVBasicBlock> setupBB,
+                               shared_ptr<RISCVBasicBlock> loopBB,
+                               shared_ptr<RISCVBasicBlock> tailBB);
 
 public:
     InstructionSelector() {}

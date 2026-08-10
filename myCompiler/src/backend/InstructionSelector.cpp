@@ -1,7 +1,13 @@
 #include "InstructionSelector.h"
+#include "common/CompilerConfig.h"
 #include <algorithm>
 #include <map>
 using namespace RISCV;
+
+namespace
+{
+constexpr int kRvvAllocaZeroMinBytes = 32;
+}
 // RISC-V 参数寄存器映射常量
 const vector<RISCVRegister::PhysicalReg> INT_PARAM_REGS = {
     RISCVRegister::PhysicalReg::A0, RISCVRegister::PhysicalReg::A1,
@@ -974,6 +980,97 @@ void InstructionSelector::flushPendingAllocaInits()
     pendingAllocaInitBB = nullptr;
 }
 
+void InstructionSelector::emitRvvAllocaZeroInit(const vector<PendingAllocaInit> &group,
+                                                shared_ptr<RISCVBasicBlock> setupBB,
+                                                shared_ptr<RISCVBasicBlock> loopBB,
+                                                shared_ptr<RISCVBasicBlock> tailBB)
+{
+    if (group.empty() || !setupBB || !loopBB)
+        return;
+
+    const int byteSize = group[0].size;
+    const int tailBytes = byteSize & 7;
+    const int fullBytes = byteSize - tailBytes;
+    const int elemCount = fullBytes / 4;
+    if (elemCount <= 0)
+        return;
+
+    const int baseStackOffset = group[0].stackOffset;
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+    auto zeroVec = make_shared<RISCVRegister>(RegisterType::VECTOR);
+    auto primaryBase = group[0].baseReg;
+    auto prevSelBB = currentBB;
+
+    auto addLi = [&](shared_ptr<RISCVBasicBlock> bb, int imm)
+    {
+        auto reg = getTempReg(true);
+        bb->addInstruction(RISCVInstruction::createPseudoLI(reg, imm));
+        return reg;
+    };
+
+    auto emitPtrForItem = [&](shared_ptr<RISCVBasicBlock> bb, const PendingAllocaInit &item)
+    {
+        const int relOff = item.stackOffset - baseStackOffset;
+        auto ptrReg = getTempReg(true);
+        if (relOff == 0)
+        {
+            bb->addInstruction(
+                RISCVInstruction::createPseudo(RISCVOpcode::MV, ptrReg, primaryBase));
+        }
+        else if (isValidImmediate(relOff, Opcode::Add))
+        {
+            bb->addInstruction(RISCVInstruction::createIType(
+                RISCVOpcode::ADDI, ptrReg, primaryBase, relOff));
+        }
+        else
+        {
+            auto offReg = addLi(bb, relOff);
+            bb->addInstruction(RISCVInstruction::createRType(
+                RISCVOpcode::ADD, ptrReg, primaryBase, offReg));
+        }
+        return ptrReg;
+    };
+
+    auto countReg = addLi(setupBB, elemCount);
+    vector<shared_ptr<RISCVRegister>> ptrRegs;
+    ptrRegs.reserve(group.size());
+    for (const auto &item : group)
+        ptrRegs.push_back(emitPtrForItem(setupBB, item));
+
+    auto vlReg = getTempReg(true);
+    loopBB->addInstruction(RISCVInstruction::createVectorSetVl(vlReg, countReg));
+    loopBB->addInstruction(RISCVInstruction::createVectorSplat(zeroVec, zeroReg));
+    for (const auto &ptrReg : ptrRegs)
+    {
+        loopBB->addInstruction(
+            RISCVInstruction::createVectorMemory(RISCVOpcode::VSE32_V, zeroVec, ptrReg));
+    }
+    loopBB->addInstruction(RISCVInstruction::createRType(
+        RISCVOpcode::SUB, countReg, countReg, vlReg));
+    auto advReg = getTempReg(true);
+    loopBB->addInstruction(RISCVInstruction::createIType(
+        RISCVOpcode::SLLI, advReg, vlReg, 2));
+    for (const auto &ptrReg : ptrRegs)
+    {
+        loopBB->addInstruction(RISCVInstruction::createRType(
+            RISCVOpcode::ADD, ptrReg, ptrReg, advReg));
+    }
+    loopBB->addInstruction(RISCVInstruction::createBType(
+        RISCVOpcode::BNE, countReg, zeroReg, loopBB->getLabel()));
+
+    if (tailBytes >= 4)
+    {
+        auto tailTarget = tailBB ? tailBB : loopBB;
+        for (const auto &ptrReg : ptrRegs)
+        {
+            tailTarget->addInstruction(
+                RISCVInstruction::createSType(RISCVOpcode::SW, ptrReg, zeroReg, 0));
+        }
+    }
+
+    currentBB = prevSelBB;
+}
+
 void InstructionSelector::emitFusedAllocaZeroInit(const vector<PendingAllocaInit> &group,
                                                   shared_ptr<RISCVBasicBlock> setupBB,
                                                   shared_ptr<RISCVBasicBlock> loopBB,
@@ -983,10 +1080,16 @@ void InstructionSelector::emitFusedAllocaZeroInit(const vector<PendingAllocaInit
         return;
 
     const int byteSize = group[0].size;
-    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
-
     const int tailBytes = byteSize & 7;
     const int fullBytes = byteSize - tailBytes;
+    if (CompilerConfig::enableRVV && byteSize >= kRvvAllocaZeroMinBytes && fullBytes >= 16)
+    {
+        emitRvvAllocaZeroInit(group, setupBB, loopBB, tailBB);
+        return;
+    }
+
+    auto zeroReg = make_shared<RISCVRegister>(RISCVRegister::PhysicalReg::ZERO);
+
     const int loopLimitDelta = byteSize - (tailBytes ? 8 : 0);
 
     if (fullBytes > 0)

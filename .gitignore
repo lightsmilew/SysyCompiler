@@ -13,4 +13,4 @@ libsysy_riscv.a
 compiler2023/*
 fpga-remote-debugging/*
 tools/*
-
+cmp_perf2025/*
