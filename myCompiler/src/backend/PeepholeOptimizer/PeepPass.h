@@ -33,6 +33,11 @@ private:
     /// mv a, b 后紧跟 mv b, a：第二条多余（b 未被改写，a 已等于 b 的原值）
     bool isRedundantPingPongMove(shared_ptr<RISCVInstruction> instr,
                                  shared_ptr<RISCVBasicBlock> bb);
+    /// mv rd, rs ; sw/sd rd, imm(base) → sw/sd rs, imm(base)，且 rd 再无其它引用时可删 mv
+    bool tryFoldMoveIntoFollowingStore(shared_ptr<RISCVInstruction> instr,
+                                       shared_ptr<RISCVBasicBlock> bb);
+    static bool isIntegerStoreOpcode(RISCVOpcode opcode);
+    static bool isFloatStoreOpcode(RISCVOpcode opcode);
 };
 
 // 融合相邻的li+mv和地址计算+load/store

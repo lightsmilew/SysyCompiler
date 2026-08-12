@@ -68,7 +68,92 @@ PeepOptiState RemoveRedundantMovePass::optimize(shared_ptr<RISCVInstruction> ins
         return PeepOptiState::DELETE;
     }
 
+    if (tryFoldMoveIntoFollowingStore(instr, bb))
+    {
+        return PeepOptiState::DELETE;
+    }
+
     return PeepOptiState::KEEP;
+}
+
+bool RemoveRedundantMovePass::isIntegerStoreOpcode(RISCVOpcode opcode)
+{
+    return opcode == RISCVOpcode::SB || opcode == RISCVOpcode::SH || opcode == RISCVOpcode::SW ||
+           opcode == RISCVOpcode::SD;
+}
+
+bool RemoveRedundantMovePass::isFloatStoreOpcode(RISCVOpcode opcode)
+{
+    return opcode == RISCVOpcode::FSW || opcode == RISCVOpcode::FSD;
+}
+
+bool RemoveRedundantMovePass::tryFoldMoveIntoFollowingStore(shared_ptr<RISCVInstruction> instr,
+                                                            shared_ptr<RISCVBasicBlock> bb)
+{
+    if (!instr || !bb)
+        return false;
+
+    const auto mvOpcode = instr->getOpcode();
+    const bool isIntMv = mvOpcode == RISCVOpcode::MV;
+    const bool isFloatMv = mvOpcode == RISCVOpcode::FMV_S;
+    if (!isIntMv && !isFloatMv)
+        return false;
+
+    auto mvOps = instr->getOperands();
+    if (mvOps.size() < 2 || mvOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        mvOps[1]->getType() != RISCVOperand::Type::REGISTER)
+        return false;
+
+    auto rd = mvOps[0]->getReg();
+    auto rs = mvOps[1]->getReg();
+    if (!rd || !rs || !rd->isPhysical() || !rs->isPhysical() || *rd == *rs)
+        return false;
+
+    auto &instrs = bb->getInstructions();
+    auto it = find(instrs.begin(), instrs.end(), instr);
+    if (it == instrs.end())
+        return false;
+
+    auto nextIt = it + 1;
+    if (nextIt == instrs.end() || !*nextIt)
+        return false;
+
+    auto store = *nextIt;
+    const auto stOp = store->getOpcode();
+    if (isIntMv && !isIntegerStoreOpcode(stOp))
+        return false;
+    if (isFloatMv && !isFloatStoreOpcode(stOp))
+        return false;
+
+    // S 型：ops = [base, value, imm]，汇编为 `sw value, imm(base)`
+    auto stOps = store->getOperands();
+    if (stOps.size() < 3 || stOps[0]->getType() != RISCVOperand::Type::REGISTER ||
+        stOps[1]->getType() != RISCVOperand::Type::REGISTER ||
+        stOps[2]->getType() != RISCVOperand::Type::IMMEDIATE)
+        return false;
+
+    auto baseReg = stOps[0]->getReg();
+    auto valueReg = stOps[1]->getReg();
+    if (!baseReg || !valueReg || !(*valueReg == *rd))
+        return false;
+    // 地址也依赖 rd 时不能只改 value
+    if (*baseReg == *rd)
+        return false;
+
+    // store 之后到重定义前，rd 不能再有引用
+    for (auto scan = nextIt + 1; scan != instrs.end(); ++scan)
+    {
+        if (!*scan)
+            continue;
+        if (containsRegister((*scan)->getUseRegisters(), rd))
+            return false;
+        if (containsRegister((*scan)->getDefRegisters(), rd))
+            break;
+    }
+
+    // sw/sd rd, imm(base) → sw/sd rs, imm(base)
+    store->replaceOperand(1, make_shared<RISCVOperand>(rs));
+    return true;
 }
 
 bool RemoveRedundantMovePass::isRedundantMove(shared_ptr<RISCVInstruction> instr)
