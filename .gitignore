@@ -14,4 +14,5 @@ compiler2023/*
 fpga-remote-debugging/*
 tools/*
 cmp_perf2025/*
+cmp_perf2026/*
 .cache/*

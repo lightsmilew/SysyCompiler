@@ -24,6 +24,31 @@ namespace
         return 4;
     }
 
+    static int64_t typeSizeBytes(Type *ty)
+    {
+        if (!ty)
+            return 4;
+        if (auto *arr = dynamic_cast<ArrayType *>(ty))
+            return static_cast<int64_t>(arr->NumElements) * typeSizeBytes(arr->ElementType);
+        return getElemSizeBytes(ty);
+    }
+
+    // GEP：第 0 个下标按指针所指类型整块步进；其后下标深入聚合体
+    static int64_t strideBytesForVaryingIndex(GetElementPtrInst *gep, int varyPos)
+    {
+        Type *ty = gep->getPointerOperand()->getType();
+        if (auto *ptrTy = dynamic_cast<PointerType *>(ty))
+            ty = ptrTy->ElementType;
+        for (int i = 0; i < varyPos && ty; ++i)
+        {
+            if (auto *arr = dynamic_cast<ArrayType *>(ty))
+                ty = arr->ElementType;
+            else
+                break;
+        }
+        return typeSizeBytes(ty);
+    }
+
     // 仅处理展开后的一维 GEP：只有一个有效索引
     Value *getActiveIndex(GetElementPtrInst *gep)
     {
@@ -56,23 +81,6 @@ namespace
         vector<int> constSig; // 常数下标；变化维为 -1
         Value *varyIndex = nullptr;
     };
-
-    static int64_t strideBytesForVaryingIndex(GetElementPtrInst *gep, int varyPos)
-    {
-        Type *ty = gep->getPointerOperand()->getType();
-        if (auto *ptrTy = dynamic_cast<PointerType *>(ty))
-            ty = ptrTy->ElementType;
-        const auto &indices = gep->getIndices();
-        for (int i = 0; i < varyPos && ty; ++i)
-        {
-            if (auto *arr = dynamic_cast<ArrayType *>(ty))
-                ty = arr->ElementType;
-        }
-        if (auto *arr = dynamic_cast<ArrayType *>(ty))
-            return static_cast<int64_t>(arr->NumElements) *
-                   getElemSizeBytes(arr->getGroundElementType());
-        return getElemSizeBytes(ty);
-    }
 
     static bool parseMultiDimGep(GetElementPtrInst *gep, MultiDimGepInfo &info)
     {

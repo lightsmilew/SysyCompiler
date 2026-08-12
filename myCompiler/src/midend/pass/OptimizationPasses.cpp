@@ -198,6 +198,10 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        // GEP→指针 IV：须在 Phi 消除前，利用 header phi / latch 回边做递推
+        //pm->addPass(std::make_unique<LoopPointerInductionPass>(verbose));
+        // 指针 IV 接管循环控制后删除仅用于控制的整数 IV
+        //pm->addPass(std::make_unique<LoopPointerControlIVPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
@@ -270,6 +274,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        // GEP→指针 IV：须在 Phi 消除前，利用 header phi / latch 回边做递推
+        //pm->addPass(std::make_unique<LoopPointerInductionPass>(verbose));
+        //pm->addPass(std::make_unique<LoopPointerControlIVPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
         pm->addPass(std::make_unique<LoopInvariantCodeMotionPass>(verbose));
@@ -398,6 +405,11 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
         pm->addPass(std::make_unique<BasicBlockMergePass>(verbose));
 
+        // O16：先展开 GEP，再在保留 phi 的阶段做指针归纳
+        pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
+        //pm->addPass(std::make_unique<LoopPointerInductionPass>(verbose));
+        //pm->addPass(std::make_unique<LoopPointerControlIVPass>(verbose));
+
         // pm->addPass(std::make_unique<GEPExpansionPass>(verbose));
         // pm->addPass(std::make_unique<ArrayStoreLoadForwardPass>(verbose));
         // pm->addPass(std::make_unique<DeadCodeEliminationPass>(verbose));
@@ -411,6 +423,7 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         // pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         // pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         // pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        // pm->addPass(std::make_unique<LoopPointerInductionPass>(verbose));
         // pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // // phi指令限制了循环不变量外提，所以必须先消除phi指令
         // pm->addPass(std::make_unique<AddChainReductionPass>(verbose));
@@ -504,6 +517,9 @@ std::unique_ptr<PassManager> optimization::createOptimizationPipeline(Optimizati
         pm->addPass(std::make_unique<TailRecursionEliminationPass>(verbose));
         pm->addPass(std::make_unique<FunctionInliningPass>(verbose, true));
         pm->addPass(std::make_unique<GEPToBitCastPass>(verbose));
+        // GEP→指针 IV：须在 Phi 消除前，利用 header phi / latch 回边做递推
+        //pm->addPass(std::make_unique<LoopPointerInductionPass>(verbose));
+        //pm->addPass(std::make_unique<LoopPointerControlIVPass>(verbose));
         pm->addPass(std::make_unique<PhiEliminationPass>(verbose));
         // phi指令限制了循环不变量外提，所以必须先消除phi指令
         pm->addPass(std::make_unique<AddChainReductionPass>(verbose));

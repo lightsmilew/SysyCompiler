@@ -10,6 +10,8 @@
 #include "LoopGccStyleTransformPass.h"
 #include "LoopIfGuardHoistPass.h"
 #include "LoopInductionStrengthReductionPass.h"
+#include "LoopPointerInductionPass.h"
+#include "LoopPointerControlIVPass.h"
 #include "LoopInterchangePass.h"
 #include "MatrixStructureAnalysis.h"
 #include "SkewSymmetricLoopRestrictPass.h"
