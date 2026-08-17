@@ -2,19 +2,28 @@
 
 ## 设计文档
 
-详细[设计文档](docs/设计文档.md)请参见 `docs` 文件夹，包含前端、IR、优化、后端等各阶段的设计与实现说明。
-
----
+详细[设计文档](docs/设计文档.md)请参见 `docs` 文件夹，包含前端、IR、优化、后端等各阶段的设计与实现说明。扩展文法见 [扩展文法与中端改造指南](docs/扩展文法与中端改造指南.md)。
 
 ## 操作
 
-### 生成词法语法
+### 生成词法语法（ANTLR）
+
+仓库根目录已提供 `antlr-4.13.2-complete.jar`（生成器）；C++ 运行时在 `myCompiler/3rd_party/antlr4-runtime/`。改文法后在 **`myCompiler/src`** 下执行：
 
 ```bash
-java -jar /path/to/antlr-4.13.2-complete.jar -Dlanguage=Cpp -no-listener -visitor -o frontend/generate SysY.g4
+cd myCompiler/src
+
+java -jar ../../antlr-4.13.2-complete.jar \
+  -Dlanguage=Cpp \
+  -no-listener \
+  -visitor \
+  -o frontend/generate \
+  SysY.g4
 ```
 
-antlr4 下载使用教程请查看[清华大学编译原理课设教程](https://decaf-lang.github.io/minidecaf-tutorial/docs/contest/frontend.html)
+然后 `./run.sh -rebuild`。如何改 `SysY.g4`、以及 for/移位/`double`/`unsigned`/指针等扩展，见 [扩展文法与中端改造指南](docs/扩展文法与中端改造指南.md)。
+
+antlr4 背景也可参考[清华大学编译原理课设教程](https://decaf-lang.github.io/minidecaf-tutorial/docs/contest/frontend.html)。
 
 ### 编译
 

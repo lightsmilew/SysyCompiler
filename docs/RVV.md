@@ -1,6 +1,6 @@
 # RISC-V Vector Extension (RVV) 指令集参考
 
-本文档包含 **RVV 1.0 程序员模型与常用指令**（§1–§8），以及本编译器 **`-rvv` 向量化扩展的实现说明**（§12）。架构与流水线位置见 [设计文档.md](./设计文档.md) §4.5；Pass 细节见 [IRPass.md](./IRPass.md)「LoopVectorizePass」。
+本文档包含 **RVV 1.0 程序员模型与常用指令**（§1–§8），以及本编译器 **`-rvv` 向量化扩展的实现说明**（§12）。§12.2 按**向量化模式**列出该模式生成汇编里会出现的向量指令集合，便于对照 `.s` 定位 bug。架构与流水线位置见 [设计文档.md](./设计文档.md) §4.5；Pass 细节见 [IRPass.md](./IRPass.md)「LoopVectorizePass」。
 
 > **说明**：RVV 是可变长向量扩展（非定长 Packed-SIMD）。定长 P 扩展不在本文范围。
 
@@ -429,39 +429,178 @@ QEMU / 交叉工具链常见 march：`rv64gcv`、`rv64gc_zve32f` 等。
 
 QEMU 运行需向量扩展：`qemu-riscv64 -cpu rv64,v=true,vlen=128 …`
 
-### 12.2 IR 向量指令
+### 12.2 各模式用到的向量指令
 
-| Opcode | 含义 | 后端 |
-|--------|------|------|
-| `VecSetVl` | 按剩余 trip 设置 vl | `vsetvli` |
-| `VecLoad` / `VecStore` | 连续 load/store | `vle32.v` / `vse32.v` |
-| `VecLoadStrided` / `VecStoreStrided` | 跨步访存 | `vlse32.v` / `vsse32.v` |
-| `VecAdd/Sub/Mul/Div/Rem/…` | 逐 lane 算术 | `vadd.vv` 等 / `vfadd.vv` 等 |
-| `VecSplat` | 标量广播 | `vmv.v.x` / `vfmv.v.f` |
-| `VecVid` | lane 索引 | `vid.v` |
-| `VecReduceAdd/Max/Min` | 块内归约 | `vredsum` / `vredmax` / `vredmin`；浮点 `vfredosum` |
+实现：`LoopVectorizePass.cpp` → `InstructionSelector.cpp`。统一配置：`vsetvli …, e32, m1, ta, ma`。
 
-实现文件：`LoopVectorizePass.cpp`、`InstructionSelector.cpp`（向量 lowering）、`IRDataStructure.h`。
+识别顺序：Scaled-row → Elementwise → Array reduce/max/min → Scalar chain；存在有效 `inPlaceCopyOriginChain` 时整函数跳过向量化。
 
-### 12.3 已支持的循环模式
+下面「用到的指令」指该模式向量循环体里**会发出的 RISC-V 向量指令集合**（标量 `add/sub/mul/gep/branch` 省略）。浮点列在括号内。
 
-1. **Scaled-row 更新**（`MatrixStructureAnalysis::scaledRowUpdateNests`）  
-   `C[i][j] *= A[i][k] + B[k][j]` 及 `continue when A[i][k]==1`；浮点与同构 **TRSM 减法** `B[j][k]-=A[j][i]*B[i][k]`。
+---
 
-2. **逐元素循环**（`findElementwiseLoop`）  
-   常量填充、拷贝、`axpy`、逐元素 int/float 二元运算；1D/2D GEP、列 stride、多 store。
+#### A. Scaled-row 更新
 
-3. **数组归约**  
-   `sum+=A[i]`、`sum+=A[i]*A[i]`、`sum+=A[i]*B[i]` → strip-mining + `VecReduceAdd`。
+- **形态**：`C[i][j] = C[i][j]*scale + B[k][j]`，或 TRSM 减法形 `C -= scale*B`
+- **函数**：`vectorizeScaledRowUpdate`
 
-4. **数组 max/min**  
-   phi 归约与 **copy-based if** 形态；copy 链用向量体累加器（避免 guard 边寄存器未初始化）。
+| 用途 | 指令 |
+|------|------|
+| 设 vl | `vsetvli` |
+| 广播 scale | `vmv.v.x`（`vfmv.v.f`） |
+| 读 C / B 行 | `vle32.v` ×2 |
+| 乘加形 | `vmul.vv` + `vadd.vv`（`vfmul.vv` + `vfadd.vv`） |
+| 乘减形 | `vmul.vv` + `vsub.vv`（`vfmul.vv` + `vfsub.vv`） |
+| 写回 C | `vse32.v` |
 
-5. **标量链**  
-   lane 独立表达式 + 归约（`VecVid` + 算术 + `VecReduceAdd`）。
+**不用**：`vid.v`、`vlse32`/`vsse32`、任何 `vred*` / `vfred*`。
 
+典型序列（乘加）：
 
-### 12.4 测试
+```text
+vsetvli t0, count, e32, m1, ta, ma
+vmv.v.x  vS, scale          # 或 vfmv.v.f
+vle32.v  vC, (cPtr)
+vle32.v  vB, (bPtr)
+vmul.vv  vT, vC, vS         # 或 vfmul.vv
+vadd.vv  vT, vT, vB         # 或 vfadd.vv；减法形则为 vsub
+vse32.v  vT, (cPtr)
+```
+
+---
+
+#### B. 逐元素循环（Elementwise）
+
+- **形态**：填充、拷贝、`axpy`、逐元素算术/移位等写回数组
+- **函数**：`vectorizeElementwiseLoop`
+- **说明**：具体子集随表达式变化；下表为该模式**可能**出现的全集
+
+| 用途 | 指令 |
+|------|------|
+| 设 vl | `vsetvli` |
+| 常量/不变式广播 | `vmv.v.x`（`vfmv.v.f`） |
+| 连续读/写 | `vle32.v` / `vse32.v` |
+| 跨步读/写（列 stride） | `vlse32.v` / `vsse32.v`（stride=元素步长×4 字节） |
+| 算术 | `vadd.vv` `vsub.vv` `vmul.vv` `vdiv.vv` `vrem.vv`（浮点：`vfadd` `vfsub` `vfmul` `vfdiv`，无 frem） |
+| 移位 | `vsll.vv` `vsrl.vv` `vsra.vv`（仅 int） |
+
+**不用**：`vid.v`、`vredsum`/`vredmax`/`vredmin`/`vfredosum`。
+
+拷贝最小集：`vsetvli` + `vle32.v` + `vse32.v`  
+axpy 常见集：`vsetvli` + `vmv.v.x`/`vfmv.v.f` + `vle32.v`×2 + `vmul`/`vfmul` + `vadd`/`vfadd` + `vse32.v`
+
+---
+
+#### C. 数组归约（sum / 平方和 / dot）
+
+- **形态**：`sum+=A[i]`；`sum+=A[i]*A[i]`；`sum+=A[i]*B[i]`
+- **函数**：`vectorizeArrayReduceLoop`（`Kind::Sum`）
+
+| 用途 | 指令 |
+|------|------|
+| 设 vl | `vsetvli` |
+| 读数组 | `vle32.v`；跨步则 `vlse32.v`（dot 可两路） |
+| 平方 / 点积 | `vmul.vv`（`vfmul.vv`） |
+| 块内求和 | 零种子 `vmv.v.x`/`vfmv.v.f` + **`vredsum.vs`** / **`vfredosum.vs`** + `vmv.x.s` / `vfmv.f.s` |
+
+**不用**：`vid.v`、`vse32`/`vsse32`、`vredmax`/`vredmin`。
+
+普通 sum：
+
+```text
+vsetvli t0, count, e32, m1, ta, ma
+vle32.v   vA, (ptr)           # 或 vlse32.v
+vmv.v.x   vZ, zero            # 浮点 vfmv.v.f
+vredsum.vs vZ, vA, vZ         # 浮点 vfredosum.vs
+vmv.x.s   t1, vZ              # 浮点 vfmv.f.s
+# 再标量累加到 sumacc
+```
+
+平方和在归约前多一条 `vmul.vv vA, vA, vA`；dot 为两路 load + `vmul.vv` 再归约。
+
+---
+
+#### D. 数组 max / min
+
+- **形态**：`m = max(m, A[i])` / `min`（含 copy-based if）
+- **函数**：`vectorizeArrayReduceLoop`（`Kind::Max/Min`）或经 `findCopyBasedArrayMaxLoop`
+
+| 用途 | 指令 |
+|------|------|
+| 设 vl | `vsetvli` |
+| 读数组 | `vle32.v` 或 `vlse32.v` |
+| 块内 max | `vmv.v.x`（seed=`INT_MIN`）+ **`vredmax.vs`** + `vmv.x.s` |
+| 块内 min | `vmv.v.x`（seed=`INT_MAX`）+ **`vredmin.vs`** + `vmv.x.s` |
+
+块结果与标量累加器用标量 `slt/sgt` + `select` 合并（非向量指令）。
+
+**不用**：`vid.v`、store、`vredsum`/`vfredosum`、浮点 `vf*` 归约（当前按 int）。
+
+```text
+vsetvli t0, count, e32, m1, ta, ma
+vle32.v    vA, (ptr)
+vmv.v.x    vT, t_int_min      # min 则 t_int_max
+vredmax.vs vT, vA, vT         # 或 vredmin.vs
+vmv.x.s    t1, vT
+```
+
+---
+
+#### E. 标量链（Scalar chain）
+
+- **形态**：`while (x < t) { sum = (sum + f(x) + 1) % mod; x += d; }`（无数组）
+- **函数**：`vectorizeScalarChainLoop`
+
+| 用途 | 指令 |
+|------|------|
+| 设 vl | `vsetvli` |
+| lane 下标 | **`vid.v`**（本模式标志指令） |
+| 构造 `x` 向量 | `vmv.v.x`（step、xCur、1）+ `vmul.vv` + `vadd.vv` |
+| `f(x)` 表达式 | 按需：`vadd/vsub/vmul/vdiv/vrem/vsll/vsra.vv`；max/min 选择：`vmax.vv`/`vmin.vv` |
+| 横向求和 | 零种子 `vmv.v.x` + **`vredsum.vs`** + `vmv.x.s` |
+
+`% mod` 与 `sum` 更新在**标量**侧（`rem`/`add`），不是向量指令。
+
+**不用**：`vle32`/`vse32`/`vlse32`/`vsse32`（无访存）；当前无浮点向量。
+
+```text
+vsetvli t0, count, e32, m1, ta, ma
+vid.v    vI
+vmv.v.x  vD, step
+vmul.vv  vK, vI, vD
+vmv.v.x  vX, xCur
+vadd.vv  vX, vX, vK           # 各 lane 的 x
+# ... f(x)：若干 vadd/vmul/... ...
+vmv.v.x  v1, 1
+vadd.vv  vF, vF, v1
+vmv.v.x  vZ, zero
+vredsum.vs vZ, vF, vZ
+vmv.x.s  t1, vZ
+# 标量：(sum + t1 % mod) % mod；xCur += vl*step
+```
+
+---
+
+#### 模式 × 指令速查
+
+| 指令 | A Scaled-row | B Elementwise | C Sum/Dot | D Max/Min | E Scalar chain |
+|------|:---:|:---:|:---:|:---:|:---:|
+| `vsetvli` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `vle32.v` | ✓ | ✓ | ✓ | ✓ | |
+| `vse32.v` | ✓ | ✓ | | | |
+| `vlse32.v` / `vsse32.v` | | 可选 | 可选 load | 可选 load | |
+| `vmv.v.x` / `vfmv.v.f` | ✓ | ✓ | 归约种子 | 归约种子 | ✓ |
+| `vid.v` | | | | | ✓ |
+| `vadd/vsub/vmul…`（及 `vf*`） | mul+add/sub | 按表达式 | 可选 mul | | 按 `f(x)` |
+| `vsll/vsrl/vsra` | | 可选 | | | 可选 |
+| `vmax/vmin.vv` | | | | | 可选 |
+| `vredsum` / `vfredosum` | | | ✓ | | ✓ |
+| `vredmax` / `vredmin` | | | | ✓ | |
+| `vmv.x.s` / `vfmv.f.s` | | | ✓ | ✓ | ✓ |
+
+看汇编时：出现 **`vid.v`** → 模式 E；出现 **`vredmax`/`vredmin`** → 模式 D；出现 **`vredsum`/`vfredosum` 且有 `vle32`** → 模式 C；有 **`vse32` 且无归约** → A 或 B（A 固定两路 load + mul/add|sub；B 指令更杂、可能有 `vlse`/`vsse`）。
+
+### 12.3 测试
 
 | 命令 | 范围 |
 |------|------|
@@ -471,7 +610,7 @@ QEMU 运行需向量扩展：`qemu-riscv64 -cpu rv64,v=true,vlen=128 …`
 
 汇编 SHA256 缓存在 `.cache/qemu_asm/asm_sha256.tsv`；与上次 PASS 且 hash 一致则跳过 scp 与 guest 运行。
 
-### 12.5 尚未覆盖
+### 12.4 尚未覆盖
 
 - 条件向量循环（mask、`vmerge`）
 - `vrgather` / indexed load（FFT 奇偶置换等）
@@ -486,3 +625,4 @@ QEMU 运行需向量扩展：`qemu-riscv64 -cpu rv64,v=true,vlen=128 …`
 |------|------|
 | 2026-08-07 | 初版：RVV 1.0 模型与指令分类，供后端向量扩展使用 |
 | 2026-08-10 | §9 更新为已实现状态；新增 §12 编译器 `-rvv` 向量化说明 |
+| 2026-08-17 | §12.2 改为按五种模式列出各自用到的 RISC-V 向量指令集合与典型序列 |
