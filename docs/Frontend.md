@@ -51,6 +51,7 @@
 - `ASTNodeVisitor.h/cpp`：定义并实现 AST 访问器（Visitor）。
 - `SemanticAnalysis.h/cpp`：实现类型检查、符号表管理等语义分析功能。
 - `generate/` 目录：存放 ANTLR4 自动生成的词法、语法分析相关文件（如 `SysYLexer.cpp`、`SysYParser.cpp` 等）。
+- **重生成**：改 `SysY.g4` 后需用 ANTLR jar 重新生成到 `generate/`。在 WSL 下推荐用 Windows `java.exe`，且 jar / 输出目录 / `.g4` 均传 `wslpath -w` 得到的 Windows 路径（详见 `docs/扩展文法与中端改造指南.md`「重生成前端」）。
 
 ---
 
