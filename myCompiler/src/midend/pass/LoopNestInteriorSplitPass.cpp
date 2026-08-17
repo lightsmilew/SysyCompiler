@@ -1,5 +1,7 @@
 #include "LoopNestInteriorSplitPass.h"
 #include <algorithm>
+#include <cstdint>
+#include <unordered_set>
 using namespace std;
 using namespace optimization;
 
@@ -27,6 +29,26 @@ namespace
         if (!a || !b)
             return false;
         return stripCopy(a) == stripCopy(b);
+    }
+
+    static bool sameBound(Value *a, Value *b)
+    {
+        if (sameValue(a, b))
+            return true;
+        a = stripCopy(a);
+        b = stripCopy(b);
+        if (!a || !b)
+            return false;
+        if (auto *ca = dynamic_cast<ConstantInt *>(a))
+            if (auto *cb = dynamic_cast<ConstantInt *>(b))
+                return ca->Value == cb->Value;
+        auto *la = dynamic_cast<LoadInst *>(a);
+        auto *lb = dynamic_cast<LoadInst *>(b);
+        if (!la || !lb)
+            return false;
+        auto *ga = dynamic_cast<GlobalVariable *>(stripCopy(la->getPointer()));
+        auto *gb = dynamic_cast<GlobalVariable *>(stripCopy(lb->getPointer()));
+        return ga && ga == gb;
     }
 
     static void wireEdge(BasicBlock *from, BasicBlock *to)
@@ -77,8 +99,16 @@ namespace
 
     static int getConstantBound(Value *bound)
     {
-        if (auto *c = dynamic_cast<ConstantInt *>(stripCopy(bound)))
+        bound = stripCopy(bound);
+        if (auto *c = dynamic_cast<ConstantInt *>(bound))
             return c->Value;
+        if (auto *load = dynamic_cast<LoadInst *>(bound))
+        {
+            auto *gv = dynamic_cast<GlobalVariable *>(stripCopy(load->getPointer()));
+            if (gv && gv->IsConstant)
+                if (auto *init = dynamic_cast<ConstantInt *>(gv->Initializer))
+                    return init->Value;
+        }
         return -1;
     }
 
@@ -142,28 +172,6 @@ namespace
         bound = stripCopy(bound);
         if (auto *load = dynamic_cast<LoadInst *>(bound))
             return dynamic_cast<GlobalVariable *>(load->getPointer()) != nullptr;
-        return false;
-    }
-
-    static bool computePadSub(const Loop &krLoop, int &padOut)
-    {
-        for (BasicBlock *bb : krLoop.blocks)
-        {
-            for (auto &instPtr : bb->getInstructions())
-            {
-                auto *sub = dynamic_cast<BinaryOperator *>(instPtr.get());
-                if (!sub || sub->getOpcode() != Opcode::Sub)
-                    continue;
-                if (auto *padC = dynamic_cast<ConstantInt *>(stripCopy(sub->getRHS())))
-                {
-                    if (padC->Value == 2)
-                    {
-                        padOut = padC->Value;
-                        return true;
-                    }
-                }
-            }
-        }
         return false;
     }
 
@@ -251,8 +259,8 @@ namespace
         if (auto *mul = dynamic_cast<BinaryOperator *>(idx))
         {
             if (mul->getOpcode() == Opcode::Mul &&
-                (sameValue(stripCopy(mul->getLHS()), stride) ||
-                 sameValue(stripCopy(mul->getRHS()), stride) ||
+                (sameBound(stripCopy(mul->getLHS()), stride) ||
+                 sameBound(stripCopy(mul->getRHS()), stride) ||
                  exprReferences(mul->getLHS(), stride) || exprReferences(mul->getRHS(), stride)))
                 return true;
             return indexUsesRowStride(mul->getLHS(), stride) ||
@@ -466,20 +474,387 @@ namespace
         return false;
     }
 
-    static Value *buildInteriorCond(BasicBlock *bb, Value *rIV, Value *cIV, Value *nEff,
-                                    const string &tag)
+    static bool isZeroConst(Value *v)
     {
-        auto *two = ci(2);
-        auto *nMinus2 = new BinaryOperator(Opcode::Sub, nEff, two, tag + "_n_m2");
-        bb->addInstruction(own(nMinus2));
+        auto *c = dynamic_cast<ConstantInt *>(stripCopy(v));
+        return c && c->Value == 0;
+    }
 
-        auto *rGe = new ICmpInst(ICmpInst::ICMP_SGE, rIV, two, tag + "_r_ge");
+    struct Affine4
+    {
+        int64_t c = 0;
+        int64_t r = 0;
+        int64_t col = 0;
+        int64_t kr = 0;
+        int64_t kc = 0;
+    };
+
+    static bool addScaled(Affine4 &dst, const Affine4 &src, int64_t scale)
+    {
+        auto mulAdd = [&](int64_t &a, int64_t b) -> bool {
+            __int128 v = (__int128)a + (__int128)b * scale;
+            if (v > INT64_MAX || v < INT64_MIN)
+                return false;
+            a = static_cast<int64_t>(v);
+            return true;
+        };
+        return mulAdd(dst.c, src.c) && mulAdd(dst.r, src.r) && mulAdd(dst.col, src.col) &&
+               mulAdd(dst.kr, src.kr) && mulAdd(dst.kc, src.kc);
+    }
+
+    static bool parseAffine4(Value *v, Value *rIV, Value *cIV, Value *krIV, Value *kcIV, Affine4 &out,
+                             int depth = 0)
+    {
+        if (!v || depth > 24)
+            return false;
+        v = stripCopy(v);
+        out = Affine4{};
+        if (auto *cst = dynamic_cast<ConstantInt *>(v))
+        {
+            out.c = cst->Value;
+            return true;
+        }
+        if (sameValue(v, rIV))
+        {
+            out.r = 1;
+            return true;
+        }
+        if (sameValue(v, cIV))
+        {
+            out.col = 1;
+            return true;
+        }
+        if (sameValue(v, krIV))
+        {
+            out.kr = 1;
+            return true;
+        }
+        if (sameValue(v, kcIV))
+        {
+            out.kc = 1;
+            return true;
+        }
+        auto *bin = dynamic_cast<BinaryOperator *>(v);
+        if (!bin)
+            return false;
+        Affine4 lhs, rhs;
+        if (bin->getOpcode() == Opcode::Add)
+        {
+            if (!parseAffine4(bin->getLHS(), rIV, cIV, krIV, kcIV, lhs, depth + 1) ||
+                !parseAffine4(bin->getRHS(), rIV, cIV, krIV, kcIV, rhs, depth + 1))
+                return false;
+            out = lhs;
+            return addScaled(out, rhs, 1);
+        }
+        if (bin->getOpcode() == Opcode::Sub)
+        {
+            if (!parseAffine4(bin->getLHS(), rIV, cIV, krIV, kcIV, lhs, depth + 1) ||
+                !parseAffine4(bin->getRHS(), rIV, cIV, krIV, kcIV, rhs, depth + 1))
+                return false;
+            out = lhs;
+            return addScaled(out, rhs, -1);
+        }
+        if (bin->getOpcode() == Opcode::Mul)
+        {
+            auto *lc = dynamic_cast<ConstantInt *>(stripCopy(bin->getLHS()));
+            auto *rc = dynamic_cast<ConstantInt *>(stripCopy(bin->getRHS()));
+            if (lc && !rc)
+            {
+                if (!parseAffine4(bin->getRHS(), rIV, cIV, krIV, kcIV, rhs, depth + 1))
+                    return false;
+                return addScaled(out, rhs, lc->Value);
+            }
+            if (rc && !lc)
+            {
+                if (!parseAffine4(bin->getLHS(), rIV, cIV, krIV, kcIV, lhs, depth + 1))
+                    return false;
+                return addScaled(out, lhs, rc->Value);
+            }
+        }
+        return false;
+    }
+
+    static bool collectTrueICmps(Value *v, vector<ICmpInst *> &out, unordered_set<Value *> &vis,
+                                 int depth = 0)
+    {
+        if (!v || depth > 32)
+            return false;
+        v = stripCopy(v);
+        if (!vis.insert(v).second)
+            return true;
+
+        if (auto *cmp = dynamic_cast<ICmpInst *>(v))
+        {
+            if (cmp->getPredicate() == ICmpInst::ICMP_NE && isZeroConst(cmp->getRHS()))
+                return collectTrueICmps(cmp->getLHS(), out, vis, depth + 1);
+            if (cmp->getPredicate() == ICmpInst::ICMP_NE && isZeroConst(cmp->getLHS()))
+                return collectTrueICmps(cmp->getRHS(), out, vis, depth + 1);
+            out.push_back(cmp);
+            return true;
+        }
+        if (auto *bin = dynamic_cast<BinaryOperator *>(v))
+        {
+            if (bin->getOpcode() == Opcode::And)
+                return collectTrueICmps(bin->getLHS(), out, vis, depth + 1) &&
+                       collectTrueICmps(bin->getRHS(), out, vis, depth + 1);
+            return false;
+        }
+        if (auto *phi = dynamic_cast<PhiInst *>(v))
+        {
+            if (phi->getNumIncomingValues() != 2)
+                return false;
+            int zeroIdx = -1;
+            int otherIdx = -1;
+            for (unsigned i = 0; i < 2; ++i)
+            {
+                if (isZeroConst(phi->getIncomingValue(i)))
+                    zeroIdx = static_cast<int>(i);
+                else
+                    otherIdx = static_cast<int>(i);
+            }
+            if (zeroIdx < 0 || otherIdx < 0)
+                return false;
+            BasicBlock *zeroBB = phi->getIncomingBlock(static_cast<unsigned>(zeroIdx));
+            auto *br = getTerminator(zeroBB);
+            BasicBlock *phiBB = nullptr;
+            for (auto *succ : zeroBB->getSuccessors())
+            {
+                for (auto &ip : succ->getInstructions())
+                {
+                    if (ip.get() == phi)
+                    {
+                        phiBB = succ;
+                        break;
+                    }
+                }
+                if (phiBB)
+                    break;
+            }
+            if (br && br->isConditional() && phiBB && br->getFalseBlock() == phiBB)
+            {
+                if (!collectTrueICmps(br->getCondition(), out, vis, depth + 1))
+                    return false;
+            }
+            else if (br && br->isConditional() && phiBB && br->getTrueBlock() == phiBB)
+            {
+                return false;
+            }
+            return collectTrueICmps(phi->getIncomingValue(static_cast<unsigned>(otherIdx)), out, vis,
+                                    depth + 1);
+        }
+        return false;
+    }
+
+    static int64_t innerExt(int64_t coeff, int64_t lo, int64_t hi, bool wantMin)
+    {
+        if (coeff == 0)
+            return 0;
+        if (wantMin)
+            return coeff > 0 ? coeff * lo : coeff * hi;
+        return coeff > 0 ? coeff * hi : coeff * lo;
+    }
+
+    struct InteriorBox
+    {
+        int64_t lo = 0;
+        int64_t hiSub = 0;
+        int64_t pad = 0;
+        bool hasRLo = false;
+        bool hasRHi = false;
+        bool hasCLo = false;
+        bool hasCHi = false;
+        int64_t rLo = INT64_MIN;
+        int64_t rHiSub = INT64_MIN;
+        int64_t cLo = INT64_MIN;
+        int64_t cHiSub = INT64_MIN;
+    };
+
+    static bool applyOuterBound(bool isRow, bool isLower, int64_t value, InteriorBox &box)
+    {
+        if (isRow)
+        {
+            if (isLower)
+            {
+                box.rLo = box.hasRLo ? max(box.rLo, value) : value;
+                box.hasRLo = true;
+            }
+            else
+            {
+                box.rHiSub = box.hasRHi ? max(box.rHiSub, value) : value;
+                box.hasRHi = true;
+            }
+        }
+        else
+        {
+            if (isLower)
+            {
+                box.cLo = box.hasCLo ? max(box.cLo, value) : value;
+                box.hasCLo = true;
+            }
+            else
+            {
+                box.cHiSub = box.hasCHi ? max(box.cHiSub, value) : value;
+                box.hasCHi = true;
+            }
+        }
+        return true;
+    }
+
+    // icmp 在「为真」时必须成立。把比较规范化成：
+    //   affine(r,c,kr,kc) >= 0  或  affine(r,c,kr,kc) < nEff
+    // 再对 kr,kc ∈ [innerLo, innerHi] 取 min/max，得到仅含外层 IV 的充分条件。
+    static bool constrainFromICmp(ICmpInst *cmp, Value *rIV, Value *cIV, Value *krIV, Value *kcIV,
+                                  Value *nEff, int64_t innerLo, int64_t innerHi, InteriorBox &box)
+    {
+        if (!cmp)
+            return false;
+        ICmpInst::Predicate pred = cmp->getPredicate();
+        Value *lhs = cmp->getLHS();
+        Value *rhs = cmp->getRHS();
+
+        Affine4 aff;
+        bool isLower = false;
+        Value *upperBound = nullptr;
+
+        auto tryParse = [&](Value *expr) { return parseAffine4(expr, rIV, cIV, krIV, kcIV, aff); };
+
+        if (pred == ICmpInst::ICMP_SGE && isZeroConst(rhs) && tryParse(lhs))
+            isLower = true;
+        else if (pred == ICmpInst::ICMP_SLE && isZeroConst(lhs) && tryParse(rhs))
+            isLower = true;
+        else if (pred == ICmpInst::ICMP_SGT && isZeroConst(rhs) && tryParse(lhs))
+        {
+            // expr > 0  ⇒  expr - 1 >= 0
+            if (!addScaled(aff, Affine4{1, 0, 0, 0, 0}, -1))
+                return false;
+            isLower = true;
+        }
+        else if (pred == ICmpInst::ICMP_SLT && sameBound(rhs, nEff) && tryParse(lhs))
+        {
+            upperBound = nEff;
+        }
+        else if (pred == ICmpInst::ICMP_SGT && sameBound(lhs, nEff) && tryParse(rhs))
+        {
+            upperBound = nEff;
+        }
+        else if (pred == ICmpInst::ICMP_SLE && sameBound(rhs, nEff) && tryParse(lhs))
+        {
+            upperBound = nEff;
+        }
+        else if (pred == ICmpInst::ICMP_SLE)
+        {
+            Affine4 rhsAff, lhsAff;
+            if (!parseAffine4(rhs, rIV, cIV, krIV, kcIV, rhsAff) ||
+                !parseAffine4(lhs, rIV, cIV, krIV, kcIV, lhsAff))
+                return false;
+            aff = rhsAff;
+            if (!addScaled(aff, lhsAff, -1))
+                return false;
+            isLower = true;
+        }
+        else if (pred == ICmpInst::ICMP_SGE && !isZeroConst(rhs))
+        {
+            Affine4 rhsAff;
+            if (!tryParse(lhs) || !parseAffine4(rhs, rIV, cIV, krIV, kcIV, rhsAff))
+                return false;
+            if (!addScaled(aff, rhsAff, -1))
+                return false;
+            isLower = true;
+        }
+        else
+            return false;
+
+        const int64_t innerMin = aff.c + innerExt(aff.kr, innerLo, innerHi, true) +
+                                 innerExt(aff.kc, innerLo, innerHi, true);
+        const int64_t innerMax = aff.c + innerExt(aff.kr, innerLo, innerHi, false) +
+                                 innerExt(aff.kc, innerLo, innerHi, false);
+
+        if (isLower)
+        {
+            // min(aff) >= 0  ⇒  cr*r + cc*c >= -innerMin
+            if (aff.r == 1 && aff.col == 0)
+                return applyOuterBound(true, true, -innerMin, box);
+            if (aff.r == 0 && aff.col == 1)
+                return applyOuterBound(false, true, -innerMin, box);
+            return false;
+        }
+        if (upperBound)
+        {
+            // max(aff) < n  ⇒  cr*r + cc*c < n - innerMax  ⇒  iv < n - innerMax
+            if (aff.r == 1 && aff.col == 0)
+                return applyOuterBound(true, false, innerMax, box);
+            if (aff.r == 0 && aff.col == 1)
+                return applyOuterBound(false, false, innerMax, box);
+            return false;
+        }
+        return false;
+    }
+
+    static bool inferInteriorBox(const vector<ICmpInst *> &cmps, Value *rIV, Value *cIV, Value *krIV,
+                                 Value *kcIV, Value *nEff, int64_t innerLo, int64_t innerHi,
+                                 InteriorBox &box)
+    {
+        box = InteriorBox{};
+        if (innerHi < innerLo)
+            return false;
+        int applied = 0;
+        for (ICmpInst *cmp : cmps)
+        {
+            InteriorBox one = box;
+            if (constrainFromICmp(cmp, rIV, cIV, krIV, kcIV, nEff, innerLo, innerHi, one))
+            {
+                box = one;
+                ++applied;
+            }
+        }
+        if (applied < 4 || !box.hasRLo || !box.hasRHi || !box.hasCLo || !box.hasCHi)
+            return false;
+        if (box.rLo != box.cLo || box.rHiSub != box.cHiSub)
+            return false;
+        if (box.rLo < 0 || box.rHiSub < 0)
+            return false;
+        if (box.rLo == 0 && box.rHiSub == 0)
+            return false;
+        box.lo = box.rLo;
+        box.hiSub = box.rHiSub;
+        box.pad = box.rLo;
+        return true;
+    }
+
+    static void collectLoopICmps(const Loop &loop, vector<ICmpInst *> &out)
+    {
+        for (BasicBlock *bb : loop.blocks)
+        {
+            if (!bb)
+                continue;
+            for (auto &instPtr : bb->getInstructions())
+            {
+                auto *cmp = dynamic_cast<ICmpInst *>(instPtr.get());
+                if (!cmp)
+                    continue;
+                auto pred = cmp->getPredicate();
+                if (pred == ICmpInst::ICMP_EQ || pred == ICmpInst::ICMP_NE)
+                    continue;
+                out.push_back(cmp);
+            }
+        }
+    }
+
+    static Value *buildInteriorCond(BasicBlock *bb, Value *rIV, Value *cIV, Value *nEff, int lo,
+                                    int hiSub, const string &tag)
+    {
+        auto *loC = ci(lo);
+        auto *hiSubC = ci(hiSub);
+        auto *nMinus = new BinaryOperator(Opcode::Sub, nEff, hiSubC, tag + "_n_mhi");
+        bb->addInstruction(own(nMinus));
+
+        auto *rGe = new ICmpInst(ICmpInst::ICMP_SGE, rIV, loC, tag + "_r_ge");
         bb->addInstruction(own(rGe));
-        auto *rLt = new ICmpInst(ICmpInst::ICMP_SLT, rIV, nMinus2, tag + "_r_lt");
+        auto *rLt = new ICmpInst(ICmpInst::ICMP_SLT, rIV, nMinus, tag + "_r_lt");
         bb->addInstruction(own(rLt));
-        auto *cGe = new ICmpInst(ICmpInst::ICMP_SGE, cIV, two, tag + "_c_ge");
+        auto *cGe = new ICmpInst(ICmpInst::ICMP_SGE, cIV, loC, tag + "_c_ge");
         bb->addInstruction(own(cGe));
-        auto *cLt = new ICmpInst(ICmpInst::ICMP_SLT, cIV, nMinus2, tag + "_c_lt");
+        auto *cLt = new ICmpInst(ICmpInst::ICMP_SLT, cIV, nMinus, tag + "_c_lt");
         bb->addInstruction(own(cLt));
 
         auto *t1 = new BinaryOperator(Opcode::And, rGe, rLt, tag + "_r_ok");
@@ -682,62 +1057,139 @@ namespace
 }
 
 bool LoopNestInteriorSplitPass::analyzeKernelNest(Function *func, const vector<Loop> &loops,
-                                                  KernelNestInfo &info)
+                                                  KernelNestInfo &info, string *failReason)
 {
     (void)func;
+    int bestStage = 0;
+    auto fail = [&](int stage, const char *msg) {
+        if (failReason && stage >= bestStage)
+        {
+            bestStage = stage;
+            *failReason = msg;
+        }
+    };
+    fail(0, "no kc loop with const bound>=2");
     for (const auto &kcLoop : loops)
     {
         Value *kcIV = nullptr;
         Value *kcBound = nullptr;
         if (!getHeaderBoundCmp(kcLoop.header, kcIV, kcBound))
             continue;
-        if (getConstantBound(kcBound) != kKernelSize)
+        const int kSize = getConstantBound(kcBound);
+        if (kSize < 2)
             continue;
 
         const Loop *krLoop = findParentLoop(kcLoop, loops);
         if (!krLoop)
+        {
+            fail(1, "kc ok, no parent kr");
             continue;
+        }
         Value *krIV = nullptr;
         Value *krBound = nullptr;
         if (!getHeaderBoundCmp(krLoop->header, krIV, krBound))
+        {
+            fail(2, "kr header has no slt");
             continue;
-        if (getConstantBound(krBound) != kKernelSize)
+        }
+        if (getConstantBound(krBound) != kSize)
+        {
+            fail(3, "kr bound != kc bound");
             continue;
+        }
 
         const Loop *cLoop = findParentLoop(*krLoop, loops);
         if (!cLoop)
+        {
+            fail(4, "no parent c loop");
             continue;
+        }
         Value *cIV = nullptr;
         Value *cBound = nullptr;
         if (!getHeaderBoundCmp(cLoop->header, cIV, cBound))
+        {
+            fail(5, "c header has no slt");
             continue;
+        }
 
         const Loop *rLoop = findParentLoop(*cLoop, loops);
         if (!rLoop)
+        {
+            fail(6, "no parent r loop");
             continue;
+        }
         Value *rIV = nullptr;
         Value *rBound = nullptr;
         if (!getHeaderBoundCmp(rLoop->header, rIV, rBound))
+        {
+            fail(7, "r header has no slt");
             continue;
-        if (!sameValue(stripCopy(rBound), stripCopy(cBound)))
+        }
+        if (!sameBound(rBound, cBound))
+        {
+            fail(8, "r/c bounds differ");
             continue;
+        }
 
         BasicBlock *krBody = getTrueBody(krLoop->header, *krLoop);
         if (!krBody)
+        {
+            fail(9, "no kr body");
             continue;
-        int pad = -1;
-        if (!computePadSub(*krLoop, pad))
-            continue;
+        }
 
         Value *inArray = nullptr;
         Value *kArray = nullptr;
-        if (!identifyKernelArrays(*krLoop, kcLoop, krIV, kcIV, cBound, kKernelSize, inArray,
-                                  kArray))
+        if (!identifyKernelArrays(*krLoop, kcLoop, krIV, kcIV, cBound, kSize, inArray, kArray))
+        {
+            fail(10, "cannot identify in/k arrays");
             continue;
+        }
 
-        if (!hasKernelAccumulate(*krLoop, inArray, kArray) &&
-            !hasKernelAccumulate(kcLoop, inArray, kArray))
+        BasicBlock *guardEntry = nullptr;
+        BasicBlock *thenBB = nullptr;
+        BasicBlock *mergeBB = nullptr;
+        if (!findGuardedAccumulate(*krLoop, inArray, kArray, guardEntry, thenBB, mergeBB) &&
+            !findGuardedAccumulate(kcLoop, inArray, kArray, guardEntry, thenBB, mergeBB))
+        {
+            fail(11, "no guarded accumulate");
             continue;
+        }
+        auto *guardBr = getTerminator(guardEntry);
+        if (!guardBr || !guardBr->isConditional() || guardBr->getTrueBlock() != thenBB)
+        {
+            fail(12, "guard branch is not true->then");
+            continue;
+        }
+
+        vector<ICmpInst *> guardCmps;
+        unordered_set<Value *> guardVis;
+        collectTrueICmps(guardBr->getCondition(), guardCmps, guardVis);
+        collectLoopICmps(*krLoop, guardCmps);
+        collectLoopICmps(kcLoop, guardCmps);
+        {
+            unordered_set<ICmpInst *> uniq;
+            vector<ICmpInst *> dedup;
+            for (auto *cmp : guardCmps)
+                if (uniq.insert(cmp).second)
+                    dedup.push_back(cmp);
+            guardCmps.swap(dedup);
+        }
+        if (guardCmps.empty())
+        {
+            fail(13, "no bound icmps in kernel loops");
+            continue;
+        }
+
+        InteriorBox box;
+        if (!inferInteriorBox(guardCmps, rIV, cIV, krIV, kcIV, cBound, 0, kSize - 1, box))
+        {
+            fail(14, ("affine range does not yield interior box ncmp=" + to_string(guardCmps.size())).c_str());
+            continue;
+        }
+        const int pad = static_cast<int>(box.pad);
+        const int interiorLo = static_cast<int>(box.lo);
+        const int interiorHiSub = static_cast<int>(box.hiSub);
 
         Value *outArray = nullptr;
         BasicBlock *krExit = nullptr;
@@ -750,17 +1202,29 @@ bool LoopNestInteriorSplitPass::analyzeKernelNest(Function *func, const vector<L
             outScanBlocks.push_back(bb);
         if (!identifyOutputArray(outScanBlocks, rIV, cIV, cBound, inArray, kArray, outArray,
                                  krExit))
+        {
+            fail(15, "cannot identify output array");
             continue;
+        }
 
         BasicBlock *cBody = getTrueBody(cLoop->header, *cLoop);
         if (!cBody)
+        {
+            fail(16, "no c body");
             continue;
+        }
         auto *cBodyBr = getTerminator(cBody);
         if (!cBodyBr || cBodyBr->isConditional())
+        {
+            fail(17, "c body is not an unconditional br to kernel");
             continue;
+        }
         BasicBlock *krHeader = cBodyBr->getTrueBlock();
         if (!krHeader)
+        {
+            fail(18, "c body has no kr header target");
             continue;
+        }
 
         const Loop *repeatLoop = findParentLoop(*rLoop, loops);
         BasicBlock *repeatBody = nullptr;
@@ -788,7 +1252,9 @@ bool LoopNestInteriorSplitPass::analyzeKernelNest(Function *func, const vector<L
         info.outArray = outArray;
         info.kArray = kArray;
         info.pad = pad;
-        info.kSize = kKernelSize;
+        info.kSize = kSize;
+        info.interiorLo = interiorLo;
+        info.interiorHiSub = interiorHiSub;
         info.rHeader = rLoop->header;
         info.cBody = cBody;
         info.krHeader = krHeader;
@@ -803,9 +1269,10 @@ bool LoopNestInteriorSplitPass::analyzeKernelNest(Function *func, const vector<L
 bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info, bool verbose,
                                            stringstream &dbg)
 {
-    if (info.pad != kPad || info.kSize != kKernelSize)
+    if (info.kSize < 2 || info.pad < 0 || info.interiorLo < 0 || info.interiorHiSub < 0)
     {
-        dbg << "LoopNestInteriorSplit: bad pad=" << info.pad << "\n";
+        dbg << "LoopNestInteriorSplit: bad range pad=" << info.pad << " k=" << info.kSize
+            << " lo=" << info.interiorLo << " hiSub=" << info.interiorHiSub << "\n";
         return false;
     }
     if (!info.cBody || !info.krHeader || !info.krExitStore || !info.rHeader)
@@ -817,6 +1284,8 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
     BasicBlock *cHeader = info.cLoop->header;
     BasicBlock *entryFromRepeat = info.repeatBody ? info.repeatBody : nullptr;
     const string tag = "lnis";
+    auto *loC = ci(info.interiorLo);
+    auto *hiSubC = ci(info.interiorHiSub);
 
     BasicBlock *intRHeader = func->addBasicBlock(tag + "_r_hdr");
     BasicBlock *intRBody = func->addBasicBlock(tag + "_r_body");
@@ -827,16 +1296,15 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
     BasicBlock *intCLatch = func->addBasicBlock(tag + "_c_latch");
 
     auto *i32 = IntegerType::getInstance();
-    auto *two = ci(2);
     auto *one = ci(1);
 
-    auto *nMinus2 = new BinaryOperator(Opcode::Sub, info.nEff, two, tag + "_n_m2");
-    intRHeader->addInstruction(own(nMinus2));
+    auto *nMinusHi = new BinaryOperator(Opcode::Sub, info.nEff, hiSubC, tag + "_n_mhi");
+    intRHeader->addInstruction(own(nMinusHi));
 
     auto *intRPhi = new PhiInst(i32, tag + "_r");
     intRHeader->addInstruction(own(intRPhi));
 
-    auto *intRCmp = new ICmpInst(ICmpInst::ICMP_SLT, intRPhi, nMinus2, tag + "_r_cmp");
+    auto *intRCmp = new ICmpInst(ICmpInst::ICMP_SLT, intRPhi, nMinusHi, tag + "_r_cmp");
     intRHeader->addInstruction(own(intRCmp));
     intRHeader->addInstruction(own(new BranchInst(intRCmp, intRBody, intRExit)));
     wireEdge(intRHeader, intRBody);
@@ -848,9 +1316,9 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
     auto *intCPhi = new PhiInst(i32, tag + "_c");
     intCHeader->addInstruction(own(intCPhi));
 
-    auto *nMinus2c = new BinaryOperator(Opcode::Sub, info.nEff, two, tag + "_c_n_m2");
-    intCHeader->addInstruction(own(nMinus2c));
-    auto *intCCmp = new ICmpInst(ICmpInst::ICMP_SLT, intCPhi, nMinus2c, tag + "_c_cmp");
+    auto *nMinusHic = new BinaryOperator(Opcode::Sub, info.nEff, hiSubC, tag + "_c_n_mhi");
+    intCHeader->addInstruction(own(nMinusHic));
+    auto *intCCmp = new ICmpInst(ICmpInst::ICMP_SLT, intCPhi, nMinusHic, tag + "_c_cmp");
     intCHeader->addInstruction(own(intCCmp));
 
     KernelNestResult kernel = buildUnguardedKernelNest(
@@ -865,7 +1333,7 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
     intCLatch->addInstruction(own(intCNext));
     intCLatch->addInstruction(own(new BranchInst(intCHeader)));
     wireEdge(intCLatch, intCHeader);
-    intCPhi->addIncoming(two, intRBody);
+    intCPhi->addIncoming(loC, intRBody);
     intCPhi->addIncoming(intCNext, intCLatch);
 
     intCExit->addInstruction(own(new BranchInst(intRLatch)));
@@ -905,7 +1373,7 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
         }
     }
     if (intRInitPred)
-        intRPhi->addIncoming(two, intRInitPred);
+        intRPhi->addIncoming(loC, intRInitPred);
     intRPhi->addIncoming(intRNext, intRLatch);
 
     BasicBlock *cBorderDispatch = func->addBasicBlock(tag + "_border_dispatch");
@@ -914,8 +1382,8 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
     replaceTerminator(info.cBody, own(new BranchInst(cBorderDispatch)));
     wireEdge(info.cBody, cBorderDispatch);
 
-    Value *interiorCond =
-        buildInteriorCond(cBorderDispatch, info.rIV, info.cIV, info.nEff, tag + "_bd");
+    Value *interiorCond = buildInteriorCond(cBorderDispatch, info.rIV, info.cIV, info.nEff,
+                                            info.interiorLo, info.interiorHiSub, tag + "_bd");
     cBorderDispatch->addInstruction(
         own(new BranchInst(interiorCond, cSkipLatch, info.krHeader)));
     wireEdge(cBorderDispatch, cSkipLatch);
@@ -925,8 +1393,9 @@ bool LoopNestInteriorSplitPass::applySplit(Function *func, KernelNestInfo &info,
 
     if (verbose)
     {
-        dbg << "LoopNestInteriorSplit: interior nest inserted; border dispatch at "
-            << info.cBody->getName() << "\n";
+        dbg << "LoopNestInteriorSplit: interior [" << info.interiorLo << ", n-"
+            << info.interiorHiSub << ") k=" << info.kSize << " pad=" << info.pad
+            << " at " << info.cBody->getName() << "\n";
     }
     return true;
 }
@@ -935,11 +1404,13 @@ bool LoopNestInteriorSplitPass::runOnFunction(Function *func)
 {
     func->setLoops(ControlFlowAnalysis::findLoops(func));
     KernelNestInfo info;
-    if (!analyzeKernelNest(func, func->getLoops(), info))
+    string failReason;
+    if (!analyzeKernelNest(func, func->getLoops(), info, &failReason))
     {
         if (verbose)
             debugInfo << "LoopNestInteriorSplit: no kernel nest found in " << func->getName()
-                      << "\n";
+                      << " loops=" << func->getLoops().size()
+                      << (failReason.empty() ? "" : (" (" + failReason + ")")) << "\n";
         return false;
     }
     bool changed = applySplit(func, info, verbose, debugInfo);

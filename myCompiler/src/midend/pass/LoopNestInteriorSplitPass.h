@@ -3,13 +3,12 @@
 
 namespace optimization
 {
-    /// 基于循环嵌套与内存访问结构，将 guarded kernel 拆为 interior（无边界检查）
+    /// 对带边界 guard 的 stencil nest 做 interior/border 拆分。
+    /// 从 icmp 抽出仿射下标（如 rr = r + kr - pad），按内层 IV 值域证明
+    /// 外层 IV 落在 [lo, n-hiSub) 时 guard 恒真，再插入无检查的 interior 路径。
     class LoopNestInteriorSplitPass : public Pass
     {
     public:
-        static constexpr int kPad = 2;
-        static constexpr int kKernelSize = 5;
-
         LoopNestInteriorSplitPass(bool verbose = false) : Pass(verbose) {}
         bool runOnFunction(Function *func) override;
         std::string getName() const override { return "LoopNestInteriorSplit"; }
@@ -39,11 +38,15 @@ namespace optimization
             BasicBlock *krHeader = nullptr;
             BasicBlock *krExitStore = nullptr;
 
-            int pad = kPad;
-            int kSize = kKernelSize;
+            int pad = 0;
+            int kSize = 0;
+            // interior: r,c ∈ [interiorLo, nEff - interiorHiSub)
+            int interiorLo = 0;
+            int interiorHiSub = 0;
         };
 
-        static bool analyzeKernelNest(Function *func, const vector<Loop> &loops, KernelNestInfo &info);
+        static bool analyzeKernelNest(Function *func, const vector<Loop> &loops, KernelNestInfo &info,
+                                      std::string *failReason = nullptr);
         static bool applySplit(Function *func, KernelNestInfo &info, bool verbose, std::stringstream &dbg);
     };
 }
