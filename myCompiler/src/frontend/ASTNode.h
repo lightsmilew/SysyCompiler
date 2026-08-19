@@ -66,7 +66,8 @@ namespace ast
     Sub, // -
     Mul, // *
     Div, // /
-    Mod, // %
+    Mod,    // %
+    MatMul, // @
     Lt,  // <
     Gt,  // >
     Le,  // <=
@@ -93,13 +94,14 @@ namespace ast
     PrimaryDataType baseType;
     vector<shared_ptr<ExprNode>> arrayIndices; // 数组大小表达式（如果是动态数组）
     bool _isConstVariable = false;
+    bool isTensor = false; // tensor int / tensor float（形状在 arrayIndices 或由 return 推断）
 
     // 构造函数
     DataType(PrimaryDataType type = PrimaryDataType::VOID)
-        : baseType(type), arrayIndices(), _isConstVariable(false) {}
+        : baseType(type), arrayIndices(), _isConstVariable(false), isTensor(false) {}
 
     DataType(PrimaryDataType type, vector<shared_ptr<ExprNode>> arrayIndices, bool isConstVariable = false)
-        : baseType(type), arrayIndices(move(arrayIndices)), _isConstVariable(isConstVariable) {}
+        : baseType(type), arrayIndices(move(arrayIndices)), _isConstVariable(isConstVariable), isTensor(false) {}
 
     // 数组相关方法
     int arrayDimensionCount() const { return arrayIndices.empty() ? 0 : arrayIndices.size(); } // 获取数组维度数量

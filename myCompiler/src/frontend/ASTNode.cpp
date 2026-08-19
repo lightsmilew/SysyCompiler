@@ -18,6 +18,8 @@ namespace ast
             return "/";
         case BinaryOp::Mod:
             return "%";
+        case BinaryOp::MatMul:
+            return "@";
         case BinaryOp::Lt:
             return "<";
         case BinaryOp::Gt:
@@ -274,6 +276,10 @@ namespace ast
         else if (op == BinaryOp::Mod)
         {
             return "BinaryExprNode: " + left->toString() + " % " + right->toString();
+        }
+        else if (op == BinaryOp::MatMul)
+        {
+            return "BinaryExprNode: " + left->toString() + " @ " + right->toString();
         }
         else if (op == BinaryOp::Lt)
         {

@@ -3000,10 +3000,6 @@ bool LoopVectorizePass::runOnFunction(Function *func)
     // 结构分析（内含 findLoops），随后逐个替换 j 内层循环
     MatrixFunctionAnalysis analysis = matrixStructure::analyzeFunction(func);
 
-    // 矩阵标量优化性能优于向量化
-    // 直接跳过向量化，把循环留给 CopyChainElimination。
-    if (analysis.inPlaceCopyOriginChain && analysis.inPlaceCopyOriginChain->valid)
-        return false;
 
     bool changed = false;
     // 复制 nests：变换会破坏 func->Loops，不能边遍历边用引用

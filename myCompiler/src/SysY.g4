@@ -12,7 +12,8 @@ decl
 // 常量声明
 constDecl: CONST bType constDef (COMMA constDef)* SEMICOLON;
 bType
-    : INT          #typeInt
+    : TENSOR(INT|FLOAT)  #typeTensor
+    | INT          #typeInt
     | FLOAT        #typeFloat
     ;
 constDef: Ident (LBRACKET constExp RBRACKET)* ASSIGN constInitVal;
@@ -121,6 +122,7 @@ constExp: addExp; // constExp is usually a subset of exp, often enforced semanti
 // --- 词法符号定义 ---
 // 关键字和操作符
 CONST: 'const';
+TENSOR:'tensor';
 INT: 'int';
 FLOAT: 'float';
 VOID: 'void';
@@ -146,6 +148,7 @@ MINUS: '-';
 MUL: '*';
 DIV: '/';
 MOD: '%';
+AT:  '@';
 NOT: '!';
 
 LT: '<';

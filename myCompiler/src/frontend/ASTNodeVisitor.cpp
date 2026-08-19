@@ -7,11 +7,11 @@ using namespace ast;
 // 字符串类型名转化为基础数据类型的枚举名
 PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
 {
-    if (typeStr == "int")
+    if (typeStr == "int" || typeStr == "tensorint")
     {
         return PrimaryDataType::INT;
     }
-    else if (typeStr == "float")
+    else if (typeStr == "float" || typeStr == "tensorfloat")
     {
         return PrimaryDataType::FLOAT;
     }
@@ -23,6 +23,17 @@ PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
     {
         throw std::invalid_argument("Unknown type: " + typeStr);
     }
+}
+
+bool isTensorTypeName(const std::string &typeStr)
+{
+    return typeStr == "tensorint" || typeStr == "tensorfloat";
+}
+
+void markTensor(DataType &ty, SysYParser::BTypeContext *b)
+{
+    if (b)
+        ty.isTensor = isTensorTypeName(b->getText());
 }
 
 [[nodiscard]] Ptr<ast::CompUnitNode> ASTNodeVisitor::compileUnit()
@@ -95,6 +106,7 @@ antlrcpp::Any ASTNodeVisitor::visitConstDecl(SysYParser::ConstDeclContext *const
 
         // 创建带有数组维度信息的DataType
         DataType type = DataType(convertToPrimaryDataType(ctx->bType()->getText()), arrayIndices, true);
+        markTensor(type, ctx->bType());
         // 解析初始化
         auto initVal = defctx->constInitVal()->accept(this);
         Ptr<ast::InitExprNode> initExprPtr;
@@ -189,6 +201,7 @@ antlrcpp::Any ASTNodeVisitor::visitVarDecl(SysYParser::VarDeclContext *ctx)
         }
 
         DataType varType(type, arrayIndices, false); // 创建DataType，最后一个参数表示是否为常量
+        markTensor(varType, ctx->bType());
 
         // 创建VarDecl 最后两个参数默认false
         auto decl = makePtr<ast::DeclStmtNode>(varType, identifier, initExprPtr);
@@ -227,8 +240,17 @@ antlrcpp::Any ASTNodeVisitor::visitInitList(SysYParser::InitListContext *ctx)
 }
 antlrcpp::Any ASTNodeVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx)
 {
-    PrimaryDataType funcType = convertToPrimaryDataType(ctx->funcType()->getText());
-    DataType returnType(funcType);
+    DataType returnType(PrimaryDataType::VOID);
+    if (dynamic_cast<SysYParser::TypeVoidContext *>(ctx->funcType()))
+    {
+        returnType = DataType(PrimaryDataType::VOID);
+    }
+    else if (auto bCtx = dynamic_cast<SysYParser::TypeBTypeContext *>(ctx->funcType()))
+    {
+        PrimaryDataType base = convertToPrimaryDataType(bCtx->bType()->getText());
+        returnType = DataType(base);
+        markTensor(returnType, bCtx->bType());
+    }
     // 获取函数名
     String funcName = ctx->Ident()->getText();
     // 获取函数参数列表
@@ -284,6 +306,7 @@ antlrcpp::Any ASTNodeVisitor::visitScalarParam(SysYParser::ScalarParamContext *c
     String identifier = ctx->Ident()->getText();
     PrimaryDataType type = convertToPrimaryDataType(ctx->bType()->getText());
     DataType dataType(type);
+    markTensor(dataType, ctx->bType());
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     paramNode->line = ctx->getStart()->getLine(); // 设置行号
@@ -305,6 +328,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamNoSize(SysYParser::ArrayParamNoSize
         arrayIndices.emplace_back(exp);
     }
     DataType dataType(type, arrayIndices); // 创建包含数组信息的DataType
+    markTensor(dataType, ctx->bType());
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
     paramNode->line = ctx->getStart()->getLine(); // 设置行号
@@ -325,6 +349,7 @@ antlrcpp::Any ASTNodeVisitor::visitArrayParamWithSize(SysYParser::ArrayParamWith
 
     // 创建包含数组信息的DataType
     DataType dataType(type, arrayIndices);
+    markTensor(dataType, ctx->bType());
 
     // 创建函数参数节点
     auto paramNode = makePtr<ast::DeclStmtNode>(dataType, identifier);
@@ -626,6 +651,10 @@ antlrcpp::Any ASTNodeVisitor::visitMulDivModExp(SysYParser::MulDivModExpContext 
     else if (op == "%")
     {
         binaryOp = BinaryOp::Mod;
+    }
+    else if (op == "@")
+    {
+        binaryOp = BinaryOp::MatMul;
     }
     else
     {

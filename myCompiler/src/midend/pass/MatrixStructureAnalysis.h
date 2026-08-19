@@ -32,41 +32,6 @@ namespace optimization
         IdentityUnlessMasked  // M[i] = ((i & mask) == 0) ? repl : i
     };
 
-    /// 通用：纯 init + 仅原地拷贝更新 + 对前缀的纯归约 ⇒ 可用起源追踪消去拷贝链。
-    /// 三角仿射写 M[j*C+i]=M[i*R+j]（C=n/R）是该类拷贝的一种。
-    struct InPlaceCopyOriginChain
-    {
-        bool valid = false;
-        Value *matrix = nullptr;
-        Value *shapeVec = nullptr;
-        Value *extentN = nullptr;
-        Value *reduceBound = nullptr;
-
-        const Loop *shapeLoop = nullptr;
-        const Loop *rowLoop = nullptr;
-        const Loop *colLoop = nullptr;
-        Value *rowIV = nullptr;
-        Value *colIV = nullptr;
-        Value *shapeIV = nullptr;
-        Value *rowSize = nullptr;
-        Value *colSize = nullptr;
-
-        StoreInst *copyWitness = nullptr;
-        BasicBlock *computeEntry = nullptr;
-
-        /// 原 shape 循环是否用 shapeVec[bound-1-t]（逆序）；起源追踪应对原序取逆。
-        bool shapeLoadReversed = false;
-        ArrayPureInitKind initKind = ArrayPureInitKind::Identity;
-        int initMask = 0;
-        int initReplace = 0;
-        /// 归约为 sum_k k*k*M[k] 后是否再做 abs
-        bool reductionAbs = false;
-
-        /// CFG 拼接锚点
-        BasicBlock *replaceEntry = nullptr; // 原计算区域入口（init/拷贝起点）
-        BasicBlock *continueBB = nullptr;   // 区域之后的延续块
-        Value *oldResult = nullptr;        // 原归约结果，供 RAUW
-    };
 
     /// k-i-j scaled-row 更新：
     ///   add: C[i][j] = C[i][j] * A[i][k] + B[k][j]（可选 A[i][k]==1 跳过）
@@ -131,7 +96,6 @@ namespace optimization
         std::vector<SkewSymmetricMatrixNest> skewSymmetricNests;
         std::vector<MatMulDotProductNest> matMulDotProductNests;
         std::vector<ScaledRowUpdateNest> scaledRowUpdateNests;
-        std::optional<InPlaceCopyOriginChain> inPlaceCopyOriginChain;
     };
 
     namespace matrixStructure
@@ -180,11 +144,6 @@ namespace optimization
         bool hasJPhiZeroInit(const Loop &jLoop, Value *jIV);
 
         bool valueDependsOn(Value *expr, Value *target, unsigned depth = 0);
-        bool parseFlatAffine2(Value *idx, Value *&termA, Value *&termB);
-        bool isTriangularCopyWitnessStore(StoreInst *store, Value *rowIV, Value *colIV, Value *rowSize,
-                                          Value *colSize, Value *&matrixOut);
-        bool refineCopyOriginSemantics(Function *func, InPlaceCopyOriginChain &chain);
-        std::optional<InPlaceCopyOriginChain> analyzeInPlaceCopyOriginChain(Function *func);
 
         MatrixFunctionAnalysis analyzeFunction(Function *func);
         const MatrixFunctionAnalysis *getAnalysis(Function *func);

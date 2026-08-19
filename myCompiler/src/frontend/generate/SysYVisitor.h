@@ -27,6 +27,8 @@ public:
 
     virtual std::any visitConstDecl(SysYParser::ConstDeclContext *context) = 0;
 
+    virtual std::any visitTypeTensor(SysYParser::TypeTensorContext *context) = 0;
+
     virtual std::any visitTypeInt(SysYParser::TypeIntContext *context) = 0;
 
     virtual std::any visitTypeFloat(SysYParser::TypeFloatContext *context) = 0;

@@ -1,7 +1,6 @@
-INPUT_DIR="debug_case/case_1"
-OUTPUT_DIR="debug_case/case_1"
-INPUT_DIR="case/performance2026"
-OUTPUT_DIR="case/performance2026"
+INPUT_DIR="debug_case/case_2"
+OUTPUT_DIR="debug_case/case_2"
+
 
 BUILD_DIR="myCompiler/build"
 JOBS="$(nproc 2>/dev/null || echo 4)"

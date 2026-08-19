@@ -6,6 +6,7 @@
 #include "frontend/ASTNodeVisitor.h"
 #include "frontend/ASTNode.h"
 #include "frontend/SemanticAnalysis.h"
+#include "frontend/TensorLowering.h"
 #include <fstream>
 #include <iostream>
 #include "midend/irbuild/IRBuilder.h"
@@ -140,24 +141,25 @@ int main(int argc, const char *argv[])
     ASTNodeVisitor ast_visitor;
     auto ast_root = AS(ast_visitor.visit(tree), Ptr<ast::CompUnitNode>);
 
-    // 语义分析
-    TypeCheckerVisitor type_checker;
-    try
-    {
-        type_checker.checkSemantic(ast_root);
-        if (!type_checker.getErrors().empty())
-        {
-            cerr << "Semantic errors found:" << endl;
-            for (const auto &error : type_checker.getErrors())
-                cerr << error << endl;
-            return 1;
-        }
-    }
-    catch (const std::exception &e)
-    {
-        cerr << "Semantic analysis failed: " << e.what() << endl;
-        return 1;
-    }
+    // // 语义分析
+    // TypeCheckerVisitor type_checker;
+    // try
+    // {
+    //     type_checker.checkSemantic(ast_root);
+    //     if (!type_checker.getErrors().empty())
+    //     {
+    //         cerr << "Semantic errors found:" << endl;
+    //         for (const auto &error : type_checker.getErrors())
+    //             cerr << error << endl;
+    //         return 1;
+    //     }
+    // }
+    // catch (const std::exception &e)
+    // {
+    //     cerr << "Semantic analysis failed: " << e.what() << endl;
+    //     return 1;
+    // }
+    ast::lowerTensors(ast_root);
     // 这里修改输出的label
     IRBuilder irbuilder(debugMode,input_file);
     auto ir_module = irbuilder.buildModule(ast_root);

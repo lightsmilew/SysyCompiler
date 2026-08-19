@@ -1,5 +1,5 @@
 #include "InstructionSelector.h"
-#include "common/CompilerConfig.h"
+#include "../common/CompilerConfig.h"
 #include <algorithm>
 #include <map>
 using namespace RISCV;

@@ -31,6 +31,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitTypeTensor(SysYParser::TypeTensorContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitTypeInt(SysYParser::TypeIntContext *ctx) override {
     return visitChildren(ctx);
   }
