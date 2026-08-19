@@ -1,6 +1,7 @@
 INPUT_DIR="debug_case/case_2"
 OUTPUT_DIR="debug_case/case_2"
-
+#INPUT_DIR="case/functional"
+#OUTPUT_DIR="case/functional"
 
 BUILD_DIR="myCompiler/build"
 JOBS="$(nproc 2>/dev/null || echo 4)"

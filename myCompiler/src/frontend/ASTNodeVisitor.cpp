@@ -2,17 +2,19 @@
 #include <memory>
 #include <string>
 #include <typeinfo>
-
+#include"../common/CompilerConfig.h"
 using namespace ast;
 // 字符串类型名转化为基础数据类型的枚举名
 PrimaryDataType convertToPrimaryDataType(const std::string &typeStr)
 {
     if (typeStr == "int" || typeStr == "tensorint")
     {
+        if(typeStr == "tensorint")CompilerConfig::isTensorProgram=true;
         return PrimaryDataType::INT;
     }
     else if (typeStr == "float" || typeStr == "tensorfloat")
     {
+        if(typeStr == "tensorfloat")CompilerConfig::isTensorProgram=true;
         return PrimaryDataType::FLOAT;
     }
     else if (typeStr == "void")

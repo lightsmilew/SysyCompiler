@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ASTNode.h"
-
+#include"../common/CompilerConfig.h"
 namespace ast
 {
     // 把形如 tensor int mm(tensor int A[],tensor int B[]);

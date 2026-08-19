@@ -12,7 +12,7 @@ decl
 // 常量声明
 constDecl: CONST bType constDef (COMMA constDef)* SEMICOLON;
 bType
-    : TENSOR(INT|FLOAT)  #typeTensor
+    : TENSOR (INT|FLOAT)      #typeTensor
     | INT          #typeInt
     | FLOAT        #typeFloat
     ;
@@ -34,7 +34,7 @@ initVal
 funcDef: funcType Ident LPAREN funcFParams? RPAREN block;
 funcType
     : VOID         #typeVoid
-    | bType        #typeBType // For int or float return types
+    | bType        #typeBType // int / float / tensor int / tensor float（tensor 返回形状由 return 推断）
     ;
 funcFParams: funcFParam (COMMA funcFParam)*;
 funcFParam: 
@@ -93,8 +93,8 @@ unaryOp
 funcRParams: exp (COMMA exp)*;
 
 mulExp
-    : unaryExp                      #toUnaryExp_mul
-    | mulExp (MUL | DIV | MOD) unaryExp #mulDivModExp // Could be split further if needed: #mulExp | #divExp | #modExp
+    : unaryExp                              #toUnaryExp_mul
+    | mulExp (MUL | DIV | MOD | AT) unaryExp #mulDivModExp
     ;
 addExp
     : mulExp                        #toMulExp_add
@@ -148,7 +148,7 @@ MINUS: '-';
 MUL: '*';
 DIV: '/';
 MOD: '%';
-AT:  '@';
+AT:'@';
 NOT: '!';
 
 LT: '<';

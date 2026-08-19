@@ -12,7 +12,6 @@
 #include "midend/irbuild/IRBuilder.h"
 #include "midend/pass/OptimizationPasses.h"
 #include "backend/RISCVBuilder.h"
-#include "common/CompilerConfig.h"
 
 using namespace antlr4;
 using namespace tree;
@@ -29,6 +28,7 @@ int main(int argc, const char *argv[])
     optimization::OptimizationLevel opt_level = optimization::OptimizationLevel::O0;
     bool emit_riscv = false;
     CompilerConfig::enableRVV = false;
+    CompilerConfig::isTensorProgram=false;
 
     // 参数解析
     if (argc >= 2 && strcmp(argv[1], "-debug") == 0)
@@ -160,6 +160,7 @@ int main(int argc, const char *argv[])
     //     return 1;
     // }
     ast::lowerTensors(ast_root);
+    ast_root->print(cout,0);
     // 这里修改输出的label
     IRBuilder irbuilder(debugMode,input_file);
     auto ir_module = irbuilder.buildModule(ast_root);

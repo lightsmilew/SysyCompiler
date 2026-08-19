@@ -432,7 +432,6 @@ namespace ast
   {
   public:
     vector<shared_ptr<ASTNode>> children; // 子节点列表
-
     CompUnitNode(vector<shared_ptr<ASTNode>> children) : children{move(children)} {}
 
     string toString() const override;

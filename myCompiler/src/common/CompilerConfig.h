@@ -5,4 +5,5 @@ namespace CompilerConfig
 {
     // 启用 RISC-V Vector (RVV) 中端向量化 + 后端向量指令发射
     inline bool enableRVV = false;
+    inline bool isTensorProgram=false;
 }

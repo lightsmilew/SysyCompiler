@@ -26,7 +26,7 @@ int constInt(const Ptr<ExprNode> &e)
     throw std::runtime_error("Tensor dimension must be a constant,line: " +
                              std::to_string(e ? e->line : 0));
 }
-
+//保留维度信息
 Shape dimsOf(const DataType &ty)
 {
     Shape s;
@@ -37,7 +37,7 @@ Shape dimsOf(const DataType &ty)
     }
     return s;
 }
-
+//复制原来的数组type
 DataType arrayType(PrimaryDataType base, const Shape &s)
 {
     Vector<Ptr<ExprNode>> idxs;
@@ -45,14 +45,14 @@ DataType arrayType(PrimaryDataType base, const Shape &s)
         idxs.emplace_back(makePtr<IntLiteralExprNode>(d < 0 ? -1 : d));
     return DataType(base, std::move(idxs));
 }
-
+//写回维度，之前没确定为-1
 void fillShape(Shape &dst, const Shape &from)
 {
     for (size_t i = 0; i < dst.size() && i < from.size(); ++i)
         if (dst[i] < 0 && from[i] > 0)
             dst[i] = from[i];
 }
-
+//判断是否为支持的tensor二元运算
 bool isElemOp(BinaryOp op)
 {
     return op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul ||
@@ -62,7 +62,9 @@ bool isElemOp(BinaryOp op)
 struct FuncSig
 {
     bool hasSret = false;
+    //返回值形状
     Shape retShape;
+    //返回值基础类型
     PrimaryDataType retBase = PrimaryDataType::INT;
     std::vector<char> omitFirst;
     std::vector<Shape> paramShapes;
@@ -72,12 +74,19 @@ struct Lowering
 {
     unsigned tmp = 0;
     unsigned line = 0;
+    //签名
     std::unordered_map<std::string, FuncSig> sigs;
+    //全局数组维度
+    std::unordered_map<std::string, Shape> gloabl_shapes;
+    //std::unordered_map<std::string, PrimaryDataType> gloabl_bases;
+    //当前数组维度信息
     std::unordered_map<std::string, Shape> shapes;
+    //数组基类信息
     std::unordered_map<std::string, PrimaryDataType> bases;
     std::unordered_map<std::string, std::string> extOf;
+    //当前函数签名
     FuncSig *cur = nullptr;
-
+    
     std::string fresh(const char *p)
     {
         return std::string(p) + std::to_string(tmp++);
@@ -89,7 +98,7 @@ struct Lowering
         n->line = line;
         return n;
     }
-
+    //生成一个字面量表达式
     Ptr<IntLiteralExprNode> lit(int v)
     {
         auto n = makePtr<IntLiteralExprNode>(v);
@@ -153,6 +162,7 @@ struct Lowering
             {
                 Shape ls = inferShape(b->left, {});
                 Shape rs = inferShape(b->right, {});
+                //1维乘以1维是标量
                 return !(ls.size() == 1 && rs.size() == 1);
             }
             if (isElemOp(b->op))
@@ -160,7 +170,7 @@ struct Lowering
         }
         return false;
     }
-
+    //推断维度信息
     Shape inferShape(const Ptr<ExprNode> &e, const Shape &hint)
     {
         if (auto lv = castPtr<LValueExprNode>(e))
@@ -246,7 +256,7 @@ struct Lowering
         throw std::runtime_error("Omitted tensor first dimension cannot be inferred,line: " +
                                  std::to_string(line));
     }
-
+    ///生成循环
     void emitLoop(Ptr<ExprNode> limit, const std::function<void(const std::string &, Vector<Ptr<StmtNode>> &)> &body,
                   Vector<Ptr<StmtNode>> &out)
     {
@@ -257,6 +267,7 @@ struct Lowering
         inner.push_back(assign(lval(iv), bin(lval(iv), lit(1), BinaryOp::Add)));
         auto wh = makePtr<WhileStmtNode>(bin(lval(iv), std::move(limit), BinaryOp::Lt),
                                          makePtr<BlockStmtNode>(std::move(inner)));
+        //方便调试
         wh->line = 10000 + tmp;
         out.push_back(wh);
     }
@@ -284,7 +295,7 @@ struct Lowering
         Vector<Ptr<ExprNode>> idx;
         rec(0, idx, out);
     }
-
+    //[name,shape]
     std::pair<std::string, Shape> materialize(const Ptr<ExprNode> &e, const Shape &hint,
                                               Vector<Ptr<StmtNode>> &out)
     {
@@ -464,8 +475,10 @@ struct Lowering
             emitLoop(lit(M), [&](const std::string &i, Vector<Ptr<StmtNode>> &bi)
                      { emitLoop(lit(N), [&](const std::string &j, Vector<Ptr<StmtNode>> &bj)
                                 {
+                                    //累加器
                                     std::string acc = fresh("__acc");
                                     bj.push_back(declScalar(acc, lit(0)));
+                                    //内层k
                                     emitLoop(lit(K), [&](const std::string &k, Vector<Ptr<StmtNode>> &bk)
                                              {
                                                  auto mul = bin(indexed(ln, {lval(i), lval(k)}),
@@ -535,10 +548,12 @@ struct Lowering
             return e;
         if (auto bop = castPtr<BinaryExprNode>(e))
         {
+            //点乘为3层循环单独处理一个
             if (bop->op == BinaryOp::MatMul)
             {
                 Shape ld = inferShape(bop->left, {});
                 Shape rd = inferShape(bop->right, {});
+                //a[][k]@b[k][]
                 if (ld.size() == 1 && rd.size() == 1)
                 {
                     auto [ln, ls] = materialize(bop->left, {}, out);
@@ -548,6 +563,7 @@ struct Lowering
                         throw std::runtime_error("Inner product length unknown,line: " + std::to_string(line));
                     std::string acc = fresh("__acc");
                     out.push_back(declScalar(acc, lit(0)));
+                    //生成一个内层循环
                     emitLoop(lit(K), [&](const std::string &k, Vector<Ptr<StmtNode>> &bk)
                              {
                                  auto mul = bin(indexed(ln, {lval(k)}), indexed(rn, {lval(k)}), BinaryOp::Mul);
@@ -624,7 +640,7 @@ struct Lowering
         b->line = line;
         return b;
     }
-
+    //改写原来的语句
     void emitStmt(const Ptr<StmtNode> &s, Vector<Ptr<StmtNode>> &out)
     {
         if (!s)
@@ -643,6 +659,7 @@ struct Lowering
                 shapes[decl->identifier] = dimsOf(decl->type);
                 bases[decl->identifier] = decl->type.baseType;
             }
+            //这里目前有bug，tensor初始化列表赋值有问题
             else if (decl->initializer && decl->initializer->singleInitVal)
             {
                 decl->initializer->singleInitVal = lowerScalar(decl->initializer->singleInitVal, out);
@@ -652,12 +669,14 @@ struct Lowering
         }
         if (auto asg = castPtr<AssignStmtNode>(s))
         {
+            //tensor赋值
             if (asg->lvalue->indices.empty() && isArrayName(asg->lvalue->identifier))
             {
                 Shape dsh = shapes[asg->lvalue->identifier];
                 lowerInto(asg->rvalue, asg->lvalue->identifier, dsh, out);
                 return;
             }
+            //表达式降为标量
             asg->rvalue = lowerScalar(asg->rvalue, out);
             out.push_back(asg);
             return;
@@ -786,6 +805,7 @@ struct Lowering
         auto userParams = f->params;
         if (f->returnType.isTensor)
         {
+            //tensor类型返回值要按照规则改写函数签名，这里改写返回类型
             sig.hasSret = true;
             sig.retShape = inferTensorReturnShape(f);
             sig.retBase = f->returnType.baseType;
@@ -802,13 +822,16 @@ struct Lowering
         }
         else
             f->params.clear();
+        //重构函数参数类型
         for (auto &p : userParams)
         {
             f->params.push_back(p);
             Shape sh = p->type.isArray() ? dimsOf(p->type) : Shape{};
             sig.paramShapes.push_back(sh);
+            //是否为数组参数，省略维度这个时候indice传入是-1
             char omit = (!sh.empty() && sh[0] < 0) ? 1 : 0;
             sig.omitFirst.push_back(omit);
+            //数组参数最外层维度，本来ir不需要，这里要添加用于推导函数内tensor类型
             if (omit)
             {
                 auto ext = makePtr<DeclStmtNode>(DataType(PrimaryDataType::INT), p->identifier + "__ext",
@@ -822,9 +845,12 @@ struct Lowering
 
     void lowerFunc(Ptr<FuncNode> f)
     {
+        //进入新函数只保留全局的数据
         shapes.clear();
+        shapes=gloabl_shapes;
         bases.clear();
         extOf.clear();
+        //函数签名
         cur = &sigs[f->identifier];
         tmp = 0;
         if (cur->hasSret)
@@ -832,19 +858,18 @@ struct Lowering
             shapes["__sret"] = cur->retShape;
             bases["__sret"] = cur->retBase;
         }
-        for (size_t i = 0; i < cur->paramShapes.size(); ++i)
-        {
-            // original user params are interleaved with ext in f->params
-        }
+        //如果有返回值则要插入一个ret数组把函数模板变为void
         size_t pi = cur->hasSret ? 1 : 0;
         for (size_t i = 0; i < cur->paramShapes.size(); ++i)
         {
             auto &p = f->params[pi++];
+            //记录函数形参形状
             if (!cur->paramShapes[i].empty())
             {
                 shapes[p->identifier] = cur->paramShapes[i];
                 bases[p->identifier] = p->type.baseType;
             }
+            //如果是数组则增加参数记录外层维度
             if (cur->omitFirst[i])
             {
                 auto &ext = f->params[pi++];
@@ -861,7 +886,8 @@ struct Lowering
 //前端处理tensor的入口
 void ast::lowerTensors(std::shared_ptr<CompUnitNode> compUnit)
 {
-    if (!compUnit)
+    //不含tensor不处理，不用lowering
+    if (!compUnit||!CompilerConfig::isTensorProgram)
         return;
     Lowering L;
     for (auto &ch : compUnit->children)
@@ -870,7 +896,7 @@ void ast::lowerTensors(std::shared_ptr<CompUnitNode> compUnit)
         if (auto d = castPtr<DeclStmtNode>(ch))
         {
             if (d->type.isArray())
-                L.shapes[d->identifier] = dimsOf(d->type);
+                L.gloabl_shapes[d->identifier] = dimsOf(d->type);
         }
         //如果是函数节点则重写函数签名
         else if (auto f = castPtr<FuncNode>(ch))
@@ -881,6 +907,5 @@ void ast::lowerTensors(std::shared_ptr<CompUnitNode> compUnit)
     {
         if (auto f = castPtr<FuncNode>(ch))
             L.lowerFunc(f);
-        std::cout<<"helloworld!"<<std::endl;
     }
 }
