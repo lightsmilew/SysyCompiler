@@ -658,9 +658,19 @@ struct Lowering
             {
                 shapes[decl->identifier] = dimsOf(decl->type);
                 bases[decl->identifier] = decl->type.baseType;
+                //修复张量初始化赋值
+                if (decl->initializer && decl->initializer->singleInitVal)
+                {
+                    Shape dsh=shapes[decl->identifier];
+                    auto initi=decl->initializer;
+                    decl->initializer=nullptr;
+                    out.push_back(decl);
+                    lowerInto(initi->singleInitVal,decl->identifier,dsh,out);
+                    return;
+                } 
             }
             //这里目前有bug，tensor初始化列表赋值有问题
-            else if (decl->initializer && decl->initializer->singleInitVal)
+            if (decl->initializer && decl->initializer->singleInitVal)
             {
                 decl->initializer->singleInitVal = lowerScalar(decl->initializer->singleInitVal, out);
             }
